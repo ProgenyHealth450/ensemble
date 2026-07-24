@@ -133,7 +133,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
     - Given no open PR exists for the target branch, when the command runs, then it halts with a message to run `implement-trd-beads` first.
     - Given an open PR exists, when the session authors tests, then they are committed onto that same branch/PR.
 
-- [ ] **TRD-003-TEST**: Verify halt-and-message vs. successful-start behavior (2h) [verifies TRD-003] [satisfies REQ-001] [depends: TRD-003]
+- [x] **TRD-003-TEST**: Verify halt-and-message vs. successful-start behavior (2h) [verifies TRD-003] [satisfies REQ-001] [depends: TRD-003]
   - Validates PRD ACs: AC-001-1, AC-001-2
   - Target File: `packages/e2e-testing/tests/pr-state.test.js`
 
