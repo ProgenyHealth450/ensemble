@@ -137,7 +137,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-001-1, AC-001-2
   - Target File: `packages/e2e-testing/tests/pr-state.test.js`
 
-- [ ] **TRD-004**: Implement implementation-grounding lookup — resolve the changed files/diff on the PR branch for a given REQ (5h) [satisfies REQ-002] [depends: TRD-003]
+- [x] **TRD-004**: Implement implementation-grounding lookup — resolve the changed files/diff on the PR branch for a given REQ (5h) [satisfies REQ-002] [depends: TRD-003]
   - Validates PRD ACs: AC-002-1, AC-002-2
   - Target Files: `packages/e2e-testing/lib/implementation-grounding.js`
   - Implementation AC:
