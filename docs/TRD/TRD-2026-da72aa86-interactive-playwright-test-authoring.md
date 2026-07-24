@@ -110,7 +110,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 
 **Shippable State:** Running the new command against a story whose PR is open lists every AC for that story, whether it already has a confirmed test (and its tag), and which REQ's implementation code was found — but does not yet write, run, or sync anything.
 
-- [ ] **TRD-001**: Scaffold `author-playwright-tests.yaml` command source and generated command registration (3h) [satisfies ARCH]
+- [x] **TRD-001**: Scaffold `author-playwright-tests.yaml` command source and generated command registration (3h) [satisfies ARCH]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given commands are generated, when the command list is inspected, then `/ensemble:author-playwright-tests` is present with description and argument hint.

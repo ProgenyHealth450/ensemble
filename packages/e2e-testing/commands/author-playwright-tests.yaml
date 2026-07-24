@@ -1,0 +1,44 @@
+metadata:
+  name: ensemble:author-playwright-tests
+  description: Interactive, post-implementation Playwright test-authoring session grounded in shipped code and PRD acceptance criteria
+  version: 1.0.0
+  lastUpdated: "2026-07-24"
+  category: testing
+  output_path: ensemble/author-playwright-tests.md
+  source: fortium
+  argument_hint: "[story-or-pr-reference]"
+
+mission:
+  summary: |
+    Walk a story's PRD acceptance criteria one at a time with a QA engineer after
+    implement-trd-beads has shipped a PR boundary, grounding each proposed Playwright
+    test in the real implementing code rather than PRD prose alone, running it against
+    the target application's QA environment, and syncing confirmed tests to an Azure
+    DevOps Test Case/Suite as plain-English steps.
+
+workflow:
+  phases:
+    - name: Scaffold
+      order: 1
+      steps:
+        - order: 1
+          title: Command Registration
+          description: |
+            Placeholder step confirming the command is scaffolded and registered.
+            The interactive walkthrough, implementation grounding, execution, and
+            Azure DevOps sync logic are implemented in later TRD tasks.
+
+expectedInput:
+  description: Story or PR reference identifying the shipped PR boundary to author tests against
+  formats:
+    - Story ID or branch name with an open PR
+  examples:
+    - "/ensemble:author-playwright-tests STORY-123"
+
+expectedOutput:
+  format: Confirmed Playwright tests synced to Azure DevOps
+  structure:
+    - name: Test Files
+      description: Playwright test specs landed for confirmed acceptance criteria
+    - name: Azure DevOps Test Cases
+      description: Plain-English steps synced to the target ADO Test Case/Suite
