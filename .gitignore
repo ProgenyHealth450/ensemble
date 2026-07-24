@@ -33,3 +33,6 @@ __pycache__/
 .beads/issues.jsonl
 .beads/*.db-lock-*
 .beads/*.db-wal-lock-*
+
+# Fork-local operating notes (never pushed upstream) — see CLAUDE.md
+CLAUDE.local.md
