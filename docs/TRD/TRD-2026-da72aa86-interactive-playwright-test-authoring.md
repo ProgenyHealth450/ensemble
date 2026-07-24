@@ -115,7 +115,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Implementation AC:
     - Given commands are generated, when the command list is inspected, then `/ensemble:author-playwright-tests` is present with description and argument hint.
 
-- [ ] **TRD-002**: Write a new lightweight PRD REQ/AC parser, CRLF- and Title-Case-frontmatter-safe (4h) [satisfies REQ-002]
+- [x] **TRD-002**: Write a new lightweight PRD REQ/AC parser, CRLF- and Title-Case-frontmatter-safe (4h) [satisfies REQ-002]
   - Validates PRD ACs: AC-002-1, AC-002-2
   - Target Files: `packages/e2e-testing/lib/prd-ac-parser.js`
   - Implementation AC:
