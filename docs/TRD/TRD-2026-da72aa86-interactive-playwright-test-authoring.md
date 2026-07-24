@@ -122,7 +122,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
     - Given a PRD with CRLF line endings, when parsed, then all REQ-NNN/AC-NNN-M entries are extracted correctly.
     - Given Title-Case-with-space frontmatter (`Document ID:`, `Label:`), when parsed, then both fields resolve correctly.
 
-- [ ] **TRD-002-TEST**: Unit tests for the parser against CRLF/LF and both frontmatter styles (2h) [verifies TRD-002] [satisfies REQ-002] [depends: TRD-002]
+- [x] **TRD-002-TEST**: Unit tests for the parser against CRLF/LF and both frontmatter styles (2h) [verifies TRD-002] [satisfies REQ-002] [depends: TRD-002]
   - Validates PRD ACs: AC-002-1, AC-002-2
   - Target File: `packages/e2e-testing/tests/prd-ac-parser.test.js`
 
