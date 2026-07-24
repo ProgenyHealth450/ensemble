@@ -2,6 +2,25 @@
 
 > Modular plugin ecosystem for Claude Code (v5.1.0) | 23 packages | 28 agents | 4-tier architecture
 
+## In-Flight: Interactive Playwright Test-Authoring Command
+
+*(Remove this section once the work below ships and merges to `main`.)*
+
+Building `/ensemble:author-playwright-tests` — an interactive, `create-trd`-style
+session where a QA engineer and an agent walk a story's PRD ACs one at a time
+**after** `implement-trd-beads` has shipped a PR boundary, grounding each proposed
+Playwright test in the real implementing code (not just PRD prose), running it
+against the target app's QA environment, and syncing confirmed tests' steps to an
+Azure DevOps Test Case/Suite as plain-English steps. Originally scoped from CRIBs'
+own needs (Sonia Pareek, QA) but the command itself is generic ensemble tooling.
+
+- **PRD**: `docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.2)
+- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.0, Design Readiness 4.43 — PASS)
+- **Branch**: `feature/author-playwright-tests` (branched off `main`)
+- **Architecture**: Option B — a thin orchestrator command (`packages/e2e-testing/commands/author-playwright-tests.yaml`) delegates each AC to the existing `@playwright-tester` agent, rather than a monolithic command or an extension of the (buggy, unmerged) `generate-playwright-tests` scaffolder.
+- **Note**: this repo itself has no ADO work item for the effort (no ADO tracking here — TRD id mirrors the PRD's micro-UUID), but the ADO Test Plan sync *feature being built* targets whichever ADO project the consuming repo (e.g. CRIBs) uses.
+- **Status**: TRD complete and PASSed. Next: `/ensemble:configure-team` then `/ensemble:implement-trd-beads docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md`.
+
 ## Quick Reference
 
 ### Slash Commands

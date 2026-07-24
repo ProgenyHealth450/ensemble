@@ -31,3 +31,5 @@ __pycache__/
 
 # Beads local issue database (sync state; do not track)
 .beads/issues.jsonl
+.beads/*.db-lock-*
+.beads/*.db-wal-lock-*
