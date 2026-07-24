@@ -153,7 +153,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Implementation AC:
     - Given a spec file with 1 of 3 ACs tagged, when resume-scan runs, then only the remaining 2 ACs are treated as pending.
 
-- [ ] **TRD-005-TEST**: Verify partial-file resume correctness (2h) [verifies TRD-005] [satisfies REQ-011] [depends: TRD-005]
+- [x] **TRD-005-TEST**: Verify partial-file resume correctness (2h) [verifies TRD-005] [satisfies REQ-011] [depends: TRD-005]
   - Validates PRD ACs: AC-011-1
   - Target File: `packages/e2e-testing/tests/resume-scan.test.js`
 
