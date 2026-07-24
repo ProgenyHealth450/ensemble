@@ -147,7 +147,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-002-2
   - Target File: `packages/e2e-testing/tests/implementation-grounding.test.js`
 
-- [ ] **TRD-005**: Implement resume-detection scan of `cribs.e2e.tests` spec files for per-AC `@hash:` tags (4h) [satisfies REQ-011] [depends: TRD-002]
+- [x] **TRD-005**: Implement resume-detection scan of `cribs.e2e.tests` spec files for per-AC `@hash:` tags (4h) [satisfies REQ-011] [depends: TRD-002]
   - Validates PRD ACs: AC-011-1
   - Target Files: `packages/e2e-testing/lib/resume-scan.js`
   - Implementation AC:
