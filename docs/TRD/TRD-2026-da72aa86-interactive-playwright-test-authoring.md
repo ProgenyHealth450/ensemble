@@ -143,7 +143,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Implementation AC:
     - Given a REQ whose implementing files can't be located, when grounding runs, then a grounding gap is reported rather than a guess.
 
-- [ ] **TRD-004-TEST**: Verify grounding-gap reporting for an unmapped REQ (2h) [verifies TRD-004] [satisfies REQ-002] [depends: TRD-004]
+- [x] **TRD-004-TEST**: Verify grounding-gap reporting for an unmapped REQ (2h) [verifies TRD-004] [satisfies REQ-002] [depends: TRD-004]
   - Validates PRD ACs: AC-002-2
   - Target File: `packages/e2e-testing/tests/implementation-grounding.test.js`
 
