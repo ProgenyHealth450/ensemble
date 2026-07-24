@@ -157,7 +157,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-011-1
   - Target File: `packages/e2e-testing/tests/resume-scan.test.js`
 
-- [ ] **TRD-006**: Document the no-new-infra guardrail as an explicit architecture constraint (1h) [satisfies REQ-015] [depends: TRD-001]
+- [x] **TRD-006**: Document the no-new-infra guardrail as an explicit architecture constraint (1h) [satisfies REQ-015] [depends: TRD-001]
   - Validates PRD ACs: AC-015-1, AC-015-2
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`
 

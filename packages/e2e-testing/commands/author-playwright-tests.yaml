@@ -16,6 +16,29 @@ mission:
     the target application's QA environment, and syncing confirmed tests to an Azure
     DevOps Test Case/Suite as plain-English steps.
 
+constraints:
+  noNewInfra:
+    requirement: REQ-015
+    title: No New Paid Infra
+    description: |
+      This is a standing constraint on the whole session, not a workflow step:
+      author-playwright-tests must operate entirely within the environment
+      already available to it. Never provision, subscribe to, or stand up any
+      new service, tool, or paid infrastructure to support test authoring,
+      grounding, execution, or Azure DevOps sync.
+    rules:
+      - id: AC-015-1
+        description: >
+          Use only the Azure DevOps MCP server, Playwright, and Claude Code
+          already available in this environment to run this session. Do not
+          provision, install, or configure any new service.
+      - id: AC-015-2
+        description: >
+          If the session needs a capability that no currently-available MCP
+          server or tool provides, stop and report that gap explicitly to the
+          QA engineer — do not silently work around it with an ad hoc script,
+          scraped/hand-rolled workaround, or new dependency.
+
 workflow:
   phases:
     - name: Scaffold
