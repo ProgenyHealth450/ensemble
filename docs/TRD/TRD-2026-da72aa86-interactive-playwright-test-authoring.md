@@ -126,7 +126,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-002-1, AC-002-2
   - Target File: `packages/e2e-testing/tests/prd-ac-parser.test.js`
 
-- [ ] **TRD-003**: Implement the REQ-001 trigger check — verify the target branch has an open PR before allowing the session to start (3h) [satisfies REQ-001] [depends: TRD-001]
+- [x] **TRD-003**: Implement the REQ-001 trigger check — verify the target branch has an open PR before allowing the session to start (3h) [satisfies REQ-001] [depends: TRD-001]
   - Validates PRD ACs: AC-001-1, AC-001-2, AC-001-3
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, `packages/e2e-testing/lib/pr-state.js`
   - Implementation AC:

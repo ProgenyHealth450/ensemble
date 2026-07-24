@@ -20,7 +20,21 @@ DevOps Test Case/Suite as plain-English steps.
 
 ### Phase 1: Scaffold
 
-**1. Command Registration**
+**1. Trigger Check — Open PR Required**
+   REQ-001: this session may only start once implement-trd-beads has
+shipped a PR boundary for the target branch. Before proceeding,
+call packages/e2e-testing/lib/pr-state.js's checkPrState(branch)
+with the current branch (or the story/PR reference passed as the
+command argument, resolved to a branch name) to determine whether
+an open PR exists.
+
+
+   - Resolve the target branch: current git branch, or the branch backing the story/PR reference argument
+   - Call checkPrState(branch) from packages/e2e-testing/lib/pr-state.js
+   - If hasOpenPr is false: halt the session and print pr-state.js's NO_OPEN_PR_MESSAGE (run /ensemble:implement-trd-beads first) — do not proceed to grounding, execution, or sync
+   - If hasOpenPr is true: proceed with the session on that same branch/PR — all authored test commits land there
+
+**2. Command Registration**
    Placeholder step confirming the command is scaffolded and registered.
 The interactive walkthrough, implementation grounding, execution, and
 Azure DevOps sync logic are implemented in later TRD tasks.
