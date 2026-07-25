@@ -181,7 +181,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-004-1, AC-004-2
   - Target File: `packages/e2e-testing/tests/req-batcher.test.js`
 
-- [ ] **TRD-010**: Implement the accept/request-changes/reject decision point per proposed test (4h) [satisfies REQ-003] [depends: TRD-008]
+- [x] **TRD-010**: Implement the accept/request-changes/reject decision point per proposed test (4h) [satisfies REQ-003] [depends: TRD-008]
   - Validates PRD ACs: AC-003-1, AC-003-2, AC-003-3
   - Target Files: `packages/e2e-testing/lib/ac-decision-loop.js`
 
