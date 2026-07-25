@@ -232,7 +232,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-007-1
   - Target Files: `packages/e2e-testing/lib/ado-test-suite.js`
 
-- [ ] **TRD-017**: Implement Test Case creation/update from `test.step()` narration rendered as plain-English steps (5h) [satisfies REQ-007] [depends: TRD-016]
+- [x] **TRD-017**: Implement Test Case creation/update from `test.step()` narration rendered as plain-English steps (5h) [satisfies REQ-007] [depends: TRD-016]
   - Validates PRD ACs: AC-007-1
   - Target Files: `packages/e2e-testing/lib/ado-test-case-sync.js`
 
