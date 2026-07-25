@@ -244,7 +244,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-007-2
   - Target Files: `packages/e2e-testing/lib/ado-test-case-sync.js`, `packages/e2e-testing/lib/traceability-tagger.js`
 
-- [ ] **TRD-018-TEST**: Verify re-sync updates the same Test Case rather than duplicating (2h) [verifies TRD-018] [satisfies REQ-007] [depends: TRD-018]
+- [x] **TRD-018-TEST**: Verify re-sync updates the same Test Case rather than duplicating (2h) [verifies TRD-018] [satisfies REQ-007] [depends: TRD-018]
   - Validates PRD ACs: AC-007-2
   - Target File: `packages/e2e-testing/tests/ado-test-case-sync.test.js`
 

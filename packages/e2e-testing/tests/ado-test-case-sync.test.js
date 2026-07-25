@@ -12,6 +12,8 @@ const {
   planTestCaseSync,
   recordSyncedTestCase,
 } = require('../lib/ado-test-case-sync');
+const { tagTestMethod, findAdoTestCaseTag, addAdoTestCaseTag } = require('../lib/traceability-tagger');
+const { scaffoldNewSpecFile } = require('../lib/spec-writer');
 
 describe('renderStep', () => {
   test('a plain sentence with no delimiter becomes the action, expectedResult defaults to "Passes"', () => {
@@ -223,5 +225,100 @@ describe('AC-007-1 end-to-end: synced steps read as plain English matching the f
       expect(step.action).not.toMatch(/->|=>|,\s*then\b/i);
       expect(step.expectedResult).not.toMatch(/->|=>/);
     });
+  });
+});
+
+// TRD-018-TEST / AC-007-2: the literal "re-sync updates the SAME Test Case in
+// place" proof, chaining traceability-tagger.js's findAdoTestCaseTag/
+// addAdoTestCaseTag (TRD-018) through this module's own planTestCaseSync
+// (TRD-017) across two simulated sessions -- never a duplicate, never a
+// title-match lookup.
+describe('AC-007-2 integration: findAdoTestCaseTag -> planTestCaseSync -> addAdoTestCaseTag', () => {
+  test('a full two-session flow: session 1 creates, session 2 re-syncs the SAME Test Case id (never a duplicate)', () => {
+    // --- session 1: scaffold, tag, decide to create, simulate the MCP
+    // response, then write the resulting id back onto the spec file ---
+    const scaffolded = scaffoldNewSpecFile({
+      className: 'ClaimSearchTests',
+      baseClass: 'PageTest',
+      acId: 'AC-007-2',
+      testName: 'Should_Update_Same_Test_Case_On_Resync',
+    });
+
+    const acText =
+      'Given a test has already synced, when it is re-synced, then the same Test Case is updated in place.';
+    const tagged = tagTestMethod(scaffolded, {
+      acId: 'AC-007-2',
+      acText,
+      reqId: 'REQ-007',
+      documentId: 'PRD-2026-da72aa86',
+    });
+
+    expect(findAdoTestCaseTag(tagged, 'AC-007-2')).toBeNull(); // not yet synced
+
+    const createDecision = planTestCaseSync({
+      acId: 'AC-007-2',
+      acText,
+      steps: ['Re-run the already-synced test'],
+      suiteId: 42,
+    });
+    expect(createDecision.action).toBe('create');
+    expect(createDecision.testCaseId).toBeUndefined();
+
+    const created = recordSyncedTestCase(createDecision, { id: 8675, title: createDecision.title });
+    expect(created.testCaseId).toBe('8675');
+
+    const syncedOnce = addAdoTestCaseTag(tagged, 'AC-007-2', created.testCaseId);
+    expect(findAdoTestCaseTag(syncedOnce, 'AC-007-2')).toBe('8675');
+
+    // --- session 2 (re-sync): re-read the tag off the (now-persisted)
+    // content and feed it straight back into planTestCaseSync ---
+    const rediscoveredId = findAdoTestCaseTag(syncedOnce, 'AC-007-2');
+    expect(rediscoveredId).toBe('8675'); // the SAME id session 1 wrote
+
+    // the AC's narration changed slightly between sessions (e.g. a step got
+    // reworded) -- the re-sync decision must still key off the id alone
+    const updateDecision = planTestCaseSync({
+      acId: 'AC-007-2',
+      acText: 'Given a test has already synced once, when re-synced again, then the same Test Case is updated, never duplicated.',
+      steps: ['Re-run the already-synced test', 'Confirm no duplicate Test Case was created'],
+      suiteId: 42,
+      existingAdoTestCaseId: rediscoveredId,
+    });
+
+    expect(updateDecision.action).toBe('update'); // never 'create' on re-sync
+    expect(updateDecision.testCaseId).toBe('8675'); // the exact same Test Case, in place
+
+    // re-applying the tag with the id it already carries is the idempotent
+    // no-op case -- confirms re-syncing never duplicates the tag either
+    const syncedTwice = addAdoTestCaseTag(syncedOnce, 'AC-007-2', updateDecision.testCaseId);
+    expect(syncedTwice).toBe(syncedOnce);
+    expect((syncedTwice.match(/@ado-testcase:/g) || []).length).toBe(1);
+  });
+
+  test('the re-sync decision carries no title-match/lookup logic -- it is driven purely by the tag-derived id', () => {
+    // shape-level: an 'update' decision carries testCaseId (a plain
+    // passthrough of what the caller already knew), never a title-search
+    // field of any kind.
+    const decision = planTestCaseSync({
+      acId: 'AC-007-2',
+      acText: 'Completely different text than whatever synced previously.',
+      steps: ['Some step'],
+      suiteId: 1,
+      existingAdoTestCaseId: 8675,
+    });
+    expect(decision).toEqual(expect.objectContaining({ action: 'update', testCaseId: '8675' }));
+    expect(Object.keys(decision).sort()).toEqual(['action', 'steps', 'suiteId', 'testCaseId', 'title'].sort());
+
+    // behavior-level: an entirely different acText still resolves to the
+    // exact same testCaseId as long as the same existingAdoTestCaseId is fed
+    // in -- proving the id, not the title, is what identifies the Test Case.
+    const decisionWithDifferentText = planTestCaseSync({
+      acId: 'AC-007-2',
+      acText: 'Yet another totally unrelated piece of narration text.',
+      steps: ['Some step'],
+      suiteId: 1,
+      existingAdoTestCaseId: 8675,
+    });
+    expect(decisionWithDifferentText.testCaseId).toBe(decision.testCaseId);
   });
 });

@@ -7,7 +7,14 @@
 //   - AC-014-2 (tagging one AC's anchor never disturbs any other AC's tag,
 //     byte-for-byte) -- this file's main focus.
 
-const { tagTestMethod, hashAcText, normalizeAcText, docIdTag } = require('../lib/traceability-tagger');
+const {
+  tagTestMethod,
+  hashAcText,
+  normalizeAcText,
+  docIdTag,
+  findAdoTestCaseTag,
+  addAdoTestCaseTag,
+} = require('../lib/traceability-tagger');
 const { scaffoldNewSpecFile, appendTestMethod } = require('../lib/spec-writer');
 const { scanConfirmedAcs, findTaggedAcIds } = require('../lib/resume-scan');
 
@@ -254,5 +261,158 @@ describe('hashAcText (determinism)', () => {
   test('cosmetic whitespace/case differences normalize to the same hash (normalizeAcText)', () => {
     expect(hashAcText('Some Text')).toBe(hashAcText('some   text'));
     expect(normalizeAcText('  Some   Text  ')).toBe('some text');
+  });
+});
+
+// TRD-018-TEST: findAdoTestCaseTag / addAdoTestCaseTag (AC-007-2 -- re-sync
+// updates the SAME ADO Test Case in place, identified by the @ado-testcase:
+// tag, never a title-match lookup). The full cross-module integration
+// scenario (findAdoTestCaseTag -> planTestCaseSync -> addAdoTestCaseTag) lives
+// in ado-test-case-sync.test.js, alongside planTestCaseSync itself.
+
+/** Scaffold a single-AC spec file and traceability-tag it, in one step. */
+function buildTaggedSingleAc(acId) {
+  const scaffolded = scaffoldNewSpecFile({
+    className: 'ClaimSearchTests',
+    baseClass: 'PageTest',
+    acId,
+    testName: 'Should_Show_Results',
+  });
+  return tagTestMethod(scaffolded, details(acId));
+}
+
+describe('findAdoTestCaseTag (AC-007-2: reading the @ado-testcase: tag back before a re-sync)', () => {
+  test('returns null for a not-yet-synced AC (anchor tagged with @hash:, no @ado-testcase: yet)', () => {
+    const tagged = buildTaggedSingleAc('AC-018-1');
+    expect(findAdoTestCaseTag(tagged, 'AC-018-1')).toBeNull();
+  });
+
+  test('extracts the id once addAdoTestCaseTag has recorded it', () => {
+    const tagged = buildTaggedSingleAc('AC-018-1');
+    const synced = addAdoTestCaseTag(tagged, 'AC-018-1', 4242);
+    expect(findAdoTestCaseTag(synced, 'AC-018-1')).toBe('4242');
+  });
+
+  test("prefix collision: AC-018-1 vs AC-018-10 -- reading one's tag never reports the other's", () => {
+    const scaffolded = scaffoldNewSpecFile({
+      className: 'ClaimSearchTests',
+      baseClass: 'PageTest',
+      acId: 'AC-018-1',
+      testName: 'Should_Show_Results',
+    });
+    const withTenth = appendTestMethod(scaffolded, { acId: 'AC-018-10', testName: 'Should_Show_Tenth_Case' });
+    const taggedBoth = tagTestMethod(tagTestMethod(withTenth, details('AC-018-1')), details('AC-018-10'));
+
+    const withAc1Synced = addAdoTestCaseTag(taggedBoth, 'AC-018-1', 111);
+    expect(findAdoTestCaseTag(withAc1Synced, 'AC-018-1')).toBe('111');
+    expect(findAdoTestCaseTag(withAc1Synced, 'AC-018-10')).toBeNull(); // untouched by the AC-018-1 sync
+
+    const withAc10Synced = addAdoTestCaseTag(taggedBoth, 'AC-018-10', 222);
+    expect(findAdoTestCaseTag(withAc10Synced, 'AC-018-10')).toBe('222');
+    expect(findAdoTestCaseTag(withAc10Synced, 'AC-018-1')).toBeNull(); // untouched by the AC-018-10 sync
+  });
+
+  test('returns null (not a throw) when the acId has no anchor/tag at all in the file', () => {
+    const tagged = buildTaggedSingleAc('AC-018-1');
+    expect(findAdoTestCaseTag(tagged, 'AC-999-1')).toBeNull();
+  });
+
+  test('throws when more than one tagged line exists for the acId (ambiguous, refuses to guess)', () => {
+    const tagged = buildTaggedSingleAc('AC-018-1');
+    const duplicated = tagged + '\n// AC-018-1 @hash:aaaaaaaaaaaa @prd-x @REQ-018\n';
+    expect(() => findAdoTestCaseTag(duplicated, 'AC-018-1')).toThrow(/found 2 "\/\/ AC-018-1" lines/);
+  });
+
+  test('throws when acId is missing/empty', () => {
+    const tagged = buildTaggedSingleAc('AC-018-1');
+    expect(() => findAdoTestCaseTag(tagged, '')).toThrow(/acId must be a non-empty string/);
+  });
+
+  test('throws when fileContent is not a string', () => {
+    expect(() => findAdoTestCaseTag(123, 'AC-018-1')).toThrow(/requires fileContent to be a string/);
+  });
+});
+
+describe('addAdoTestCaseTag (AC-007-2: idempotent re-sync writes the same Test Case id in place)', () => {
+  test('idempotent on a same-id re-sync: calling twice produces byte-identical output both times', () => {
+    const tagged = buildTaggedSingleAc('AC-018-2');
+    const firstSync = addAdoTestCaseTag(tagged, 'AC-018-2', 500);
+    const secondSync = addAdoTestCaseTag(firstSync, 'AC-018-2', 500);
+    const thirdSync = addAdoTestCaseTag(secondSync, 'AC-018-2', '500'); // string form of the same id, too
+
+    expect(secondSync).toBe(firstSync);
+    expect(thirdSync).toBe(firstSync);
+    expect((firstSync.match(/@ado-testcase:/g) || []).length).toBe(1); // never duplicated
+  });
+
+  test('throws on a different-id re-sync, with no partial mutation', () => {
+    const tagged = buildTaggedSingleAc('AC-018-2');
+    const synced = addAdoTestCaseTag(tagged, 'AC-018-2', 500);
+
+    expect(() => addAdoTestCaseTag(synced, 'AC-018-2', 999)).toThrow(
+      /already tagged with @ado-testcase:500.*differs from the requested id 999/
+    );
+    // the throw happened before any mutation -- re-reading confirms the
+    // original id is still exactly what it was, never partially overwritten
+    expect(findAdoTestCaseTag(synced, 'AC-018-2')).toBe('500');
+  });
+
+  test('throws if the target line does not yet carry @hash: (tagTestMethod has not run)', () => {
+    const scaffolded = scaffoldNewSpecFile({
+      className: 'ClaimSearchTests',
+      baseClass: 'PageTest',
+      acId: 'AC-018-3',
+      testName: 'Should_Show_Results',
+    });
+    expect(() => addAdoTestCaseTag(scaffolded, 'AC-018-3', 1)).toThrow(/has no "@hash:" traceability tag/);
+  });
+
+  test("does not touch other ACs' lines in a multi-AC file", () => {
+    const scaffolded = scaffoldNewSpecFile({
+      className: 'ClaimSearchTests',
+      baseClass: 'PageTest',
+      acId: 'AC-018-4',
+      testName: 'Should_Show_Results',
+    });
+    const withSecond = appendTestMethod(scaffolded, { acId: 'AC-018-5', testName: 'Should_Filter_Results' });
+    const taggedBoth = tagTestMethod(tagTestMethod(withSecond, details('AC-018-4')), details('AC-018-5'));
+
+    const synced = addAdoTestCaseTag(taggedBoth, 'AC-018-4', 600);
+    assertExactlyOneLineChanged(taggedBoth, synced);
+    expect(findAdoTestCaseTag(synced, 'AC-018-5')).toBeNull(); // untouched
+  });
+
+  test.each([
+    ['an empty string', ''],
+    ['null', null],
+    ['undefined', undefined],
+    ['whitespace-only', '   '],
+  ])('rejects a missing adoTestCaseId (%s)', (_label, badId) => {
+    const tagged = buildTaggedSingleAc('AC-018-6');
+    expect(() => addAdoTestCaseTag(tagged, 'AC-018-6', badId)).toThrow(
+      /adoTestCaseId must be a non-empty string or number/
+    );
+  });
+
+  test.each([
+    ['a non-numeric string', 'TC-123'],
+    ['a decimal string', '12.5'],
+    ['a negative-number string', '-5'],
+    ['a hex-looking string', '0x10'],
+  ])('rejects a non-numeric adoTestCaseId format (%s)', (_label, badId) => {
+    const tagged = buildTaggedSingleAc('AC-018-9');
+    expect(() => addAdoTestCaseTag(tagged, 'AC-018-9', badId)).toThrow(
+      /adoTestCaseId must be a numeric Azure DevOps work item id/
+    );
+  });
+
+  test('accepts a plain numeric id and its equivalent numeric-string form', () => {
+    const taggedA = buildTaggedSingleAc('AC-018-7');
+    const syncedWithNumber = addAdoTestCaseTag(taggedA, 'AC-018-7', 700);
+    expect(findAdoTestCaseTag(syncedWithNumber, 'AC-018-7')).toBe('700');
+
+    const taggedB = buildTaggedSingleAc('AC-018-8');
+    const syncedWithString = addAdoTestCaseTag(taggedB, 'AC-018-8', '700');
+    expect(findAdoTestCaseTag(syncedWithString, 'AC-018-8')).toBe('700');
   });
 });
