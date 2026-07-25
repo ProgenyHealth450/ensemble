@@ -168,7 +168,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 - [x] **TRD-007**: Implement the headed-vs-headless mode prompt at session start, defaulting to headed (2h) [satisfies REQ-013] [depends: TRD-001]
   - Validates PRD ACs: AC-013-2
 
-- [ ] **TRD-008**: Define the orchestrator ↔ `@playwright-tester` delegation contract (4h) [satisfies ARCH] [depends: TRD-004, TRD-007]
+- [x] **TRD-008**: Define the orchestrator ↔ `@playwright-tester` delegation contract (4h) [satisfies ARCH] [depends: TRD-004, TRD-007]
   - Target Files: `packages/e2e-testing/lib/delegation-contract.js`, `packages/e2e-testing/agents/playwright-tester.yaml`
   - Implementation AC:
     - Given a delegation request (AC text, grounding diff, target env, mode), when `@playwright-tester` responds, then the response includes a proposed test, selectors used, and a run result or an explicit authoring-failure flag.

@@ -47,6 +47,7 @@ Delegate specialized work to appropriate agents
 - **frontend-developer**: Receives component integration test requests
 - **react-component-architect**: Receives component E2E test requests with locators
 - **test-runner**: Receives E2E execution tasks after unit/integration tests pass
+- **ensemble:author-playwright-tests**: TRD-008: during an /ensemble:author-playwright-tests session, the orchestrating command delegates proposing/authoring one Playwright test per PRD AC. Delegation request/response shapes are defined in packages/e2e-testing/lib/delegation-contract.js (validateDelegationRequest/validateDelegationResponse). Request: {acText, groundingDiff, targetEnv, mode} — mode is 'headed'|'headless' (TRD-007), groundingDiff is the implementation-grounding.js result tying the AC to real implementing code, not PRD prose alone. Response: {proposedTest, selectorsUsed, runResult} — runResult is either a pass/fail result object ({passed: boolean, ...}) from actually running the test, or an explicit authoring-failure flag ({authoringFailure: true, reason: '...'}) when a test could not be authored/run at all. One of the two must always be present; never silently omit runResult.
 
 ### Hands Off To
 
