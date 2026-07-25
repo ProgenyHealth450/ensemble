@@ -276,7 +276,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-010-2
   - Target File: `packages/e2e-testing/tests/ac-gap-task-filer.test.js`
 
-- [ ] **TRD-022**: Implement the session/checkpoint completion summary (2h) [satisfies REQ-012] [depends: TRD-009, TRD-018, TRD-021]
+- [x] **TRD-022**: Implement the session/checkpoint completion summary (2h) [satisfies REQ-012] [depends: TRD-009, TRD-018, TRD-021]
   - Validates PRD ACs: AC-012-1
   - Target Files: `packages/e2e-testing/lib/session-summary.js`
 
