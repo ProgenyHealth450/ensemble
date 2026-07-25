@@ -208,7 +208,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-013-1, AC-013-5
   - Target Files: `packages/e2e-testing/lib/qa-env-guard.js`
 
-- [ ] **TRD-014**: Implement test placement into `cribs.e2e.tests` — correct base class, `[TestCategory("E2E")]`, `TestConfiguration.*`, append-to-existing-file behavior (4h) [satisfies REQ-006] [depends: TRD-010]
+- [x] **TRD-014**: Implement test placement into `cribs.e2e.tests` — correct base class, `[TestCategory("E2E")]`, `TestConfiguration.*`, append-to-existing-file behavior (4h) [satisfies REQ-006] [depends: TRD-010]
   - Validates PRD ACs: AC-006-1, AC-006-2
   - Target Files: `packages/e2e-testing/lib/spec-writer.js`
 
