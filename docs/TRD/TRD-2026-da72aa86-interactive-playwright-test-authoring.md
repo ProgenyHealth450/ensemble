@@ -264,7 +264,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-009-1, AC-009-2
   - Target Files: `packages/e2e-testing/lib/ac-gap-detector.js`
 
-- [ ] **TRD-020-TEST**: Verify a genuine gap is flagged (not silently passed over) and Sonia's override redirects grounding (3h) [verifies TRD-020] [satisfies REQ-009] [depends: TRD-020]
+- [x] **TRD-020-TEST**: Verify a genuine gap is flagged (not silently passed over) and Sonia's override redirects grounding (3h) [verifies TRD-020] [satisfies REQ-009] [depends: TRD-020]
   - Validates PRD ACs: AC-009-1, AC-009-2
   - Target File: `packages/e2e-testing/tests/ac-gap-detector.test.js`
 
