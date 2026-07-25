@@ -228,7 +228,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 
 **Shippable State:** Every confirmed, landed test also appears as a plain-English Test Case in an Azure DevOps Test Suite linked to the story, readable by non-coders; sync failures never block a test's local landing.
 
-- [ ] **TRD-016**: Resolve or create the story's Test Suite, linked to the PRD's referenced CRIBs work item (4h) [satisfies REQ-007] [depends: TRD-014]
+- [x] **TRD-016**: Resolve or create the story's Test Suite, linked to the PRD's referenced CRIBs work item (4h) [satisfies REQ-007] [depends: TRD-014]
   - Validates PRD ACs: AC-007-1
   - Target Files: `packages/e2e-testing/lib/ado-test-suite.js`
 
