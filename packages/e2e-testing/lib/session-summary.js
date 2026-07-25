@@ -33,6 +33,17 @@
  *
  * Convention: plain functions over plain data, matching req-batcher.js /
  * manual-ac-tracker.js / ado-test-case-sync.js / ac-gap-task-filer.js.
+ *
+ * TRD-023 extension (AC-011-2): a story where resume-scan.js's
+ * `isStoryFullyCovered()` reports every AC already confirmed/manual/gap
+ * needs a distinct "already complete, no changes made" report rather than
+ * the usual category counts -- an `alreadyComplete: true` flag on the input
+ * short-circuits to that message (same header framing, scope/reqId still
+ * apply). Deliberately a flag rather than a second top-level function: the
+ * header logic (session vs. checkpoint) is identical either way, and a
+ * caller building up an already-complete check alongside a normal summary
+ * call shouldn't need to import two different functions for what's really
+ * one report shape with two bodies.
  */
 
 const CATEGORIES = [
@@ -82,6 +93,10 @@ function renderCategory(label, items) {
  * @param {object} [input]
  * @param {'session'|'checkpoint'} [input.scope='session']
  * @param {string} [input.reqId] - required, non-empty, when scope is 'checkpoint'
+ * @param {boolean} [input.alreadyComplete=false] - TRD-023/AC-011-2: when
+ *   true, renders "Already complete -- no changes made." instead of the
+ *   category counts below (set this from resume-scan.js's
+ *   isStoryFullyCovered()). Category args are ignored when true.
  * @param {Array} [input.testsWritten]
  * @param {Array} [input.testsConfirmed]
  * @param {Array} [input.manualAcs]
@@ -89,7 +104,8 @@ function renderCategory(label, items) {
  * @param {Array} [input.gapTasksFiled]
  * @returns {string} multi-line summary, ready to print to the console
  * @throws {Error} if input isn't an object, scope is invalid, reqId is
- *   missing for a 'checkpoint' scope, or any present category isn't an array
+ *   missing for a 'checkpoint' scope, alreadyComplete is present but not a
+ *   boolean, or any present category isn't an array
  */
 function buildSessionSummary(input = {}) {
   if (input === null || typeof input !== 'object') {
@@ -102,6 +118,15 @@ function buildSessionSummary(input = {}) {
   }
   if (scope === 'checkpoint' && !isNonEmptyString(input.reqId)) {
     throw new Error("buildSessionSummary: reqId must be a non-empty string when scope is 'checkpoint'");
+  }
+  if (input.alreadyComplete !== undefined && typeof input.alreadyComplete !== 'boolean') {
+    throw new Error('buildSessionSummary: alreadyComplete must be a boolean when present');
+  }
+
+  const header = scope === 'checkpoint' ? `${input.reqId.trim()} checkpoint summary` : 'Session summary';
+
+  if (input.alreadyComplete === true) {
+    return [header, '  Already complete -- no changes made.'].join('\n');
   }
 
   const errors = [];
@@ -120,7 +145,6 @@ function buildSessionSummary(input = {}) {
     throw new Error(`Invalid buildSessionSummary input: ${errors.join('; ')}`);
   }
 
-  const header = scope === 'checkpoint' ? `${input.reqId.trim()} checkpoint summary` : 'Session summary';
   const body = CATEGORIES.map(([key, label]) => renderCategory(label, lists[key]));
 
   return [header, ...body].join('\n');
@@ -170,6 +194,22 @@ if (require.main === module) {
   const checkpoint = buildSessionSummary({ scope: 'checkpoint', reqId: 'REQ-006', testsConfirmed: ['AC-006-1'] });
   assert.ok(checkpoint.startsWith('REQ-006 checkpoint summary\n'));
   assert.ok(checkpoint.includes('Tests confirmed passing: 1'));
+
+  // --- TRD-023/AC-011-2: alreadyComplete short-circuits to a fixed message,
+  // ignoring category counts entirely (a fully-covered story makes no
+  // changes, so there's nothing to count) ---
+  const alreadyDone = buildSessionSummary({ alreadyComplete: true, testsWritten: ['should be ignored'] });
+  assert.strictEqual(alreadyDone, 'Session summary\n  Already complete -- no changes made.');
+  const alreadyDoneCheckpoint = buildSessionSummary({
+    scope: 'checkpoint',
+    reqId: 'REQ-011',
+    alreadyComplete: true,
+  });
+  assert.strictEqual(alreadyDoneCheckpoint, 'REQ-011 checkpoint summary\n  Already complete -- no changes made.');
+  assert.throws(
+    () => buildSessionSummary({ alreadyComplete: 'yes' }),
+    /alreadyComplete must be a boolean when present/
+  );
 
   // --- validation: never silently defaults on genuinely bad input ---
   assert.throws(() => buildSessionSummary(null), /input must be an object/);

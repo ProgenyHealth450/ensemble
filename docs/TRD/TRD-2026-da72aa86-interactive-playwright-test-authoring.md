@@ -280,7 +280,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-012-1
   - Target Files: `packages/e2e-testing/lib/session-summary.js`
 
-- [ ] **TRD-023**: Finalize full-session idempotence — a fully-covered story reports "already complete" with no changes (3h) [satisfies REQ-011] [depends: TRD-005, TRD-012, TRD-021]
+- [x] **TRD-023**: Finalize full-session idempotence — a fully-covered story reports "already complete" with no changes (3h) [satisfies REQ-011] [depends: TRD-005, TRD-012, TRD-021]
   - Validates PRD ACs: AC-011-2
   - Target Files: `packages/e2e-testing/lib/resume-scan.js`, `packages/e2e-testing/lib/session-summary.js`
 
