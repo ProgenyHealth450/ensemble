@@ -177,7 +177,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-004-1, AC-004-2
   - Target Files: `packages/e2e-testing/lib/req-batcher.js`
 
-- [ ] **TRD-009-TEST**: Verify a checkpoint appears after each REQ and the session can stop cleanly there (2h) [verifies TRD-009] [satisfies REQ-004] [depends: TRD-009]
+- [x] **TRD-009-TEST**: Verify a checkpoint appears after each REQ and the session can stop cleanly there (2h) [verifies TRD-009] [satisfies REQ-004] [depends: TRD-009]
   - Validates PRD ACs: AC-004-1, AC-004-2
   - Target File: `packages/e2e-testing/tests/req-batcher.test.js`
 
