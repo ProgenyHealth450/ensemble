@@ -212,7 +212,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-006-1, AC-006-2
   - Target Files: `packages/e2e-testing/lib/spec-writer.js`
 
-- [ ] **TRD-014-TEST**: Verify a second AC under the same REQ appends to the existing file rather than creating a new one (2h) [verifies TRD-014] [satisfies REQ-006] [depends: TRD-014]
+- [x] **TRD-014-TEST**: Verify a second AC under the same REQ appends to the existing file rather than creating a new one (2h) [verifies TRD-014] [satisfies REQ-006] [depends: TRD-014]
   - Validates PRD ACs: AC-006-2
   - Target File: `packages/e2e-testing/tests/spec-writer.test.js`
 
