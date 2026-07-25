@@ -236,7 +236,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-007-1
   - Target Files: `packages/e2e-testing/lib/ado-test-case-sync.js`
 
-- [ ] **TRD-017-TEST**: Verify synced steps read as plain English matching the test's narration (2h) [verifies TRD-017] [satisfies REQ-007] [depends: TRD-017]
+- [x] **TRD-017-TEST**: Verify synced steps read as plain English matching the test's narration (2h) [verifies TRD-017] [satisfies REQ-007] [depends: TRD-017]
   - Validates PRD ACs: AC-007-1
   - Target File: `packages/e2e-testing/tests/ado-test-case-sync.test.js`
 
