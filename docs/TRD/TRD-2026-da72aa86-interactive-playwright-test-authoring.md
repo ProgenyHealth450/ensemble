@@ -284,7 +284,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-011-2
   - Target Files: `packages/e2e-testing/lib/resume-scan.js`, `packages/e2e-testing/lib/session-summary.js`
 
-- [ ] **TRD-023-TEST**: Verify a fully-covered re-run makes no file writes and no new ADO calls (2h) [verifies TRD-023] [satisfies REQ-011] [depends: TRD-023]
+- [x] **TRD-023-TEST**: Verify a fully-covered re-run makes no file writes and no new ADO calls (2h) [verifies TRD-023] [satisfies REQ-011] [depends: TRD-023]
   - Validates PRD ACs: AC-011-2
   - Target File: `packages/e2e-testing/tests/resume-scan.test.js`
 
