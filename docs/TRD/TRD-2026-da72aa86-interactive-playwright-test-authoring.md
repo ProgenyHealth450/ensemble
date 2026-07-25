@@ -196,7 +196,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
     - Given headless mode, when a test runs, then it authenticates via the existing `cribs-e2e-auth-state.json` secure file.
     - Given a test fails on first run, when this happens, then the agent investigates and either fixes+reruns or surfaces the failure as a blocker.
 
-- [ ] **TRD-011-TEST**: Verify both headed and headless execution paths authenticate and run correctly (3h) [verifies TRD-011] [satisfies REQ-005] [satisfies REQ-013] [depends: TRD-011]
+- [x] **TRD-011-TEST**: Verify both headed and headless execution paths authenticate and run correctly (3h) [verifies TRD-011] [satisfies REQ-005] [satisfies REQ-013] [depends: TRD-011]
   - Validates PRD ACs: AC-005-1, AC-013-3, AC-013-4
   - Target File: `packages/e2e-testing/tests/test-runner-mode.test.js`
 
