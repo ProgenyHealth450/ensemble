@@ -185,7 +185,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-003-1, AC-003-2, AC-003-3
   - Target Files: `packages/e2e-testing/lib/ac-decision-loop.js`
 
-- [ ] **TRD-010-TEST**: Verify request-changes re-presents a revised test and true-reject routes to the manual tracker (2h) [verifies TRD-010] [satisfies REQ-003] [depends: TRD-010, TRD-012]
+- [x] **TRD-010-TEST**: Verify request-changes re-presents a revised test and true-reject routes to the manual tracker (2h) [verifies TRD-010] [satisfies REQ-003] [depends: TRD-010, TRD-012]
   - Validates PRD ACs: AC-003-2, AC-003-3
   - Target File: `packages/e2e-testing/tests/ac-decision-loop.test.js`
 
