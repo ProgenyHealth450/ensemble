@@ -248,7 +248,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-007-2
   - Target File: `packages/e2e-testing/tests/ado-test-case-sync.test.js`
 
-- [ ] **TRD-019**: Implement sync resilience — retry with troubleshooting before session end; flag unsynced on unresolved failure without rollback (4h) [satisfies REQ-008] [depends: TRD-017]
+- [x] **TRD-019**: Implement sync resilience — retry with troubleshooting before session end; flag unsynced on unresolved failure without rollback (4h) [satisfies REQ-008] [depends: TRD-017]
   - Validates PRD ACs: AC-008-1, AC-008-2
   - Target Files: `packages/e2e-testing/lib/ado-sync-resilience.js`
 
