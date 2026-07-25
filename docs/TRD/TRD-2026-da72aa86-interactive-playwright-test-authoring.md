@@ -272,7 +272,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-010-1, AC-010-2
   - Target Files: `packages/e2e-testing/lib/ac-gap-task-filer.js`
 
-- [ ] **TRD-021-TEST**: Verify two gaps in one session produce two independently-tracked, correctly-assigned Tasks (2h) [verifies TRD-021] [satisfies REQ-010] [depends: TRD-021]
+- [x] **TRD-021-TEST**: Verify two gaps in one session produce two independently-tracked, correctly-assigned Tasks (2h) [verifies TRD-021] [satisfies REQ-010] [depends: TRD-021]
   - Validates PRD ACs: AC-010-2
   - Target File: `packages/e2e-testing/tests/ac-gap-task-filer.test.js`
 
