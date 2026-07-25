@@ -268,7 +268,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-009-1, AC-009-2
   - Target File: `packages/e2e-testing/tests/ac-gap-detector.test.js`
 
-- [ ] **TRD-021**: Resolve the implementing commit author's ADO identity and file one Task per confirmed gap on the referenced Story (4h) [satisfies REQ-010] [depends: TRD-020]
+- [x] **TRD-021**: Resolve the implementing commit author's ADO identity and file one Task per confirmed gap on the referenced Story (4h) [satisfies REQ-010] [depends: TRD-020]
   - Validates PRD ACs: AC-010-1, AC-010-2
   - Target Files: `packages/e2e-testing/lib/ac-gap-task-filer.js`
 
