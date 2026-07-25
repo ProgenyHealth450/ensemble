@@ -204,7 +204,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-017-1
   - Target Files: `packages/e2e-testing/lib/manual-ac-tracker.js`
 
-- [ ] **TRD-013**: Implement QA-environment resolution and unreachable-environment halt (2h) [satisfies REQ-013] [depends: TRD-011]
+- [x] **TRD-013**: Implement QA-environment resolution and unreachable-environment halt (2h) [satisfies REQ-013] [depends: TRD-011]
   - Validates PRD ACs: AC-013-1, AC-013-5
   - Target Files: `packages/e2e-testing/lib/qa-env-guard.js`
 
