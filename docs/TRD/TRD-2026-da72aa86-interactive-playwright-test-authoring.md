@@ -260,7 +260,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 
 **Shippable State:** A session that finds an implementation gap files a tracked ADO Task on the story instead of silently skipping it; every session ends with a clear summary; re-running a fully-covered story is a confirmed no-op.
 
-- [ ] **TRD-020**: Implement AC-gap detection during grounding — stop short of writing a test for behavior that doesn't exist (4h) [satisfies REQ-009] [depends: TRD-004]
+- [x] **TRD-020**: Implement AC-gap detection during grounding — stop short of writing a test for behavior that doesn't exist (4h) [satisfies REQ-009] [depends: TRD-004]
   - Validates PRD ACs: AC-009-1, AC-009-2
   - Target Files: `packages/e2e-testing/lib/ac-gap-detector.js`
 
