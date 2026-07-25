@@ -220,7 +220,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-014-1, AC-014-2
   - Target Files: `packages/e2e-testing/lib/traceability-tagger.js`
 
-- [ ] **TRD-015-TEST**: Verify existing tags survive when a new AC is appended (1h) [verifies TRD-015] [satisfies REQ-014] [depends: TRD-015]
+- [x] **TRD-015-TEST**: Verify existing tags survive when a new AC is appended (1h) [verifies TRD-015] [satisfies REQ-014] [depends: TRD-015]
   - Validates PRD ACs: AC-014-2
   - Target File: `packages/e2e-testing/tests/traceability-tagger.test.js`
 
