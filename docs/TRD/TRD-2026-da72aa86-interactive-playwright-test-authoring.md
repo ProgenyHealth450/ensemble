@@ -165,7 +165,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 
 **Shippable State:** Sonia can run a full interactive session against a story with an open PR and get real, human-confirmed Playwright tests landed in `cribs.e2e.tests` for every AC — choosing headed or headless mode, accepting/revising/rejecting proposals, and marking non-automatable ACs manual — without ADO sync or gap-filing yet.
 
-- [ ] **TRD-007**: Implement the headed-vs-headless mode prompt at session start, defaulting to headed (2h) [satisfies REQ-013] [depends: TRD-001]
+- [x] **TRD-007**: Implement the headed-vs-headless mode prompt at session start, defaulting to headed (2h) [satisfies REQ-013] [depends: TRD-001]
   - Validates PRD ACs: AC-013-2
 
 - [ ] **TRD-008**: Define the orchestrator ↔ `@playwright-tester` delegation contract (4h) [satisfies ARCH] [depends: TRD-004, TRD-007]
