@@ -288,7 +288,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-011-2
   - Target File: `packages/e2e-testing/tests/resume-scan.test.js`
 
-- [ ] **TRD-024**: Implement human-readable console logging of every session action (2h) [satisfies REQ-016] [depends: TRD-009]
+- [x] **TRD-024**: Implement human-readable console logging of every session action (2h) [satisfies REQ-016] [depends: TRD-009]
   - Validates PRD ACs: AC-016-1
   - Target Files: `packages/e2e-testing/lib/session-logger.js`
 
