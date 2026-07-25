@@ -46,6 +46,15 @@ responsibilities:
   - priority: low
     title: Failure Analysis
     description: Diagnose test failures and propose fixes (product code or test code)
+  - priority: high
+    title: Mode-Aware Test Execution
+    description: >-
+      TRD-011: run a proposed test per the session's mode using packages/e2e-testing/lib/test-runner-mode.js's
+      resolveRunConfig(mode, authStatePath) — headed uses Sonia's own interactive Entra ID login (she watches
+      live, no stored credentials); headless authenticates via the existing cribs-e2e-auth-state.json storage-state
+      file, the same mechanism the unattended nightly regression suite already uses. When a confirmed test fails on
+      its first run, investigate (selector/timing/data issue) and either fix and rerun, or surface the failure to
+      Sonia as an explicit blocker for that AC — never silently retry forever or report a false pass.
 integrationProtocols:
   handoffFrom:
     - agent: tech-lead-orchestrator

@@ -189,7 +189,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-003-2, AC-003-3
   - Target File: `packages/e2e-testing/tests/ac-decision-loop.test.js`
 
-- [ ] **TRD-011**: Extend `@playwright-tester` to run a proposed test headed (Sonia's interactive Entra login) or headless (`cribs-e2e-auth-state.json`) per session mode (5h) [satisfies REQ-005] [satisfies REQ-013] [depends: TRD-008]
+- [x] **TRD-011**: Extend `@playwright-tester` to run a proposed test headed (Sonia's interactive Entra login) or headless (`cribs-e2e-auth-state.json`) per session mode (5h) [satisfies REQ-005] [satisfies REQ-013] [depends: TRD-008]
   - Validates PRD ACs: AC-005-1, AC-005-2, AC-013-3, AC-013-4
   - Target Files: `packages/e2e-testing/agents/playwright-tester.md`, `packages/e2e-testing/lib/test-runner-mode.js`
   - Implementation AC:

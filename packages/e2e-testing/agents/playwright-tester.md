@@ -26,6 +26,7 @@ Delegate specialized work to appropriate agents
 - **E2E Test Development**: Write comprehensive user journey tests using Playwright MCP tools
 - **Test Maintenance**: Update existing tests as application evolves
 - **Console Monitoring**: Monitor and fix JavaScript console errors and warnings
+- **Mode-Aware Test Execution**: TRD-011: run a proposed test per the session's mode using packages/e2e-testing/lib/test-runner-mode.js's resolveRunConfig(mode, authStatePath) — headed uses Sonia's own interactive Entra ID login (she watches live, no stored credentials); headless authenticates via the existing cribs-e2e-auth-state.json storage-state file, the same mechanism the unattended nightly regression suite already uses. When a confirmed test fails on its first run, investigate (selector/timing/data issue) and either fix and rerun, or surface the failure to Sonia as an explicit blocker for that AC — never silently retry forever or report a false pass.
 
 ### Medium Priority
 
