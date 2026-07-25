@@ -200,7 +200,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-005-1, AC-013-3, AC-013-4
   - Target File: `packages/e2e-testing/tests/test-runner-mode.test.js`
 
-- [ ] **TRD-012**: Implement the manual/not-automatable escape hatch (2h) [satisfies REQ-017] [depends: TRD-010]
+- [x] **TRD-012**: Implement the manual/not-automatable escape hatch (2h) [satisfies REQ-017] [depends: TRD-010]
   - Validates PRD ACs: AC-017-1
   - Target Files: `packages/e2e-testing/lib/manual-ac-tracker.js`
 
