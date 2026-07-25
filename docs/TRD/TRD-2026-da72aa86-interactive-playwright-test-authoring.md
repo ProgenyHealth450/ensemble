@@ -173,7 +173,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Implementation AC:
     - Given a delegation request (AC text, grounding diff, target env, mode), when `@playwright-tester` responds, then the response includes a proposed test, selectors used, and a run result or an explicit authoring-failure flag.
 
-- [ ] **TRD-009**: Implement the REQ-level batching loop with checkpoints (4h) [satisfies REQ-004] [depends: TRD-008]
+- [x] **TRD-009**: Implement the REQ-level batching loop with checkpoints (4h) [satisfies REQ-004] [depends: TRD-008]
   - Validates PRD ACs: AC-004-1, AC-004-2
   - Target Files: `packages/e2e-testing/lib/req-batcher.js`
 
