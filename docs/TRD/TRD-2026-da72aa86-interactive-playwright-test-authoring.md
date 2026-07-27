@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.0.0
+version: 1.1.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -17,6 +17,8 @@ prd_version: 1.0.2
 This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/ensemble:author-playwright-tests` command: an interactive, post-implementation Playwright test-authoring session for Sonia Pareek (QA) and CRIBs developers. The session runs once a story's implementation is complete and its PR is open, grounds each proposed test in both the PRD's ACs and the real implementing code, runs confirmed tests against the CRIBs QA environment (headed or headless, Sonia's choice), places them in `cribs.e2e.tests` per existing convention, syncs their steps to an Azure DevOps Test Case/Suite as plain-English steps, and files ADO tasks for any AC the implementation doesn't actually satisfy.
 
 **MCP enhancement:** attempted per the standard workflow — `inject_checkpoints`, `assess_complexity`, and `generate_workflow_section` are not present among available MCP tools (only concrete servers like Azure DevOps/Playwright are). Fell back to the manual equivalents: checkpoints are built into REQ-004/TRD-009, complexity/estimates are assigned directly on each task below, and the PR/Sprint structure below is hand-authored.
+
+**v1.1.0 amendment:** pre-merge verification of PR 1-4 (all 39 tasks, `feature/trd-2026-da72aa86-interactive-playwright-test-authoring`, PR #10) found that `packages/e2e-testing/commands/author-playwright-tests.yaml` — the orchestrator this TRD's own architecture assigns "Session lifecycle, prompts, REQ-batching, delegation dispatch, final output" to — was only ever touched by TRD-001, TRD-003, TRD-006, and TRD-007. None of TRD-004/005/008-024 (grounding, resume, delegation, batching, decision loop, landing, tagging, all three ADO-sync modules, gap detection/filing, summaries, logging) ever added their step to the orchestrator's workflow. Every one of those exists as a real, unit-tested `lib/*.js` module (hence 300/300 green) — but nothing chains them together, so the shipped command today halts after the headed/headless prompt (TRD-007) and does nothing further. PR 5 below tracks wiring the existing modules into the orchestrator; it adds no new library logic.
 
 ## Architecture Decision
 
@@ -292,9 +294,52 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-016-1
   - Target Files: `packages/e2e-testing/lib/session-logger.js`
 
+### PR 5: Orchestrator Wiring — Chain the Session Pipeline
+
+**Shippable State:** Running `/ensemble:author-playwright-tests` against a story with an open PR actually walks every pending AC end to end — grounding, delegation, decision, landing, ADO sync, gap-filing, summary — instead of stopping after the headed/headless prompt. No new library logic; this PR only wires already-built, already-tested `lib/*.js` modules into the orchestrator command.
+
+- [ ] **TRD-025**: Wire PRD parsing, implementation grounding, gap detection, and resume-scan into the Scaffold phase, before the headed/headless prompt (3h) [satisfies REQ-002, REQ-009, REQ-011] [depends: TRD-002, TRD-004, TRD-005, TRD-020, TRD-007]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a story's open PR, when the Scaffold phase runs, then it calls `prd-ac-parser.js`, `implementation-grounding.js` (with `ac-gap-detector.js` run inline, not after), and `resume-scan.js`, and presents the resulting pending-AC worklist before asking headed/headless.
+
+- [ ] **TRD-026**: Add the REQ-batching loop with per-AC delegation dispatch to `@playwright-tester` (3h) [satisfies REQ-004, REQ-005, REQ-013] [depends: TRD-025, TRD-008, TRD-009, TRD-011, TRD-013]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given the pending-AC worklist, when the loop runs, then it batches by REQ via `req-batcher.js`, and for each AC builds a request per `delegation-contract.js` (grounding diff, target env from `qa-env-guard.js`, session mode) and dispatches it to `@playwright-tester`.
+
+- [ ] **TRD-027**: Add the decision + local-landing phase (3h) [satisfies REQ-003, REQ-006, REQ-014, REQ-017] [depends: TRD-026, TRD-010, TRD-012, TRD-014, TRD-015]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a `@playwright-tester` response, when the decision phase runs, then it feeds the response through `ac-decision-loop.js` (re-delegating on request-changes; routing reject/no-viable-alternative to `manual-ac-tracker.js`), and on accept+pass calls `spec-writer.js` then `traceability-tagger.js` to land the test.
+
+- [ ] **TRD-028**: Add the Azure DevOps Test Plan sync phase (3h) [satisfies REQ-007, REQ-008] [depends: TRD-027, TRD-016, TRD-017, TRD-018, TRD-019]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a landed test, when the sync phase runs, then it resolves/creates the Test Suite (`ado-test-suite.js`), syncs the Test Case (`ado-test-case-sync.js`), and on failure invokes `ado-sync-resilience.js` without rolling back the local file.
+
+- [ ] **TRD-029**: Add the AC-gap Task-filing phase (2h) [satisfies REQ-010] [depends: TRD-025, TRD-021]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given TRD-025's grounding confirms a genuine gap, when the gap phase runs, then it calls `ac-gap-task-filer.js` once per gap, assigned via the implementing commit author's resolved ADO identity.
+
+- [ ] **TRD-030**: Wire per-REQ checkpoints, the final session summary, action logging, and the full-session idempotence short-circuit across every phase above (2h) [satisfies REQ-011, REQ-012, REQ-016] [depends: TRD-026, TRD-027, TRD-028, TRD-029, TRD-022, TRD-023, TRD-024]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a fully-covered story (per TRD-025's resume-scan), when the session starts, then it reports "already complete" and exits before the REQ loop, making no writes or ADO calls.
+    - Given a partially-covered story, when each REQ finishes, then `session-summary.js` prints a checkpoint and `session-logger.js` has logged every action taken.
+
+- [ ] **TRD-030-TEST**: Add a structural completeness test guarding against this regression recurring (2h) [verifies TRD-025, TRD-026, TRD-027, TRD-028, TRD-029, TRD-030] [depends: TRD-030]
+  - Target File: `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
+  - Implementation AC:
+    - Given `author-playwright-tests.yaml`, when parsed, then every `lib/*.js` module listed in this TRD's Component Boundaries table is referenced by name in some workflow step, in the same order as the System Architecture pipeline diagram.
+    - Given the same file, when scanned, then no workflow step's description matches placeholder language (e.g. "implemented in later TRD tasks") deferring logic that this TRD claims is already delivered.
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
+>
+> **v1.1.0 addendum:** PR 5 (TRD-025 through TRD-030-TEST) adds 7 tasks / 18h, all pure orchestrator-wiring against the existing `author-playwright-tests.yaml`. Not yet run back through `/ensemble:configure-team` — do that before team assignment, since these tasks sit outside the domain-keyword false positives noted below (they're prompt/workflow edits, not library code, closer to `tech-lead-orchestrator`/`backend-developer` than `playwright-tester`).
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `cribs-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -339,31 +384,35 @@ team:
 - PR 3: Azure DevOps Test Plan sync.
 - PR 4: AC-gap handling, reporting, and full resumability.
 
+## Sprint 4: Orchestrator Wiring
+
+- PR 5: Chain the built-and-tested `lib/*.js` modules into the orchestrator command (v1.1.0 addendum — see amendment note above).
+
 ## Acceptance Criteria Traceability
 
 | REQ | Description | Implementation Tasks | Test Tasks |
 |-----|-------------|----------------------|------------|
 | REQ-001 | Post-implementation trigger | TRD-003 | TRD-003-TEST |
-| REQ-002 | PRD + implementation grounding | TRD-002, TRD-004 | TRD-002-TEST, TRD-004-TEST |
-| REQ-003 | Interactive AC walkthrough | TRD-010 | TRD-010-TEST |
-| REQ-004 | REQ-level batching with checkpoints | TRD-009 | TRD-009-TEST |
-| REQ-005 | In-session test confirmation run | TRD-011 | TRD-011-TEST |
-| REQ-006 | Test placement per existing conventions | TRD-014 | TRD-014-TEST |
-| REQ-007 | ADO Test Case step sync | TRD-016, TRD-017, TRD-018 | TRD-017-TEST, TRD-018-TEST |
-| REQ-008 | ADO sync resilience & fallback flag | TRD-019 | TRD-019-TEST |
-| REQ-009 | AC-gap detection | TRD-020 | TRD-020-TEST |
-| REQ-010 | AC-gap ADO task filing | TRD-021 | TRD-021-TEST |
-| REQ-011 | Session resumability & idempotence | TRD-005, TRD-023 | TRD-005-TEST, TRD-023-TEST |
-| REQ-012 | Session completion summary | TRD-022 | — |
-| REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013 | TRD-011-TEST |
-| REQ-014 | Traceability tagging | TRD-015 | TRD-015-TEST |
+| REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025 | TRD-002-TEST, TRD-004-TEST |
+| REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027 | TRD-010-TEST |
+| REQ-004 | REQ-level batching with checkpoints | TRD-009, TRD-026 | TRD-009-TEST |
+| REQ-005 | In-session test confirmation run | TRD-011, TRD-026 | TRD-011-TEST |
+| REQ-006 | Test placement per existing conventions | TRD-014, TRD-027 | TRD-014-TEST |
+| REQ-007 | ADO Test Case step sync | TRD-016, TRD-017, TRD-018, TRD-028 | TRD-017-TEST, TRD-018-TEST |
+| REQ-008 | ADO sync resilience & fallback flag | TRD-019, TRD-028 | TRD-019-TEST |
+| REQ-009 | AC-gap detection | TRD-020, TRD-025 | TRD-020-TEST |
+| REQ-010 | AC-gap ADO task filing | TRD-021, TRD-029 | TRD-021-TEST |
+| REQ-011 | Session resumability & idempotence | TRD-005, TRD-023, TRD-025, TRD-030 | TRD-005-TEST, TRD-023-TEST |
+| REQ-012 | Session completion summary | TRD-022, TRD-030 | — |
+| REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013, TRD-026 | TRD-011-TEST |
+| REQ-014 | Traceability tagging | TRD-015, TRD-027 | TRD-015-TEST |
 | REQ-015 | No new paid infra | TRD-006 | — |
-| REQ-016 | Session action observability | TRD-024 | — |
-| REQ-017 | Manual/not-automatable AC escape hatch | TRD-012 | TRD-010-TEST |
+| REQ-016 | Session action observability | TRD-024, TRD-030 | — |
+| REQ-017 | Manual/not-automatable AC escape hatch | TRD-012, TRD-027 | TRD-010-TEST |
 
 ## Traceability Validation Summary
 
-Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations.
+Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations. All 17 had implementation-task coverage since v1.0.0, but before v1.1.0's PR 5, that coverage was library-level only — REQ-002 through REQ-017 (excluding REQ-001, REQ-006, REQ-015) were not actually reachable by running the shipped command. PR 5 (TRD-025 through TRD-030) closes that by wiring the orchestrator; TRD-030-TEST guards against the wiring silently regressing again.
 
 ## Adversarial Review
 
@@ -379,6 +428,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 
 1. **Issue:** PR 1's Shippable State ("lists ACs and grounding gaps") is the thinnest user-observable capability of the four PR boundaries.
    **Resolution:** Accepted as-is — it still produces a real, reviewable coverage-gap report Sonia/a developer can act on, not pure scaffolding; splitting it further would fragment the read-only grounding logic across two PRs for no benefit.
+
+2. **Issue (found in pre-merge verification, v1.1.0):** PR 2, 3, and 4's Shippable State claims ("Sonia can run a full interactive session and get real, human-confirmed Playwright tests landed"; ADO Test Case sync; AC-gap Task filing) were not actually true of the shipped command. Every task in PR 2-4 built and unit-tested a `lib/*.js` module in isolation, but none of them wired that module into `author-playwright-tests.yaml`'s workflow — the orchestrator this TRD's own architecture assigns that responsibility to. Running the command today still halts after TRD-007's headed/headless prompt. 39/39 tasks checked and 300/300 tests green measured library correctness, not that the command actually invokes the library.
+   **Resolution:** Added PR 5 (TRD-025 through TRD-030-TEST) to wire the existing modules into the orchestrator, plus a structural test (TRD-030-TEST) that fails if a future change lets the orchestrator's workflow drift back out of sync with the modules it's supposed to call. No PR 1-4 task or its Shippable State claim was altered — this is corrective, additive scope.
 
 ### Dependency and Estimate Issues
 
@@ -402,5 +454,6 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 
 ## Next Steps
 
-- `/ensemble:configure-team docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` to auto-configure a team, if desired.
-- `/ensemble:implement-trd-beads docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` to scaffold the Beads hierarchy and begin implementation.
+- PR 1-4 (TRD-001 through TRD-024): implemented, tested, and merged via PR #10 — no further action.
+- PR 5 (TRD-025 through TRD-030-TEST): not yet implemented. Re-run `/ensemble:configure-team` to fold these 7 tasks into a team assignment (see v1.1.0 addendum under Team Configuration), then `/ensemble:implement-trd-beads docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` to scaffold Beads and implement PR 5 on a new branch/PR against `main`.
+- Do not treat this feature as installable/usable in a consuming repo (e.g. CRIBs) until PR 5 lands — see the v1.1.0 amendment note under Document Overview.

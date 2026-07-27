@@ -15,11 +15,11 @@ Azure DevOps Test Case/Suite as plain-English steps. Originally scoped from CRIB
 own needs (Sonia Pareek, QA) but the command itself is generic ensemble tooling.
 
 - **PRD**: `docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.2)
-- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.0, Design Readiness 4.43 — PASS)
-- **Branch**: `feature/author-playwright-tests` (branched off `main`)
+- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.1.0, Design Readiness 4.43 — PASS)
+- **Branch**: `feature/trd-2026-da72aa86-interactive-playwright-test-authoring` (PR #10 open against `Sunstone-Partners/ensemble` main, PR #9's now-superseded stub-generator approach closed)
 - **Architecture**: Option B — a thin orchestrator command (`packages/e2e-testing/commands/author-playwright-tests.yaml`) delegates each AC to the existing `@playwright-tester` agent, rather than a monolithic command or an extension of the (buggy, unmerged) `generate-playwright-tests` scaffolder.
 - **Note**: this repo itself has no ADO work item for the effort (no ADO tracking here — TRD id mirrors the PRD's micro-UUID), but the ADO Test Plan sync *feature being built* targets whichever ADO project the consuming repo (e.g. CRIBs) uses.
-- **Status**: TRD complete and PASSed. Next: `/ensemble:configure-team` then `/ensemble:implement-trd-beads docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md`.
+- **Status**: PR 1-4 (TRD-001 through TRD-024, 39 tasks) implemented, tested (300/300), and merged via PR #10. **Not yet usable in a consuming repo** — pre-merge verification found the orchestrator command (`author-playwright-tests.yaml`) was never wired to the `lib/*.js` modules PR 2-4 built; it halts after the headed/headless prompt today. TRD v1.1.0 adds PR 5 (TRD-025 through TRD-030-TEST) to fix this — see the TRD's "v1.1.0 amendment" note. Next: `/ensemble:configure-team` then `/ensemble:implement-trd-beads` to implement PR 5 before installing this anywhere.
 
 ## Quick Reference
 
