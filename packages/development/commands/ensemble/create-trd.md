@@ -272,7 +272,7 @@ output with traceability matrices. Team configuration is handled separately by
 - **Master Task List**: Comprehensive task tracking with TRD-NNN IDs, [satisfies REQ-NNN] annotations, Validates PRD ACs fields, Implementation AC checklists, and paired TRD-NNN-TEST verification tasks
 - **System Architecture**: Component design, data flow, integration points, and technology choices
 - **Sprint Planning**: Organized development phases with task references and dependencies
-- **Acceptance Criteria Traceability**: Matrix table linking REQ-NNN requirements to implementation tasks and test tasks when a full PRD is supplied
+- **Acceptance Criteria Traceability**: Matrix table linking REQ-NNN requirements to implementation tasks and test tasks
 - **Quality Requirements**: Security, performance, accessibility, and testing standards
 - **Design Readiness Scorecard**: Scores for architecture completeness, task coverage, dependency clarity, and estimate confidence
 
