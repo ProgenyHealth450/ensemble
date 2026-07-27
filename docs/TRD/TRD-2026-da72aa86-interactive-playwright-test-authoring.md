@@ -18,7 +18,7 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 
 **MCP enhancement:** attempted per the standard workflow — `inject_checkpoints`, `assess_complexity`, and `generate_workflow_section` are not present among available MCP tools (only concrete servers like Azure DevOps/Playwright are). Fell back to the manual equivalents: checkpoints are built into REQ-004/TRD-009, complexity/estimates are assigned directly on each task below, and the PR/Sprint structure below is hand-authored.
 
-**v1.1.0 amendment:** pre-merge verification of PR 1-4 (all 39 tasks, `feature/trd-2026-da72aa86-interactive-playwright-test-authoring`, PR #10) found that `packages/e2e-testing/commands/author-playwright-tests.yaml` — the orchestrator this TRD's own architecture assigns "Session lifecycle, prompts, REQ-batching, delegation dispatch, final output" to — was only ever touched by TRD-001, TRD-003, TRD-006, and TRD-007. None of TRD-004/005/008-024 (grounding, resume, delegation, batching, decision loop, landing, tagging, all three ADO-sync modules, gap detection/filing, summaries, logging) ever added their step to the orchestrator's workflow. Every one of those exists as a real, unit-tested `lib/*.js` module (hence 300/300 green) — but nothing chains them together, so the shipped command today halts after the headed/headless prompt (TRD-007) and does nothing further. PR 5 below tracks wiring the existing modules into the orchestrator; it adds no new library logic.
+**v1.1.0 amendment:** pre-merge verification of PR 1-4 (all 39 tasks, `feature/trd-2026-da72aa86-interactive-playwright-test-authoring`, PR #10) found that `packages/e2e-testing/commands/author-playwright-tests.yaml` — the orchestrator this TRD's own architecture assigns "Session lifecycle, prompts, REQ-batching, delegation dispatch, final output" to — was only ever touched by TRD-001, TRD-003, TRD-006, and TRD-007. None of TRD-004/005/008-024 (grounding, resume, delegation, batching, decision loop, landing, tagging, all three ADO-sync modules, gap detection/filing, summaries, logging) ever added their step to the orchestrator's workflow. Every one of those exists as a real, unit-tested `lib/*.js` module (hence 300/300 green) — but nothing chains them together, so the shipped command today halts after the headed/headless prompt (TRD-007) and does nothing further. PR 5 (TRD-025 through TRD-030-TEST) wires the existing modules into the orchestrator's workflow (command version bumped to 2.0.0); it adds no new library logic. **Update: PR 5 is now implemented** — `author-playwright-tests.yaml` carries Phases 3-7 chaining all 19 pipeline modules in order, `tests/author-playwright-tests-workflow.test.js` (TRD-030-TEST) structurally guards against this wiring regressing again, and a fixture dry-run chained all 12 pipeline stages against real function calls with no shape mismatches. `packages/e2e-testing` is 306/306.
 
 ## Architecture Decision
 
@@ -298,38 +298,38 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 
 **Shippable State:** Running `/ensemble:author-playwright-tests` against a story with an open PR actually walks every pending AC end to end — grounding, delegation, decision, landing, ADO sync, gap-filing, summary — instead of stopping after the headed/headless prompt. No new library logic; this PR only wires already-built, already-tested `lib/*.js` modules into the orchestrator command.
 
-- [ ] **TRD-025**: Wire PRD parsing, implementation grounding, gap detection, and resume-scan into the Scaffold phase, before the headed/headless prompt (3h) [satisfies REQ-002, REQ-009, REQ-011] [depends: TRD-002, TRD-004, TRD-005, TRD-020, TRD-007]
+- [x] **TRD-025**: Wire PRD parsing, implementation grounding, gap detection, and resume-scan into the Scaffold phase, before the headed/headless prompt (3h) [satisfies REQ-002, REQ-009, REQ-011] [depends: TRD-002, TRD-004, TRD-005, TRD-020, TRD-007]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given a story's open PR, when the Scaffold phase runs, then it calls `prd-ac-parser.js`, `implementation-grounding.js` (with `ac-gap-detector.js` run inline, not after), and `resume-scan.js`, and presents the resulting pending-AC worklist before asking headed/headless.
 
-- [ ] **TRD-026**: Add the REQ-batching loop with per-AC delegation dispatch to `@playwright-tester` (3h) [satisfies REQ-004, REQ-005, REQ-013] [depends: TRD-025, TRD-008, TRD-009, TRD-011, TRD-013]
+- [x] **TRD-026**: Add the REQ-batching loop with per-AC delegation dispatch to `@playwright-tester` (3h) [satisfies REQ-004, REQ-005, REQ-013] [depends: TRD-025, TRD-008, TRD-009, TRD-011, TRD-013]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given the pending-AC worklist, when the loop runs, then it batches by REQ via `req-batcher.js`, and for each AC builds a request per `delegation-contract.js` (grounding diff, target env from `qa-env-guard.js`, session mode) and dispatches it to `@playwright-tester`.
 
-- [ ] **TRD-027**: Add the decision + local-landing phase (3h) [satisfies REQ-003, REQ-006, REQ-014, REQ-017] [depends: TRD-026, TRD-010, TRD-012, TRD-014, TRD-015]
+- [x] **TRD-027**: Add the decision + local-landing phase (3h) [satisfies REQ-003, REQ-006, REQ-014, REQ-017] [depends: TRD-026, TRD-010, TRD-012, TRD-014, TRD-015]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given a `@playwright-tester` response, when the decision phase runs, then it feeds the response through `ac-decision-loop.js` (re-delegating on request-changes; routing reject/no-viable-alternative to `manual-ac-tracker.js`), and on accept+pass calls `spec-writer.js` then `traceability-tagger.js` to land the test.
 
-- [ ] **TRD-028**: Add the Azure DevOps Test Plan sync phase (3h) [satisfies REQ-007, REQ-008] [depends: TRD-027, TRD-016, TRD-017, TRD-018, TRD-019]
+- [x] **TRD-028**: Add the Azure DevOps Test Plan sync phase (3h) [satisfies REQ-007, REQ-008] [depends: TRD-027, TRD-016, TRD-017, TRD-018, TRD-019]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given a landed test, when the sync phase runs, then it resolves/creates the Test Suite (`ado-test-suite.js`), syncs the Test Case (`ado-test-case-sync.js`), and on failure invokes `ado-sync-resilience.js` without rolling back the local file.
 
-- [ ] **TRD-029**: Add the AC-gap Task-filing phase (2h) [satisfies REQ-010] [depends: TRD-025, TRD-021]
+- [x] **TRD-029**: Add the AC-gap Task-filing phase (2h) [satisfies REQ-010] [depends: TRD-025, TRD-021]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given TRD-025's grounding confirms a genuine gap, when the gap phase runs, then it calls `ac-gap-task-filer.js` once per gap, assigned via the implementing commit author's resolved ADO identity.
 
-- [ ] **TRD-030**: Wire per-REQ checkpoints, the final session summary, action logging, and the full-session idempotence short-circuit across every phase above (2h) [satisfies REQ-011, REQ-012, REQ-016] [depends: TRD-026, TRD-027, TRD-028, TRD-029, TRD-022, TRD-023, TRD-024]
+- [x] **TRD-030**: Wire per-REQ checkpoints, the final session summary, action logging, and the full-session idempotence short-circuit across every phase above (2h) [satisfies REQ-011, REQ-012, REQ-016] [depends: TRD-026, TRD-027, TRD-028, TRD-029, TRD-022, TRD-023, TRD-024]
   - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
   - Implementation AC:
     - Given a fully-covered story (per TRD-025's resume-scan), when the session starts, then it reports "already complete" and exits before the REQ loop, making no writes or ADO calls.
     - Given a partially-covered story, when each REQ finishes, then `session-summary.js` prints a checkpoint and `session-logger.js` has logged every action taken.
 
-- [ ] **TRD-030-TEST**: Add a structural completeness test guarding against this regression recurring (2h) [verifies TRD-025, TRD-026, TRD-027, TRD-028, TRD-029, TRD-030] [depends: TRD-030]
+- [x] **TRD-030-TEST**: Add a structural completeness test guarding against this regression recurring (2h) [verifies TRD-025, TRD-026, TRD-027, TRD-028, TRD-029, TRD-030] [depends: TRD-030]
   - Target File: `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
   - Implementation AC:
     - Given `author-playwright-tests.yaml`, when parsed, then every `lib/*.js` module listed in this TRD's Component Boundaries table is referenced by name in some workflow step, in the same order as the System Architecture pipeline diagram.
@@ -455,5 +455,5 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 ## Next Steps
 
 - PR 1-4 (TRD-001 through TRD-024): implemented, tested, and merged via PR #10 — no further action.
-- PR 5 (TRD-025 through TRD-030-TEST): not yet implemented. Re-run `/ensemble:configure-team` to fold these 7 tasks into a team assignment (see v1.1.0 addendum under Team Configuration), then `/ensemble:implement-trd-beads docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` to scaffold Beads and implement PR 5 on a new branch/PR against `main`.
-- Do not treat this feature as installable/usable in a consuming repo (e.g. CRIBs) until PR 5 lands — see the v1.1.0 amendment note under Document Overview.
+- PR 5 (TRD-025 through TRD-030-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 = 46/46 tasks now complete), verified via `packages/e2e-testing`'s 306/306 test suite plus a fixture dry-run chaining all 12 pipeline stages. Ready to merge.
+- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0 amendment note under Document Overview.
