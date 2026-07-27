@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 const { groundImplementation } = require('../lib/implementation-grounding');
 
 /** Minimal tasksById fixture: one task satisfying REQ-002 with one target file. */
@@ -204,5 +208,79 @@ describe('groundImplementation (opts.baseBranch — a real PR target branch, not
 
     expect(result.grounded).toBe(true);
     expect(gitExec).not.toHaveBeenCalledWith(['merge-base', 'HEAD', 'origin/origin/integration']);
+  });
+});
+
+describe('groundImplementation (TRD-033: the REAL default parseTrd, not a mock)', () => {
+  // Every test above injects opts.parseTrd, so defaultParseTrd() -- the
+  // function that actually reads the TRD file and parses it -- was never
+  // once exercised. That's exactly the gap that let a real bug ship: the
+  // original defaultParseTrd() shelled out to a hardcoded, cross-package
+  // path (packages/development/lib/trd-cli.js) that only resolved in the
+  // monorepo checkout, and ENOENT'd unconditionally once installed as a real,
+  // independently-published plugin (confirmed live against a real CRIBs PR).
+  // These tests deliberately do NOT inject parseTrd, so a regression of that
+  // class -- here, or in any future default-path change -- fails this suite
+  // instead of shipping unnoticed behind 300+ passing mocked tests.
+  let tmpDir;
+  let trdPath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'implementation-grounding-'));
+    trdPath = path.join(tmpDir, 'TRD-fixture.md');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('a real TRD file on disk is read and parsed by the real default parseTrd', () => {
+    fs.writeFileSync(
+      trdPath,
+      [
+        '## Master Task List',
+        '',
+        '- [x] **TRD-001**: Implement the thing (3h) [satisfies REQ-002]',
+        '  - Target File: `lib/foo.js`',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const gitExec = jest.fn((args) => {
+      if (args[0] === 'merge-base') return 'deadbeef\n';
+      if (args[0] === 'diff') return '+++ added a line\n';
+      throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+    });
+    const existsSync = jest.fn(() => true);
+
+    // No opts.parseTrd here -- this exercises the real default path end to end.
+    const result = groundImplementation('REQ-002', trdPath, { gitExec, existsSync });
+
+    expect(result.grounded).toBe(true);
+    expect(result.files).toEqual(['lib/foo.js']);
+  });
+
+  test('a TRD file that does not exist on disk -> gap, never throws', () => {
+    const gitExec = jest.fn();
+    const result = groundImplementation('REQ-002', path.join(tmpDir, 'does-not-exist.md'), { gitExec });
+
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result.reason).toMatch(/failed to parse trd/i);
+    expect(gitExec).not.toHaveBeenCalled();
+  });
+
+  test('a real TRD file with no task satisfying the REQ -> gap, not a crash', () => {
+    fs.writeFileSync(
+      trdPath,
+      ['## Master Task List', '', '- [ ] **TRD-001**: Unrelated (1h) [satisfies REQ-999]', '  - Target File: `lib/foo.js`', ''].join(
+        '\n'
+      ),
+      'utf8'
+    );
+
+    const result = groundImplementation('REQ-002', trdPath, { gitExec: jest.fn() });
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result.reason).toMatch(/no task .* satisfies/i);
   });
 });

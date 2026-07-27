@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.3.0
+version: 1.4.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -23,6 +23,8 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 **v1.2.0 amendment:** `pr-state.js`'s REQ-001 trigger check (TRD-003) hardcodes `gh` (GitHub CLI) as its only PR-detection mechanism. This TRD's own consuming repo, CRIBs, is hosted on Azure DevOps Repos (`dev.azure.com/progenyhealth/CRIBs`), not GitHub — `gh pr list` cannot resolve a PR for a non-GitHub repo at all, and `checkPrState`'s existing behavior silently maps every exec failure to `{hasOpenPr: false, ...}`. The practical effect: in CRIBs, the session would **always** report "no open PR" and permanently refuse to start, regardless of whether a PR is genuinely open in Azure DevOps — a false negative on REQ-001/AC-001-1, not a `gh`-auth problem. PR 6 (TRD-031/TRD-031-TEST) adds host detection and an Azure-DevOps-native PR-check path, following this package's established "pure decision logic over already-MCP-fetched data" convention (`ado-test-suite.js`, `ado-test-case-sync.js`) since Azure DevOps MCP tools are agent-invocable only, not shell-out-able like `gh`/`git`.
 
 **v1.3.0 amendment:** live-dogfooding PR 6 against a real, open CRIBs PR surfaced two further bugs in the same area, both found before PR 6 had even merged: (1) neither `checkPrState()` nor `checkPrStateAdo()` surfaced the PR's actual base/target branch, so `implementation-grounding.js`'s `groundImplementation()` kept falling back to its hardcoded `main`/`origin/main` default even on CRIBs — whose feature branches target `integration`, not `main` — silently diffing against the wrong base and pulling in unrelated already-integrated work as if it belonged to the PR under test; (2) `checkPrStateAdo()`'s `pr.status === 'active'` string check always failed against a live Azure DevOps MCP server response, which serializes `status` as the underlying .NET `PullRequestStatus` enum's numeric ordinal (`1` = Active) rather than the REST API's string form — meaning PR 6's own Azure DevOps path, while passing every hand-written (string-status) unit test, was still non-functional against the real server. PR 7 (TRD-032/TRD-032-TEST) fixes both: `checkPrState()`/`checkPrStateAdo()` now surface `baseBranch`, threaded through the orchestrator into every `groundImplementation()` call (including the AC-gap override re-run); `isAdoStatusActive()` accepts both the numeric and string status representations; `implementation-grounding.js`'s `resolveMergeBase()` tries an explicit `baseBranch` both bare and `origin/`-prefixed, mirroring the fallback its own hardcoded defaults already got.
+
+**v1.4.0 amendment:** confirmed live against a real, installed CRIBs plugin (not the monorepo checkout): `implementation-grounding.js`'s `DEFAULT_TRD_CLI_PATH = path.resolve(__dirname, '../../development/lib/trd-cli.js')` assumed `packages/e2e-testing` and `packages/development` are sibling directories under a shared `packages/` root — true only in the monorepo, not once each package is published and installed independently as a separate Claude Code plugin (each lands in its own top-level plugin-cache directory). Every `groundImplementation()` call ENOENT'd resolving `trd-cli.js` before any REQ-specific logic ran, unconditionally — the three fixes from PR 6/PR 7 were all correct but moot, since grounding never got far enough to exercise any of them once actually installed. Not caught by the existing 300+ passing tests because every one of them injects `opts.parseTrd`, so `defaultParseTrd()` — the function that actually resolved the broken path — was never exercised. PR 8 (TRD-033/TRD-033-TEST) fixes this the same way `packages/e2e-testing/lib/prd-ac-parser.js` already resolved the identical "e2e-testing needs a sibling package's parser" problem for PRD parsing: a new, scoped `packages/e2e-testing/lib/trd-task-parser.js` extracting only what grounding actually needs (`tasksById` with `satisfies`/`targetFiles` per task — not trd-parser.js's full PR/Phase/Sprint/AC/synthetic-task surface), called in-process with no subprocess and no cross-package path at all. Verified by running the real `groundImplementation()` (no mocks) from an isolated directory with no sibling `development` package present at all, reproducing the installed-plugin layout exactly. Also fixed, incidentally: `extractSatisfies()`'s regex only captured the first REQ id in a multi-REQ `[satisfies REQ-005, REQ-012]` bracket — a real, common convention in this repo's own TRDs — a bug this new module inherited by porting trd-parser.js's exact regex, caught by its own test suite, and fixed in the new module (trd-parser.js itself still has it; out of scope here, worth a separate look).
 
 ## Architecture Decision
 
@@ -368,6 +370,21 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 - [x] **TRD-032-TEST**: Verify baseBranch surfacing/threading and both ADO status representations (3h) [verifies TRD-032] [satisfies REQ-001, REQ-002] [depends: TRD-032]
   - Target Files: `packages/e2e-testing/tests/pr-state.test.js`, `packages/e2e-testing/tests/implementation-grounding.test.js`
 
+### PR 8: Grounding Works Once Actually Installed as a Plugin
+
+**Shippable State:** `groundImplementation()` resolves the TRD parser correctly when `packages/e2e-testing` is installed as an independent Claude Code plugin with no sibling `packages/development` directory present — not just in the monorepo checkout.
+
+- [x] **TRD-033**: Replace the cross-package `trd-cli.js` shell-out with a scoped, in-package TRD task parser (5h) [satisfies REQ-002] [depends: TRD-004]
+  - Target Files: `packages/e2e-testing/lib/trd-task-parser.js` (new), `packages/e2e-testing/lib/implementation-grounding.js`
+  - Implementation AC:
+    - Given `packages/e2e-testing` installed with no sibling `packages/development` directory anywhere on disk, when `groundImplementation()` runs without an injected `opts.parseTrd`, then it correctly resolves `tasksById` via the new in-package `trd-task-parser.js` — no `ENOENT`, no subprocess, no cross-package path.
+    - Given a task's `[satisfies REQ-005, REQ-012]` annotation lists more than one REQ in a single bracket, when `trd-task-parser.js` extracts `satisfies`, then every REQ id is captured, not just the first.
+
+- [x] **TRD-033-TEST**: Verify the real (non-mocked) default parseTrd path, isolated from any sibling `development` package (4h) [verifies TRD-033] [satisfies REQ-002] [depends: TRD-033]
+  - Target Files: `packages/e2e-testing/tests/trd-task-parser.test.js` (new), `packages/e2e-testing/tests/implementation-grounding.test.js`
+  - Implementation AC:
+    - Given a real TRD file written to a temp directory, when `groundImplementation()` is called without `opts.parseTrd`, then it grounds correctly via the real default path — the exact code path 300+ mocked-`parseTrd` tests never once exercised, which is what let this ship.
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
@@ -377,6 +394,8 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 > **v1.2.0 addendum:** PR 6 (TRD-031/TRD-031-TEST) adds 2 tasks / 7h, fixing `pr-state.js`'s GitHub-only assumption. `backend-developer` fits (plain Node.js library logic + git-remote parsing), not `playwright-tester`.
 >
 > **v1.3.0 addendum:** PR 7 (TRD-032/TRD-032-TEST) adds 2 tasks / 7h, found live-dogfooding PR 6 against a real CRIBs PR before PR 6 had even merged. `backend-developer` fits, same as PR 6.
+>
+> **v1.4.0 addendum:** PR 8 (TRD-033/TRD-033-TEST) adds 2 tasks / 9h, found live-testing the actual installed plugin against a real CRIBs PR. `backend-developer` fits.
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `cribs-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -429,13 +448,14 @@ team:
 
 - PR 6: Azure DevOps Repos support for the REQ-001 trigger check (v1.2.0 addendum — see amendment note above).
 - PR 7: real base-branch grounding and live Azure DevOps MCP status format (v1.3.0 addendum — see amendment note above).
+- PR 8: grounding works once actually installed as a plugin (v1.4.0 addendum — see amendment note above).
 
 ## Acceptance Criteria Traceability
 
 | REQ | Description | Implementation Tasks | Test Tasks |
 |-----|-------------|----------------------|------------|
 | REQ-001 | Post-implementation trigger | TRD-003, TRD-031, TRD-032 | TRD-003-TEST, TRD-031-TEST, TRD-032-TEST |
-| REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025, TRD-032 | TRD-002-TEST, TRD-004-TEST, TRD-032-TEST |
+| REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025, TRD-032, TRD-033 | TRD-002-TEST, TRD-004-TEST, TRD-032-TEST, TRD-033-TEST |
 | REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027 | TRD-010-TEST |
 | REQ-004 | REQ-level batching with checkpoints | TRD-009, TRD-026 | TRD-009-TEST |
 | REQ-005 | In-session test confirmation run | TRD-011, TRD-026 | TRD-011-TEST |
@@ -477,6 +497,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 3. **Issue (found post-implementation, v1.2.0):** TRD-003's REQ-001 trigger check hardcodes `gh` (GitHub CLI). CRIBs — this TRD's own consuming repo — is hosted on Azure DevOps Repos, not GitHub, so `checkPrState()` always falls into its exec-failure path and reports `hasOpenPr: false` regardless of true PR state, permanently blocking the session in the one repo this TRD was written for.
    **Resolution:** Added PR 6 (TRD-031/TRD-031-TEST): `detectRepoHost()` classifies the `origin` remote, and `checkPrStateAdo()` normalizes an orchestrator-fetched Azure DevOps PR list into the same `{hasOpenPr, state, url, number}` shape `checkPrState()` already returns for GitHub — additive only, TRD-003's GitHub path is untouched.
 
+4. **Issue (found live-testing the installed plugin, v1.4.0):** TRD-004's `groundImplementation()` resolved `packages/development/lib/trd-cli.js` via a hardcoded relative path assuming `packages/e2e-testing` and `packages/development` are sibling directories under a shared `packages/` root — true only in the monorepo checkout. Once installed as independently-published Claude Code plugins, each lands in its own top-level plugin-cache directory; the path resolves to nowhere, and grounding ENOENT'd for every REQ, unconditionally, the moment the plugin was actually installed. Every existing test injected `opts.parseTrd`, so the broken default path was never once exercised despite 300+ passing tests.
+   **Resolution:** Added PR 8 (TRD-033/TRD-033-TEST): a new, scoped `packages/e2e-testing/lib/trd-task-parser.js` extracting only what grounding needs (`tasksById` with `satisfies`/`targetFiles`), called in-process — no subprocess, no cross-package path — following the exact precedent `packages/e2e-testing/lib/prd-ac-parser.js` already set for the identical problem in PRD parsing. Verified by running the real `groundImplementation()` from a directory with no sibling `development` package present at all.
+
 ### Dependency and Estimate Issues
 
 1. **Issue:** The chain TRD-001 → TRD-003 → TRD-004 → TRD-008 → TRD-010 → TRD-012 is depth 6 (> 3).
@@ -502,5 +525,6 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 - PR 1-4 (TRD-001 through TRD-024): implemented, tested, and merged via PR #10 — no further action.
 - PR 5 (TRD-025 through TRD-030-TEST): implemented directly on the same branch/PR #10, verified via `packages/e2e-testing`'s test suite plus a fixture dry-run chaining all 12 pipeline stages. Ready to merge.
 - PR 6 (TRD-031/TRD-031-TEST): implemented directly on the same branch/PR #10, verified against CRIBs' actual Azure DevOps remote URL and its own test suite.
-- PR 7 (TRD-032/TRD-032-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 = 50/50 tasks now complete), found and verified live-dogfooding PR 6 against a real, open CRIBs PR. `packages/e2e-testing` is 328/328.
-- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0/v1.2.0/v1.3.0 amendment notes under Document Overview.
+- PR 7 (TRD-032/TRD-032-TEST): implemented directly on the same branch/PR #10, found and verified live-dogfooding PR 6 against a real, open CRIBs PR.
+- PR 8 (TRD-033/TRD-033-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 = 52/52 tasks now complete), found and verified live-testing the actual installed plugin against a real CRIBs PR. `packages/e2e-testing` is 339/339.
+- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0/v1.2.0/v1.3.0/v1.4.0 amendment notes under Document Overview.

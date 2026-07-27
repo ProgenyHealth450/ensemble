@@ -7,11 +7,29 @@
  * REQ so a later interactive session can ground a proposed Playwright test in
  * the actual implementing diff rather than PRD prose alone:
  *
- *   1. Parse the TRD (via the existing packages/development/lib/trd-cli.js
- *      `parse` subcommand — reused, not re-implemented) to get `tasksById`.
+ *   1. Parse the TRD (via ./trd-task-parser.js, in-process) to get `tasksById`.
  *   2. Find the task(s) whose `satisfies` includes the REQ.
  *   3. For each task's `targetFiles`, get that file's git diff on the current
  *      branch vs. its merge-base with main/origin main.
+ *
+ * TRD-033: this originally shelled out to packages/development/lib/trd-cli.js
+ * via a hardcoded `path.resolve(__dirname, '../../development/lib/trd-cli.js')`
+ * — correct only in the monorepo checkout, where e2e-testing and development
+ * are sibling directories under a shared packages/ root. Once installed as
+ * real, independently-published Claude Code plugins, they land in separate
+ * top-level plugin-cache directories; that relative path resolves to a
+ * location that never exists, and grounding failed outright, for every REQ,
+ * unconditionally, the moment the plugin was actually installed (confirmed
+ * live against a real CRIBs PR: ENOENT resolving trd-cli.js — found live-
+ * dogfooding this feature, same as the merge-base/ADO-status bugs it sits
+ * beside). No Claude Code plugin-dependency mechanism guarantees a stable,
+ * version-independent filesystem path between two separately-versioned
+ * plugin installs, so no cross-package path could be made to work reliably
+ * post-install. Fixed by porting a small, scoped parser
+ * (./trd-task-parser.js) into this package instead — the same "slimmed-down
+ * sibling, not imported cross-package" pattern packages/e2e-testing/lib/
+ * prd-ac-parser.js already established for the PRD-parsing equivalent of
+ * this exact problem.
  *
  * Implementation AC (TRD-004): a REQ whose implementing files can't be
  * located never silently returns nothing and never throws — it reports an
@@ -19,14 +37,13 @@
  * `{grounded: false, gap: true, reason}` result rather than throwing.
  *
  * Follows the injectable-exec convention from ./pr-state.js so the sibling
- * TRD-004-TEST task can stub git / trd-cli / file-system calls.
+ * TRD-004-TEST task can stub git / TRD-parsing / file-system calls.
  */
 
 const fs = require('fs');
-const path = require('path');
 const { execFileSync } = require('child_process');
+const { parseTrdTasks } = require('./trd-task-parser');
 
-const DEFAULT_TRD_CLI_PATH = path.resolve(__dirname, '../../development/lib/trd-cli.js');
 const DEFAULT_BASE_BRANCH_CANDIDATES = ['main', 'origin/main'];
 
 /** Default `git` invocation — swappable via `opts.gitExec` for tests. */
@@ -35,30 +52,13 @@ function defaultGitExec(args) {
 }
 
 /**
- * Default TRD parse — shells out to the shared trd-cli.js `parse` subcommand
- * (reusing the existing deterministic parser) and returns its `trd` object.
- * Swappable via `opts.parseTrd` for tests (avoids spawning a real subprocess).
+ * Default TRD parse — reads the TRD file and parses it in-process via
+ * ./trd-task-parser.js's parseTrdTasks(). Swappable via `opts.parseTrd` for
+ * tests. No subprocess, no cross-package path — see the module header for why.
  */
-function defaultParseTrd(trdPath, opts) {
-  const trdCliPath = (opts && opts.trdCliPath) || DEFAULT_TRD_CLI_PATH;
-  let raw;
-  try {
-    raw = execFileSync(process.execPath, [trdCliPath, 'parse', trdPath], {
-      encoding: 'utf8',
-      stdio: 'pipe',
-    });
-  } catch (err) {
-    // trd-cli.js always writes {"error": "..."} to stdout even on its
-    // non-zero-exit failure paths — prefer that specific message over the
-    // generic "Command failed" wrapper execFileSync throws.
-    raw = err.stdout;
-    if (!raw) throw err;
-  }
-  const result = JSON.parse(raw);
-  if (result.error) {
-    throw new Error(result.error);
-  }
-  return result.trd;
+function defaultParseTrd(trdPath) {
+  const text = fs.readFileSync(trdPath, 'utf8');
+  return parseTrdTasks(text);
 }
 
 /** Build the standard "grounding gap" result shape. Never throw — always this instead. */
@@ -115,7 +115,6 @@ function diffFile(gitExec, mergeBaseSha, file) {
  * @param {(args: string[]) => string} [opts.gitExec] - injectable git runner
  * @param {(trdPath: string, opts: object) => object} [opts.parseTrd] - injectable TRD parser
  * @param {(p: string) => boolean} [opts.existsSync] - injectable fs.existsSync
- * @param {string} [opts.trdCliPath] - override path to trd-cli.js (passed to the default parseTrd)
  * @param {string} [opts.baseBranch] - override the branch to merge-base against
  * @returns {{grounded: true, reqId: string, files: string[], diffs: Array<{file:string, diff:string}>, partialGaps: string[]}
  *          | {grounded: false, gap: true, reqId: string, trdPath: string, reason: string}}
@@ -207,5 +206,4 @@ module.exports = {
   // exported for unit testing of the helpers
   resolveMergeBase,
   diffFile,
-  DEFAULT_TRD_CLI_PATH,
 };
