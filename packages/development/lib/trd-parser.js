@@ -89,6 +89,11 @@ const TEST_KEYWORDS = [
   'playwright',
 ];
 
+/** Normalize CRLF/CR to LF so every downstream regex can assume '\n'. */
+function normalizeLineEndings(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------
@@ -729,7 +734,15 @@ function addSyntheticValidationTasks(tasksById, phases, allLines, warnings) {
  */
 function parseTRD(markdownString) {
   const warnings = [];
-  const md = typeof markdownString === 'string' ? markdownString : '';
+  // CRLF safety: every heading/task-line regex below is `$`-anchored, and JS
+  // regex treats `\r` as its own line terminator that `.` cannot consume —
+  // so a lone trailing `\r` (CRLF source, the norm for this repo's own
+  // Windows-authored TRDs) makes those regexes fail to match at all, even
+  // though the line trimmed correctly. packages/e2e-testing/lib/prd-ac-parser.js
+  // hit the identical class of bug in the sibling PRD parser and fixed it the
+  // same way: normalize line endings once, up front, before any line-based
+  // regex runs.
+  const md = normalizeLineEndings(typeof markdownString === 'string' ? markdownString : '');
 
   const { frontmatter, body } = splitFrontmatter(md);
   const designReadinessScore = extractDesignReadinessScore(frontmatter);
@@ -928,4 +941,4 @@ function parseTRD(markdownString) {
   };
 }
 
-module.exports = { parseTRD };
+module.exports = { parseTRD, normalizeLineEndings };
