@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.1.0
+version: 1.2.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -19,6 +19,8 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 **MCP enhancement:** attempted per the standard workflow — `inject_checkpoints`, `assess_complexity`, and `generate_workflow_section` are not present among available MCP tools (only concrete servers like Azure DevOps/Playwright are). Fell back to the manual equivalents: checkpoints are built into REQ-004/TRD-009, complexity/estimates are assigned directly on each task below, and the PR/Sprint structure below is hand-authored.
 
 **v1.1.0 amendment:** pre-merge verification of PR 1-4 (all 39 tasks, `feature/trd-2026-da72aa86-interactive-playwright-test-authoring`, PR #10) found that `packages/e2e-testing/commands/author-playwright-tests.yaml` — the orchestrator this TRD's own architecture assigns "Session lifecycle, prompts, REQ-batching, delegation dispatch, final output" to — was only ever touched by TRD-001, TRD-003, TRD-006, and TRD-007. None of TRD-004/005/008-024 (grounding, resume, delegation, batching, decision loop, landing, tagging, all three ADO-sync modules, gap detection/filing, summaries, logging) ever added their step to the orchestrator's workflow. Every one of those exists as a real, unit-tested `lib/*.js` module (hence 300/300 green) — but nothing chains them together, so the shipped command today halts after the headed/headless prompt (TRD-007) and does nothing further. PR 5 (TRD-025 through TRD-030-TEST) wires the existing modules into the orchestrator's workflow (command version bumped to 2.0.0); it adds no new library logic. **Update: PR 5 is now implemented** — `author-playwright-tests.yaml` carries Phases 3-7 chaining all 19 pipeline modules in order, `tests/author-playwright-tests-workflow.test.js` (TRD-030-TEST) structurally guards against this wiring regressing again, and a fixture dry-run chained all 12 pipeline stages against real function calls with no shape mismatches. `packages/e2e-testing` is 306/306.
+
+**v1.2.0 amendment:** `pr-state.js`'s REQ-001 trigger check (TRD-003) hardcodes `gh` (GitHub CLI) as its only PR-detection mechanism. This TRD's own consuming repo, CRIBs, is hosted on Azure DevOps Repos (`dev.azure.com/progenyhealth/CRIBs`), not GitHub — `gh pr list` cannot resolve a PR for a non-GitHub repo at all, and `checkPrState`'s existing behavior silently maps every exec failure to `{hasOpenPr: false, ...}`. The practical effect: in CRIBs, the session would **always** report "no open PR" and permanently refuse to start, regardless of whether a PR is genuinely open in Azure DevOps — a false negative on REQ-001/AC-001-1, not a `gh`-auth problem. PR 6 (TRD-031/TRD-031-TEST) adds host detection and an Azure-DevOps-native PR-check path, following this package's established "pure decision logic over already-MCP-fetched data" convention (`ado-test-suite.js`, `ado-test-case-sync.js`) since Azure DevOps MCP tools are agent-invocable only, not shell-out-able like `gh`/`git`.
 
 ## Architecture Decision
 
@@ -335,11 +337,28 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
     - Given `author-playwright-tests.yaml`, when parsed, then every `lib/*.js` module listed in this TRD's Component Boundaries table is referenced by name in some workflow step, in the same order as the System Architecture pipeline diagram.
     - Given the same file, when scanned, then no workflow step's description matches placeholder language (e.g. "implemented in later TRD tasks") deferring logic that this TRD claims is already delivered.
 
+### PR 6: Azure DevOps Repo Support for the Trigger Check
+
+**Shippable State:** Running `/ensemble:author-playwright-tests` in a repo hosted on Azure DevOps Repos (e.g. CRIBs) correctly detects an open PR and proceeds, instead of always halting with "no open PR" regardless of actual PR state.
+
+- [x] **TRD-031**: Add git-host detection and an Azure-DevOps-native PR-check path to `pr-state.js`; wire the orchestrator to use it (4h) [satisfies REQ-001] [depends: TRD-003]
+  - Target Files: `packages/e2e-testing/lib/pr-state.js`, `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given the current repo's `origin` remote resolves to `dev.azure.com` or `*.visualstudio.com`, when `detectRepoHost()` runs, then it returns `{host: 'azure-devops', organization, project, repository}` parsed from the remote URL, never guessing at a GitHub check for a non-GitHub remote.
+    - Given the current repo's `origin` remote resolves to `github.com`, when `detectRepoHost()` runs, then `checkPrState()` behaves exactly as before (TRD-003, unchanged) — this is purely additive.
+    - Given an Azure DevOps repo and an already-fetched PR list (the orchestrator's own Azure DevOps MCP call — this module has no MCP client, matching `ado-test-suite.js`'s established boundary), when `checkPrStateAdo(branch, prs)` runs, then it returns the exact same `{hasOpenPr, state, url, number}` shape `checkPrState()` returns for GitHub, so the rest of the pipeline never needs to know which host produced it.
+    - Given the orchestrator's Trigger Check step, when the repo host is Azure DevOps, then it calls the Azure DevOps MCP server's PR-list tool with `detectRepoHost()`'s resolved organization/project/repository and feeds the response through `checkPrStateAdo()`, rather than calling `gh`.
+
+- [x] **TRD-031-TEST**: Verify GitHub behavior is unchanged, Azure DevOps host/PR detection is correct, and unrecognized hosts never silently guess (3h) [verifies TRD-031] [satisfies REQ-001] [depends: TRD-031]
+  - Target File: `packages/e2e-testing/tests/pr-state.test.js`
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
 >
 > **v1.1.0 addendum:** PR 5 (TRD-025 through TRD-030-TEST) adds 7 tasks / 18h, all pure orchestrator-wiring against the existing `author-playwright-tests.yaml`. Not yet run back through `/ensemble:configure-team` — do that before team assignment, since these tasks sit outside the domain-keyword false positives noted below (they're prompt/workflow edits, not library code, closer to `tech-lead-orchestrator`/`backend-developer` than `playwright-tester`).
+>
+> **v1.2.0 addendum:** PR 6 (TRD-031/TRD-031-TEST) adds 2 tasks / 7h, fixing `pr-state.js`'s GitHub-only assumption. `backend-developer` fits (plain Node.js library logic + git-remote parsing), not `playwright-tester`.
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `cribs-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -388,11 +407,15 @@ team:
 
 - PR 5: Chain the built-and-tested `lib/*.js` modules into the orchestrator command (v1.1.0 addendum — see amendment note above).
 
+## Sprint 5: Multi-Host Repo Support
+
+- PR 6: Azure DevOps Repos support for the REQ-001 trigger check (v1.2.0 addendum — see amendment note above).
+
 ## Acceptance Criteria Traceability
 
 | REQ | Description | Implementation Tasks | Test Tasks |
 |-----|-------------|----------------------|------------|
-| REQ-001 | Post-implementation trigger | TRD-003 | TRD-003-TEST |
+| REQ-001 | Post-implementation trigger | TRD-003, TRD-031 | TRD-003-TEST, TRD-031-TEST |
 | REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025 | TRD-002-TEST, TRD-004-TEST |
 | REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027 | TRD-010-TEST |
 | REQ-004 | REQ-level batching with checkpoints | TRD-009, TRD-026 | TRD-009-TEST |
@@ -432,6 +455,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 2. **Issue (found in pre-merge verification, v1.1.0):** PR 2, 3, and 4's Shippable State claims ("Sonia can run a full interactive session and get real, human-confirmed Playwright tests landed"; ADO Test Case sync; AC-gap Task filing) were not actually true of the shipped command. Every task in PR 2-4 built and unit-tested a `lib/*.js` module in isolation, but none of them wired that module into `author-playwright-tests.yaml`'s workflow — the orchestrator this TRD's own architecture assigns that responsibility to. Running the command today still halts after TRD-007's headed/headless prompt. 39/39 tasks checked and 300/300 tests green measured library correctness, not that the command actually invokes the library.
    **Resolution:** Added PR 5 (TRD-025 through TRD-030-TEST) to wire the existing modules into the orchestrator, plus a structural test (TRD-030-TEST) that fails if a future change lets the orchestrator's workflow drift back out of sync with the modules it's supposed to call. No PR 1-4 task or its Shippable State claim was altered — this is corrective, additive scope.
 
+3. **Issue (found post-implementation, v1.2.0):** TRD-003's REQ-001 trigger check hardcodes `gh` (GitHub CLI). CRIBs — this TRD's own consuming repo — is hosted on Azure DevOps Repos, not GitHub, so `checkPrState()` always falls into its exec-failure path and reports `hasOpenPr: false` regardless of true PR state, permanently blocking the session in the one repo this TRD was written for.
+   **Resolution:** Added PR 6 (TRD-031/TRD-031-TEST): `detectRepoHost()` classifies the `origin` remote, and `checkPrStateAdo()` normalizes an orchestrator-fetched Azure DevOps PR list into the same `{hasOpenPr, state, url, number}` shape `checkPrState()` already returns for GitHub — additive only, TRD-003's GitHub path is untouched.
+
 ### Dependency and Estimate Issues
 
 1. **Issue:** The chain TRD-001 → TRD-003 → TRD-004 → TRD-008 → TRD-010 → TRD-012 is depth 6 (> 3).
@@ -455,5 +481,6 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 ## Next Steps
 
 - PR 1-4 (TRD-001 through TRD-024): implemented, tested, and merged via PR #10 — no further action.
-- PR 5 (TRD-025 through TRD-030-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 = 46/46 tasks now complete), verified via `packages/e2e-testing`'s 306/306 test suite plus a fixture dry-run chaining all 12 pipeline stages. Ready to merge.
-- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0 amendment note under Document Overview.
+- PR 5 (TRD-025 through TRD-030-TEST): implemented directly on the same branch/PR #10, verified via `packages/e2e-testing`'s test suite plus a fixture dry-run chaining all 12 pipeline stages. Ready to merge.
+- PR 6 (TRD-031/TRD-031-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 = 48/48 tasks now complete), verified against CRIBs' actual Azure DevOps remote URL and its own test suite.
+- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0/v1.2.0 amendment notes under Document Overview.

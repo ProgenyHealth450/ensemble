@@ -1,6 +1,6 @@
 'use strict';
 
-const { checkPrState, NO_OPEN_PR_MESSAGE } = require('../lib/pr-state');
+const { checkPrState, checkPrStateAdo, detectRepoHost, NO_OPEN_PR_MESSAGE } = require('../lib/pr-state');
 
 describe('checkPrState (AC-001-1: no open PR halts)', () => {
   test('empty array from gh -> hasOpenPr: false', () => {
@@ -58,5 +58,96 @@ describe('checkPrState (argv safety)', () => {
       '--json',
       'number,state,url',
     ]);
+  });
+});
+
+describe('detectRepoHost (TRD-031)', () => {
+  test('github.com remote -> host: github, checkPrState behavior untouched', () => {
+    const gitExec = jest.fn(() => 'https://github.com/ProgenyHealth450/ensemble.git\n');
+    expect(detectRepoHost({ gitExec })).toEqual({
+      host: 'github',
+      remoteUrl: 'https://github.com/ProgenyHealth450/ensemble.git',
+    });
+  });
+
+  test('modern Azure DevOps remote (with user@ prefix) -> host: azure-devops, org/project/repo parsed', () => {
+    const gitExec = jest.fn(() => 'https://progenyhealth@dev.azure.com/progenyhealth/CRIBs/_git/CRIBs\n');
+    expect(detectRepoHost({ gitExec })).toEqual({
+      host: 'azure-devops',
+      remoteUrl: 'https://progenyhealth@dev.azure.com/progenyhealth/CRIBs/_git/CRIBs',
+      organization: 'progenyhealth',
+      project: 'CRIBs',
+      repository: 'CRIBs',
+    });
+  });
+
+  test('modern Azure DevOps remote (no user@ prefix, trailing .git) -> parsed the same', () => {
+    const gitExec = jest.fn(() => 'https://dev.azure.com/myorg/My%20Project/_git/my-repo.git\n');
+    expect(detectRepoHost({ gitExec })).toEqual({
+      host: 'azure-devops',
+      remoteUrl: 'https://dev.azure.com/myorg/My%20Project/_git/my-repo.git',
+      organization: 'myorg',
+      project: 'My Project',
+      repository: 'my-repo',
+    });
+  });
+
+  test('legacy *.visualstudio.com remote -> host: azure-devops, org/project/repo parsed', () => {
+    const gitExec = jest.fn(() => 'https://myorg.visualstudio.com/MyProject/_git/my-repo\n');
+    expect(detectRepoHost({ gitExec })).toEqual({
+      host: 'azure-devops',
+      remoteUrl: 'https://myorg.visualstudio.com/MyProject/_git/my-repo',
+      organization: 'myorg',
+      project: 'MyProject',
+      repository: 'my-repo',
+    });
+  });
+
+  test('unrecognized host -> host: unknown, never guessed as github or azure-devops', () => {
+    const gitExec = jest.fn(() => 'https://bitbucket.org/someorg/somerepo.git\n');
+    expect(detectRepoHost({ gitExec })).toEqual({
+      host: 'unknown',
+      remoteUrl: 'https://bitbucket.org/someorg/somerepo.git',
+    });
+  });
+
+  test('gitExec throws (no origin remote, git not available) -> host: unknown, never throws', () => {
+    const gitExec = jest.fn(() => {
+      throw new Error('fatal: No such remote \'origin\'');
+    });
+    expect(detectRepoHost({ gitExec })).toEqual({ host: 'unknown', remoteUrl: null });
+  });
+});
+
+describe('checkPrStateAdo (TRD-031: same {hasOpenPr, state, url, number} contract as checkPrState)', () => {
+  test('an active PR on the matching branch -> hasOpenPr: true', () => {
+    const prs = [
+      { pullRequestId: 42, status: 'active', sourceRefName: 'refs/heads/feature/trd-003', url: 'https://dev.azure.com/org/proj/_git/repo/pullrequest/42' },
+    ];
+    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({
+      hasOpenPr: true,
+      state: 'active',
+      url: 'https://dev.azure.com/org/proj/_git/repo/pullrequest/42',
+      number: 42,
+    });
+  });
+
+  test('a completed/abandoned PR on the matching branch -> hasOpenPr: false (not "active")', () => {
+    const prs = [
+      { pullRequestId: 41, status: 'completed', sourceRefName: 'refs/heads/feature/trd-003' },
+      { pullRequestId: 40, status: 'abandoned', sourceRefName: 'refs/heads/feature/trd-003' },
+    ];
+    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+  });
+
+  test('an active PR on a different branch -> hasOpenPr: false', () => {
+    const prs = [{ pullRequestId: 42, status: 'active', sourceRefName: 'refs/heads/some-other-branch' }];
+    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+  });
+
+  test('empty/non-array input -> hasOpenPr: false, never throws', () => {
+    expect(checkPrStateAdo('feature/x', [])).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(checkPrStateAdo('feature/x', null)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(checkPrStateAdo('feature/x', undefined)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
   });
 });

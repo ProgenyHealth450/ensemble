@@ -1,7 +1,7 @@
 ---
 name: ensemble:author-playwright-tests
 description: Interactive, post-implementation Playwright test-authoring session grounded in shipped code and PRD acceptance criteria
-version: 2.0.0
+version: 2.1.0
 category: testing
 last-updated: 2026-07-27
 argument-hint: [story-or-pr-reference]
@@ -22,15 +22,15 @@ DevOps Test Case/Suite as plain-English steps.
 
 **1. Trigger Check — Open PR Required**
    REQ-001: this session may only start once implement-trd-beads has
-shipped a PR boundary for the target branch. Before proceeding,
-call packages/e2e-testing/lib/pr-state.js's checkPrState(branch)
-with the current branch (or the story/PR reference passed as the
-command argument, resolved to a branch name) to determine whether
-an open PR exists.
+shipped a PR boundary for the target branch. TRD-031: the target
+repo may be hosted on GitHub or Azure DevOps Repos (e.g. CRIBs) —
+detect which before checking, never assume gh/GitHub.
 
 
    - Resolve the target branch: current git branch, or the branch backing the story/PR reference argument
-   - Call checkPrState(branch) from packages/e2e-testing/lib/pr-state.js
+   - Call detectRepoHost() from packages/e2e-testing/lib/pr-state.js
+   - If host is "github" or "unknown": call checkPrState(branch) from the same module (unchanged gh-based behavior)
+   - If host is "azure-devops": call the Azure DevOps MCP server's PR-list tool (e.g. repo_list_pull_requests_by_repo_or_project) with detectRepoHost()'s resolved organization/project/repository, then call checkPrStateAdo(branch, prs) from the same module to get the normalized result
    - If hasOpenPr is false: halt the session and print pr-state.js's NO_OPEN_PR_MESSAGE (run /ensemble:implement-trd-beads first) — do not proceed to grounding, execution, or sync
    - If hasOpenPr is true: proceed with the session on that same branch/PR — all authored test commits land there
 
