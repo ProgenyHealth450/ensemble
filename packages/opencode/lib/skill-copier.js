@@ -14,6 +14,11 @@
 const fs = require('fs');
 const path = require('path');
 
+/** Normalize CRLF/CR to LF so frontmatter delimiter checks can assume '\n'. */
+function normalizeLineEndings(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 /**
  * Parse YAML frontmatter from a markdown string.
  * Returns { data: {}, content: string, hasFrontmatter: boolean }
@@ -22,9 +27,12 @@ const path = require('path');
  * the simple YAML frontmatter format used in SKILL.md files.
  */
 function parseFrontmatter(input) {
-  const trimmed = input;
+  // CRLF safety: the delimiter checks below require a literal '\n' next to
+  // '---', so a CRLF-sourced file (the norm on Windows checkouts with
+  // core.autocrlf=true) would silently read as having no frontmatter at all.
+  const trimmed = normalizeLineEndings(input);
   if (!trimmed.startsWith('---\n')) {
-    return { data: {}, content: input, hasFrontmatter: false };
+    return { data: {}, content: trimmed, hasFrontmatter: false };
   }
 
   const endIndex = trimmed.indexOf('\n---\n', 4);
@@ -35,7 +43,7 @@ function parseFrontmatter(input) {
       const data = parseSimpleYaml(yamlStr);
       return { data, content: '', hasFrontmatter: true };
     }
-    return { data: {}, content: input, hasFrontmatter: false };
+    return { data: {}, content: trimmed, hasFrontmatter: false };
   }
 
   const yamlStr = trimmed.slice(4, endIndex);
@@ -389,4 +397,4 @@ class SkillCopier {
   }
 }
 
-module.exports = { SkillCopier, parseFrontmatter, stringifyFrontmatter };
+module.exports = { SkillCopier, parseFrontmatter, stringifyFrontmatter, normalizeLineEndings };

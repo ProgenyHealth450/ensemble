@@ -13,6 +13,11 @@ function run(command) {
   return execSync(command, { cwd: ROOT, encoding: 'utf8' }).trim();
 }
 
+/** Normalize CRLF/CR to LF so the changelog-header regex can assume '\n'. */
+function normalizeLineEndings(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 function parseArgs(argv) {
   const args = argv.slice(2);
   const out = {
@@ -107,8 +112,16 @@ function buildReleaseNotes(version, previousTag, commits) {
   return lines.join('\n').trimEnd() + '\n';
 }
 
-function updateChangelog(version, notes) {
-  const changelog = fs.readFileSync(CHANGELOG, 'utf8');
+function updateChangelog(version, notes, opts = {}) {
+  const readFileSync = opts.readFileSync || ((p) => fs.readFileSync(p, 'utf8'));
+  const writeFileSync = opts.writeFileSync || ((p, content) => fs.writeFileSync(p, content, 'utf8'));
+
+  // CRLF safety: the header regex below requires a literal '\n' after
+  // "# Changelog", so a CRLF-sourced CHANGELOG.md (the norm on Windows
+  // checkouts with core.autocrlf=true) made this silently no-op — the new
+  // release-notes entry was dropped with no error, the file rewritten
+  // byte-identical.
+  const changelog = normalizeLineEndings(readFileSync(CHANGELOG));
   const lines = notes.split('\n');
   const summaryBullets = [];
   let capture = false;
@@ -123,7 +136,7 @@ function updateChangelog(version, notes) {
 
   const entry = [`## ${version}`, '', ...summaryBullets, ''].join('\n');
   const updated = changelog.replace(/^# Changelog\n\n/, `# Changelog\n\n${entry}`);
-  fs.writeFileSync(CHANGELOG, updated, 'utf8');
+  writeFileSync(CHANGELOG, updated);
 }
 
 function main(argv) {
@@ -148,3 +161,5 @@ function main(argv) {
 if (require.main === module) {
   main(process.argv);
 }
+
+module.exports = { updateChangelog, buildReleaseNotes, normalizeLineEndings };

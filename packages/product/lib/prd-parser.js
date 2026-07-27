@@ -75,6 +75,11 @@ const MOSCOW_RE = /\b(Must|Should|Could|Won't|Wont)\b/i;
 const COMPLEXITY_RE = /\b(Low|Medium|High)\b/i;
 const NEEDS_CLARIFICATION_RE = /\[NEEDS CLARIFICATION:[^\]]*\]/i;
 
+/** Normalize CRLF/CR to LF so every downstream regex can assume '\n'. */
+function normalizeLineEndings(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------
@@ -172,7 +177,13 @@ function parseAcLine(line) {
  * @returns {ParsedPRD}
  */
 function parsePRD(markdown) {
-  const text = String(markdown || '');
+  // CRLF safety: every heading/AC-line regex below is `$`-anchored, and JS
+  // regex treats `\r` as its own line terminator that `.` cannot consume — so
+  // a lone trailing `\r` (CRLF source, the norm on Windows checkouts with
+  // core.autocrlf=true) makes those regexes fail to match at all, even though
+  // the line is well-formed. Same fix as packages/development/lib/trd-parser.js
+  // and packages/e2e-testing/lib/prd-ac-parser.js.
+  const text = normalizeLineEndings(String(markdown || ''));
   const fm = parseFrontmatter(text);
   const lines = text.split('\n');
   const warnings = [];
@@ -283,4 +294,4 @@ function deriveLabel(documentId, title) {
   return stem ? `${type}-${stem}` : type;
 }
 
-module.exports = { parsePRD, splitClauses, parseAcLine, deriveLabel };
+module.exports = { parsePRD, splitClauses, parseAcLine, deriveLabel, normalizeLineEndings };

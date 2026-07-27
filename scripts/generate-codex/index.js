@@ -70,6 +70,11 @@ function copyFile(sourcePath, destPath, dryRun, verbose) {
   fs.copyFileSync(sourcePath, destPath);
 }
 
+/** Normalize CRLF/CR to LF so the frontmatter delimiter regex can assume '\n'. */
+function normalizeLineEndings(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 function parseSimpleFrontmatter(rawFrontmatter) {
   const data = {};
   for (const line of rawFrontmatter.split('\n')) {
@@ -85,9 +90,14 @@ function parseSimpleFrontmatter(rawFrontmatter) {
 }
 
 function parseFrontmatter(markdown) {
-  const match = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
+  // CRLF safety: the delimiter regex requires a literal '\n' next to '---',
+  // so a CRLF-sourced file (the norm on Windows checkouts with
+  // core.autocrlf=true) would silently discard real frontmatter as if it
+  // were part of the body.
+  const normalized = normalizeLineEndings(markdown);
+  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!match) {
-    return { data: {}, content: markdown };
+    return { data: {}, content: normalized };
   }
 
   let data;
@@ -97,7 +107,7 @@ function parseFrontmatter(markdown) {
     data = parseSimpleFrontmatter(match[1]);
   }
 
-  const content = markdown.slice(match[0].length);
+  const content = normalized.slice(match[0].length);
   return { data, content };
 }
 
@@ -125,7 +135,7 @@ function tomlString(value) {
 }
 
 function tomlMultiline(value) {
-  const normalized = String(value).replace(/\r\n/g, '\n').replace(/"""/g, '\\\"\\\"\\\"');
+  const normalized = normalizeLineEndings(value).replace(/"""/g, '\\\"\\\"\\\"');
   return `"""\n${normalized.trim()}\n"""`;
 }
 
@@ -399,4 +409,5 @@ module.exports = {
   buildCodexAgentsMd,
   detectAgentSkills,
   normalizeSkillBody,
+  normalizeLineEndings,
 };
