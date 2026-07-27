@@ -33,6 +33,7 @@ detect which before checking, never assume gh/GitHub.
    - If host is "azure-devops": call the Azure DevOps MCP server's PR-list tool (e.g. repo_list_pull_requests_by_repo_or_project) with detectRepoHost()'s resolved organization/project/repository, then call checkPrStateAdo(branch, prs) from the same module to get the normalized result
    - If hasOpenPr is false: halt the session and print pr-state.js's NO_OPEN_PR_MESSAGE (run /ensemble:implement-trd-beads first) — do not proceed to grounding, execution, or sync
    - If hasOpenPr is true: proceed with the session on that same branch/PR — all authored test commits land there
+   - Carry the result's baseBranch (the PR's real target branch, e.g. "integration" on CRIBs) forward as the session's resolved base branch — every groundImplementation() call in the next step passes it as opts.baseBranch, never letting that module fall back to guessing main/origin-main
 
 **2. Parse PRD, Ground Every REQ, Flag Gaps, and Resume-Scan**
    TRD-025 (satisfies REQ-002, REQ-009, REQ-011): build the story's
@@ -43,8 +44,8 @@ implementation code was found."
 
 
    - Call parsePrdAcs(prdText) from packages/e2e-testing/lib/prd-ac-parser.js to get {documentId, label, reqs: [{id, acs: [{id, text}]}]}
-   - For each REQ, call groundImplementation(reqId, trdPath) from packages/e2e-testing/lib/implementation-grounding.js. A {grounded: false, gap: true, reason} result is a structural grounding gap — report it plainly, do not treat it as an AC-gap (that is a distinct concept, see next action)
-   - For each AC under a grounded REQ, judge (agent reasoning, not a function call) whether the grounded diff actually produces that AC's stated Given/When/Then outcome. If it does not, call flagAcGap(acId, {reqId, groundingResult, reason}) from packages/e2e-testing/lib/ac-gap-detector.js, present the flagged gap to Sonia, and record her call via resolveGapReview(acId, decision, details) — decision "confirmed" routes to Phase 6 (AC-Gap Task Filing) immediately, not deferred to session end; decision "override" re-runs groundImplementation with details.correctedTargetFiles and re-judges before moving on
+   - For each REQ, call groundImplementation(reqId, trdPath, {baseBranch}) from packages/e2e-testing/lib/implementation-grounding.js, passing Step 1's resolved baseBranch every time — never omit it. A {grounded: false, gap: true, reason} result is a structural grounding gap — report it plainly, do not treat it as an AC-gap (that is a distinct concept, see next action)
+   - For each AC under a grounded REQ, judge (agent reasoning, not a function call) whether the grounded diff actually produces that AC's stated Given/When/Then outcome. If it does not, call flagAcGap(acId, {reqId, groundingResult, reason}) from packages/e2e-testing/lib/ac-gap-detector.js, present the flagged gap to Sonia, and record her call via resolveGapReview(acId, decision, details) — decision "confirmed" routes to Phase 6 (AC-Gap Task Filing) immediately, not deferred to session end; decision "override" re-runs groundImplementation with details.correctedTargetFiles (still passing the same {baseBranch}) and re-judges before moving on
    - Scan cribs.e2e.tests' existing *.spec.ts/*.cs files on disk and call scanAcCoverage(specTexts, expectedAcIds) from packages/e2e-testing/lib/resume-scan.js to split every expected AC into confirmed/manual/gap/pending
    - Print the combined coverage report: every AC's status (confirmed / manual / gap / pending) alongside its REQ's grounding result — this is PR 1's own Shippable State and must be shown even if the session goes on to do nothing else
 

@@ -1,12 +1,12 @@
 'use strict';
 
-const { checkPrState, checkPrStateAdo, detectRepoHost, NO_OPEN_PR_MESSAGE } = require('../lib/pr-state');
+const { checkPrState, checkPrStateAdo, detectRepoHost, isAdoStatusActive, NO_OPEN_PR_MESSAGE } = require('../lib/pr-state');
 
 describe('checkPrState (AC-001-1: no open PR halts)', () => {
   test('empty array from gh -> hasOpenPr: false', () => {
     const exec = jest.fn(() => '[]');
     const result = checkPrState('feature/x', { exec });
-    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 
   test('NO_OPEN_PR_MESSAGE documents the halt instruction', () => {
@@ -19,13 +19,13 @@ describe('checkPrState (AC-001-1: no open PR halts)', () => {
       throw new Error('gh: command not found');
     });
     const result = checkPrState('feature/x', { exec });
-    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 
   test('malformed/non-JSON gh output -> hasOpenPr: false', () => {
     const exec = jest.fn(() => 'not json at all');
     const result = checkPrState('feature/x', { exec });
-    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 });
 
@@ -40,7 +40,18 @@ describe('checkPrState (AC-001-2: open PR is detected and surfaced)', () => {
       state: 'OPEN',
       url: 'https://github.com/org/repo/pull/42',
       number: 42,
+      baseBranch: null,
     });
+  });
+
+  test('valid PR JSON with baseRefName -> baseBranch surfaced for grounding to diff against', () => {
+    const exec = jest.fn(() =>
+      JSON.stringify([
+        { number: 42, state: 'OPEN', url: 'https://github.com/org/repo/pull/42', baseRefName: 'develop' },
+      ])
+    );
+    const result = checkPrState('feature/trd-003', { exec });
+    expect(result.baseBranch).toBe('develop');
   });
 });
 
@@ -56,7 +67,7 @@ describe('checkPrState (argv safety)', () => {
       '--state',
       'open',
       '--json',
-      'number,state,url',
+      'number,state,url,baseRefName',
     ]);
   });
 });
@@ -119,16 +130,43 @@ describe('detectRepoHost (TRD-031)', () => {
   });
 });
 
-describe('checkPrStateAdo (TRD-031: same {hasOpenPr, state, url, number} contract as checkPrState)', () => {
+describe('checkPrStateAdo (TRD-031: same {hasOpenPr, state, url, number, baseBranch} contract as checkPrState)', () => {
   test('an active PR on the matching branch -> hasOpenPr: true', () => {
     const prs = [
-      { pullRequestId: 42, status: 'active', sourceRefName: 'refs/heads/feature/trd-003', url: 'https://dev.azure.com/org/proj/_git/repo/pullrequest/42' },
+      {
+        pullRequestId: 42,
+        status: 'active',
+        sourceRefName: 'refs/heads/feature/trd-003',
+        targetRefName: 'refs/heads/main',
+        url: 'https://dev.azure.com/org/proj/_git/repo/pullrequest/42',
+      },
     ];
     expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({
       hasOpenPr: true,
       state: 'active',
       url: 'https://dev.azure.com/org/proj/_git/repo/pullrequest/42',
       number: 42,
+      baseBranch: 'main',
+    });
+  });
+
+  test('targetRefName surfaces as baseBranch stripped of refs/heads/ (e.g. CRIBs targeting integration, not main)', () => {
+    const prs = [
+      { pullRequestId: 4129, status: 'active', sourceRefName: 'refs/heads/feature/mike/topnav-icon-text-layout', targetRefName: 'refs/heads/integration' },
+    ];
+    expect(checkPrStateAdo('feature/mike/topnav-icon-text-layout', prs).baseBranch).toBe('integration');
+  });
+
+  test('the Azure DevOps MCP server\'s numeric status (1 = Active) is accepted, not just the string form', () => {
+    const prs = [
+      { pullRequestId: 4129, status: 1, sourceRefName: 'refs/heads/feature/x', targetRefName: 'refs/heads/integration' },
+    ];
+    expect(checkPrStateAdo('feature/x', prs)).toEqual({
+      hasOpenPr: true,
+      state: 'active',
+      url: null,
+      number: 4129,
+      baseBranch: 'integration',
     });
   });
 
@@ -137,17 +175,54 @@ describe('checkPrStateAdo (TRD-031: same {hasOpenPr, state, url, number} contrac
       { pullRequestId: 41, status: 'completed', sourceRefName: 'refs/heads/feature/trd-003' },
       { pullRequestId: 40, status: 'abandoned', sourceRefName: 'refs/heads/feature/trd-003' },
     ];
-    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
+  });
+
+  test('numeric completed/abandoned/notSet statuses (3/2/0) are also rejected, not just their string forms', () => {
+    const prs = [
+      { pullRequestId: 43, status: 3, sourceRefName: 'refs/heads/feature/trd-003' },
+      { pullRequestId: 44, status: 2, sourceRefName: 'refs/heads/feature/trd-003' },
+      { pullRequestId: 45, status: 0, sourceRefName: 'refs/heads/feature/trd-003' },
+    ];
+    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 
   test('an active PR on a different branch -> hasOpenPr: false', () => {
     const prs = [{ pullRequestId: 42, status: 'active', sourceRefName: 'refs/heads/some-other-branch' }];
-    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(checkPrStateAdo('feature/trd-003', prs)).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 
   test('empty/non-array input -> hasOpenPr: false, never throws', () => {
-    expect(checkPrStateAdo('feature/x', [])).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
-    expect(checkPrStateAdo('feature/x', null)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
-    expect(checkPrStateAdo('feature/x', undefined)).toEqual({ hasOpenPr: false, state: null, url: null, number: null });
+    expect(checkPrStateAdo('feature/x', [])).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
+    expect(checkPrStateAdo('feature/x', null)).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
+    expect(checkPrStateAdo('feature/x', undefined)).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
+  });
+});
+
+describe('isAdoStatusActive', () => {
+  test('numeric 1 (Active) -> true', () => {
+    expect(isAdoStatusActive(1)).toBe(true);
+  });
+
+  test('numeric 0/2/3 (NotSet/Abandoned/Completed) -> false', () => {
+    expect(isAdoStatusActive(0)).toBe(false);
+    expect(isAdoStatusActive(2)).toBe(false);
+    expect(isAdoStatusActive(3)).toBe(false);
+  });
+
+  test('string "active" (any case) -> true', () => {
+    expect(isAdoStatusActive('active')).toBe(true);
+    expect(isAdoStatusActive('Active')).toBe(true);
+  });
+
+  test('string "completed"/"abandoned" -> false', () => {
+    expect(isAdoStatusActive('completed')).toBe(false);
+    expect(isAdoStatusActive('abandoned')).toBe(false);
+  });
+
+  test('null/undefined/other types -> false, never throws', () => {
+    expect(isAdoStatusActive(null)).toBe(false);
+    expect(isAdoStatusActive(undefined)).toBe(false);
+    expect(isAdoStatusActive({})).toBe(false);
   });
 });

@@ -138,3 +138,71 @@ describe('groundImplementation (happy path baseline — not a gap)', () => {
     expect(gitExec).toHaveBeenCalledWith(['diff', 'deadbeef', 'HEAD', '--', 'lib/foo.js']);
   });
 });
+
+describe('groundImplementation (opts.baseBranch — a real PR target branch, not the hardcoded default)', () => {
+  test('an explicit baseBranch is used instead of main/origin-main', () => {
+    const parseTrd = jest.fn(() => trdWithTask({ targetFiles: ['lib/foo.js'] }));
+    const gitExec = jest.fn((args) => {
+      if (args[0] === 'merge-base' && args[2] === 'integration') return 'deadbeef\n';
+      if (args[0] === 'merge-base') throw new Error('fatal: not a valid object name');
+      if (args[0] === 'diff') return '+++ added a line\n';
+      throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+    });
+    const existsSync = jest.fn(() => true);
+
+    const result = groundImplementation('REQ-002', 'docs/TRD/x.md', {
+      parseTrd,
+      gitExec,
+      existsSync,
+      baseBranch: 'integration',
+    });
+
+    expect(result.grounded).toBe(true);
+    expect(gitExec).toHaveBeenCalledWith(['merge-base', 'HEAD', 'integration']);
+    expect(gitExec).not.toHaveBeenCalledWith(['merge-base', 'HEAD', 'main']);
+  });
+
+  test('falls back to origin/<baseBranch> when the bare branch name is unfetched locally', () => {
+    const parseTrd = jest.fn(() => trdWithTask({ targetFiles: ['lib/foo.js'] }));
+    const gitExec = jest.fn((args) => {
+      if (args[0] === 'merge-base' && args[2] === 'integration') {
+        throw new Error('fatal: not a valid object name: integration');
+      }
+      if (args[0] === 'merge-base' && args[2] === 'origin/integration') return 'deadbeef\n';
+      if (args[0] === 'diff') return '+++ added a line\n';
+      throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+    });
+    const existsSync = jest.fn(() => true);
+
+    const result = groundImplementation('REQ-002', 'docs/TRD/x.md', {
+      parseTrd,
+      gitExec,
+      existsSync,
+      baseBranch: 'integration',
+    });
+
+    expect(result.grounded).toBe(true);
+    expect(gitExec).toHaveBeenCalledWith(['merge-base', 'HEAD', 'integration']);
+    expect(gitExec).toHaveBeenCalledWith(['merge-base', 'HEAD', 'origin/integration']);
+  });
+
+  test('an already origin/-prefixed baseBranch is not double-prefixed', () => {
+    const parseTrd = jest.fn(() => trdWithTask({ targetFiles: ['lib/foo.js'] }));
+    const gitExec = jest.fn((args) => {
+      if (args[0] === 'merge-base' && args[2] === 'origin/integration') return 'deadbeef\n';
+      if (args[0] === 'diff') return '+++ added a line\n';
+      throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+    });
+    const existsSync = jest.fn(() => true);
+
+    const result = groundImplementation('REQ-002', 'docs/TRD/x.md', {
+      parseTrd,
+      gitExec,
+      existsSync,
+      baseBranch: 'origin/integration',
+    });
+
+    expect(result.grounded).toBe(true);
+    expect(gitExec).not.toHaveBeenCalledWith(['merge-base', 'HEAD', 'origin/origin/integration']);
+  });
+});

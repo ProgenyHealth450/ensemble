@@ -22,12 +22,27 @@
  *      agent at conversation time, matching ado-test-suite.js's/
  *      ado-test-case-sync.js's established boundary) that normalizes an
  *      already-fetched Azure DevOps PR list into the exact same
- *      {hasOpenPr, state, url, number} shape checkPrState() returns for
- *      GitHub, so nothing downstream needs to know which host produced it.
+ *      {hasOpenPr, state, url, number, baseBranch} shape checkPrState()
+ *      returns for GitHub, so nothing downstream needs to know which host
+ *      produced it.
  *
  * The orchestrator (author-playwright-tests.yaml) calls detectRepoHost()
  * first, then either checkPrState() (github/unknown) or an Azure DevOps MCP
  * PR-list call followed by checkPrStateAdo() (azure-devops).
+ *
+ * Both functions also surface `baseBranch` (the PR's real target/base
+ * branch) so the orchestrator can pass it to implementation-grounding.js's
+ * `groundImplementation(reqId, trdPath, {baseBranch})` instead of letting
+ * that module fall back to its hardcoded main/origin-main default — a repo
+ * like CRIBs, where feature branches target `integration` rather than
+ * `main`, would otherwise ground against the wrong branch entirely. Found
+ * live-dogfooding this feature against a real CRIBs PR, where a manual diff
+ * against `main` pulled in unrelated already-integrated work as if it
+ * belonged to the PR under test.
+ *
+ * checkPrStateAdo() also accepts the Azure DevOps MCP server's numeric
+ * `status` representation, not just the raw REST API's string form — see
+ * `isAdoStatusActive()` below.
  */
 
 const { execFileSync } = require('child_process');
@@ -109,32 +124,37 @@ function detectRepoHost(opts = {}) {
 /**
  * Check whether an open PR exists for the given branch (GitHub, via `gh`).
  *
+ * `baseBranch` is surfaced so callers (e.g. author-playwright-tests.yaml's
+ * implementation-grounding step) can diff against the PR's real target
+ * branch instead of guessing main/origin-main — see implementation-grounding.js's
+ * own `opts.baseBranch`.
+ *
  * @param {string} branch - branch name to check (e.g. current git branch)
  * @param {object} [opts]
  * @param {(args: string[]) => string} [opts.exec] - injectable `gh` invocation, returns raw stdout
- * @returns {{hasOpenPr: boolean, state: string|null, url: string|null, number: number|null}}
+ * @returns {{hasOpenPr: boolean, state: string|null, url: string|null, number: number|null, baseBranch: string|null}}
  */
 function checkPrState(branch, opts = {}) {
   const exec = opts.exec || defaultExec;
-  const args = ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,state,url'];
+  const args = ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,state,url,baseRefName'];
 
   let raw;
   try {
     raw = exec(args);
   } catch {
     // gh missing, unauthenticated, no repo, network error, etc. — no PR to find.
-    return { hasOpenPr: false, state: null, url: null, number: null };
+    return { hasOpenPr: false, state: null, url: null, number: null, baseBranch: null };
   }
 
   let prs;
   try {
     prs = JSON.parse(raw);
   } catch {
-    return { hasOpenPr: false, state: null, url: null, number: null };
+    return { hasOpenPr: false, state: null, url: null, number: null, baseBranch: null };
   }
 
   if (!Array.isArray(prs) || prs.length === 0) {
-    return { hasOpenPr: false, state: null, url: null, number: null };
+    return { hasOpenPr: false, state: null, url: null, number: null, baseBranch: null };
   }
 
   const pr = prs[0];
@@ -143,7 +163,24 @@ function checkPrState(branch, opts = {}) {
     state: pr.state || 'OPEN',
     url: pr.url || null,
     number: typeof pr.number === 'number' ? pr.number : null,
+    baseBranch: pr.baseRefName || null,
   };
+}
+
+/**
+ * True when an Azure DevOps PR `status` value means "active", regardless of
+ * which representation the caller sent it in. The raw Azure DevOps REST API
+ * returns `status` as the string `"active"`, but the Azure DevOps MCP server
+ * observed in practice serializes it as the underlying .NET
+ * `PullRequestStatus` enum's numeric ordinal instead (`1` = Active; `0` =
+ * NotSet, `2` = Abandoned, `3` = Completed) — a real repo's live PR list came
+ * back as `status: 1`, which the string-only check below used to miss
+ * entirely, always reporting `hasOpenPr: false` regardless of branch match.
+ */
+function isAdoStatusActive(status) {
+  if (typeof status === 'number') return status === 1;
+  if (typeof status === 'string') return status.toLowerCase() === 'active';
+  return false;
 }
 
 /**
@@ -153,32 +190,44 @@ function checkPrState(branch, opts = {}) {
  * MCP client here, matching ado-test-suite.js's/ado-test-case-sync.js's
  * established boundary. Returns the exact same shape `checkPrState()` does.
  *
- * Azure DevOps PR resource fields used: `status` ('active' is the ADO
- * equivalent of GitHub's "open" — 'completed'/'abandoned'/'notSet' are not),
- * `sourceRefName` (e.g. "refs/heads/feature/x"), `pullRequestId`, `url`.
+ * Azure DevOps PR resource fields used: `status` (see `isAdoStatusActive()`
+ * for the string/numeric representations accepted), `sourceRefName` (e.g.
+ * "refs/heads/feature/x"), `targetRefName` (surfaced as `baseBranch`, stripped
+ * of its `refs/heads/` prefix), `pullRequestId`, `url`.
  *
  * @param {string} branch - branch name to check (e.g. current git branch)
  * @param {Array<object>} prs - already-fetched Azure DevOps PR objects
- * @returns {{hasOpenPr: boolean, state: string|null, url: string|null, number: number|null}}
+ * @returns {{hasOpenPr: boolean, state: string|null, url: string|null, number: number|null, baseBranch: string|null}}
  */
 function checkPrStateAdo(branch, prs) {
   const list = Array.isArray(prs) ? prs : [];
   const targetRef = `refs/heads/${branch}`;
 
   const match = list.find(
-    (pr) => pr && pr.status === 'active' && pr.sourceRefName === targetRef
+    (pr) => pr && isAdoStatusActive(pr.status) && pr.sourceRefName === targetRef
   );
 
   if (!match) {
-    return { hasOpenPr: false, state: null, url: null, number: null };
+    return { hasOpenPr: false, state: null, url: null, number: null, baseBranch: null };
   }
 
   return {
     hasOpenPr: true,
-    state: match.status,
+    state: 'active',
     url: match.url || null,
     number: typeof match.pullRequestId === 'number' ? match.pullRequestId : null,
+    baseBranch:
+      typeof match.targetRefName === 'string'
+        ? match.targetRefName.replace(/^refs\/heads\//, '')
+        : null,
   };
 }
 
-module.exports = { checkPrState, checkPrStateAdo, detectRepoHost, NO_OPEN_PR_MESSAGE };
+module.exports = {
+  checkPrState,
+  checkPrStateAdo,
+  detectRepoHost,
+  NO_OPEN_PR_MESSAGE,
+  // exported for unit testing of the helper
+  isAdoStatusActive,
+};

@@ -70,9 +70,22 @@ function gap(reqId, trdPath, reason) {
  * Resolve the merge-base SHA of HEAD against the first reachable candidate
  * branch (opts.baseBranch if given, else 'main' then 'origin/main').
  * Returns null (never throws) if none of the candidates resolve.
+ *
+ * When an explicit baseBranch is given, it's tried both bare and prefixed
+ * with `origin/` (unless already so prefixed) — the same bare/origin-prefixed
+ * pair the default candidates get. A PR's real target branch (e.g.
+ * `integration` on a repo like CRIBs, which never targets `main` directly)
+ * is frequently unfetched locally; without the `origin/` fallback, grounding
+ * failed outright instead of falling back the way the hardcoded default
+ * already does for `main`.
  */
 function resolveMergeBase(gitExec, baseBranch) {
-  const candidates = baseBranch ? [baseBranch] : DEFAULT_BASE_BRANCH_CANDIDATES;
+  let candidates;
+  if (baseBranch) {
+    candidates = baseBranch.startsWith('origin/') ? [baseBranch] : [baseBranch, `origin/${baseBranch}`];
+  } else {
+    candidates = DEFAULT_BASE_BRANCH_CANDIDATES;
+  }
   for (const branch of candidates) {
     try {
       const sha = gitExec(['merge-base', 'HEAD', branch]).trim();
