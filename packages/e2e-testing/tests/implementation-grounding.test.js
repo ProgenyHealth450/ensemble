@@ -21,7 +21,7 @@ describe('groundImplementation (AC-002-2: unmapped REQ reports a gap, not a gues
 
     expect(result.grounded).toBe(false);
     expect(result).toEqual(
-      expect.objectContaining({ gap: true, reqId: 'REQ-002', trdPath: 'docs/TRD/x.md' })
+      expect.objectContaining({ gap: true, gapType: 'trd-gap', reqId: 'REQ-002', trdPath: 'docs/TRD/x.md' })
     );
     expect(result.reason).toMatch(/no task .* satisfies/i);
     // No guess: git/fs must never be consulted once the REQ is unmapped.
@@ -32,7 +32,7 @@ describe('groundImplementation (AC-002-2: unmapped REQ reports a gap, not a gues
   test('empty tasksById -> gap (same "no matching task" path)', () => {
     const parseTrd = jest.fn(() => ({ tasksById: {} }));
     const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec: jest.fn() });
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, gapType: 'trd-gap' }));
     expect(result.reason).toMatch(/no task .* satisfies/i);
   });
 });
@@ -41,14 +41,16 @@ describe('groundImplementation (missing arguments -> gap)', () => {
   test('missing reqId -> gap', () => {
     const result = groundImplementation(undefined, 'docs/TRD/x.md', {});
     expect(result).toEqual(
-      expect.objectContaining({ grounded: false, gap: true, trdPath: 'docs/TRD/x.md' })
+      expect.objectContaining({ grounded: false, gap: true, gapType: 'trd-gap', trdPath: 'docs/TRD/x.md' })
     );
     expect(result.reason).toMatch(/no req id/i);
   });
 
   test('missing trdPath -> gap', () => {
     const result = groundImplementation('REQ-002', undefined, {});
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, reqId: 'REQ-002' }));
+    expect(result).toEqual(
+      expect.objectContaining({ grounded: false, gap: true, gapType: 'trd-gap', reqId: 'REQ-002' })
+    );
     expect(result.reason).toMatch(/no trd path/i);
   });
 });
@@ -64,7 +66,7 @@ describe('groundImplementation (unparseable TRD -> gap)', () => {
     ).not.toThrow();
 
     const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec: jest.fn() });
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, gapType: 'trd-gap' }));
     expect(result.reason).toMatch(/failed to parse trd/i);
     expect(result.reason).toMatch(/unknown trd format/i);
   });
@@ -74,7 +76,7 @@ describe('groundImplementation (task matches but declares no Target Files -> gap
   test('matching task with empty targetFiles -> gap', () => {
     const parseTrd = jest.fn(() => trdWithTask({ targetFiles: [] }));
     const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec: jest.fn() });
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, gapType: 'trd-gap' }));
     expect(result.reason).toMatch(/target files/i);
   });
 
@@ -83,7 +85,7 @@ describe('groundImplementation (task matches but declares no Target Files -> gap
       tasksById: { 'TASK-002': { id: 'TASK-002', satisfies: ['REQ-002'] } },
     }));
     const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec: jest.fn() });
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, gapType: 'trd-gap' }));
     expect(result.reason).toMatch(/target files/i);
   });
 });
@@ -98,7 +100,7 @@ describe('groundImplementation (merge-base unresolvable -> gap)', () => {
 
     const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec, existsSync });
 
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, gapType: 'code-gap' }));
     expect(result.reason).toMatch(/merge-base/i);
     // Never falls through to diffing files once the merge-base can't be found.
     expect(existsSync).not.toHaveBeenCalled();
@@ -113,10 +115,69 @@ describe('groundImplementation (all target files missing on disk -> gap)', () =>
 
     const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec, existsSync });
 
-    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true }));
+    expect(result).toEqual(expect.objectContaining({ grounded: false, gap: true, gapType: 'code-gap' }));
     expect(result.reason).toMatch(/lib\/foo\.js/);
     expect(result.reason).toMatch(/lib\/bar\.js/);
     expect(result.reason).toMatch(/not found on disk/i);
+  });
+});
+
+describe('groundImplementation (TRD-042: gapType categorizes trd-gap vs code-gap)', () => {
+  test('every trd-gap scenario is categorized as gapType "trd-gap"', () => {
+    const trdGapCases = [
+      groundImplementation(undefined, 'docs/TRD/x.md', {}),
+      groundImplementation('REQ-002', undefined, {}),
+      groundImplementation('REQ-002', 'docs/TRD/x.md', {
+        parseTrd: jest.fn(() => {
+          throw new Error('bad format');
+        }),
+        gitExec: jest.fn(),
+      }),
+      groundImplementation('REQ-002', 'docs/TRD/x.md', {
+        parseTrd: jest.fn(() => trdWithTask({ satisfies: ['REQ-999'] })),
+        gitExec: jest.fn(),
+      }),
+      groundImplementation('REQ-002', 'docs/TRD/x.md', {
+        parseTrd: jest.fn(() => trdWithTask({ targetFiles: [] })),
+        gitExec: jest.fn(),
+      }),
+    ];
+    for (const result of trdGapCases) {
+      expect(result.gapType).toBe('trd-gap');
+    }
+  });
+
+  test('every code-gap scenario is categorized as gapType "code-gap"', () => {
+    const codeGapCases = [
+      groundImplementation('REQ-002', 'docs/TRD/x.md', {
+        parseTrd: jest.fn(() => trdWithTask()),
+        gitExec: jest.fn(() => {
+          throw new Error('fatal: not a valid object name');
+        }),
+        existsSync: jest.fn(),
+      }),
+      groundImplementation('REQ-002', 'docs/TRD/x.md', {
+        parseTrd: jest.fn(() => trdWithTask()),
+        gitExec: jest.fn(() => 'deadbeef\n'),
+        existsSync: jest.fn(() => false),
+      }),
+    ];
+    for (const result of codeGapCases) {
+      expect(result.gapType).toBe('code-gap');
+    }
+  });
+
+  test('a grounded (non-gap) result never carries a gapType', () => {
+    const parseTrd = jest.fn(() => trdWithTask({ targetFiles: ['lib/foo.js'] }));
+    const gitExec = jest.fn((args) => {
+      if (args[0] === 'merge-base') return 'deadbeef\n';
+      if (args[0] === 'diff') return '+++ added a line\n';
+      throw new Error(`unexpected git invocation: ${args.join(' ')}`);
+    });
+    const existsSync = jest.fn(() => true);
+
+    const result = groundImplementation('REQ-002', 'docs/TRD/x.md', { parseTrd, gitExec, existsSync });
+    expect(result.gapType).toBeUndefined();
   });
 });
 

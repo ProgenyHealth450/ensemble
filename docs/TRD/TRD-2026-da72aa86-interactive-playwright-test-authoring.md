@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.8.0
+version: 1.9.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -33,6 +33,8 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 **v1.7.0 amendment:** found live-dogfooding the Azure DevOps Test Plan Sync phase against a real project with zero existing Test Plans: `ado-test-suite.js` had no concept of a parent Test Plan at all, but every Azure DevOps Test Suite must belong to one — the `testplan_list_test_suites`/`testplan_create_test_suite` MCP tools both require a `planId`. The orchestrator's Phase 5 Step 1 jumped straight to listing/creating suites as if a plan already existed, permanently blocking the sync phase the first time any consuming repo used it with no Test Plan yet set up. Not specific to any one consuming application — any first-time use of this phase hits the same wall. A second, related gap: even once a suite match failed to resolve, the orchestrator treated that as silent permission to create a new suite, with no path for the QA engineer to say "actually, reuse this other suite instead" — the same silent-assumption pattern TRD-034's QA-environment-verification fix already addressed for the QA URL. PR 11 (TRD-038/TRD-039) fixes both: (1) a new `packages/e2e-testing/lib/ado-test-plan.js` mirrors `ado-test-suite.js`'s resolve/create shape for Test Plans, but never invents a plan name — a Test Plan is shared, project-wide infrastructure (often scoped to a single release/iteration and later folded into a longer-lived regression plan), so the orchestrator always asks the QA engineer to pick an existing plan or name a new one, never auto-selecting or auto-naming even when exactly one plan exists; (2) `ado-test-suite.js`'s `resolveOrCreateTestSuite()` now requires the resolved `planId` and accepts an optional `selectedSuiteId` so a QA-engineer-chosen suite always wins over the automatic match, and the orchestrator confirms with the QA engineer before treating a no-match result as permission to create a new suite.
 
 **v1.8.0 amendment:** a user-requested enhancement — a plain-English summary of a proposed test, shown before it ever runs — surfaced that the shipped delegation design couldn't support it at all: TRD-008's single "ground, author, and run" delegation to `@playwright-tester` meant the orchestrator only ever learned what a test does at the same moment it learned whether it passed, since both happened inside one atomic subagent call with no seam for the orchestrator to ask the QA engineer anything in between. Digging further surfaced this wasn't just a missing feature but an existing drift from the PRD itself: REQ-005/AC-005-1 says "a test the QA engineer **has accepted**... its pass/fail result is shown" — the PRD's own intended order was accept-then-run, but the combined delegation had silently inverted it to run-then-decide, meaning a QA engineer's "reject" could only ever happen *after* a real run had already been spent against the QA environment. PR 12 (TRD-040/TRD-041) splits the delegation into two stages (`packages/e2e-testing/lib/delegation-contract.js`): Proposal (ground + author, returns a `plainEnglishSummary` grounded in the actual authored test, never runs) and Run (executes the QA-engineer-confirmed test verbatim). The orchestrator's accept/request-changes/reject decision (`ac-decision-loop.js`, unchanged) now sits between the two stages instead of after both — restoring the PRD's intended ordering as a side effect of adding the requested preview, and meaning a rejected or revised test is never run at all.
+
+**v1.9.0 amendment:** a user-requested enhancement — asking for the coverage report's gaps to be labeled by kind rather than one generic "gap" — surfaced that this package already tracked (at least) two structurally different notions of "gap" under the same bare word: `implementation-grounding.js`'s structural grounding failure (the implementing code for a REQ can't be located at all) and `ac-gap-detector.js`'s semantic gap (the code was found but doesn't satisfy a specific AC) — the latter module's own header already noted its status was deliberately named `'ac-gap'`, "not just `'gap'`," specifically to avoid this confusion, but nothing downstream ever surfaced that distinction to a QA engineer reading the report. Digging further split the structural case itself in two: a REQ can fail to ground either because the TRD never says what implements it (no satisfying task, no declared Target Files, an unparseable TRD) or because the TRD does say, but that code genuinely isn't there (missing files, never diffed, no resolvable merge-base) — two different problems needing two different fixes (edit the TRD vs. write the code) that a bare "gap" conflated. PR 13 (TRD-042) adds a `gapType: 'trd-gap' | 'code-gap'` field to `groundImplementation()`'s structural gap result, and has the orchestrator's coverage report (Phase 1 Step 2) label every gap with exactly one of four kinds: **TRD gap** (the plan has a hole), **Code gap** (the plan is there, the code isn't), **AC gap** (the code exists but doesn't satisfy this AC — fresh or a persisted `@ac-gap` marker), or **Test coverage gap** (everything upstream is fine, there's just no test yet — the only one of the four this session actually resolves by delegating and landing a test).
 
 ## Architecture Decision
 
@@ -109,7 +111,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 | Command orchestrator | `packages/e2e-testing/commands/author-playwright-tests.yaml` | Session lifecycle, prompts, REQ-batching, delegation dispatch, final output |
 | Generated command | `packages/e2e-testing/commands/ensemble/author-playwright-tests.md` | Generated user-facing command doc/runtime text |
 | PRD/AC parser | `packages/e2e-testing/lib/prd-ac-parser.js` | LF+CRLF-safe, Title-Case-frontmatter-safe REQ/AC extraction (deliberately independent of the buggy shared `prd-parser.js`) |
-| Implementation grounding | `packages/e2e-testing/lib/implementation-grounding.js` | Resolve changed files/diff on the open PR's branch per REQ; report grounding gaps |
+| Implementation grounding | `packages/e2e-testing/lib/implementation-grounding.js` | Resolve changed files/diff on the open PR's branch per REQ; report a structural grounding gap categorized as `gapType: 'trd-gap'` (the TRD doesn't say what implements this) or `'code-gap'` (it does, but the code isn't there) (TRD-042) |
 | TRD task parser | `packages/e2e-testing/lib/trd-task-parser.js` | Scoped, in-package `tasksById` extraction for grounding (TRD-033) — deliberately independent of `packages/development/lib/trd-parser.js`, which cannot be reached across an installed plugin boundary |
 | Resume scan | `packages/e2e-testing/lib/resume-scan.js` | Scan spec files for per-AC `@hash:`/`@ado-testcase:` tags to detect already-confirmed ACs |
 | Grounded-marker checker | `packages/e2e-testing/lib/grounded-marker-checker.js` | Extract checkable markers from a grounding diff; build the environment-mismatch hint when none are found live (TRD-035) |
@@ -125,7 +127,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 | ADO test suite resolver | `packages/e2e-testing/lib/ado-test-suite.js` | Resolve/create the application's Test Suite linked to the PRD's referenced Story, within the resolved Test Plan; supports a QA-engineer-selected suite override (TRD-039) |
 | ADO test case sync | `packages/e2e-testing/lib/ado-test-case-sync.js` | Create/update ADO Test Cases from `test.step()` narration |
 | ADO sync resilience | `packages/e2e-testing/lib/ado-sync-resilience.js` | Retry/troubleshoot sync failures; flag unsynced without blocking local landing |
-| AC-gap detector | `packages/e2e-testing/lib/ac-gap-detector.js` | Detect implementation-vs-AC gaps during grounding |
+| AC-gap detector | `packages/e2e-testing/lib/ac-gap-detector.js` | Detect implementation-vs-AC gaps during grounding — reported to the QA engineer as "AC gap," distinct from a structural TRD/Code gap |
 | AC-gap task filer | `packages/e2e-testing/lib/ac-gap-task-filer.js` | File one ADO Task per confirmed gap, assigned to the implementing commit author |
 | Session summary/logger | `packages/e2e-testing/lib/session-summary.js`, `session-logger.js` | Per-checkpoint and final human-readable summaries |
 | Tests | `packages/e2e-testing/tests/*.test.js` | Unit/contract tests for every lib module above |
@@ -486,6 +488,21 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 - [x] **TRD-040-TEST/TRD-041-TEST**: Unit and structural coverage for both (5h) [verifies TRD-040, TRD-041] [satisfies REQ-003, REQ-005, REQ-017] [depends: TRD-040, TRD-041]
   - Target Files: `packages/e2e-testing/tests/delegation-contract.test.js`, `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
 
+### PR 13: Coverage Gaps Are Labeled TRD Gap / Code Gap / AC Gap / Test Coverage Gap, Never a Bare "Gap"
+
+**Shippable State:** The Phase 1 coverage report labels every gap with exactly one of four kinds — TRD gap, Code gap, AC gap, or Test coverage gap — so a QA engineer reading it knows immediately whether the TRD's plan, the implementing code, the AC judgment, or just the test itself is what's missing.
+
+- [x] **TRD-042**: Categorize `groundImplementation()`'s structural gap result as `gapType: 'trd-gap'` or `'code-gap'`, and have the orchestrator's coverage report label every gap with one of the four kinds (5h) [satisfies REQ-002, REQ-009, REQ-011] [depends: TRD-004, TRD-020, TRD-025]
+  - Target Files: `packages/e2e-testing/lib/implementation-grounding.js`, `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a REQ with no satisfying TRD task, a satisfying task that declares no Target Files, or an unparseable/missing TRD, when `groundImplementation()` returns its structural gap, then `gapType` is `'trd-gap'`.
+    - Given a REQ whose TRD task(s) declare Target Files, but no merge-base can be resolved or none of those files are actually grounded (missing, or never diffed), when `groundImplementation()` returns its structural gap, then `gapType` is `'code-gap'`.
+    - Given a grounded (non-gap) result, when `groundImplementation()` returns it, then `gapType` is absent — only a structural gap ever carries one.
+    - Given the Phase 1 coverage report runs, when it presents any AC, then it labels that AC with exactly one of TRD gap / Code gap / AC gap / Test coverage gap / Manual / Confirmed — a bare, uncategorized "gap" is never shown to the QA engineer, and a REQ-level TRD/Code gap is reported once per REQ (not re-derived per AC judgment, since there's no diff yet to judge).
+
+- [x] **TRD-042-TEST**: Unit coverage verifying every existing structural-gap scenario categorizes correctly, and a grounded result never carries a `gapType` (3h) [verifies TRD-042] [satisfies REQ-002, REQ-009, REQ-011] [depends: TRD-042]
+  - Target Files: `packages/e2e-testing/tests/implementation-grounding.test.js`
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
@@ -505,6 +522,8 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 > **v1.7.0 addendum:** PR 11 (TRD-038/TRD-039 + a combined TEST task) adds 3 tasks / 14h, found live-dogfooding the Test Plan Sync phase against a real project with zero existing Test Plans. `backend-developer` fits — plain Node.js library logic (`ado-test-plan.js`, mirroring `ado-test-suite.js`'s existing shape) and orchestrator prose, not Playwright execution itself.
 >
 > **v1.8.0 addendum:** PR 12 (TRD-040/TRD-041 + a combined TEST task) adds 3 tasks / 15h, a user-requested enhancement (a pre-run plain-English test preview) that also surfaced a drift from the PRD's own intended accept-then-run ordering. `backend-developer` fits — delegation-contract.js is plain Node.js data-shape logic and the orchestrator change is prompt/workflow prose, neither is Playwright execution itself.
+>
+> **v1.9.0 addendum:** PR 13 (TRD-042/TRD-042-TEST) adds 2 tasks / 8h, a user-requested enhancement (labeling coverage-report gaps by kind) that also surfaced two structural gap concepts already conflated under one bare word. `backend-developer` fits — plain Node.js library logic (`implementation-grounding.js`) and orchestrator prose, not Playwright execution itself.
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `app-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -562,22 +581,23 @@ team:
 - PR 10: auth strategy is not the same choice as headed/headless (v1.6.0 addendum — see amendment note above).
 - PR 11: Test Plan Sync never silently assumes a plan or suite already exists (v1.7.0 addendum — see amendment note above).
 - PR 12: a plain-English test preview before any run, with the accept/reject decision moved before the run (v1.8.0 addendum — see amendment note above).
+- PR 13: coverage gaps labeled TRD gap / Code gap / AC gap / Test coverage gap, never a bare "gap" (v1.9.0 addendum — see amendment note above).
 
 ## Acceptance Criteria Traceability
 
 | REQ | Description | Implementation Tasks | Test Tasks |
 |-----|-------------|----------------------|------------|
 | REQ-001 | Post-implementation trigger | TRD-003, TRD-031, TRD-032 | TRD-003-TEST, TRD-031-TEST, TRD-032-TEST |
-| REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025, TRD-032, TRD-033 | TRD-002-TEST, TRD-004-TEST, TRD-032-TEST, TRD-033-TEST |
+| REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025, TRD-032, TRD-033, TRD-042 | TRD-002-TEST, TRD-004-TEST, TRD-032-TEST, TRD-033-TEST, TRD-042-TEST |
 | REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027, TRD-040, TRD-041 | TRD-010-TEST, TRD-040-TEST, TRD-041-TEST |
 | REQ-004 | REQ-level batching with checkpoints | TRD-009, TRD-026 | TRD-009-TEST |
 | REQ-005 | In-session test confirmation run | TRD-011, TRD-026, TRD-035, TRD-040, TRD-041 | TRD-011-TEST, TRD-035-TEST, TRD-040-TEST, TRD-041-TEST |
 | REQ-006 | Test placement per existing conventions | TRD-014, TRD-027 | TRD-014-TEST |
 | REQ-007 | ADO Test Case step sync | TRD-016, TRD-017, TRD-018, TRD-028, TRD-038, TRD-039 | TRD-017-TEST, TRD-018-TEST, TRD-038-TEST, TRD-039-TEST |
 | REQ-008 | ADO sync resilience & fallback flag | TRD-019, TRD-028 | TRD-019-TEST |
-| REQ-009 | AC-gap detection | TRD-020, TRD-025 | TRD-020-TEST |
+| REQ-009 | AC-gap detection | TRD-020, TRD-025, TRD-042 | TRD-020-TEST, TRD-042-TEST |
 | REQ-010 | AC-gap ADO task filing | TRD-021, TRD-029 | TRD-021-TEST |
-| REQ-011 | Session resumability & idempotence | TRD-005, TRD-023, TRD-025, TRD-030 | TRD-005-TEST, TRD-023-TEST |
+| REQ-011 | Session resumability & idempotence | TRD-005, TRD-023, TRD-025, TRD-030, TRD-042 | TRD-005-TEST, TRD-023-TEST, TRD-042-TEST |
 | REQ-012 | Session completion summary | TRD-022, TRD-030 | — |
 | REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013, TRD-026, TRD-034, TRD-036, TRD-037 | TRD-011-TEST, TRD-036-TEST, TRD-037-TEST |
 | REQ-014 | Traceability tagging | TRD-015, TRD-027 | TRD-015-TEST |
@@ -625,6 +645,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 8. **Issue (found adding a user-requested pre-run test preview, v1.8.0):** TRD-008's single "ground, author, and run" delegation gave the orchestrator no seam to present anything to the QA engineer between authoring and execution — a Task-delegated subagent runs to completion in one shot. Digging into why surfaced this wasn't just a missing feature: REQ-005/AC-005-1 says "a test the QA engineer **has accepted**... its pass/fail result is shown," meaning the PRD's own intended order was accept-then-run — but the combined delegation had silently inverted it, so a "reject" could only ever happen after a real run had already been spent against the QA environment.
    **Resolution:** Added PR 12 (TRD-040/TRD-041): the delegation splits into a Proposal stage (ground + author + `plainEnglishSummary`, never runs) and a Run stage (executes the confirmed test verbatim); `ac-decision-loop.js`'s existing accept/request-changes/reject decision now sits between the two stages instead of after both, restoring the PRD's intended ordering as a side effect of adding the requested preview.
 
+9. **Issue (found adding user-requested gap-kind labeling, v1.9.0):** the coverage report's "gap" status was already ambiguous between two distinct concepts — `implementation-grounding.js`'s structural grounding failure and `ac-gap-detector.js`'s semantic AC gap (whose own header already flagged the naming risk) — and digging further found the structural case itself hid two further-different problems: the TRD never says what implements a REQ at all, versus the TRD says, but the code genuinely isn't there. Neither distinction ever reached the QA engineer reading the report.
+   **Resolution:** Added PR 13 (TRD-042): `groundImplementation()`'s structural gap now carries `gapType: 'trd-gap' | 'code-gap'`, and the orchestrator's Phase 1 coverage report labels every gap with exactly one of four kinds — TRD gap, Code gap, AC gap, or Test coverage gap (grounded and AC-satisfied, just no test yet) — a bare "gap" is never shown.
+
 ### Dependency and Estimate Issues
 
 1. **Issue:** The chain TRD-001 → TRD-003 → TRD-004 → TRD-008 → TRD-010 → TRD-012 is depth 6 (> 3).
@@ -656,4 +679,5 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 - PR 10 (TRD-037/TRD-037-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 + 4/4 + 2/2 = 58/58 tasks now complete), found and verified live-dogfooding PR 9 against a real, open PR in the consuming application. `packages/e2e-testing` is 393/393.
 - PR 11 (TRD-038/TRD-039 + combined TEST): implemented directly on the same branch/PR #10 (58/58 + 3/3 = 61/61 tasks now complete), found and verified live-dogfooding the Test Plan Sync phase against a real project with zero existing Test Plans. `packages/e2e-testing` is 436/436.
 - PR 12 (TRD-040/TRD-041 + combined TEST): implemented directly on the same branch/PR #10 (61/61 + 3/3 = 64/64 tasks now complete), added per a direct user request for a pre-run plain-English test preview, which also corrected a drift from the PRD's own intended accept-then-run ordering. `packages/e2e-testing` is 448/448.
-- The feature is installable/usable in any consuming repo once PR #10 merges — see the v1.1.0 through v1.8.0 amendment notes under Document Overview.
+- PR 13 (TRD-042/TRD-042-TEST): implemented directly on the same branch/PR #10 (64/64 + 2/2 = 66/66 tasks now complete), added per a direct user request to label coverage-report gaps by kind, which also surfaced two structural gap concepts already conflated under one bare word. `packages/e2e-testing` is 451/451.
+- The feature is installable/usable in any consuming repo once PR #10 merges — see the v1.1.0 through v1.9.0 amendment notes under Document Overview.

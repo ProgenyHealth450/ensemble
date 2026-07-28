@@ -16,11 +16,11 @@ consuming company's own needs (a QA engineer) but the command itself is generic
 ensemble tooling.
 
 - **PRD**: `docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.2)
-- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.8.0, Design Readiness 4.43 — PASS)
+- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.9.0, Design Readiness 4.43 — PASS)
 - **Branch**: `feature/trd-2026-da72aa86-interactive-playwright-test-authoring` (PR #10 open against `Sunstone-Partners/ensemble` main, PR #9's now-superseded stub-generator approach closed)
 - **Architecture**: Option B — a thin orchestrator command (`packages/e2e-testing/commands/author-playwright-tests.yaml`) delegates each AC to the existing `@playwright-tester` agent in two stages (Proposal, then Run — TRD-040), rather than a monolithic command or an extension of the (buggy, unmerged) `generate-playwright-tests` scaffolder.
 - **Note**: this repo itself has no ADO work item for the effort (no ADO tracking here — TRD id mirrors the PRD's micro-UUID), but the ADO Test Plan sync *feature being built* targets whichever ADO project the consuming repo uses.
-- **Status**: PR 1-12 (TRD-001 through TRD-041-TEST, 64 tasks) implemented and tested (448/448) on this branch, PR #10 open against `Sunstone-Partners/ensemble` main. PR 5 wired the orchestrator to the `lib/*.js` modules PR 2-4 had built but never chained together; PR 6-11 are bug/gap fixes found live-dogfooding the feature against real consuming-repo PRs; PR 12 is a direct user-requested enhancement (a pre-run plain-English test preview) — see the TRD's v1.1.0 through v1.8.0 amendment notes for each. Ready to merge; installable in any consuming repo once PR #10 lands.
+- **Status**: PR 1-13 (TRD-001 through TRD-042-TEST, 66 tasks) implemented and tested (451/451) on this branch, PR #10 open against `Sunstone-Partners/ensemble` main. PR 5 wired the orchestrator to the `lib/*.js` modules PR 2-4 had built but never chained together; PR 6-11 are bug/gap fixes found live-dogfooding the feature against real consuming-repo PRs; PR 12-13 are direct user-requested enhancements (a pre-run plain-English test preview; coverage-gap kind labeling) — see the TRD's v1.1.0 through v1.9.0 amendment notes for each. Ready to merge; installable in any consuming repo once PR #10 lands.
 
 ## Quick Reference
 

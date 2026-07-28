@@ -36,6 +36,25 @@
  * explicit grounding gap instead. Every early-exit path below returns a
  * `{grounded: false, gap: true, reason}` result rather than throwing.
  *
+ * TRD-042 (found presenting coverage reports to a QA engineer: a bare "gap"
+ * label doesn't say whether the problem is in the TRD's own planning or in
+ * the code that plan describes): every structural gap also carries a
+ * `gapType`, one of:
+ *   - 'trd-gap' - the TRD itself doesn't say what implements this REQ at all
+ *     (no task claims to satisfy it, a satisfying task declares no Target
+ *     Files, or the TRD couldn't even be parsed/located) — the planning
+ *     document has a hole, not the codebase.
+ *   - 'code-gap' - the TRD DOES say what should implement this REQ (a task,
+ *     with Target Files), but that code isn't actually there to ground a
+ *     test in (files missing, never diffed vs. the base branch, or no
+ *     merge-base could be resolved at all to diff against).
+ * This is distinct from ac-gap-detector.js's semantic `'ac-gap'` (grounding
+ * succeeded, but the grounded code doesn't satisfy the AC) and from
+ * resume-scan.js's plain `'pending'` (grounded, AC satisfied, just no test
+ * written yet — see author-playwright-tests.yaml's Phase 1 Step 2 for how
+ * the orchestrator presents all four as one consistent vocabulary: TRD gap /
+ * Code gap / AC gap / Test coverage gap).
+ *
  * Follows the injectable-exec convention from ./pr-state.js so the sibling
  * TRD-004-TEST task can stub git / TRD-parsing / file-system calls.
  */
@@ -61,9 +80,13 @@ function defaultParseTrd(trdPath) {
   return parseTrdTasks(text);
 }
 
-/** Build the standard "grounding gap" result shape. Never throw — always this instead. */
-function gap(reqId, trdPath, reason) {
-  return { grounded: false, gap: true, reqId, trdPath, reason };
+/**
+ * Build the standard "grounding gap" result shape. Never throw — always this
+ * instead. `gapType` ('trd-gap' | 'code-gap', TRD-042) categorizes WHY —
+ * see the module header for the distinction.
+ */
+function gap(reqId, trdPath, reason, gapType) {
+  return { grounded: false, gap: true, gapType, reqId, trdPath, reason };
 }
 
 /**
@@ -117,15 +140,15 @@ function diffFile(gitExec, mergeBaseSha, file) {
  * @param {(p: string) => boolean} [opts.existsSync] - injectable fs.existsSync
  * @param {string} [opts.baseBranch] - override the branch to merge-base against
  * @returns {{grounded: true, reqId: string, files: string[], diffs: Array<{file:string, diff:string}>, partialGaps: string[]}
- *          | {grounded: false, gap: true, reqId: string, trdPath: string, reason: string}}
+ *          | {grounded: false, gap: true, gapType: 'trd-gap'|'code-gap', reqId: string, trdPath: string, reason: string}}
  */
 function groundImplementation(reqId, trdPath, opts = {}) {
   const gitExec = opts.gitExec || defaultGitExec;
   const parseTrd = opts.parseTrd || defaultParseTrd;
   const existsSync = opts.existsSync || fs.existsSync;
 
-  if (!reqId) return gap(reqId, trdPath, 'No REQ id was provided');
-  if (!trdPath) return gap(reqId, trdPath, 'No TRD path was provided');
+  if (!reqId) return gap(reqId, trdPath, 'No REQ id was provided', 'trd-gap');
+  if (!trdPath) return gap(reqId, trdPath, 'No TRD path was provided', 'trd-gap');
 
   const normalizedReqId = String(reqId).toUpperCase();
 
@@ -133,7 +156,7 @@ function groundImplementation(reqId, trdPath, opts = {}) {
   try {
     trd = parseTrd(trdPath, opts);
   } catch (err) {
-    return gap(reqId, trdPath, `Failed to parse TRD '${trdPath}': ${err.message}`);
+    return gap(reqId, trdPath, `Failed to parse TRD '${trdPath}': ${err.message}`, 'trd-gap');
   }
 
   const tasksById = (trd && trd.tasksById) || {};
@@ -142,7 +165,7 @@ function groundImplementation(reqId, trdPath, opts = {}) {
   );
 
   if (matchingTasks.length === 0) {
-    return gap(reqId, trdPath, `No task in '${trdPath}' satisfies ${normalizedReqId}`);
+    return gap(reqId, trdPath, `No task in '${trdPath}' satisfies ${normalizedReqId}`, 'trd-gap');
   }
 
   const targetFiles = [];
@@ -154,12 +177,17 @@ function groundImplementation(reqId, trdPath, opts = {}) {
 
   if (targetFiles.length === 0) {
     const taskIds = matchingTasks.map((t) => t.id).join(', ');
-    return gap(reqId, trdPath, `${normalizedReqId} maps to task(s) ${taskIds} but none declare Target Files`);
+    return gap(
+      reqId,
+      trdPath,
+      `${normalizedReqId} maps to task(s) ${taskIds} but none declare Target Files`,
+      'trd-gap'
+    );
   }
 
   const mergeBase = resolveMergeBase(gitExec, opts.baseBranch);
   if (!mergeBase) {
-    return gap(reqId, trdPath, 'Could not resolve a merge-base branch (main/origin/main) to diff against');
+    return gap(reqId, trdPath, 'Could not resolve a merge-base branch (main/origin/main) to diff against', 'code-gap');
   }
 
   const diffs = [];
@@ -186,7 +214,8 @@ function groundImplementation(reqId, trdPath, opts = {}) {
     return gap(
       reqId,
       trdPath,
-      `All target file(s) for ${normalizedReqId} are ungrounded: ${ungrounded.join('; ')}`
+      `All target file(s) for ${normalizedReqId} are ungrounded: ${ungrounded.join('; ')}`,
+      'code-gap'
     );
   }
 

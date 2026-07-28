@@ -36,18 +36,32 @@ before checking, never assume gh/GitHub.
    - Carry the result's baseBranch (the PR's real target branch, e.g. "integration" on some repos) forward as the session's resolved base branch — every groundImplementation() call in the next step passes it as opts.baseBranch, never letting that module fall back to guessing main/origin-main
 
 **2. Parse PRD, Ground Every REQ, Flag Gaps, and Resume-Scan**
-   TRD-025 (satisfies REQ-002, REQ-009, REQ-011): build the story's
-full coverage picture before asking anything else. This is what
-makes PR 1's promise real — "lists every AC for that story,
+   TRD-025/TRD-042 (satisfies REQ-002, REQ-009, REQ-011): build the
+story's full coverage picture before asking anything else. This is
+what makes PR 1's promise real — "lists every AC for that story,
 whether it already has a confirmed test, and which REQ's
-implementation code was found."
+implementation code was found." TRD-042 (found presenting this
+report to a QA engineer): a bare "gap" label doesn't say what's
+actually wrong — every gap in the report must be labeled with
+exactly one of four kinds, never a generic "gap":
+  - TRD gap: the TRD itself doesn't say what implements this REQ
+    at all (groundImplementation()'s gapType: 'trd-gap') — the
+    planning document has a hole, not the codebase.
+  - Code gap: the TRD does say what should implement this REQ,
+    but that code isn't actually there (gapType: 'code-gap').
+  - AC gap: the code was found, but an agent's judgment (or a
+    persisted @ac-gap marker from a prior session) says it
+    doesn't satisfy this specific AC.
+  - Test coverage gap: the code was found AND satisfies the AC —
+    there's simply no confirmed test for it yet.
 
 
    - Call parsePrdAcs(prdText) from packages/e2e-testing/lib/prd-ac-parser.js to get {documentId, label, reqs: [{id, acs: [{id, text}]}]}
-   - For each REQ, call groundImplementation(reqId, trdPath, {baseBranch}) from packages/e2e-testing/lib/implementation-grounding.js, passing Step 1's resolved baseBranch every time — never omit it. A {grounded: false, gap: true, reason} result is a structural grounding gap — report it plainly, do not treat it as an AC-gap (that is a distinct concept, see next action)
-   - For each AC under a grounded REQ, judge (agent reasoning, not a function call) whether the grounded diff actually produces that AC's stated Given/When/Then outcome. If it does not, call flagAcGap(acId, {reqId, groundingResult, reason}) from packages/e2e-testing/lib/ac-gap-detector.js, present the flagged gap to the QA engineer, and record their call via resolveGapReview(acId, decision, details) — decision "confirmed" routes to Phase 6 (AC-Gap Task Filing) immediately, not deferred to session end; decision "override" re-runs groundImplementation with details.correctedTargetFiles (still passing the same {baseBranch}) and re-judges before moving on
-   - Scan the consuming application's existing E2E test project (its *.spec.ts/*.cs files) on disk and call scanAcCoverage(specTexts, expectedAcIds) from packages/e2e-testing/lib/resume-scan.js to split every expected AC into confirmed/manual/gap/pending
-   - Print the combined coverage report: every AC's status (confirmed / manual / gap / pending) alongside its REQ's grounding result — this is PR 1's own Shippable State and must be shown even if the session goes on to do nothing else
+   - For each REQ, call groundImplementation(reqId, trdPath, {baseBranch}) from packages/e2e-testing/lib/implementation-grounding.js, passing Step 1's resolved baseBranch every time — never omit it. A {grounded: false, gap: true, gapType, reason} result is a structural grounding gap: label every AC under that REQ with "TRD gap" when gapType is "trd-gap", or "Code gap" when gapType is "code-gap" — report the reason plainly, and do not proceed to the next action for that REQ's ACs (there is no diff yet to judge against an AC)
+   - For each AC under a grounded REQ, judge (agent reasoning, not a function call) whether the grounded diff actually produces that AC's stated Given/When/Then outcome. If it does not, call flagAcGap(acId, {reqId, groundingResult, reason}) from packages/e2e-testing/lib/ac-gap-detector.js, label it "AC gap" when presenting to the QA engineer, and record their call via resolveGapReview(acId, decision, details) — decision "confirmed" routes to Phase 6 (AC-Gap Task Filing) immediately, not deferred to session end; decision "override" re-runs groundImplementation with details.correctedTargetFiles (still passing the same {baseBranch}) and re-judges before moving on
+   - Scan the consuming application's existing E2E test project (its *.spec.ts/*.cs files) on disk and call scanAcCoverage(specTexts, expectedAcIds) from packages/e2e-testing/lib/resume-scan.js to split every expected AC into confirmed/manual/gap/pending — its "gap" here means a persisted @ac-gap marker from a prior session; label it "AC gap" the same as a freshly-judged one above, never a bare "gap"
+   - For each AC that reached this step with no gap of any kind (grounded REQ, AC judged satisfied, not manual, not confirmed by resume-scan) but resume-scan still reports it "pending": label it "Test coverage gap" — everything upstream is fine, it just has no test yet. This is the only one of the four kinds this session will actually resolve by delegating and landing a test; the other three need a human/TRD/code decision first
+   - Print the combined coverage report: every AC labeled with exactly one of TRD gap / Code gap / AC gap / Test coverage gap / Manual / Confirmed — this is PR 1's own Shippable State and must be shown even if the session goes on to do nothing else
 
 **3. Full-Session Idempotence Short-Circuit**
    TRD-030/TRD-023 (satisfies REQ-011, AC-011-2): a fully-covered
