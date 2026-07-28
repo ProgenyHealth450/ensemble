@@ -74,21 +74,21 @@ describe('checkPrState (argv safety)', () => {
 
 describe('detectRepoHost (TRD-031)', () => {
   test('github.com remote -> host: github, checkPrState behavior untouched', () => {
-    const gitExec = jest.fn(() => 'https://github.com/ProgenyHealth450/ensemble.git\n');
+    const gitExec = jest.fn(() => 'https://github.com/example-org/some-app.git\n');
     expect(detectRepoHost({ gitExec })).toEqual({
       host: 'github',
-      remoteUrl: 'https://github.com/ProgenyHealth450/ensemble.git',
+      remoteUrl: 'https://github.com/example-org/some-app.git',
     });
   });
 
   test('modern Azure DevOps remote (with user@ prefix) -> host: azure-devops, org/project/repo parsed', () => {
-    const gitExec = jest.fn(() => 'https://progenyhealth@dev.azure.com/progenyhealth/CRIBs/_git/CRIBs\n');
+    const gitExec = jest.fn(() => 'https://contoso@dev.azure.com/contoso/SampleApp/_git/SampleApp\n');
     expect(detectRepoHost({ gitExec })).toEqual({
       host: 'azure-devops',
-      remoteUrl: 'https://progenyhealth@dev.azure.com/progenyhealth/CRIBs/_git/CRIBs',
-      organization: 'progenyhealth',
-      project: 'CRIBs',
-      repository: 'CRIBs',
+      remoteUrl: 'https://contoso@dev.azure.com/contoso/SampleApp/_git/SampleApp',
+      organization: 'contoso',
+      project: 'SampleApp',
+      repository: 'SampleApp',
     });
   });
 
@@ -150,7 +150,7 @@ describe('checkPrStateAdo (TRD-031: same {hasOpenPr, state, url, number, baseBra
     });
   });
 
-  test('targetRefName surfaces as baseBranch stripped of refs/heads/ (e.g. CRIBs targeting integration, not main)', () => {
+  test('targetRefName surfaces as baseBranch stripped of refs/heads/ (e.g. some repos targeting integration, not main)', () => {
     const prs = [
       { pullRequestId: 4129, status: 'active', sourceRefName: 'refs/heads/feature/mike/topnav-icon-text-layout', targetRefName: 'refs/heads/integration' },
     ];

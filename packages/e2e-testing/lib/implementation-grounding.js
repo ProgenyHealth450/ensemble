@@ -20,7 +20,7 @@
  * top-level plugin-cache directories; that relative path resolves to a
  * location that never exists, and grounding failed outright, for every REQ,
  * unconditionally, the moment the plugin was actually installed (confirmed
- * live against a real CRIBs PR: ENOENT resolving trd-cli.js — found live-
+ * live against a real, open PR in the consuming application: ENOENT resolving trd-cli.js — found live-
  * dogfooding this feature, same as the merge-base/ADO-status bugs it sits
  * beside). No Claude Code plugin-dependency mechanism guarantees a stable,
  * version-independent filesystem path between two separately-versioned
@@ -74,7 +74,7 @@ function gap(reqId, trdPath, reason) {
  * When an explicit baseBranch is given, it's tried both bare and prefixed
  * with `origin/` (unless already so prefixed) — the same bare/origin-prefixed
  * pair the default candidates get. A PR's real target branch (e.g.
- * `integration` on a repo like CRIBs, which never targets `main` directly)
+ * `integration` on a repo whose branches never target `main` directly)
  * is frequently unfetched locally; without the `origin/` fallback, grounding
  * failed outright instead of falling back the way the hardcoded default
  * already does for `main`.

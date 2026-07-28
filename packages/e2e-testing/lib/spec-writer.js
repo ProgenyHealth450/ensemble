@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * TRD-014: test placement into `cribs.e2e.tests` for
- * /ensemble:author-playwright-tests (REQ-006).
+ * TRD-014: test placement into the consuming application's existing E2E test
+ * project for /ensemble:author-playwright-tests (REQ-006).
  *
  * *** TRD DOCUMENTATION DISCREPANCY (flagging for a later TRD fix) ***
  * The TRD's own System Architecture diagram (line 62) describes this module
- * as writing to `cribs.e2e.tests/**\/*.spec.ts` -- implying TypeScript. But
- * this task's own Implementation AC (and the PRD's AC-006-1, verbatim) requires
+ * as writing to `**\/*.spec.ts` -- implying TypeScript. But this task's own
+ * Implementation AC (and the PRD's AC-006-1, verbatim) requires
  * `[TestCategory("E2E")]` (a C# NUnit/MSTest bracket attribute -- this syntax
  * does not exist in TypeScript, which uses decorators or object-literal tags
  * instead) and `AuthenticatedPageTest`/`PageTest` base classes (Microsoft
@@ -16,12 +16,12 @@
  * flatly incompatible.
  *
  * Resolution: the AC text's concrete C# attribute/class syntax is unambiguous
- * and is followed exactly as written here. `cribs.e2e.tests` is treated as a
- * C# NUnit-style test project (Microsoft.Playwright's .NET bindings), and this
- * module generates/appends `.cs` file content, not `.spec.ts`. The diagram's
- * "**\/*.spec.ts" line appears to be an error/copy-paste artifact from a
- * TypeScript-flavored Playwright convention and should be corrected in a TRD
- * documentation fix.
+ * and is followed exactly as written here. The consuming application's E2E
+ * test project is treated as a C# NUnit-style test project (Microsoft
+ * .Playwright's .NET bindings), and this module generates/appends `.cs` file
+ * content, not `.spec.ts`. The diagram's "**\/*.spec.ts" line appears to be an
+ * error/copy-paste artifact from a TypeScript-flavored Playwright convention
+ * and should be corrected in a TRD documentation fix.
  *
  * Related, not fixed here: resume-scan.js (TRD-005, already shipped) also
  * documents itself in terms of `.spec.ts` files and assumes that file
@@ -59,7 +59,7 @@ const fs = require('fs');
 
 const VALID_BASE_CLASSES = ['AuthenticatedPageTest', 'PageTest'];
 const TEST_CATEGORY = 'E2E';
-const DEFAULT_NAMESPACE = 'Cribs.E2E.Tests';
+const DEFAULT_NAMESPACE = 'Application.E2E.Tests';
 const DEFAULT_TEST_BODY = 'await Page.GotoAsync(TestConfiguration.QaBaseUrl);';
 const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -130,7 +130,7 @@ function renderTestMethodBlock(specDetails, indent) {
  * @param {object} specDetails
  * @param {string} specDetails.className - the C# class name (e.g. "LoginTests")
  * @param {'AuthenticatedPageTest'|'PageTest'} specDetails.baseClass
- * @param {string} [specDetails.namespace] - defaults to "Cribs.E2E.Tests"
+ * @param {string} [specDetails.namespace] - defaults to "Application.E2E.Tests"
  * @param {string} [specDetails.acId] - e.g. "AC-006-1", left as a plain comment anchor
  * @param {string} specDetails.testName - C# method name (e.g. "Should_Redirect_To_Login")
  * @param {string} [specDetails.testBody] - raw C# statements for the method body;
@@ -413,7 +413,7 @@ if (require.main === module) {
   assert.ok(scaffolded.includes('[TestCategory("E2E")]'));
   assert.ok(scaffolded.includes('TestConfiguration.QaBaseUrl')); // default body, never a hardcoded URL literal
   assert.ok(scaffolded.includes('// AC-006-1'));
-  assert.ok(scaffolded.includes('namespace Cribs.E2E.Tests'));
+  assert.ok(scaffolded.includes('namespace Application.E2E.Tests'));
   assert.throws(() => scaffoldNewSpecFile({ className: 'X' }), /baseClass must be one of/);
   assert.throws(
     () => scaffoldNewSpecFile({ className: '1Bad', baseClass: 'PageTest', testName: 'T' }),
@@ -441,7 +441,7 @@ if (require.main === module) {
   assert.ok(appended.includes('Should_Show_Error_On_Bad_Password'));
   // only one class/namespace declaration -- not duplicated by the append
   assert.strictEqual((appended.match(/public class LoginTests/g) || []).length, 1);
-  assert.strictEqual((appended.match(/namespace Cribs\.E2E\.Tests/g) || []).length, 1);
+  assert.strictEqual((appended.match(/namespace Application\.E2E\.Tests/g) || []).length, 1);
   // well-formed: braces still balance, and the file still ends with the
   // class-closing brace followed by the namespace-closing brace
   assert.strictEqual((appended.match(/\{/g) || []).length, (appended.match(/\}/g) || []).length);

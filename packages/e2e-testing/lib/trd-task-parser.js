@@ -19,7 +19,7 @@
  * sibling top-level plugin-cache directories — the relative path resolves to
  * a location that never exists, and grounding fails outright, unconditionally,
  * for every REQ, the moment the plugin is actually installed (confirmed live
- * against a real CRIBs PR: ENOENT resolving trd-cli.js). No Claude Code
+ * against a real, open PR in the consuming application: ENOENT resolving trd-cli.js). No Claude Code
  * plugin-dependency mechanism guarantees a stable, version-independent
  * filesystem path between two separately-versioned plugin installs, so no
  * hardcoded cross-package path — however it's spelled — can be made to work

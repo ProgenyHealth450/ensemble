@@ -5,7 +5,7 @@
  * Extended by TRD-023 (AC-011-2: full-session idempotence) — see that
  * section below the original TRD-005 doc block.
  *
- * Scans cribs.e2e.tests' *.spec.ts files for the per-AC "@hash:" tag this
+ * Scans the consuming application's E2E test project's *.spec.ts files for the per-AC "@hash:" tag this
  * repo's own Gherkin generator already uses (see
  * packages/product/lib/feature-gen.js renderScenario(), which emits
  * "@AC-001-1 @hash:<12-hex>" above each Scenario:). TRD-015's
@@ -255,7 +255,7 @@ function isStoryFullyCovered(expectedAcIds, specTexts) {
 
 /**
  * File-reading wrapper: scan actual *.spec.ts files on disk (e.g. a glob
- * over cribs.e2e.tests) rather than in-memory text.
+ * over the consuming application's E2E test project) rather than in-memory text.
  *
  * @param {string[]} specFilePaths - paths to .spec.ts files
  * @param {string[]} expectedAcIds - all AC ids the session expects to cover

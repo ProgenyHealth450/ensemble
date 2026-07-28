@@ -20,9 +20,9 @@
  * teams might invent, and it should never be read as one. Don't oversell it.
  *
  * There is no real config source to read here — the actual
- * `TestConfiguration.*` C# class and its QA URL live in the consuming CRIBS
- * project, not this repo (same precedent as test-runner-mode.js's
- * `cribs-e2e-auth-state.json` reference: name the concept, don't read/create
+ * `TestConfiguration.*` C# class and its QA URL live in the consuming
+ * application's project, not this repo (same precedent as test-runner-mode.js's
+ * `e2e-auth-state.json` reference: name the concept, don't read/create
  * it). So this module never hardcodes a URL and never silently defaults to
  * one — the caller must explicitly configure the QA target (a direct URL or
  * the name of an env var that holds it). No config => hard error, never a
@@ -209,8 +209,8 @@ if (require.main === module) {
 
   // envVar path, read from an injected env object
   assert.strictEqual(
-    resolveQaEnvUrl({ envVar: 'CRIBS_QA_BASE_URL', env: { CRIBS_QA_BASE_URL: 'https://cribs-qa.example.com' } }),
-    'https://cribs-qa.example.com'
+    resolveQaEnvUrl({ envVar: 'APP_QA_BASE_URL', env: { APP_QA_BASE_URL: 'https://app-qa.example.com' } }),
+    'https://app-qa.example.com'
   );
 
   // nothing configured -> hard error, never a guessed/default URL
@@ -230,10 +230,10 @@ if (require.main === module) {
 
   // QA-flagged bypasses (prod as prefix/suffix of a segment, not just an
   // exact, fully-delimited segment) — must now be rejected
-  assert.throws(() => resolveQaEnvUrl({ url: 'https://prodapi.progenyhealth.com' }), /looks like production/);
-  assert.throws(() => resolveQaEnvUrl({ url: 'https://prod1.progenyhealth.com' }), /looks like production/);
-  assert.throws(() => resolveQaEnvUrl({ url: 'https://cribs-prod2.progenyhealth.com' }), /looks like production/);
-  assert.throws(() => resolveQaEnvUrl({ url: 'https://prodweb.progenyhealth.com' }), /looks like production/);
+  assert.throws(() => resolveQaEnvUrl({ url: 'https://prodapi.example.com' }), /looks like production/);
+  assert.throws(() => resolveQaEnvUrl({ url: 'https://prod1.example.com' }), /looks like production/);
+  assert.throws(() => resolveQaEnvUrl({ url: 'https://app-prod2.example.com' }), /looks like production/);
+  assert.throws(() => resolveQaEnvUrl({ url: 'https://prodweb.example.com' }), /looks like production/);
   assert.throws(() => resolveQaEnvUrl({ url: 'https://prodserver.example.com' }), /looks like production/);
   assert.throws(() => resolveQaEnvUrl({ url: 'https://prodservice.example.com' }), /looks like production/);
   assert.throws(() => resolveQaEnvUrl({ url: 'https://prod_qa.example.com' }), /looks like production/);
@@ -244,7 +244,7 @@ if (require.main === module) {
 
   // scheme-only garbage that URL parses without throwing but leaves hostname
   // empty (e.g. a missing "https://" prefix) must not slip past validation
-  assert.throws(() => resolveQaEnvUrl({ url: 'qa.progenyhealth.com:443' }), /is not a valid URL/);
+  assert.throws(() => resolveQaEnvUrl({ url: 'qa.example.com:443' }), /is not a valid URL/);
   assert.throws(() => resolveQaEnvUrl({ url: 'localhost:3000' }), /is not a valid URL/);
 
   (async () => {

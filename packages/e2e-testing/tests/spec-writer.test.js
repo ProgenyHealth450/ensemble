@@ -89,7 +89,7 @@ describe('appendTestMethod (AC-006-2: append to the same file, no redundant new 
     // exactly one class/namespace declaration -- append never creates a
     // redundant second file/class for the same REQ
     expect((appended.match(/public class LoginTests/g) || []).length).toBe(1);
-    expect((appended.match(/namespace Cribs\.E2E\.Tests/g) || []).length).toBe(1);
+    expect((appended.match(/namespace Application.E2E.Tests/g) || []).length).toBe(1);
 
     // structurally sound: braces balance, file still ends class-close then namespace-close
     expect((appended.match(/\{/g) || []).length).toBe((appended.match(/\}/g) || []).length);
@@ -109,7 +109,7 @@ describe('appendTestMethod (AC-006-2: append to the same file, no redundant new 
       appendedThrice.indexOf('Should_Lock_Account_After_Failed_Attempts')
     );
     expect((appendedThrice.match(/public class LoginTests/g) || []).length).toBe(1);
-    expect((appendedThrice.match(/namespace Cribs\.E2E\.Tests/g) || []).length).toBe(1);
+    expect((appendedThrice.match(/namespace Application.E2E.Tests/g) || []).length).toBe(1);
     expect((appendedThrice.match(/\{/g) || []).length).toBe((appendedThrice.match(/\}/g) || []).length);
     expect(closesCleanly(appendedThrice)).toBe(true);
     expect(testMethodCount(appendedThrice)).toBe(3);

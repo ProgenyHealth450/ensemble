@@ -42,6 +42,7 @@ const EXPECTED_MODULE_ORDER = [
   'manual-ac-tracker',
   'spec-writer',
   'traceability-tagger',
+  'ado-test-plan',
   'ado-test-suite',
   'ado-test-case-sync',
   'ado-sync-resilience',

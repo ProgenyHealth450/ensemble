@@ -178,8 +178,8 @@ describe('deriveAuthStatePath (TRD-036: a stored auth state is scoped to one ori
   });
 
   test('is not tied to any one naming convention -- works for any base path a consuming repo configures', () => {
-    expect(deriveAuthStatePath('cribs-e2e-auth-state.json', 'https://cribs-qa-mikedevenney.azurewebsites.net')).toBe(
-      'cribs-e2e-auth-state.cribs-qa-mikedevenney-azurewebsites-net.json'
+    expect(deriveAuthStatePath('app-e2e-auth-state.json', 'https://app-qa-alice.azurewebsites.net')).toBe(
+      'app-e2e-auth-state.app-qa-alice-azurewebsites-net.json'
     );
     expect(deriveAuthStatePath('.auth/state.json', 'http://localhost:3000')).toBe('.auth/state.localhost-3000.json');
   });

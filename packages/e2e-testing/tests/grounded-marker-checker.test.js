@@ -3,7 +3,7 @@
 const { extractGroundedMarkers, buildEnvironmentMismatchHint } = require('../lib/grounded-marker-checker');
 
 describe('extractGroundedMarkers', () => {
-  test('extracts a single-class attribute value (the exact CRIBs-incident shape)', () => {
+  test('extracts a single-class attribute value (the exact shape found in a real live-dogfooding incident)', () => {
     const diff = [
       'diff --git a/src/Nav.jsx b/src/Nav.jsx',
       '@@ -1,3 +1,3 @@',

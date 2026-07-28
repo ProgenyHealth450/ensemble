@@ -26,9 +26,9 @@ readiness_score: 4.65
 
 ## Product Summary
 
-**Problem:** Playwright tests for CRIBs stories are hand-written after a story merges, by memory of the PRD's acceptance criteria rather than by walking them one at a time. Coverage drifts from the ACs, is inconsistent across stories, and gives non-code reviewers no way to see what a test actually checks. A QA engineer and CRIBs developers both feel this gap today.
+**Problem:** Playwright tests for the application's stories are hand-written after a story merges, by memory of the PRD's acceptance criteria rather than by walking them one at a time. Coverage drifts from the ACs, is inconsistent across stories, and gives non-code reviewers no way to see what a test actually checks. A QA engineer and the application's developers both feel this gap today.
 
-**Solution:** An interactive, `create-trd`-style test-authoring session that runs *after* `implement-trd-beads` has produced real implementation code for a story. An agent proposes a real (non-stub) Playwright test per acceptance criterion, grounded in both the PRD's AC text and the actual implementing code, running headed against the QA environment under the QA engineer's own Entra login so they can watch and confirm each test passes. Confirmed tests are placed in `cribs.e2e.tests` per existing conventions, and their step-level narration is synced to an Azure DevOps Test Case/Suite as plain-English steps. When the agent finds an AC the implementation doesn't actually satisfy, it stops short of writing a test for behavior that doesn't exist and instead files a gap task.
+**Solution:** An interactive, `create-trd`-style test-authoring session that runs *after* `implement-trd-beads` has produced real implementation code for a story. An agent proposes a real (non-stub) Playwright test per acceptance criterion, grounded in both the PRD's AC text and the actual implementing code, running headed against the QA environment under the QA engineer's own Entra login so they can watch and confirm each test passes. Confirmed tests are placed in the application's existing E2E test project per existing conventions, and their step-level narration is synced to an Azure DevOps Test Case/Suite as plain-English steps. When the agent finds an AC the implementation doesn't actually satisfy, it stops short of writing a test for behavior that doesn't exist and instead files a gap task.
 
 **Value proposition:** Every Must/Should AC gets a real, human-confirmed test the same day the code is grounded, traceable to both the PRD and an ADO Test Suite a non-coder can read — instead of a best-effort pass that drifts further from the PRD the longer it's deferred.
 
@@ -105,7 +105,7 @@ readiness_score: 4.65
 - AC-013-1: Given the session is about to run a test, when it resolves the target URL, then it always resolves to the designated QA environment (the same one the nightly regression pipeline targets) and never to production.
 - AC-013-2: Given a session starts, when it's about to run its first test, then the agent asks the QA engineer whether they want to watch (headed) or let it run independently and report status back (headless) — defaulting to headed since the session is interactive by default.
 - AC-013-3: Given headed mode is chosen, when Playwright launches, then it runs headed using the QA engineer's own interactive Entra ID login, so they can watch the run in real time.
-- AC-013-4: Given headless mode is chosen, when Playwright launches, then it authenticates using the existing stored `cribs-e2e-auth-state.json` secure file (the same mechanism the unattended nightly suite uses, since no human is present for an interactive login) and reports the pass/fail result back to the QA engineer the same as REQ-005 would for a headed run.
+- AC-013-4: Given headless mode is chosen, when Playwright launches, then it authenticates using the existing stored `app-e2e-auth-state.json` secure file (the same mechanism the unattended nightly suite uses, since no human is present for an interactive login) and reports the pass/fail result back to the QA engineer the same as REQ-005 would for a headed run.
 - AC-013-5: Given the QA environment is unreachable, when the session detects this, then it halts test execution for that AC rather than falling back to any other environment.
 
 ### Test Placement & Traceability
@@ -113,7 +113,7 @@ readiness_score: 4.65
 ### REQ-006: Test Placement per Existing E2E Conventions
 **Priority:** Must | **Complexity:** Low
 
-- AC-006-1: Given a new test file is created, when it's written to `cribs.e2e.tests`, then it uses `AuthenticatedPageTest` or `PageTest` as appropriate, carries `[TestCategory("E2E")]`, and uses `TestConfiguration.*` for URLs/IDs per CLAUDE.md.
+- AC-006-1: Given a new test file is created, when it's written to the application's existing E2E test project, then it uses `AuthenticatedPageTest` or `PageTest` as appropriate, carries `[TestCategory("E2E")]`, and uses `TestConfiguration.*` for URLs/IDs per CLAUDE.md.
 - AC-006-2: Given an existing spec file already covers other ACs for the same REQ, when a new AC's test is added, then it's added to that file rather than creating a redundant new file per AC.
 
 ### REQ-014: Traceability Tagging
@@ -213,6 +213,6 @@ No circular dependencies.
 
 ## Changelog
 
-- **v1.0.2** (2026-07-24) — `create-trd` Architecture Design surfaced that REQ-013's headed-only mandate conflicted with the chosen orchestrator+delegate architecture's need for an unattended/headless mode. Revised REQ-013 to ask the QA engineer headed-vs-headless at session start (defaulting to headed), with headless reusing the existing `cribs-e2e-auth-state.json` mechanism since no human is present to log in interactively. Complexity raised Low → Medium to reflect the added mode branch.
+- **v1.0.2** (2026-07-24) — `create-trd` Architecture Design surfaced that REQ-013's headed-only mandate conflicted with the chosen orchestrator+delegate architecture's need for an unattended/headless mode. Revised REQ-013 to ask the QA engineer headed-vs-headless at session start (defaulting to headed), with headless reusing the existing `app-e2e-auth-state.json` mechanism since no human is present to log in interactively. Complexity raised Low → Medium to reflect the added mode branch.
 - **v1.0.1** (2026-07-24) — `refine-prd` pass: resolved all 3 `[NEEDS CLARIFICATION]` markers (AC-001, trigger fires once the story's PR is open, per `implement-trd-beads`'s PR-stack model, with tests committed onto that same branch/PR; AC-007, ADO Test Case linked via an `@ado-testcase:<id>` tag in the spec file; AC-016, human-readable console logging for v1). Added AC-014-2 and AC-015-2 to close Must-requirement AC-coverage gaps. Added AC-003-3 to define true-reject handling (falls into the REQ-017 manual escape hatch). Added risk flags to REQ-002, REQ-003, REQ-007. Corrected PRD Health Summary's dependency count (16 → 18) and risk-flag count (3 → 6). Fixed REQ-NNN headings from H4 to H3 per convention. Readiness score 4.25 → 4.65.
 - **v1.0.0** (2026-07-24) — Initial draft via `create-prd`.

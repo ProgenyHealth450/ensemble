@@ -125,7 +125,7 @@ function resolveRunConfig(mode, authStatePath) {
 /**
  * TRD-036: derive a per-environment-scoped auth-state path from whatever
  * base path a consuming repo already configures (e.g. "e2e-auth-state.json"
- * or "cribs-e2e-auth-state.json" — this module has no opinion on naming).
+ * or "app-e2e-auth-state.json" — this module has no opinion on naming).
  * A stored storage-state file is scoped to the origin it was captured
  * against; a repo with more than one QA/staging deploy target (per-branch or
  * per-developer slots are common) can resolve a different environment URL

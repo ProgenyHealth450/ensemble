@@ -23,7 +23,7 @@
  *
  * Deliberately generic — no assumption about markup conventions, frameworks,
  * CSS methodologies, or naming schemes belonging to any one consuming repo
- * (this is NOT a CRIBs-specific fix; per-branch/per-developer deploy slots
+ * (this is not specific to any one consuming application; per-branch/per-developer deploy slots
  * are a common pattern anyone with more than one deploy target can hit).
  * Extracts from ADDED lines only (a diff's `+` lines, never `-`/context):
  *   1. Quoted string literals of a plausible marker length — covers class

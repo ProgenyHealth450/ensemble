@@ -11,15 +11,16 @@ session where a QA engineer and an agent walk a story's PRD ACs one at a time
 **after** `implement-trd-beads` has shipped a PR boundary, grounding each proposed
 Playwright test in the real implementing code (not just PRD prose), running it
 against the target app's QA environment, and syncing confirmed tests' steps to an
-Azure DevOps Test Case/Suite as plain-English steps. Originally scoped from CRIBs'
-own needs (a QA engineer) but the command itself is generic ensemble tooling.
+Azure DevOps Test Case/Suite as plain-English steps. Originally scoped from a
+consuming company's own needs (a QA engineer) but the command itself is generic
+ensemble tooling.
 
 - **PRD**: `docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.2)
-- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.1.0, Design Readiness 4.43 — PASS)
+- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.7.0, Design Readiness 4.43 — PASS)
 - **Branch**: `feature/trd-2026-da72aa86-interactive-playwright-test-authoring` (PR #10 open against `Sunstone-Partners/ensemble` main, PR #9's now-superseded stub-generator approach closed)
 - **Architecture**: Option B — a thin orchestrator command (`packages/e2e-testing/commands/author-playwright-tests.yaml`) delegates each AC to the existing `@playwright-tester` agent, rather than a monolithic command or an extension of the (buggy, unmerged) `generate-playwright-tests` scaffolder.
-- **Note**: this repo itself has no ADO work item for the effort (no ADO tracking here — TRD id mirrors the PRD's micro-UUID), but the ADO Test Plan sync *feature being built* targets whichever ADO project the consuming repo (e.g. CRIBs) uses.
-- **Status**: PR 1-5 (TRD-001 through TRD-030-TEST, 46 tasks) implemented and tested (306/306) on this branch, PR #10 open against `Sunstone-Partners/ensemble` main. PR 5 (TRD-025 through TRD-030-TEST) wired the orchestrator command (`author-playwright-tests.yaml`, now v2.0.0) to the `lib/*.js` modules PR 2-4 had built but never chained together — see the TRD's "v1.1.0 amendment" note. Ready to merge; installable in a consuming repo (e.g. CRIBs) once PR #10 lands.
+- **Note**: this repo itself has no ADO work item for the effort (no ADO tracking here — TRD id mirrors the PRD's micro-UUID), but the ADO Test Plan sync *feature being built* targets whichever ADO project the consuming repo uses.
+- **Status**: PR 1-11 (TRD-001 through TRD-039-TEST, 61 tasks) implemented and tested (436/436) on this branch, PR #10 open against `Sunstone-Partners/ensemble` main. PR 5 wired the orchestrator to the `lib/*.js` modules PR 2-4 had built but never chained together; PR 6-11 are bug/gap fixes found live-dogfooding the feature against real consuming-repo PRs — see the TRD's v1.1.0 through v1.7.0 amendment notes for each. Ready to merge; installable in any consuming repo once PR #10 lands.
 
 ## Quick Reference
 

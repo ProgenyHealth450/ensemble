@@ -6,7 +6,7 @@
  * A test-authoring session may only start once implement-trd-beads has
  * shipped a PR boundary for the target branch. TRD-003's original
  * `checkPrState()` shells out to `gh` (GitHub CLI) — fine for a
- * GitHub-hosted repo, but this TRD's own consuming repo (CRIBs) is hosted on
+ * GitHub-hosted repo, but this TRD's own consuming application is hosted on
  * Azure DevOps Repos, where `gh pr list` cannot resolve anything at all.
  * `checkPrState()`'s exec-failure path silently returns `hasOpenPr: false`,
  * so an Azure-DevOps-hosted repo would permanently report "no open PR"
@@ -33,12 +33,12 @@
  * Both functions also surface `baseBranch` (the PR's real target/base
  * branch) so the orchestrator can pass it to implementation-grounding.js's
  * `groundImplementation(reqId, trdPath, {baseBranch})` instead of letting
- * that module fall back to its hardcoded main/origin-main default — a repo
- * like CRIBs, where feature branches target `integration` rather than
- * `main`, would otherwise ground against the wrong branch entirely. Found
- * live-dogfooding this feature against a real CRIBs PR, where a manual diff
- * against `main` pulled in unrelated already-integrated work as if it
- * belonged to the PR under test.
+ * that module fall back to its hardcoded main/origin-main default — some
+ * consuming repos' feature branches target `integration` rather than `main`,
+ * and would otherwise ground against the wrong branch entirely. Found
+ * live-dogfooding this feature against a real, open PR in the consuming
+ * application, where a manual diff against `main` pulled in unrelated
+ * already-integrated work as if it belonged to the PR under test.
  *
  * checkPrStateAdo() also accepts the Azure DevOps MCP server's numeric
  * `status` representation, not just the raw REST API's string form — see

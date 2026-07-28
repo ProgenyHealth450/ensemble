@@ -218,7 +218,8 @@ describe('groundImplementation (TRD-033: the REAL default parseTrd, not a mock)'
   // original defaultParseTrd() shelled out to a hardcoded, cross-package
   // path (packages/development/lib/trd-cli.js) that only resolved in the
   // monorepo checkout, and ENOENT'd unconditionally once installed as a real,
-  // independently-published plugin (confirmed live against a real CRIBs PR).
+  // independently-published plugin (confirmed live against a real, open PR
+  // in the consuming application).
   // These tests deliberately do NOT inject parseTrd, so a regression of that
   // class -- here, or in any future default-path change -- fails this suite
   // instead of shipping unnoticed behind 300+ passing mocked tests.

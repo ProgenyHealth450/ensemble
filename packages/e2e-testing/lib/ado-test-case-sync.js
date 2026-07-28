@@ -11,8 +11,8 @@
  * Case creation/update from `test.step()` narration". `test.step(title,
  * callback)` is a `@playwright/test` (TypeScript/JS test runner) API — it has
  * no equivalent in Microsoft.Playwright's .NET/NUnit bindings, which
- * TRD-014/spec-writer.js already established is what `cribs.e2e.tests`
- * actually is (C# NUnit, `[TestCategory("E2E")]`, `AuthenticatedPageTest`/
+ * TRD-014/spec-writer.js already established what the consuming
+ * application's E2E test project actually is (C# NUnit, `[TestCategory("E2E")]`, `AuthenticatedPageTest`/
  * `PageTest`). There is no C# `test.step()`.
  *
  * Resolution (same approach as TRD-014): treat "test.step() narration" as
