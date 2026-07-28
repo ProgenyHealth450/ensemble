@@ -5,7 +5,7 @@
  * /ensemble:author-playwright-tests.
  *
  * Pure grouping/checkpoint logic only — no I/O, no prompt(), no shell-out.
- * "Asking Sonia whether to continue" is the orchestrating agent's own
+ * "Asking the QA engineer whether to continue" is the orchestrating agent's own
  * conversational turn; this module just tells it, per REQ in order: which
  * ACs belong to it, whether it's fully done (checkpoint trigger, AC-004-1),
  * and a human-readable summary to print at that checkpoint.

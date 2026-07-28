@@ -71,7 +71,7 @@ workflow:
           actions:
             - 'Call parsePrdAcs(prdText) from packages/e2e-testing/lib/prd-ac-parser.js to get {documentId, label, reqs: [{id, acs: [{id, text}]}]}'
             - 'For each REQ, call groundImplementation(reqId, trdPath, {baseBranch}) from packages/e2e-testing/lib/implementation-grounding.js, passing Step 1''s resolved baseBranch every time — never omit it. A {grounded: false, gap: true, reason} result is a structural grounding gap — report it plainly, do not treat it as an AC-gap (that is a distinct concept, see next action)'
-            - 'For each AC under a grounded REQ, judge (agent reasoning, not a function call) whether the grounded diff actually produces that AC''s stated Given/When/Then outcome. If it does not, call flagAcGap(acId, {reqId, groundingResult, reason}) from packages/e2e-testing/lib/ac-gap-detector.js, present the flagged gap to Sonia, and record her call via resolveGapReview(acId, decision, details) — decision "confirmed" routes to Phase 6 (AC-Gap Task Filing) immediately, not deferred to session end; decision "override" re-runs groundImplementation with details.correctedTargetFiles (still passing the same {baseBranch}) and re-judges before moving on'
+            - 'For each AC under a grounded REQ, judge (agent reasoning, not a function call) whether the grounded diff actually produces that AC''s stated Given/When/Then outcome. If it does not, call flagAcGap(acId, {reqId, groundingResult, reason}) from packages/e2e-testing/lib/ac-gap-detector.js, present the flagged gap to the QA engineer, and record their call via resolveGapReview(acId, decision, details) — decision "confirmed" routes to Phase 6 (AC-Gap Task Filing) immediately, not deferred to session end; decision "override" re-runs groundImplementation with details.correctedTargetFiles (still passing the same {baseBranch}) and re-judges before moving on'
             - 'Scan cribs.e2e.tests'' existing *.spec.ts/*.cs files on disk and call scanAcCoverage(specTexts, expectedAcIds) from packages/e2e-testing/lib/resume-scan.js to split every expected AC into confirmed/manual/gap/pending'
             - 'Print the combined coverage report: every AC''s status (confirmed / manual / gap / pending) alongside its REQ''s grounding result — this is PR 1''s own Shippable State and must be shown even if the session goes on to do nothing else'
 
@@ -92,16 +92,16 @@ workflow:
         - order: 1
           title: Ask Headed or Headless — Once Per Session
           description: |
-            REQ-013: before running the first test in the session, ask Sonia
-            (in conversation — this session is interactive via Claude Code, so
-            "asking" means posing the question directly, not a GUI dialog)
-            whether she wants to watch the browser run (headed) or let it run
-            independently and report status back (headless). This is a single,
-            one-time choice for the whole session, made once here before the
-            first test run — do not re-ask per AC.
+            REQ-013: before running the first test in the session, ask the QA
+            engineer (in conversation — this session is interactive via Claude
+            Code, so "asking" means posing the question directly, not a GUI
+            dialog) whether they want to watch the browser run (headed) or let
+            it run independently and report status back (headless). This is a
+            single, one-time choice for the whole session, made once here
+            before the first test run — do not re-ask per AC.
           actions:
-            - 'Before running the first test this session, ask Sonia: "Would you like to watch these tests run (headed), or should I run them independently and report status back (headless)?"'
-            - 'If she does not specify a preference, default to headed — this session is interactive by default'
+            - 'Before running the first test this session, ask the QA engineer: "Would you like to watch these tests run (headed), or should I run them independently and report status back (headless)?"'
+            - 'If they do not specify a preference, default to headed — this session is interactive by default'
             - 'Record the chosen mode for the remainder of the session; do not ask again for subsequent ACs/tests'
 
         - order: 2
@@ -119,8 +119,8 @@ workflow:
             responds.
           actions:
             - 'Call resolveQaEnvUrl(opts) from packages/e2e-testing/lib/qa-env-guard.js with an explicit opts.url or opts.envVar naming where the target app''s QA URL is configured — never hardcode or guess one'
-            - 'Call checkQaEnvReachable(url) from the same module. If reachable is false, halt the session here: report the unreachable environment to Sonia and do not run, propose, or land any test this session — never fall back to another URL'
-            - 'Ask Sonia to confirm: "Is <resolved URL> running the code from this session''s branch/PR? If this repo uses per-branch or per-developer QA/staging deployments, provide the correct URL for this session instead." Never assume the configured default is correct just because it is reachable — if she provides a different URL, re-run the reachability check against it before proceeding'
+            - 'Call checkQaEnvReachable(url) from the same module. If reachable is false, halt the session here: report the unreachable environment to the QA engineer and do not run, propose, or land any test this session — never fall back to another URL'
+            - 'Ask the QA engineer to confirm: "Is <resolved URL> running the code from this session''s branch/PR? If this repo uses per-branch or per-developer QA/staging deployments, provide the correct URL for this session instead." Never assume the configured default is correct just because it is reachable — if they provide a different URL, re-run the reachability check against it before proceeding'
             - 'If the consuming repo configures a base auth-state path at all, call deriveAuthStatePath(baseAuthStatePath, url) from packages/e2e-testing/lib/test-runner-mode.js to get an environment-scoped authStatePath — regardless of mode (TRD-037: many real harnesses reuse one stored auth state for every run, headed or headless alike); never reuse one static path across different resolved URLs, since a stored auth state is scoped to the origin it was captured against'
             - 'Carry the resolved URL forward as targetEnv, and (when derived) the environment-scoped authStatePath, for every delegation request in the REQ loop below'
 
@@ -159,15 +159,15 @@ workflow:
       order: 4
       steps:
         - order: 1
-          title: Present the Proposed Test and Record Sonia's Decision
+          title: Present the Proposed Test and Record the QA Engineer's Decision
           description: |
             TRD-027 (satisfies REQ-003, REQ-017): the accept/request-changes/
             reject decision point, per proposed test. TRD-035: a failing test
             is not automatically a regression — check for an environment
             mismatch signal before framing it as one.
           actions:
-            - 'If the run failed and runResult.environmentMismatchSuspected is true: lead the failure report with buildEnvironmentMismatchHint({markersChecked: runResult.groundedMarkersChecked, markersFound: []}) from packages/e2e-testing/lib/grounded-marker-checker.js — present this as the LEADING hypothesis, before any suggestion that the implementation itself is broken, and prompt Sonia to confirm the environment (Phase 2 Step 2''s question) before deciding'
-            - 'Present the proposed test (and its run result) to Sonia; call recordDecision(decision, {acId, proposedTest, changeDescription, iterationCount}) from packages/e2e-testing/lib/ac-decision-loop.js with exactly one of "accept" | "request-changes" | "reject"'
+            - 'If the run failed and runResult.environmentMismatchSuspected is true: lead the failure report with buildEnvironmentMismatchHint({markersChecked: runResult.groundedMarkersChecked, markersFound: []}) from packages/e2e-testing/lib/grounded-marker-checker.js — present this as the LEADING hypothesis, before any suggestion that the implementation itself is broken, and prompt the QA engineer to confirm the environment (Phase 2 Step 2''s question) before deciding'
+            - 'Present the proposed test (and its run result) to the QA engineer; call recordDecision(decision, {acId, proposedTest, changeDescription, iterationCount}) from packages/e2e-testing/lib/ac-decision-loop.js with exactly one of "accept" | "request-changes" | "reject"'
             - 'outcome "revise": re-delegate to @playwright-tester with changeDescription folded into a fresh request for the same AC (loop back to the REQ Batching and Delegation phase, step 2, incrementing iterationCount)'
             - 'outcome "manual-escape-hatch" (an outright reject), or an accepted delegation whose runResult was an authoringFailure with no viable alternative: call markManual(acId, reason) from packages/e2e-testing/lib/manual-ac-tracker.js, log via logAction({type: "manual-ac-marked", acId, reason}), and move to the next AC — never silently drop it'
             - 'outcome "accepted" with a passed runResult: continue to the next step to land the test'
@@ -231,10 +231,10 @@ workflow:
           description: |
             TRD-030 (satisfies REQ-004, REQ-012): printed once every AC in the
             current REQ has been decided (confirmed, manual, or gap) —
-            Sonia may stop here and resume later via Phase 1's resume-scan.
+            the QA engineer may stop here and resume later via Phase 1's resume-scan.
           actions:
             - 'Once a REQ''s ACs are all decided, call buildSessionSummary({scope: "checkpoint", reqId, testsWritten, testsConfirmed, manualAcs, adoTestCasesSynced, gapTasksFiled}) from packages/e2e-testing/lib/session-summary.js, using this REQ''s own accumulated items, and print it'
-            - 'Ask Sonia whether to continue to the next REQ or stop the session here — either is a clean, resumable stopping point'
+            - 'Ask the QA engineer whether to continue to the next REQ or stop the session here — either is a clean, resumable stopping point'
 
         - order: 2
           title: Final Session Summary

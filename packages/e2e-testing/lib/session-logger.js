@@ -4,7 +4,7 @@
  * TRD-024: human-readable console logging of every session action, for
  * /ensemble:author-playwright-tests (REQ-016, AC-016-1).
  *
- * v1 targets Sonia watching the session live, not a downstream consumer --
+ * v1 targets the QA engineer watching the session live, not a downstream consumer --
  * per the PRD's own AC-016-1 wording, "no structured (JSON) format is
  * required." So this module renders one plain, human-scannable log LINE per
  * action, timestamp-free (a live-watching human already has wall-clock

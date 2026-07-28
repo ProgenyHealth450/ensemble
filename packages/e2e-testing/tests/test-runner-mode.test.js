@@ -1,6 +1,6 @@
 'use strict';
 
-// AC-005-1 (pass/fail shown to Sonia before the next AC) is intentionally not
+// AC-005-1 (pass/fail shown to the QA engineer before the next AC) is intentionally not
 // covered here: resolveRunConfig only maps mode -> launch/auth config, it has
 // no runResult/display data. That's orchestrator/agent behavior, not this
 // module's concern.

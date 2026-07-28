@@ -4,7 +4,7 @@
 // flag/review logic (REQ-009). AC references:
 //   - AC-009-1: a genuine gap (grounded code that doesn't satisfy the AC) is
 //     flagged, not silently passed over.
-//   - AC-009-2: Sonia's review either confirms the gap or overrides it,
+//   - AC-009-2: the QA engineer's review either confirms the gap or overrides it,
 //     redirecting grounding at the corrected code path.
 
 const { flagAcGap, resolveGapReview } = require('../lib/ac-gap-detector');

@@ -12,7 +12,7 @@ session where a QA engineer and an agent walk a story's PRD ACs one at a time
 Playwright test in the real implementing code (not just PRD prose), running it
 against the target app's QA environment, and syncing confirmed tests' steps to an
 Azure DevOps Test Case/Suite as plain-English steps. Originally scoped from CRIBs'
-own needs (Sonia Pareek, QA) but the command itself is generic ensemble tooling.
+own needs (a QA engineer) but the command itself is generic ensemble tooling.
 
 - **PRD**: `docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.2)
 - **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.1.0, Design Readiness 4.43 — PASS)

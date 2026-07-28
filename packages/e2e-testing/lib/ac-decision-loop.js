@@ -6,8 +6,9 @@
  *
  * A decision STATE per proposed test, not an I/O loop: plain data + plain
  * functions, matching this package's existing convention (delegation-contract.js,
- * req-batcher.js). Sonia's actual conversational turn (presenting the test,
- * reading her answer) belongs to the orchestrating command, not this module.
+ * req-batcher.js). The QA engineer's actual conversational turn (presenting
+ * the test, reading their answer) belongs to the orchestrating command, not
+ * this module.
  *
  * Implementation AC (TRD-010):
  * - AC-003-1: given an AC ready for authoring and a proposed test presented,
@@ -32,14 +33,14 @@ const VALID_DECISIONS = ['accept', 'request-changes', 'reject'];
  * @property {string} acId - the AC id this decision applies to (e.g. "AC-003-1")
  * @property {string} proposedTest - the proposed test source being decided on
  * @property {string} [changeDescription] - required when decision is 'request-changes':
- *   Sonia's description of what to change
+ *   the QA engineer's description of what to change
  * @property {number} [iterationCount] - how many request-changes rounds have
  *   already happened for this AC, if the caller is tracking one; echoed back
  *   unchanged on the 'revise' outcome so a caller can enforce its own cap
  */
 
 /**
- * Record Sonia's decision on one proposed test and return the structured
+ * Record the QA engineer's decision on one proposed test and return the structured
  * outcome the orchestrator should act on next.
  *
  * @param {'accept'|'request-changes'|'reject'} decision

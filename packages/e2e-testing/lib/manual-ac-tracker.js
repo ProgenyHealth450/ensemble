@@ -8,7 +8,7 @@
  * `recordDecision('reject', {acId, ...})` returns
  * `{outcome: 'manual-escape-hatch', acId}`; the orchestrator routes that here.
  *
- * Implementation AC (AC-017-1): an AC Sonia marks manual-only during the
+ * Implementation AC (AC-017-1): an AC the QA engineer marks manual-only during the
  * walkthrough is recorded as a THIRD, distinct status — never silently
  * dropped, and never confused with either of this package's other two
  * per-AC outcomes:
@@ -17,8 +17,8 @@
  *   - 'gap' (implementation-grounding.js): the implementing code for a REQ
  *     couldn't be located at all — a grounding failure, not a deliberate
  *     choice not to automate a working feature.
- *   - 'manual' (this module): the feature exists and works, but Sonia has
- *     judged it not worth/not reasonably automatable (e.g. a visual check).
+ *   - 'manual' (this module): the feature exists and works, but the QA
+ *     engineer has judged it not worth/not reasonably automatable (e.g. a visual check).
  *
  * Plain functions over plain data, matching this package's convention
  * (ac-decision-loop.js, req-batcher.js, delegation-contract.js).
@@ -28,8 +28,8 @@
  * Record one AC as manual-only.
  *
  * @param {string} acId - the AC id (e.g. "AC-017-1")
- * @param {string} [reason] - optional free-text reason Sonia gave; omitted
- *   entirely if she didn't give one (null, not a forced default string)
+ * @param {string} [reason] - optional free-text reason the QA engineer gave; omitted
+ *   entirely if they didn't give one (null, not a forced default string)
  * @returns {{acId: string, status: 'manual', reason: string|null}}
  * @throws {Error} if acId is missing/blank
  */

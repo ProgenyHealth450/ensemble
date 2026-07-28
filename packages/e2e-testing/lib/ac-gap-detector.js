@@ -34,7 +34,7 @@
  *   code does NOT produce the AC's stated outcome, stops short of writing a
  *   test asserting behavior that doesn't exist, and flags the AC as a gap
  *   instead (`flagAcGap`).
- * - AC-009-2: Sonia reviews a flagged gap and either confirms it's real
+ * - AC-009-2: the QA engineer reviews a flagged gap and either confirms it's real
  *   (routing to REQ-010/TRD-021's ADO task-filing — not implemented here,
  *   just signaled) or overrides it as a false read by pointing the agent at
  *   the correct code path (`resolveGapReview`).
@@ -107,7 +107,7 @@ function flagAcGap(acId, context) {
 }
 
 /**
- * Record Sonia's review decision on a previously-flagged AC gap (AC-009-2).
+ * Record the QA engineer's review decision on a previously-flagged AC gap (AC-009-2).
  *
  * @param {string} acId - the AC id being reviewed (e.g. "AC-009-1")
  * @param {'confirmed'|'override'} decision - strictly one of the two; no
@@ -115,7 +115,7 @@ function flagAcGap(acId, context) {
  * @param {object} [details]
  * @param {string} [details.note] - optional free-text note, valid for either decision
  * @param {string[]} [details.correctedTargetFiles] - required when decision is
- *   'override': the correct file(s) Sonia points the agent at, for the
+ *   'override': the correct file(s) the QA engineer points the agent at, for the
  *   orchestrator to feed back into a fresh `groundImplementation()` call
  * @returns {{outcome: 'gap-confirmed', acId: string, note: string|null}
  *   | {outcome: 'gap-overridden', acId: string, correctedTargetFiles: string[], note: string|null}}
@@ -141,7 +141,7 @@ function resolveGapReview(acId, decision, details) {
     return { outcome: 'gap-confirmed', acId, note };
   }
 
-  // decision === 'override': false read — Sonia points at the correct code
+  // decision === 'override': false read — the QA engineer points at the correct code
   // path, which the orchestrator feeds back into a fresh groundImplementation() call.
   if (!Array.isArray(opts.correctedTargetFiles) || opts.correctedTargetFiles.length === 0) {
     throw new Error("details.correctedTargetFiles is required (non-empty array) when decision is 'override'");

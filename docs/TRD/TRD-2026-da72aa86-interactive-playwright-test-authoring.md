@@ -14,7 +14,7 @@ prd_version: 1.0.2
 
 ## Document Overview
 
-This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/ensemble:author-playwright-tests` command: an interactive, post-implementation Playwright test-authoring session for Sonia Pareek (QA) and CRIBs developers. The session runs once a story's implementation is complete and its PR is open, grounds each proposed test in both the PRD's ACs and the real implementing code, runs confirmed tests against the CRIBs QA environment (headed or headless, Sonia's choice), places them in `cribs.e2e.tests` per existing convention, syncs their steps to an Azure DevOps Test Case/Suite as plain-English steps, and files ADO tasks for any AC the implementation doesn't actually satisfy.
+This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/ensemble:author-playwright-tests` command: an interactive, post-implementation Playwright test-authoring session for a QA engineer and CRIBs developers. The session runs once a story's implementation is complete and its PR is open, grounds each proposed test in both the PRD's ACs and the real implementing code, runs confirmed tests against the CRIBs QA environment (headed or headless, the QA engineer's choice), places them in `cribs.e2e.tests` per existing convention, syncs their steps to an Azure DevOps Test Case/Suite as plain-English steps, and files ADO tasks for any AC the implementation doesn't actually satisfy.
 
 **MCP enhancement:** attempted per the standard workflow — `inject_checkpoints`, `assess_complexity`, and `generate_workflow_section` are not present among available MCP tools (only concrete servers like Azure DevOps/Playwright are). Fell back to the manual equivalents: checkpoints are built into REQ-004/TRD-009, complexity/estimates are assigned directly on each task below, and the PR/Sprint structure below is hand-authored.
 
@@ -65,7 +65,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
     response: { proposed_test, selectors, run_result: pass|fail, authoring_failure? }
     |
     v
-[ac-decision-loop.js]  Sonia: accept | request changes | reject | mark manual
+[ac-decision-loop.js]  QA engineer: accept | request changes | reject | mark manual
     - request changes -> re-delegate with feedback
     - reject / authoring_failure with no viable alternative -> manual-ac-tracker.js
     - accept + pass -> continue
@@ -177,7 +177,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 
 ### PR 2: Interactive Walkthrough, Execution, and Local Test Landing
 
-**Shippable State:** Sonia can run a full interactive session against a story with an open PR and get real, human-confirmed Playwright tests landed in `cribs.e2e.tests` for every AC — choosing headed or headless mode, accepting/revising/rejecting proposals, and marking non-automatable ACs manual — without ADO sync or gap-filing yet.
+**Shippable State:** The QA engineer can run a full interactive session against a story with an open PR and get real, human-confirmed Playwright tests landed in `cribs.e2e.tests` for every AC — choosing headed or headless mode, accepting/revising/rejecting proposals, and marking non-automatable ACs manual — without ADO sync or gap-filing yet.
 
 - [x] **TRD-007**: Implement the headed-vs-headless mode prompt at session start, defaulting to headed (2h) [satisfies REQ-013] [depends: TRD-001]
   - Validates PRD ACs: AC-013-2
@@ -203,7 +203,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-003-2, AC-003-3
   - Target File: `packages/e2e-testing/tests/ac-decision-loop.test.js`
 
-- [x] **TRD-011**: Extend `@playwright-tester` to run a proposed test headed (Sonia's interactive Entra login) or headless (`cribs-e2e-auth-state.json`) per session mode (5h) [satisfies REQ-005] [satisfies REQ-013] [depends: TRD-008]
+- [x] **TRD-011**: Extend `@playwright-tester` to run a proposed test headed (the QA engineer's interactive Entra login) or headless (`cribs-e2e-auth-state.json`) per session mode (5h) [satisfies REQ-005] [satisfies REQ-013] [depends: TRD-008]
   - Validates PRD ACs: AC-005-1, AC-005-2, AC-013-3, AC-013-4
   - Target Files: `packages/e2e-testing/agents/playwright-tester.md`, `packages/e2e-testing/lib/test-runner-mode.js`
   - Implementation AC:
@@ -278,7 +278,7 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Validates PRD ACs: AC-009-1, AC-009-2
   - Target Files: `packages/e2e-testing/lib/ac-gap-detector.js`
 
-- [x] **TRD-020-TEST**: Verify a genuine gap is flagged (not silently passed over) and Sonia's override redirects grounding (3h) [verifies TRD-020] [satisfies REQ-009] [depends: TRD-020]
+- [x] **TRD-020-TEST**: Verify a genuine gap is flagged (not silently passed over) and the QA engineer's override redirects grounding (3h) [verifies TRD-020] [satisfies REQ-009] [depends: TRD-020]
   - Validates PRD ACs: AC-009-1, AC-009-2
   - Target File: `packages/e2e-testing/tests/ac-gap-detector.test.js`
 
@@ -533,7 +533,7 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 ### Architecture Issues and Resolutions
 
 1. **Issue:** The delegation contract didn't distinguish "`@playwright-tester` couldn't produce a viable test" from a user reject or a confirmed AC gap.
-   **Resolution:** TRD-008's contract includes an explicit `authoring_failure` outcome distinct from both; TRD-010's decision loop routes it to Sonia for a manual/gap/retry choice rather than overloading reject or gap semantics.
+   **Resolution:** TRD-008's contract includes an explicit `authoring_failure` outcome distinct from both; TRD-010's decision loop routes it to the QA engineer for a manual/gap/retry choice rather than overloading reject or gap semantics.
 
 2. **Issue:** The ADO Test Plan sync (PR 3) and gap-task filing (PR 4) both assume a linkable ADO work item — but this repo itself has no ADO tracking.
    **Resolution:** Confirmed with the user: this TRD's own id is a micro-UUID like its source PRD (no ADO work item for the ensemble repo's own development); the ADO sync/gap-filing *feature* this tool builds targets CRIBs' ADO project, since that's where the Stories being tested actually live.
@@ -541,9 +541,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 ### Coverage Issues and Resolutions
 
 1. **Issue:** PR 1's Shippable State ("lists ACs and grounding gaps") is the thinnest user-observable capability of the four PR boundaries.
-   **Resolution:** Accepted as-is — it still produces a real, reviewable coverage-gap report Sonia/a developer can act on, not pure scaffolding; splitting it further would fragment the read-only grounding logic across two PRs for no benefit.
+   **Resolution:** Accepted as-is — it still produces a real, reviewable coverage-gap report the QA engineer/a developer can act on, not pure scaffolding; splitting it further would fragment the read-only grounding logic across two PRs for no benefit.
 
-2. **Issue (found in pre-merge verification, v1.1.0):** PR 2, 3, and 4's Shippable State claims ("Sonia can run a full interactive session and get real, human-confirmed Playwright tests landed"; ADO Test Case sync; AC-gap Task filing) were not actually true of the shipped command. Every task in PR 2-4 built and unit-tested a `lib/*.js` module in isolation, but none of them wired that module into `author-playwright-tests.yaml`'s workflow — the orchestrator this TRD's own architecture assigns that responsibility to. Running the command today still halts after TRD-007's headed/headless prompt. 39/39 tasks checked and 300/300 tests green measured library correctness, not that the command actually invokes the library.
+2. **Issue (found in pre-merge verification, v1.1.0):** PR 2, 3, and 4's Shippable State claims ("the QA engineer can run a full interactive session and get real, human-confirmed Playwright tests landed"; ADO Test Case sync; AC-gap Task filing) were not actually true of the shipped command. Every task in PR 2-4 built and unit-tested a `lib/*.js` module in isolation, but none of them wired that module into `author-playwright-tests.yaml`'s workflow — the orchestrator this TRD's own architecture assigns that responsibility to. Running the command today still halts after TRD-007's headed/headless prompt. 39/39 tasks checked and 300/300 tests green measured library correctness, not that the command actually invokes the library.
    **Resolution:** Added PR 5 (TRD-025 through TRD-030-TEST) to wire the existing modules into the orchestrator, plus a structural test (TRD-030-TEST) that fails if a future change lets the orchestrator's workflow drift back out of sync with the modules it's supposed to call. No PR 1-4 task or its Shippable State claim was altered — this is corrective, additive scope.
 
 3. **Issue (found post-implementation, v1.2.0):** TRD-003's REQ-001 trigger check hardcodes `gh` (GitHub CLI). CRIBs — this TRD's own consuming repo — is hosted on Azure DevOps Repos, not GitHub, so `checkPrState()` always falls into its exec-failure path and reports `hasOpenPr: false` regardless of true PR state, permanently blocking the session in the one repo this TRD was written for.
