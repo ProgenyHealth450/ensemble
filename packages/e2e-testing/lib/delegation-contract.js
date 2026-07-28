@@ -1,38 +1,83 @@
 'use strict';
 
 /**
- * TRD-008: orchestrator <-> @playwright-tester delegation contract for
- * /ensemble:author-playwright-tests.
+ * TRD-008/TRD-040: orchestrator <-> @playwright-tester delegation contract
+ * for /ensemble:author-playwright-tests.
  *
  * Plain data shapes (no class hierarchy, no schema library) describing what
  * the author-playwright-tests session's orchestrating agent sends when it
- * delegates "propose/author one Playwright test for this AC" to
- * @playwright-tester, and what @playwright-tester must send back.
+ * delegates work for one AC to @playwright-tester, and what @playwright-tester
+ * must send back.
  *
- * Implementation AC (TRD-008): given a delegation request (AC text,
- * grounding diff, target env, mode), when @playwright-tester responds, the
- * response includes a proposed test, selectors used, and a run result OR an
- * explicit authoring-failure flag — never silently omitted.
+ * TRD-040 (found while adding a pre-run plain-English test preview): a single
+ * combined "ground, author, and run" delegation gives the orchestrator no
+ * seam to insert a QA-engineer confirmation between authoring and execution
+ * — a subagent invoked via Task runs to completion in one shot; it can't
+ * pause mid-call for a human answer the way the orchestrator's own
+ * conversation can. So this contract is now TWO stages, each its own
+ * request/response pair, with the QA engineer's accept/request-changes/reject
+ * decision (ac-decision-loop.js) sitting between them:
+ *   1. Proposal — ground the AC in code and author a test, but do not run it.
+ *      Returns a plain-English summary of what the authored test actually
+ *      does, for the orchestrator to present before ever spending a real run
+ *      against the QA environment on a test the QA engineer hasn't seen yet.
+ *   2. Run — execute the QA-engineer-confirmed test exactly as authored.
+ * Each stage is a fresh, stateless subagent invocation (no memory of the
+ * other stage), so the Run stage's request repeats whatever context it needs
+ * (acText, groundingDiff) rather than assuming continuity with the Proposal
+ * call — this also matches this package's existing "no injectable state
+ * across calls" convention (ac-decision-loop.js, req-batcher.js).
+ *
+ * Implementation AC (TRD-008/TRD-040): given a proposal request (AC text,
+ * grounding diff), @playwright-tester's response includes a proposed test,
+ * selectors used, and a plain-English summary, or an explicit
+ * authoring-failure flag — never silently omitted. Given a run request (the
+ * confirmed test, target env, mode), the response includes a pass/fail run
+ * result — never omitted.
  *
  * Follows this package's existing convention (pr-state.js,
  * implementation-grounding.js, resume-scan.js, prd-ac-parser.js): plain
  * exported functions over plain objects, no external validation library.
- *
- * Field-name mapping from the TRD's Architecture Design pseudocode (line 53,
- * `{ proposed_test, selectors, run_result: pass|fail, authoring_failure? }`)
- * to this module's camelCase shapes, for readers cross-referencing the TRD:
- * proposed_test -> proposedTest, selectors -> selectorsUsed,
- * run_result -> runResult, authoring_failure -> runResult.authoringFailure
- * (folded into runResult as a discriminated union rather than a sibling
- * optional field, so exactly one of pass/fail-or-authoring-failure is ever
- * set — see RunResult/AuthoringFailure typedefs below).
  */
 
 /**
- * @typedef {Object} DelegationRequest
+ * @typedef {Object} ProposalRequest
  * @property {string} acText - the PRD acceptance-criterion text to author a test for
  * @property {*} groundingDiff - the implementation-grounding.js result (or its `gap` shape)
  *   grounding this AC in the real implementing diff, not PRD prose alone
+ */
+
+/**
+ * @typedef {Object} AuthoringFailure
+ * Explicit flag for when @playwright-tester could not author a test at all
+ * (e.g. no locatable selector) — distinct from a test that was authored and
+ * later failed to run. Must never be silently omitted in favor of a bare
+ * missing response.
+ * @property {true} authoringFailure
+ * @property {string} reason
+ */
+
+/**
+ * @typedef {Object} ProposalResponse
+ * @property {string} proposedTest - the authored Playwright test source
+ * @property {string[]} selectorsUsed - selectors the proposed test relies on
+ * @property {string} plainEnglishSummary - TRD-040: a short, human-readable
+ *   description of what the authored test actually does and which part of
+ *   the AC it exercises — grounded in the real test just written, not a bare
+ *   restatement of the AC text — presented to the QA engineer before the
+ *   test ever runs against the QA environment
+ * (or an AuthoringFailure, when a test could not be authored at all)
+ */
+
+/**
+ * @typedef {Object} RunRequest
+ * @property {string} acText - repeated from the Proposal stage (TRD-040: each
+ *   stage is a fresh, stateless subagent invocation) so @playwright-tester
+ *   has AC context if it needs to investigate a failure
+ * @property {*} groundingDiff - repeated from the Proposal stage; TRD-035's
+ *   environment-mismatch marker extraction needs the diff at run time
+ * @property {string} proposedTest - the exact, QA-engineer-confirmed test
+ *   source to execute verbatim — never re-authored at this stage
  * @property {string} targetEnv - QA environment base URL/identifier to run the test against
  * @property {'headed'|'headless'} mode - session-wide execution mode chosen at session start
  *   (TRD-007) — controls ONLY whether a human is watching, never the auth strategy (TRD-037)
@@ -45,7 +90,7 @@
 
 /**
  * @typedef {Object} RunResult
- * A pass/fail outcome from actually executing the proposed test.
+ * A pass/fail outcome from actually executing the confirmed test.
  * @property {boolean} passed
  * @property {string} [details] - failure details, console errors, etc. when passed is false
  * @property {boolean} [environmentMismatchSuspected] - TRD-035: only meaningful when passed
@@ -60,21 +105,9 @@
  */
 
 /**
- * @typedef {Object} AuthoringFailure
- * Explicit flag for when @playwright-tester could not author/run a test at
- * all (e.g. no locatable selector, unreachable env) — distinct from a test
- * that ran and failed. Must never be silently omitted in favor of a bare
- * failed RunResult.
- * @property {true} authoringFailure
- * @property {string} reason
- */
-
-/**
- * @typedef {Object} DelegationResponse
- * @property {string} proposedTest - the authored Playwright test source
- * @property {string[]} selectorsUsed - selectors the proposed test relies on
- * @property {RunResult|AuthoringFailure} runResult - either a pass/fail run result
- *   or an explicit authoring-failure flag; one of the two is always present
+ * @typedef {Object} RunResponse
+ * @property {RunResult} runResult - always present; authoring already succeeded in the
+ *   Proposal stage, so a Run response is always a pass/fail outcome, never an authoring failure
  */
 
 /** Throw a single clear error listing every problem found, or return true. */
@@ -85,76 +118,128 @@ function assertNoErrors(label, errors) {
   return true;
 }
 
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
 /**
- * Validate a delegation request before handing it to @playwright-tester.
+ * Validate a Proposal request before handing it to @playwright-tester.
  *
- * @param {DelegationRequest} req
+ * @param {ProposalRequest} req
  * @returns {true} when valid
  * @throws {Error} listing every missing/invalid field, when invalid
  */
-function validateDelegationRequest(req) {
+function validateProposalRequest(req) {
   const errors = [];
 
   if (!req || typeof req !== 'object') {
-    return assertNoErrors('delegation request', ['request must be an object']);
+    return assertNoErrors('proposal request', ['request must be an object']);
   }
 
-  if (typeof req.acText !== 'string' || req.acText.trim() === '') {
+  if (!isNonEmptyString(req.acText)) {
     errors.push('acText must be a non-empty string');
   }
   if (req.groundingDiff === undefined || req.groundingDiff === null) {
     errors.push('groundingDiff is required (pass the implementation-grounding.js result, including its gap shape)');
   }
-  if (typeof req.targetEnv !== 'string' || req.targetEnv.trim() === '') {
-    errors.push('targetEnv must be a non-empty string');
-  }
-  if (req.mode !== 'headed' && req.mode !== 'headless') {
-    errors.push("mode must be 'headed' or 'headless'");
-  }
-  if (req.authStatePath !== undefined && (typeof req.authStatePath !== 'string' || req.authStatePath.trim() === '')) {
-    errors.push('authStatePath must be a non-empty string when present');
-  }
 
-  return assertNoErrors('delegation request', errors);
+  return assertNoErrors('proposal request', errors);
 }
 
 /**
- * Validate a delegation response from @playwright-tester before the
- * orchestrator acts on it.
+ * Validate a Proposal response from @playwright-tester before the
+ * orchestrator presents it to the QA engineer.
  *
- * @param {DelegationResponse} res
+ * @param {ProposalResponse|AuthoringFailure} res
  * @returns {true} when valid
  * @throws {Error} listing every missing/invalid field, when invalid
  */
-function validateDelegationResponse(res) {
+function validateProposalResponse(res) {
   const errors = [];
 
   if (!res || typeof res !== 'object') {
-    return assertNoErrors('delegation response', ['response must be an object']);
+    return assertNoErrors('proposal response', ['response must be an object']);
   }
 
-  if (typeof res.proposedTest !== 'string' || res.proposedTest.trim() === '') {
+  if (res.authoringFailure === true) {
+    if (!isNonEmptyString(res.reason)) {
+      errors.push('authoringFailure requires a non-empty reason');
+    }
+    return assertNoErrors('proposal response', errors);
+  }
+
+  if (!isNonEmptyString(res.proposedTest)) {
     errors.push('proposedTest must be a non-empty string');
   }
   if (!Array.isArray(res.selectorsUsed)) {
     errors.push('selectorsUsed must be an array (may be empty, but must be present)');
   }
+  if (!isNonEmptyString(res.plainEnglishSummary)) {
+    errors.push(
+      'plainEnglishSummary must be a non-empty string — the QA engineer must see what the test does before it runs'
+    );
+  }
+
+  return assertNoErrors('proposal response', errors);
+}
+
+/**
+ * Validate a Run request before handing it to @playwright-tester.
+ *
+ * @param {RunRequest} req
+ * @returns {true} when valid
+ * @throws {Error} listing every missing/invalid field, when invalid
+ */
+function validateRunRequest(req) {
+  const errors = [];
+
+  if (!req || typeof req !== 'object') {
+    return assertNoErrors('run request', ['request must be an object']);
+  }
+
+  if (!isNonEmptyString(req.acText)) {
+    errors.push('acText must be a non-empty string');
+  }
+  if (req.groundingDiff === undefined || req.groundingDiff === null) {
+    errors.push('groundingDiff is required (pass the implementation-grounding.js result)');
+  }
+  if (!isNonEmptyString(req.proposedTest)) {
+    errors.push('proposedTest must be a non-empty string (the QA-engineer-confirmed test to run)');
+  }
+  if (!isNonEmptyString(req.targetEnv)) {
+    errors.push('targetEnv must be a non-empty string');
+  }
+  if (req.mode !== 'headed' && req.mode !== 'headless') {
+    errors.push("mode must be 'headed' or 'headless'");
+  }
+  if (req.authStatePath !== undefined && !isNonEmptyString(req.authStatePath)) {
+    errors.push('authStatePath must be a non-empty string when present');
+  }
+
+  return assertNoErrors('run request', errors);
+}
+
+/**
+ * Validate a Run response from @playwright-tester before the orchestrator
+ * acts on it.
+ *
+ * @param {RunResponse} res
+ * @returns {true} when valid
+ * @throws {Error} listing every missing/invalid field, when invalid
+ */
+function validateRunResponse(res) {
+  const errors = [];
+
+  if (!res || typeof res !== 'object') {
+    return assertNoErrors('run response', ['response must be an object']);
+  }
 
   if (res.runResult === undefined || res.runResult === null || typeof res.runResult !== 'object') {
-    errors.push(
-      'runResult is required and must be either a pass/fail result object ({passed: boolean, ...}) ' +
-        "or an explicit authoring-failure flag ({authoringFailure: true, reason: '...'}) — never omitted"
-    );
-  } else if (res.runResult.authoringFailure === true) {
-    if (typeof res.runResult.reason !== 'string' || res.runResult.reason.trim() === '') {
-      errors.push('runResult.authoringFailure requires a non-empty runResult.reason');
-    }
-  } else if (typeof res.runResult.passed !== 'boolean') {
-    errors.push(
-      'runResult must have a boolean `passed` field, or be an explicit ' +
-        "{authoringFailure: true, reason: '...'} flag"
-    );
+    errors.push('runResult is required and must be a pass/fail result object ({passed: boolean, ...})');
   } else {
+    if (typeof res.runResult.passed !== 'boolean') {
+      errors.push('runResult must have a boolean `passed` field');
+    }
     if (
       res.runResult.environmentMismatchSuspected !== undefined &&
       typeof res.runResult.environmentMismatchSuspected !== 'boolean'
@@ -169,7 +254,12 @@ function validateDelegationResponse(res) {
     }
   }
 
-  return assertNoErrors('delegation response', errors);
+  return assertNoErrors('run response', errors);
 }
 
-module.exports = { validateDelegationRequest, validateDelegationResponse };
+module.exports = {
+  validateProposalRequest,
+  validateProposalResponse,
+  validateRunRequest,
+  validateRunResponse,
+};

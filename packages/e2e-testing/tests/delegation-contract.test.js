@@ -1,37 +1,124 @@
 'use strict';
 
-const { validateDelegationRequest, validateDelegationResponse } = require('../lib/delegation-contract');
+// TRD-040-TEST: Jest coverage for delegation-contract.js's two-stage
+// Proposal/Run contract (TRD-040 split the original single "ground, author,
+// run" delegation so the orchestrator has a seam to present a plain-English
+// summary and get the QA engineer's accept/request-changes/reject decision
+// before a test ever runs against the QA environment).
 
-function validRequest(overrides = {}) {
+const {
+  validateProposalRequest,
+  validateProposalResponse,
+  validateRunRequest,
+  validateRunResponse,
+} = require('../lib/delegation-contract');
+
+function validProposalRequest(overrides = {}) {
   return {
     acText: 'Given ... when ... then ...',
     groundingDiff: { grounded: true, diffs: [] },
+    ...overrides,
+  };
+}
+
+describe('validateProposalRequest', () => {
+  test('a well-formed request passes', () => {
+    expect(validateProposalRequest(validProposalRequest())).toBe(true);
+  });
+
+  test('missing fields collect every error, never silently pass', () => {
+    expect(() => validateProposalRequest({})).toThrow(/acText.*groundingDiff/s);
+  });
+
+  test('missing request entirely throws', () => {
+    expect(() => validateProposalRequest()).toThrow(/request must be an object/);
+  });
+});
+
+function validProposalResponse(overrides = {}) {
+  return {
+    proposedTest: "test('...', async () => {});",
+    selectorsUsed: ['[data-testid="submit"]'],
+    plainEnglishSummary: 'Logs in as a standard user and confirms the dashboard loads.',
+    ...overrides,
+  };
+}
+
+describe('validateProposalResponse', () => {
+  test('a well-formed proposal is valid', () => {
+    expect(validateProposalResponse(validProposalResponse())).toBe(true);
+  });
+
+  test('an explicit authoringFailure is valid, and skips the proposedTest/selectors/summary checks', () => {
+    expect(
+      validateProposalResponse({ authoringFailure: true, reason: 'no stable selector found' })
+    ).toBe(true);
+  });
+
+  test('authoringFailure with no reason throws', () => {
+    expect(() => validateProposalResponse({ authoringFailure: true })).toThrow(/reason/);
+  });
+
+  test('plainEnglishSummary missing entirely throws (TRD-040: QA engineer must see it before the run)', () => {
+    expect(() =>
+      validateProposalResponse(validProposalResponse({ plainEnglishSummary: undefined }))
+    ).toThrow(/plainEnglishSummary must be a non-empty string/);
+  });
+
+  test('a whitespace-only plainEnglishSummary throws', () => {
+    expect(() => validateProposalResponse(validProposalResponse({ plainEnglishSummary: '   ' }))).toThrow(
+      /plainEnglishSummary must be a non-empty string/
+    );
+  });
+
+  test('proposedTest missing throws', () => {
+    expect(() => validateProposalResponse(validProposalResponse({ proposedTest: '' }))).toThrow(
+      /proposedTest must be a non-empty string/
+    );
+  });
+
+  test('selectorsUsed must be an array', () => {
+    expect(() => validateProposalResponse(validProposalResponse({ selectorsUsed: 'nope' }))).toThrow(
+      /selectorsUsed must be an array/
+    );
+  });
+
+  test('missing response entirely throws', () => {
+    expect(() => validateProposalResponse()).toThrow(/response must be an object/);
+  });
+});
+
+function validRunRequest(overrides = {}) {
+  return {
+    acText: 'Given ... when ... then ...',
+    groundingDiff: { grounded: true, diffs: [] },
+    proposedTest: "test('...', async () => {});",
     targetEnv: 'https://qa.example.com',
     mode: 'headed',
     ...overrides,
   };
 }
 
-describe('validateDelegationRequest', () => {
+describe('validateRunRequest', () => {
   test('a well-formed request passes', () => {
-    expect(validateDelegationRequest(validRequest())).toBe(true);
+    expect(validateRunRequest(validRunRequest())).toBe(true);
   });
 
   test('missing fields collect every error, never silently pass', () => {
-    expect(() => validateDelegationRequest({})).toThrow(/acText.*groundingDiff.*targetEnv.*mode/s);
+    expect(() => validateRunRequest({})).toThrow(/acText.*groundingDiff.*proposedTest.*targetEnv.*mode/s);
   });
 
   test('an invalid mode throws', () => {
-    expect(() => validateDelegationRequest(validRequest({ mode: 'slow' }))).toThrow();
+    expect(() => validateRunRequest(validRunRequest({ mode: 'slow' }))).toThrow();
   });
 
-  describe('authStatePath (TRD-036: optional, but must be non-empty when present)', () => {
+  describe('authStatePath (optional, but must be non-empty when present)', () => {
     test('omitted entirely -> still valid (not every target uses stored auth state)', () => {
-      expect(validateDelegationRequest(validRequest())).toBe(true);
+      expect(validateRunRequest(validRunRequest())).toBe(true);
     });
 
     test('a non-empty string -> valid', () => {
-      expect(validateDelegationRequest(validRequest({ authStatePath: 'auth-state.qa-example-com.json' }))).toBe(true);
+      expect(validateRunRequest(validRunRequest({ authStatePath: 'auth-state.qa-example-com.json' }))).toBe(true);
     });
 
     test.each([
@@ -40,48 +127,42 @@ describe('validateDelegationRequest', () => {
       ['number', 42],
       ['object', {}],
     ])('%s -> throws', (_label, value) => {
-      expect(() => validateDelegationRequest(validRequest({ authStatePath: value }))).toThrow(/authStatePath/);
+      expect(() => validateRunRequest(validRunRequest({ authStatePath: value }))).toThrow(/authStatePath/);
     });
   });
 });
 
-function validResponse(overrides = {}) {
+function validRunResponse(overrides = {}) {
   return {
-    proposedTest: "test('...', async () => {});",
-    selectorsUsed: ['[data-testid="submit"]'],
     runResult: { passed: true },
     ...overrides,
   };
 }
 
-describe('validateDelegationResponse', () => {
+describe('validateRunResponse', () => {
   test('a passing run result is valid', () => {
-    expect(validateDelegationResponse(validResponse())).toBe(true);
+    expect(validateRunResponse(validRunResponse())).toBe(true);
   });
 
-  test('an explicit authoringFailure is valid', () => {
-    expect(
-      validateDelegationResponse(
-        validResponse({ runResult: { authoringFailure: true, reason: 'no stable selector found' } })
-      )
-    ).toBe(true);
+  test('a failing run result is valid', () => {
+    expect(validateRunResponse(validRunResponse({ runResult: { passed: false, details: 'assertion failed' } }))).toBe(
+      true
+    );
   });
 
   test('runResult missing entirely -> throws', () => {
-    expect(() => validateDelegationResponse({ proposedTest: 'x', selectorsUsed: [] })).toThrow(/runResult/);
+    expect(() => validateRunResponse({})).toThrow(/runResult/);
   });
 
-  test('authoringFailure with no reason -> throws', () => {
-    expect(() =>
-      validateDelegationResponse(validResponse({ runResult: { authoringFailure: true } }))
-    ).toThrow(/reason/);
+  test('runResult.passed missing -> throws', () => {
+    expect(() => validateRunResponse({ runResult: {} })).toThrow(/runResult must have a boolean `passed` field/);
   });
 
   describe('environmentMismatchSuspected / groundedMarkersChecked (TRD-035)', () => {
     test('a failed run with environmentMismatchSuspected + groundedMarkersChecked is valid', () => {
       expect(
-        validateDelegationResponse(
-          validResponse({
+        validateRunResponse(
+          validRunResponse({
             runResult: {
               passed: false,
               details: 'assertion failed',
@@ -95,30 +176,30 @@ describe('validateDelegationResponse', () => {
 
     test('a passing run never carries environmentMismatchSuspected: true', () => {
       expect(() =>
-        validateDelegationResponse(validResponse({ runResult: { passed: true, environmentMismatchSuspected: true } }))
+        validateRunResponse(validRunResponse({ runResult: { passed: true, environmentMismatchSuspected: true } }))
       ).toThrow(/environmentMismatchSuspected may only be true when passed is false/);
     });
 
     test('environmentMismatchSuspected: false on a passing result is fine (no signal either way)', () => {
       expect(
-        validateDelegationResponse(validResponse({ runResult: { passed: true, environmentMismatchSuspected: false } }))
+        validateRunResponse(validRunResponse({ runResult: { passed: true, environmentMismatchSuspected: false } }))
       ).toBe(true);
     });
 
     test('a non-boolean environmentMismatchSuspected throws', () => {
       expect(() =>
-        validateDelegationResponse(validResponse({ runResult: { passed: false, environmentMismatchSuspected: 'yes' } }))
+        validateRunResponse(validRunResponse({ runResult: { passed: false, environmentMismatchSuspected: 'yes' } }))
       ).toThrow(/environmentMismatchSuspected must be a boolean/);
     });
 
     test('a non-array groundedMarkersChecked throws', () => {
       expect(() =>
-        validateDelegationResponse(validResponse({ runResult: { passed: false, groundedMarkersChecked: 'nav-icon-stack' } }))
+        validateRunResponse(validRunResponse({ runResult: { passed: false, groundedMarkersChecked: 'nav-icon-stack' } }))
       ).toThrow(/groundedMarkersChecked must be an array/);
     });
 
     test('both fields omitted on a failed result is still valid (no regression for callers that never check)', () => {
-      expect(validateDelegationResponse(validResponse({ runResult: { passed: false, details: 'x' } }))).toBe(true);
+      expect(validateRunResponse(validRunResponse({ runResult: { passed: false, details: 'x' } }))).toBe(true);
     });
   });
 });

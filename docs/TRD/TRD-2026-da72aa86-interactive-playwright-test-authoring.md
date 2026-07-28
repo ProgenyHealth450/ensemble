@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.7.0
+version: 1.8.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -31,6 +31,8 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 **v1.6.0 amendment:** a further finding surfaced live-dogfooding PR 9, resurfacing the same thread as an earlier "auth state file not found" blocker — `test-runner-mode.js`'s documented model still didn't reflect reality even after TRD-036. The module modeled mode (headed/headless) and auth strategy as the SAME choice: headed always meant "live interactive login, no stored credentials"; headless always meant "authenticate via a stored state file." Real harnesses behind SSO (probably most .NET/Playwright harnesses generally, not specific to any one consuming application) don't work that way: ONE stored auth state is captured once, out of band, and reused for EVERY run afterward — headed vs. headless there only toggles whether a human is watching the browser, never how authentication happens. It didn't block this session (the sub-agent verified the stored state file directly and proceeded), but the contract's documented model was still wrong. PR 10 (TRD-037/TRD-037-TEST) decouples the two: `resolveRunConfig()` now uses a stored `authStatePath` regardless of mode whenever one is given; a live interactive login is the fallback, available only when a human is present (`mode === 'headed'`) and no stored state was provided; headless with no stored state remains an error (no human to log in). Also generalized `'interactive-entra-login'` → `'interactive-login'` (Entra ID is one SSO provider among many — the tool has no business assuming which one a consuming repo uses) and tightened validation so a stray non-string `authStatePath` is always an error, in either mode, rather than silently ignored under headed's old "always ignore it" behavior.
 
 **v1.7.0 amendment:** found live-dogfooding the Azure DevOps Test Plan Sync phase against a real project with zero existing Test Plans: `ado-test-suite.js` had no concept of a parent Test Plan at all, but every Azure DevOps Test Suite must belong to one — the `testplan_list_test_suites`/`testplan_create_test_suite` MCP tools both require a `planId`. The orchestrator's Phase 5 Step 1 jumped straight to listing/creating suites as if a plan already existed, permanently blocking the sync phase the first time any consuming repo used it with no Test Plan yet set up. Not specific to any one consuming application — any first-time use of this phase hits the same wall. A second, related gap: even once a suite match failed to resolve, the orchestrator treated that as silent permission to create a new suite, with no path for the QA engineer to say "actually, reuse this other suite instead" — the same silent-assumption pattern TRD-034's QA-environment-verification fix already addressed for the QA URL. PR 11 (TRD-038/TRD-039) fixes both: (1) a new `packages/e2e-testing/lib/ado-test-plan.js` mirrors `ado-test-suite.js`'s resolve/create shape for Test Plans, but never invents a plan name — a Test Plan is shared, project-wide infrastructure (often scoped to a single release/iteration and later folded into a longer-lived regression plan), so the orchestrator always asks the QA engineer to pick an existing plan or name a new one, never auto-selecting or auto-naming even when exactly one plan exists; (2) `ado-test-suite.js`'s `resolveOrCreateTestSuite()` now requires the resolved `planId` and accepts an optional `selectedSuiteId` so a QA-engineer-chosen suite always wins over the automatic match, and the orchestrator confirms with the QA engineer before treating a no-match result as permission to create a new suite.
+
+**v1.8.0 amendment:** a user-requested enhancement — a plain-English summary of a proposed test, shown before it ever runs — surfaced that the shipped delegation design couldn't support it at all: TRD-008's single "ground, author, and run" delegation to `@playwright-tester` meant the orchestrator only ever learned what a test does at the same moment it learned whether it passed, since both happened inside one atomic subagent call with no seam for the orchestrator to ask the QA engineer anything in between. Digging further surfaced this wasn't just a missing feature but an existing drift from the PRD itself: REQ-005/AC-005-1 says "a test the QA engineer **has accepted**... its pass/fail result is shown" — the PRD's own intended order was accept-then-run, but the combined delegation had silently inverted it to run-then-decide, meaning a QA engineer's "reject" could only ever happen *after* a real run had already been spent against the QA environment. PR 12 (TRD-040/TRD-041) splits the delegation into two stages (`packages/e2e-testing/lib/delegation-contract.js`): Proposal (ground + author, returns a `plainEnglishSummary` grounded in the actual authored test, never runs) and Run (executes the QA-engineer-confirmed test verbatim). The orchestrator's accept/request-changes/reject decision (`ac-decision-loop.js`, unchanged) now sits between the two stages instead of after both — restoring the PRD's intended ordering as a side effect of adding the requested preview, and meaning a rejected or revised test is never run at all.
 
 ## Architecture Decision
 
@@ -62,15 +64,22 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
     - prompt: watch headed, or run headless and report back? (default: headed)
     |
     v
-[per REQ, per AC] --delegate--> [@playwright-tester]
-    request:  { ac_text, grounding_diff, target_env: QA, mode: headed|headless }
-    response: { proposed_test, selectors, run_result: pass|fail, authoring_failure? }
+[per REQ, per AC] --delegate (Proposal stage)--> [@playwright-tester]
+    request:  { ac_text, grounding_diff }
+    response: { proposed_test, selectors, plain_english_summary, authoring_failure? }
+    - authoring_failure with no viable alternative -> manual-ac-tracker.js (never reaches the decision loop)
     |
     v
-[ac-decision-loop.js]  QA engineer: accept | request changes | reject | mark manual
-    - request changes -> re-delegate with feedback
-    - reject / authoring_failure with no viable alternative -> manual-ac-tracker.js
-    - accept + pass -> continue
+[ac-decision-loop.js]  QA engineer sees plain_english_summary, decides BEFORE any run: accept | request changes | reject
+    - request changes -> re-delegate Proposal stage with feedback
+    - reject -> manual-ac-tracker.js (the test is never run)
+    - accept -> continue
+    |
+    v
+[per REQ, per AC] --delegate (Run stage)--> [@playwright-tester]
+    request:  { ac_text, grounding_diff, proposed_test, target_env: QA, mode: headed|headless }
+    response: { run_result: pass|fail }
+    - pass -> continue; fail -> investigate/retry or surface as a blocker (never a re-decision; see Mode-Aware Test Execution)
     |
     v
 [spec-writer.js] write/append to the application's E2E test project (**/*.spec.ts)
@@ -104,10 +113,10 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 | TRD task parser | `packages/e2e-testing/lib/trd-task-parser.js` | Scoped, in-package `tasksById` extraction for grounding (TRD-033) — deliberately independent of `packages/development/lib/trd-parser.js`, which cannot be reached across an installed plugin boundary |
 | Resume scan | `packages/e2e-testing/lib/resume-scan.js` | Scan spec files for per-AC `@hash:`/`@ado-testcase:` tags to detect already-confirmed ACs |
 | Grounded-marker checker | `packages/e2e-testing/lib/grounded-marker-checker.js` | Extract checkable markers from a grounding diff; build the environment-mismatch hint when none are found live (TRD-035) |
-| Delegation contract | `packages/e2e-testing/lib/delegation-contract.js` | Request/response shape between orchestrator and `@playwright-tester` |
-| `@playwright-tester` (extended) | `packages/e2e-testing/agents/playwright-tester.md` | Ground one AC in code, propose a test, run it headed or headless against QA |
+| Delegation contract | `packages/e2e-testing/lib/delegation-contract.js` | Two-stage Proposal/Run request/response shapes between orchestrator and `@playwright-tester` (TRD-040) |
+| `@playwright-tester` (extended) | `packages/e2e-testing/agents/playwright-tester.md` | Proposal stage: ground one AC in code, propose a test, and summarize it in plain English (no run). Run stage: execute a QA-engineer-confirmed test headed or headless against QA |
 | REQ batcher | `packages/e2e-testing/lib/req-batcher.js` | Walk ACs one REQ at a time; checkpoint between REQs |
-| AC decision loop | `packages/e2e-testing/lib/ac-decision-loop.js` | Accept/request-changes/reject state machine per proposed test |
+| AC decision loop | `packages/e2e-testing/lib/ac-decision-loop.js` | Accept/request-changes/reject state machine, now decided from the plain-English summary before the test ever runs (TRD-040) |
 | Manual AC tracker | `packages/e2e-testing/lib/manual-ac-tracker.js` | Record manual/not-automatable ACs distinctly from confirmed tests and gaps |
 | QA env guard | `packages/e2e-testing/lib/qa-env-guard.js` | Resolve/verify QA-only target URL; halt on unreachable, never fall back |
 | Spec writer | `packages/e2e-testing/lib/spec-writer.js` | Write/append test files into the application's existing E2E test project per existing conventions |
@@ -455,6 +464,28 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 - [x] **TRD-038-TEST/TRD-039-TEST**: Unit coverage for both (6h) [verifies TRD-038, TRD-039] [satisfies REQ-007] [depends: TRD-038, TRD-039]
   - Target Files: `packages/e2e-testing/tests/ado-test-plan.test.js` (new), `packages/e2e-testing/tests/ado-test-suite.test.js` (new), `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
 
+### PR 12: A Plain-English Test Preview Before Any Run — and the Decision Now Happens Before, Not After
+
+**Shippable State:** Before a proposed test ever runs against the QA environment, the QA engineer sees a plain-English summary of what it actually does and decides accept/request-changes/reject right then — a rejected or revised test is never run at all, and a real QA-environment run is never spent on a test the QA engineer hasn't confirmed.
+
+- [x] **TRD-040**: Split the orchestrator/`@playwright-tester` delegation into a Proposal stage (ground + author + plain-English summary, no run) and a Run stage (execute the confirmed test) (6h) [satisfies REQ-003, REQ-005] [depends: TRD-008]
+  - Target Files: `packages/e2e-testing/lib/delegation-contract.js`, `packages/e2e-testing/agents/playwright-tester.yaml`
+  - Implementation AC:
+    - Given a Proposal request (AC text, grounding diff), when `@playwright-tester` responds, then the response includes a proposed test, selectors used, and a `plainEnglishSummary` grounded in the test actually authored — or an explicit authoring-failure flag — and never includes a run result, since the Proposal stage never runs the test.
+    - Given a Run request (the confirmed test, target env, mode, auth state path), when `@playwright-tester` responds, then the response includes a pass/fail run result and nothing else — authoring already succeeded in the Proposal stage, so a Run response is never an authoring failure.
+    - Given each stage is a separate, stateless subagent invocation, when the Run stage needs grounding context to triage a failure (TRD-035), then the Run request repeats `acText`/`groundingDiff` rather than assuming continuity with the Proposal call.
+
+- [x] **TRD-041**: Move the QA engineer's accept/request-changes/reject decision to before the Run stage, presenting the plain-English summary first (4h) [satisfies REQ-003, REQ-005, REQ-017] [depends: TRD-040, TRD-010]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a Proposal response, when the orchestrator's Decision and Local Landing phase runs, then it presents `plainEnglishSummary` (plus the raw `proposedTest` for reference) and calls `recordDecision()` before ever delegating a Run request — matching REQ-005/AC-005-1's "a test the QA engineer has accepted" wording, which the prior combined delegation had silently inverted.
+    - Given outcome `"revise"`, when the orchestrator acts on it, then it re-delegates the Proposal stage with `changeDescription` folded in and re-presents a new `plainEnglishSummary` — the test is never run mid-revision.
+    - Given outcome `"manual-escape-hatch"` (an outright reject) or an authoring failure with no viable alternative, when the orchestrator acts on it, then `markManual()` is called and the AC moves on — the test is never run.
+    - Given outcome `"accepted"`, when the orchestrator proceeds, then it delegates a Run request for the exact confirmed `proposedTest`, and only lands the test (Phase 4 Step 3) once the run result's `passed` is `true`.
+
+- [x] **TRD-040-TEST/TRD-041-TEST**: Unit and structural coverage for both (5h) [verifies TRD-040, TRD-041] [satisfies REQ-003, REQ-005, REQ-017] [depends: TRD-040, TRD-041]
+  - Target Files: `packages/e2e-testing/tests/delegation-contract.test.js`, `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
@@ -472,6 +503,8 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 > **v1.6.0 addendum:** PR 10 (TRD-037/TRD-037-TEST) adds 2 tasks / 7h, found live-dogfooding PR 9. `backend-developer` fits.
 >
 > **v1.7.0 addendum:** PR 11 (TRD-038/TRD-039 + a combined TEST task) adds 3 tasks / 14h, found live-dogfooding the Test Plan Sync phase against a real project with zero existing Test Plans. `backend-developer` fits — plain Node.js library logic (`ado-test-plan.js`, mirroring `ado-test-suite.js`'s existing shape) and orchestrator prose, not Playwright execution itself.
+>
+> **v1.8.0 addendum:** PR 12 (TRD-040/TRD-041 + a combined TEST task) adds 3 tasks / 15h, a user-requested enhancement (a pre-run plain-English test preview) that also surfaced a drift from the PRD's own intended accept-then-run ordering. `backend-developer` fits — delegation-contract.js is plain Node.js data-shape logic and the orchestrator change is prompt/workflow prose, neither is Playwright execution itself.
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `app-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -528,6 +561,7 @@ team:
 - PR 9: a wrong-but-reachable QA environment must never look like a regression (v1.5.0 addendum — see amendment note above).
 - PR 10: auth strategy is not the same choice as headed/headless (v1.6.0 addendum — see amendment note above).
 - PR 11: Test Plan Sync never silently assumes a plan or suite already exists (v1.7.0 addendum — see amendment note above).
+- PR 12: a plain-English test preview before any run, with the accept/reject decision moved before the run (v1.8.0 addendum — see amendment note above).
 
 ## Acceptance Criteria Traceability
 
@@ -535,9 +569,9 @@ team:
 |-----|-------------|----------------------|------------|
 | REQ-001 | Post-implementation trigger | TRD-003, TRD-031, TRD-032 | TRD-003-TEST, TRD-031-TEST, TRD-032-TEST |
 | REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025, TRD-032, TRD-033 | TRD-002-TEST, TRD-004-TEST, TRD-032-TEST, TRD-033-TEST |
-| REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027 | TRD-010-TEST |
+| REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027, TRD-040, TRD-041 | TRD-010-TEST, TRD-040-TEST, TRD-041-TEST |
 | REQ-004 | REQ-level batching with checkpoints | TRD-009, TRD-026 | TRD-009-TEST |
-| REQ-005 | In-session test confirmation run | TRD-011, TRD-026, TRD-035 | TRD-011-TEST, TRD-035-TEST |
+| REQ-005 | In-session test confirmation run | TRD-011, TRD-026, TRD-035, TRD-040, TRD-041 | TRD-011-TEST, TRD-035-TEST, TRD-040-TEST, TRD-041-TEST |
 | REQ-006 | Test placement per existing conventions | TRD-014, TRD-027 | TRD-014-TEST |
 | REQ-007 | ADO Test Case step sync | TRD-016, TRD-017, TRD-018, TRD-028, TRD-038, TRD-039 | TRD-017-TEST, TRD-018-TEST, TRD-038-TEST, TRD-039-TEST |
 | REQ-008 | ADO sync resilience & fallback flag | TRD-019, TRD-028 | TRD-019-TEST |
@@ -549,7 +583,7 @@ team:
 | REQ-014 | Traceability tagging | TRD-015, TRD-027 | TRD-015-TEST |
 | REQ-015 | No new paid infra | TRD-006 | — |
 | REQ-016 | Session action observability | TRD-024, TRD-030 | — |
-| REQ-017 | Manual/not-automatable AC escape hatch | TRD-012, TRD-027 | TRD-010-TEST |
+| REQ-017 | Manual/not-automatable AC escape hatch | TRD-012, TRD-027, TRD-041 | TRD-010-TEST, TRD-041-TEST |
 
 ## Traceability Validation Summary
 
@@ -588,6 +622,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 7. **Issue (found live-dogfooding the Test Plan Sync phase, v1.7.0):** `ado-test-suite.js` had no concept of a parent Test Plan at all, but every Azure DevOps Test Suite must belong to one (`testplan_list_test_suites`/`testplan_create_test_suite` both require a `planId`). A real project with zero existing Test Plans permanently blocked the sync phase — not a one-off, since any first-time use of this phase against a project with no Test Plan yet hits the same wall. Compounding it: even when no suite matched a story, the orchestrator treated that as silent permission to create a new one, with no path for the QA engineer to say "reuse this other suite instead" — the same silent-assumption pattern TRD-034 already fixed for the QA URL.
    **Resolution:** Added PR 11 (TRD-038/TRD-039): (1) a new `ado-test-plan.js` mirrors `ado-test-suite.js`'s resolve/create shape for Test Plans, but never invents a plan name or auto-selects an existing one — the orchestrator always asks the QA engineer first; (2) `resolveOrCreateTestSuite()` now requires the resolved `planId` and accepts an optional `selectedSuiteId`, and the orchestrator confirms with the QA engineer before creating a new suite rather than assuming "create" is the only option when no automatic match is found.
 
+8. **Issue (found adding a user-requested pre-run test preview, v1.8.0):** TRD-008's single "ground, author, and run" delegation gave the orchestrator no seam to present anything to the QA engineer between authoring and execution — a Task-delegated subagent runs to completion in one shot. Digging into why surfaced this wasn't just a missing feature: REQ-005/AC-005-1 says "a test the QA engineer **has accepted**... its pass/fail result is shown," meaning the PRD's own intended order was accept-then-run — but the combined delegation had silently inverted it, so a "reject" could only ever happen after a real run had already been spent against the QA environment.
+   **Resolution:** Added PR 12 (TRD-040/TRD-041): the delegation splits into a Proposal stage (ground + author + `plainEnglishSummary`, never runs) and a Run stage (executes the confirmed test verbatim); `ac-decision-loop.js`'s existing accept/request-changes/reject decision now sits between the two stages instead of after both, restoring the PRD's intended ordering as a side effect of adding the requested preview.
+
 ### Dependency and Estimate Issues
 
 1. **Issue:** The chain TRD-001 → TRD-003 → TRD-004 → TRD-008 → TRD-010 → TRD-012 is depth 6 (> 3).
@@ -618,4 +655,5 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 - PR 9 (TRD-034 through TRD-036 + combined TEST): implemented directly on the same branch/PR #10, found and verified live-dogfooding this feature against a real, open PR in the consuming application.
 - PR 10 (TRD-037/TRD-037-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 + 4/4 + 2/2 = 58/58 tasks now complete), found and verified live-dogfooding PR 9 against a real, open PR in the consuming application. `packages/e2e-testing` is 393/393.
 - PR 11 (TRD-038/TRD-039 + combined TEST): implemented directly on the same branch/PR #10 (58/58 + 3/3 = 61/61 tasks now complete), found and verified live-dogfooding the Test Plan Sync phase against a real project with zero existing Test Plans. `packages/e2e-testing` is 436/436.
-- The feature is installable/usable in any consuming repo once PR #10 merges — see the v1.1.0 through v1.7.0 amendment notes under Document Overview.
+- PR 12 (TRD-040/TRD-041 + combined TEST): implemented directly on the same branch/PR #10 (61/61 + 3/3 = 64/64 tasks now complete), added per a direct user request for a pre-run plain-English test preview, which also corrected a drift from the PRD's own intended accept-then-run ordering. `packages/e2e-testing` is 448/448.
+- The feature is installable/usable in any consuming repo once PR #10 merges — see the v1.1.0 through v1.8.0 amendment notes under Document Overview.

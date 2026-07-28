@@ -36,10 +36,10 @@ const EXPECTED_MODULE_ORDER = [
   'test-runner-mode',
   'req-batcher',
   'delegation-contract',
+  'manual-ac-tracker',
+  'ac-decision-loop',
   'grounded-marker-checker',
   'session-logger',
-  'ac-decision-loop',
-  'manual-ac-tracker',
   'spec-writer',
   'traceability-tagger',
   'ado-test-plan',
@@ -65,10 +65,20 @@ describe('author-playwright-tests.yaml orchestrator wiring (PR 5)', () => {
     }
   });
 
-  test('delegates to @playwright-tester per the TRD-008 contract', () => {
+  test('delegates to @playwright-tester per the TRD-008/TRD-040 two-stage contract', () => {
     expect(text).toContain('agent: playwright-tester');
-    expect(text).toContain('validateDelegationRequest');
-    expect(text).toContain('validateDelegationResponse');
+    expect(text).toContain('validateProposalRequest');
+    expect(text).toContain('validateProposalResponse');
+    expect(text).toContain('validateRunRequest');
+    expect(text).toContain('validateRunResponse');
+  });
+
+  test('the pre-run decision happens before the confirmed test is ever run (TRD-040)', () => {
+    const decisionIndex = text.indexOf("Record the QA Engineer's Pre-Run Decision");
+    const runIndex = text.indexOf('Run the Confirmed Test');
+    expect(decisionIndex).toBeGreaterThan(-1);
+    expect(runIndex).toBeGreaterThan(-1);
+    expect(decisionIndex).toBeLessThan(runIndex);
   });
 
   test('no step defers logic to "later TRD tasks" anymore', () => {
