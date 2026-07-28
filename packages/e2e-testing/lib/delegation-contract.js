@@ -34,10 +34,13 @@
  * @property {*} groundingDiff - the implementation-grounding.js result (or its `gap` shape)
  *   grounding this AC in the real implementing diff, not PRD prose alone
  * @property {string} targetEnv - QA environment base URL/identifier to run the test against
- * @property {'headed'|'headless'} mode - session-wide execution mode chosen at session start (TRD-007)
- * @property {string} [authStatePath] - TRD-036: the environment-scoped auth-state path
- *   (test-runner-mode.js's deriveAuthStatePath() output), when mode is 'headless' and the
- *   consuming repo uses stored auth state at all; optional, since not every target needs one
+ * @property {'headed'|'headless'} mode - session-wide execution mode chosen at session start
+ *   (TRD-007) — controls ONLY whether a human is watching, never the auth strategy (TRD-037)
+ * @property {string} [authStatePath] - TRD-036/TRD-037: the environment-scoped auth-state path
+ *   (test-runner-mode.js's deriveAuthStatePath() output), used regardless of mode when the
+ *   consuming repo has one — many real harnesses reuse one stored auth state for every run,
+ *   headed or headless alike; optional, since not every target needs one (headed can still fall
+ *   back to a live interactive login when omitted; headless has no such fallback)
  */
 
 /**

@@ -8,17 +8,30 @@
  * Playwright itself (that's runtime behavior when the real session runs
  * against a real target app). It answers one question: given the session's
  * mode (TRD-007's 'headed'|'headless' choice, threaded through
- * delegation-contract.js's `mode` field), what auth strategy and launch
- * config should the test run use?
+ * delegation-contract.js's `mode` field) and whatever auth state is
+ * available, what auth strategy and launch config should the test run use?
  *
- * - headed: an interactive login the QA engineer performs live. No stored
- *   credentials — she logs in live and watches the run (AC-013-3).
- * - headless: authenticate via a stored storage-state file — the same
- *   mechanism an unattended nightly regression suite would already use,
- *   since no human is present to log in interactively (AC-013-4, TRD-011
- *   Implementation AC). That file lives in the consuming project, not this
- *   repo — this module only ever references its path, never reads/creates
- *   it.
+ * TRD-037 (found live-dogfooding this feature — the same thread as an
+ * earlier "auth state file not found" blocker resurfacing, because this
+ * module's documented model still didn't reflect it): mode and auth
+ * strategy are ORTHOGONAL, not the same choice wearing two names. This
+ * module originally modeled headed as "always a live interactive login, no
+ * stored credentials" and headless as "always a stored storage-state file"
+ * — but that conflates two independent concerns. Many real Playwright
+ * harnesses behind SSO (Entra ID and otherwise) capture ONE stored auth
+ * state once, out of band, and reuse it for EVERY run afterward, headed or
+ * headless alike — headed/headless there only toggles whether a human is
+ * watching the browser, never how authentication happens. So:
+ *   - If a stored auth-state path is available, it is used regardless of
+ *     mode — mode only ever controls Playwright's `headless` launch option.
+ *   - A live interactive login is the FALLBACK, only available when a human
+ *     is actually present to perform it (mode === 'headed') and no stored
+ *     state was given.
+ *   - Headless with no stored state remains impossible — there is no human
+ *     present to log in live — reported as a clear error, not a silent
+ *     fallback (AC-013-4, TRD-011 Implementation AC unchanged).
+ * That stored auth-state file lives in the consuming project, not this
+ * repo — this module only ever references its path, never reads/creates it.
  *
  * TRD-036 (found live-dogfooding this feature): a stored storage-state file
  * is scoped to the origin it was captured against. A consuming repo with
@@ -46,20 +59,25 @@ const VALID_MODES = ['headed', 'headless'];
  * @property {'headed'|'headless'} mode
  * @property {boolean} headless - Playwright launch option mirroring mode
  * @property {Object} auth
- * @property {'interactive-entra-login'|'stored-storage-state'} auth.strategy
+ * @property {'interactive-login'|'stored-storage-state'} auth.strategy
  * @property {string|null} auth.authStatePath - path to the consuming
- *   project's stored auth-state file when mode is 'headless'; null when
- *   mode is 'headed' (no stored state used)
+ *   project's stored auth-state file when a stored state was provided
+ *   (regardless of mode); null when falling back to a live interactive login
  */
 
 /**
- * Resolve the auth/launch config a test run should use for the given mode.
+ * Resolve the auth/launch config a test run should use, given the session's
+ * mode and whatever stored auth state is available. See this module's own
+ * header (TRD-037) for why mode (visibility) and auth strategy (credential
+ * source) are resolved independently rather than one implying the other.
  *
- * @param {'headed'|'headless'} mode - session-wide execution mode (TRD-007)
+ * @param {'headed'|'headless'} mode - session-wide execution mode (TRD-007);
+ *   controls ONLY the Playwright `headless` launch option, never auth strategy
  * @param {string} [authStatePath] - path to the consuming project's stored
  *   auth-state file (see deriveAuthStatePath() when the target repo has more
- *   than one QA/staging deploy target); required when mode is 'headless',
- *   ignored when mode is 'headed'
+ *   than one QA/staging deploy target). When present, used regardless of
+ *   mode. When absent, mode 'headed' falls back to a live interactive login;
+ *   mode 'headless' has no fallback and throws (no human present to log in)
  * @returns {RunConfig}
  * @throws {Error} if mode is not exactly 'headed'|'headless' (no silent
  *   default), or if mode is 'headless' with no authStatePath provided (can't
@@ -71,27 +89,37 @@ function resolveRunConfig(mode, authStatePath) {
     throw new Error(`Invalid mode '${mode}': must be one of ${VALID_MODES.map((m) => `'${m}'`).join(', ')}`);
   }
 
+  // undefined/null mean "no stored state provided" (fall through to mode's
+  // own fallback below); anything else provided must be a valid non-empty
+  // string, in EITHER mode -- a stray number/object is almost certainly a
+  // caller bug, never silently treated as "no path given" just because the
+  // mode happens to have a fallback.
+  const wasProvided = authStatePath !== undefined && authStatePath !== null;
+  if (wasProvided && (typeof authStatePath !== 'string' || authStatePath.trim() === '')) {
+    throw new Error('authStatePath must be a non-empty string when provided');
+  }
+
+  if (wasProvided) {
+    return {
+      mode,
+      headless: mode === 'headless',
+      auth: { strategy: 'stored-storage-state', authStatePath },
+    };
+  }
+
   if (mode === 'headed') {
     return {
       mode: 'headed',
       headless: false,
-      auth: { strategy: 'interactive-entra-login', authStatePath: null },
+      auth: { strategy: 'interactive-login', authStatePath: null },
     };
   }
 
-  // headless
-  if (typeof authStatePath !== 'string' || authStatePath.trim() === '') {
-    throw new Error(
-      'headless mode requires authStatePath (path to a stored auth-state file) — ' +
-        'cannot run headless with no stored auth state'
-    );
-  }
-
-  return {
-    mode: 'headless',
-    headless: true,
-    auth: { strategy: 'stored-storage-state', authStatePath },
-  };
+  // headless with no stored auth state -- no human present to log in live
+  throw new Error(
+    'headless mode requires authStatePath (path to a stored auth-state file) — ' +
+      'cannot run headless with no stored auth state'
+  );
 }
 
 /**

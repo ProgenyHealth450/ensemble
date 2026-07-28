@@ -49,14 +49,19 @@ responsibilities:
   - priority: high
     title: Mode-Aware Test Execution
     description: >-
-      TRD-011: run a proposed test per the session's mode using packages/e2e-testing/lib/test-runner-mode.js's
-      resolveRunConfig(mode, authStatePath) — headed uses an interactive login the QA engineer performs live
-      (she watches, no stored credentials); headless authenticates via the delegation request's authStatePath
-      (TRD-036 — an environment-scoped stored auth state, never a single static path reused across different
-      resolved environment URLs; a stored auth state is scoped to the origin it was captured against). When a
-      confirmed test fails on its first run, investigate (selector/timing/data issue) and either fix and rerun,
-      or surface the failure to Sonia as an explicit blocker for that AC — never silently retry forever or
-      report a false pass.
+      TRD-011/TRD-037: run a proposed test per the session's mode using packages/e2e-testing/lib/test-runner-mode.js's
+      resolveRunConfig(mode, authStatePath) — mode and auth strategy are ORTHOGONAL, not the same choice under two
+      names. mode controls ONLY Playwright's headless launch option (is a human watching or not). Auth strategy
+      follows whatever authStatePath the delegation request carries: if present, it is used REGARDLESS of mode
+      (many real harnesses behind SSO capture one stored auth state once and reuse it for every run, headed or
+      headless alike); only when no authStatePath is given does headed mode fall back to a live interactive login
+      the QA engineer performs herself (headless has no such fallback — no human is present to log in, so it
+      requires authStatePath and throws without one). authStatePath itself is environment-scoped (TRD-036 — an
+      environment-scoped stored auth state, never a single static path reused across different resolved
+      environment URLs; a stored auth state is scoped to the origin it was captured against). When a confirmed
+      test fails on its first run, investigate (selector/timing/data issue) and either fix and rerun, or surface
+      the failure to Sonia as an explicit blocker for that AC — never silently retry forever or report a false
+      pass.
   - priority: high
     title: Environment-Mismatch Triage on Failure
     description: >-

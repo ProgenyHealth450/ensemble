@@ -1,7 +1,7 @@
 ---
 name: ensemble:author-playwright-tests
 description: Interactive, post-implementation Playwright test-authoring session grounded in shipped code and PRD acceptance criteria
-version: 2.2.0
+version: 2.3.0
 category: testing
 last-updated: 2026-07-27
 argument-hint: [story-or-pr-reference]
@@ -91,7 +91,7 @@ responds.
    - Call resolveQaEnvUrl(opts) from packages/e2e-testing/lib/qa-env-guard.js with an explicit opts.url or opts.envVar naming where the target app's QA URL is configured — never hardcode or guess one
    - Call checkQaEnvReachable(url) from the same module. If reachable is false, halt the session here: report the unreachable environment to Sonia and do not run, propose, or land any test this session — never fall back to another URL
    - Ask Sonia to confirm: "Is <resolved URL> running the code from this session's branch/PR? If this repo uses per-branch or per-developer QA/staging deployments, provide the correct URL for this session instead." Never assume the configured default is correct just because it is reachable — if she provides a different URL, re-run the reachability check against it before proceeding
-   - If mode (Phase 2 Step 1) is "headless" and the consuming repo configures a base auth-state path, call deriveAuthStatePath(baseAuthStatePath, url) from packages/e2e-testing/lib/test-runner-mode.js to get an environment-scoped authStatePath — never reuse one static path across different resolved URLs, since a stored auth state is scoped to the origin it was captured against
+   - If the consuming repo configures a base auth-state path at all, call deriveAuthStatePath(baseAuthStatePath, url) from packages/e2e-testing/lib/test-runner-mode.js to get an environment-scoped authStatePath — regardless of mode (TRD-037: many real harnesses reuse one stored auth state for every run, headed or headless alike); never reuse one static path across different resolved URLs, since a stored auth state is scoped to the origin it was captured against
    - Carry the resolved URL forward as targetEnv, and (when derived) the environment-scoped authStatePath, for every delegation request in the REQ loop below
 
 ### Phase 3: REQ Batching and Delegation
@@ -111,7 +111,7 @@ re-processed, even mid-session on a resumed run.
 TRD's whole architecture is built around (TRD-008's contract).
 
 
-   - Build a request {acText, groundingDiff, targetEnv, mode, authStatePath} and validate it with validateDelegationRequest(req) from packages/e2e-testing/lib/delegation-contract.js — acText is this AC's own text (not the whole REQ), groundingDiff is Phase 1's groundImplementation() result for its REQ, targetEnv is Phase 2's resolved QA URL, mode is Phase 2's chosen headed/headless, authStatePath is Phase 2's derived per-environment path (omit entirely when mode is "headed" or no base path is configured)
+   - Build a request {acText, groundingDiff, targetEnv, mode, authStatePath} and validate it with validateDelegationRequest(req) from packages/e2e-testing/lib/delegation-contract.js — acText is this AC's own text (not the whole REQ), groundingDiff is Phase 1's groundImplementation() result for its REQ, targetEnv is Phase 2's resolved QA URL, mode is Phase 2's chosen headed/headless, authStatePath is Phase 2's derived per-environment path whenever one was derived (TRD-037: include it regardless of mode — omit entirely only when the consuming repo configures no base auth-state path at all)
    - Delegate the validated request to @playwright-tester (packages/e2e-testing/agents/playwright-tester.md), which grounds the AC, authors a test, and runs it per its own TRD-011 mode-aware logic (test-runner-mode.js's resolveRunConfig) — TRD-035: on a failed run, it also checks the live page for grounded-marker-checker.js's extractGroundedMarkers(groundingDiff.diffs) and reports whether an environment mismatch is suspected
    - Validate the response with validateDelegationResponse(res) from delegation-contract.js — it always carries either a pass/fail runResult or an explicit authoringFailure, never neither
    - Log the outcome via logAction({type: "run-result", acId, mode, runResult}) from packages/e2e-testing/lib/session-logger.js

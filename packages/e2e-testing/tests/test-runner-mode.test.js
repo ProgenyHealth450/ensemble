@@ -7,28 +7,25 @@
 
 const { resolveRunConfig, deriveAuthStatePath, VALID_MODES } = require('../lib/test-runner-mode');
 
-describe('resolveRunConfig (AC-013-3: headed uses Sonia\'s interactive Entra login)', () => {
-  test('headed mode always resolves to interactive-entra-login with no auth state, regardless of authStatePath', () => {
-    expect(resolveRunConfig('headed')).toEqual({
-      mode: 'headed',
-      headless: false,
-      auth: { strategy: 'interactive-entra-login', authStatePath: null },
-    });
+describe('resolveRunConfig (TRD-037: mode and auth strategy are orthogonal)', () => {
+  // Found live-dogfooding this feature: many real Playwright harnesses behind
+  // SSO capture ONE stored auth state once, out of band, and reuse it for
+  // every run afterward, headed or headless alike -- headed/headless there
+  // only toggles whether a human is watching, never how auth happens. mode
+  // must never dictate auth strategy; a stored state, when given, wins
+  // regardless of mode.
 
-    // Even if a caller mistakenly threads an authStatePath through for headed,
-    // it must be ignored -- headed never depends on stored auth.
-    expect(resolveRunConfig('headed', '/secure/cribs-e2e-auth-state.json')).toEqual({
+  test('a stored authStatePath is used in HEADED mode too, not just headless', () => {
+    const authStatePath = '/secure/e2e-auth-state.json';
+    expect(resolveRunConfig('headed', authStatePath)).toEqual({
       mode: 'headed',
       headless: false,
-      auth: { strategy: 'interactive-entra-login', authStatePath: null },
+      auth: { strategy: 'stored-storage-state', authStatePath },
     });
   });
-});
 
-describe('resolveRunConfig (AC-013-4: headless authenticates via cribs-e2e-auth-state.json)', () => {
-  test('headless mode with a valid authStatePath preserves the exact path, same mechanism as the nightly suite', () => {
-    const authStatePath = '/secure/cribs-e2e-auth-state.json';
-
+  test('a stored authStatePath is used in headless mode (unchanged behavior)', () => {
+    const authStatePath = '/secure/e2e-auth-state.json';
     expect(resolveRunConfig('headless', authStatePath)).toEqual({
       mode: 'headless',
       headless: true,
@@ -36,21 +33,56 @@ describe('resolveRunConfig (AC-013-4: headless authenticates via cribs-e2e-auth-
     });
   });
 
+  test('headed mode with no authStatePath falls back to a live interactive login', () => {
+    expect(resolveRunConfig('headed')).toEqual({
+      mode: 'headed',
+      headless: false,
+      auth: { strategy: 'interactive-login', authStatePath: null },
+    });
+  });
+
   test.each([
     ['undefined', undefined],
     ['null', null],
-    ['empty string', ''],
-    ['whitespace-only string', '   '],
-  ])('headless mode with %s authStatePath throws a clear error, not a silent fallback to headed', (_label, value) => {
+  ])('headed mode with %s authStatePath falls back to interactive login (no error)', (_label, value) => {
+    expect(resolveRunConfig('headed', value).auth.strategy).toBe('interactive-login');
+  });
+});
+
+describe('resolveRunConfig (AC-013-4: headless has no interactive-login fallback -- no human present)', () => {
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+  ])('headless mode with %s authStatePath throws a clear error, never silently falls back to interactive login', (_label, value) => {
     expect(() => resolveRunConfig('headless', value)).toThrow(/requires authStatePath/);
   });
 
   test.each([
-    ['number', 42],
-    ['object', { path: '/secure/cribs-e2e-auth-state.json' }],
-    ['array', ['/secure/cribs-e2e-auth-state.json']],
-  ])('headless mode with a non-string authStatePath (%s) throws', (_label, value) => {
-    expect(() => resolveRunConfig('headless', value)).toThrow(/requires authStatePath/);
+    ['empty string', ''],
+    ['whitespace-only string', '   '],
+  ])('headless mode with %s authStatePath throws (explicitly provided, but not a usable path)', (_label, value) => {
+    expect(() => resolveRunConfig('headless', value)).toThrow(/non-empty string/);
+  });
+});
+
+describe('resolveRunConfig (a garbage authStatePath is always an error, in either mode)', () => {
+  // Only undefined/null mean "no stored state was provided" -- anything else
+  // provided must be a valid non-empty string, regardless of mode. A stray
+  // number/object is almost certainly a caller bug, never silently treated
+  // as "no path given" just because headed mode has a fallback available.
+  test.each([
+    ['headed', 'number', 42],
+    ['headed', 'object', { path: '/secure/e2e-auth-state.json' }],
+    ['headed', 'array', ['/secure/e2e-auth-state.json']],
+    ['headless', 'number', 42],
+    ['headless', 'object', { path: '/secure/e2e-auth-state.json' }],
+    ['headless', 'array', ['/secure/e2e-auth-state.json']],
+  ])('%s mode with a non-string authStatePath (%s) throws', (mode, _label, value) => {
+    expect(() => resolveRunConfig(mode, value)).toThrow(/non-empty string/);
+  });
+
+  test.each(['headed', 'headless'])('%s mode with an empty-string authStatePath throws', (mode) => {
+    expect(() => resolveRunConfig(mode, '')).toThrow(/non-empty string/);
   });
 });
 
@@ -90,7 +122,7 @@ describe('resolveRunConfig (purity: no key leakage, no shared mutated references
     expect(second.auth).not.toBe(first.auth);
 
     first.auth.strategy = 'mutated';
-    expect(resolveRunConfig('headed').auth.strategy).toBe('interactive-entra-login');
+    expect(resolveRunConfig('headed').auth.strategy).toBe('interactive-login');
   });
 
   test('headless results for different authStatePaths do not share the auth object', () => {

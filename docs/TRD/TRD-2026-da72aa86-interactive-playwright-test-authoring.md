@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.5.0
+version: 1.6.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -27,6 +27,8 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 **v1.4.0 amendment:** confirmed live against a real, installed CRIBs plugin (not the monorepo checkout): `implementation-grounding.js`'s `DEFAULT_TRD_CLI_PATH = path.resolve(__dirname, '../../development/lib/trd-cli.js')` assumed `packages/e2e-testing` and `packages/development` are sibling directories under a shared `packages/` root — true only in the monorepo, not once each package is published and installed independently as a separate Claude Code plugin (each lands in its own top-level plugin-cache directory). Every `groundImplementation()` call ENOENT'd resolving `trd-cli.js` before any REQ-specific logic ran, unconditionally — the three fixes from PR 6/PR 7 were all correct but moot, since grounding never got far enough to exercise any of them once actually installed. Not caught by the existing 300+ passing tests because every one of them injects `opts.parseTrd`, so `defaultParseTrd()` — the function that actually resolved the broken path — was never exercised. PR 8 (TRD-033/TRD-033-TEST) fixes this the same way `packages/e2e-testing/lib/prd-ac-parser.js` already resolved the identical "e2e-testing needs a sibling package's parser" problem for PRD parsing: a new, scoped `packages/e2e-testing/lib/trd-task-parser.js` extracting only what grounding actually needs (`tasksById` with `satisfies`/`targetFiles` per task — not trd-parser.js's full PR/Phase/Sprint/AC/synthetic-task surface), called in-process with no subprocess and no cross-package path at all. Verified by running the real `groundImplementation()` (no mocks) from an isolated directory with no sibling `development` package present at all, reproducing the installed-plugin layout exactly. Also fixed, incidentally: `extractSatisfies()`'s regex only captured the first REQ id in a multi-REQ `[satisfies REQ-005, REQ-012]` bracket — a real, common convention in this repo's own TRDs — a bug this new module inherited by porting trd-parser.js's exact regex, caught by its own test suite, and fixed in the new module (trd-parser.js itself still has it; out of scope here, worth a separate look).
 
 **v1.5.0 amendment:** live-dogfooding this feature against a real, open CRIBs PR surfaced a design gap distinct from PR 6-8's bug fixes: `qa-env-guard.js`'s reachability check answers "is a URL responding," never "is it running the branch under test." A real incident: a reachable-but-un-deployed per-developer QA slot produced a test failure indistinguishable from a real regression — the HTTP check passed, the test ran, and it failed on real assertions, with nothing pointing at "wrong deploy" as a cause; `git log`/`git branch --contains` eventually confirmed the implementing commit had never reached the shared QA slot the tool defaulted to. Compounding it: switching to the correct per-developer URL broke a second time, because `test-runner-mode.js`'s stored auth-state path was a single static value — origin-scoped, so it silently didn't apply against a different environment (an auth redirect loop, which *also* looked like a real problem). Confirmed generic, not CRIBs-specific: per-branch/per-developer QA/staging deploy targets are a common pattern for any repo with more than one deploy destination. PR 9 (TRD-034/TRD-035/TRD-036 + their TEST siblings) addresses all three angles: (1) the orchestrator now explicitly asks the QA engineer to confirm the resolved URL is running *this* branch before proceeding, rather than trusting a configured default just because it's reachable; (2) a new `packages/e2e-testing/lib/grounded-marker-checker.js` extracts checkable markers (quoted strings, attribute values, tag-inner text — no framework/naming assumptions) from a grounding diff, so a failed test whose live page shows NONE of them can be reported with "this may be the wrong environment" as the leading hypothesis, not "the implementation is broken," mirroring `ac-gap-detector.js`'s "pure extraction here, live judgment there" split; (3) `test-runner-mode.js`'s new `deriveAuthStatePath()` derives a per-environment-scoped auth-state path from whatever base path a consuming repo already configures, so switching environments naturally uses (or needs to create) its own stored state instead of silently reusing a stale one from a different origin. The win condition per the finding: a test failing against the wrong environment must never look identical to a test failing against a real regression.
+
+**v1.6.0 amendment:** a further finding surfaced live-dogfooding PR 9, resurfacing the same thread as an earlier "auth state file not found" blocker — `test-runner-mode.js`'s documented model still didn't reflect reality even after TRD-036. The module modeled mode (headed/headless) and auth strategy as the SAME choice: headed always meant "live interactive login, no stored credentials"; headless always meant "authenticate via a stored state file." Real harnesses behind SSO (CRIBs' among them, and probably most .NET/Playwright harnesses generally, not just CRIBs) don't work that way: ONE stored auth state is captured once, out of band, and reused for EVERY run afterward — headed vs. headless there only toggles whether a human is watching the browser, never how authentication happens. It didn't block this session (the sub-agent verified the stored state file directly and proceeded), but the contract's documented model was still wrong. PR 10 (TRD-037/TRD-037-TEST) decouples the two: `resolveRunConfig()` now uses a stored `authStatePath` regardless of mode whenever one is given; a live interactive login is the fallback, available only when a human is present (`mode === 'headed'`) and no stored state was provided; headless with no stored state remains an error (no human to log in). Also generalized `'interactive-entra-login'` → `'interactive-login'` (Entra ID is one SSO provider among many — the tool has no business assuming which one a consuming repo uses) and tightened validation so a stray non-string `authStatePath` is always an error, in either mode, rather than silently ignored under headed's old "always ignore it" behavior.
 
 ## Architecture Decision
 
@@ -415,6 +417,20 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 - [x] **TRD-034-TEST/TRD-035-TEST/TRD-036-TEST**: Unit coverage for all three (7h) [verifies TRD-034, TRD-035, TRD-036] [satisfies REQ-005, REQ-013] [depends: TRD-034, TRD-035, TRD-036]
   - Target Files: `packages/e2e-testing/tests/grounded-marker-checker.test.js` (new), `packages/e2e-testing/tests/test-runner-mode.test.js`, `packages/e2e-testing/tests/delegation-contract.test.js` (new), `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
 
+### PR 10: Auth Strategy Is Not the Same Choice as Headed/Headless
+
+**Shippable State:** A single stored auth-state file authenticates a session whether it runs headed or headless — mode only ever toggles whether a human is watching the browser, never how authentication happens. A live interactive login remains available as a fallback only when a human is actually present and no stored state exists yet.
+
+- [x] **TRD-037**: Decouple mode (visibility) from auth strategy (credential source) in `resolveRunConfig()` (4h) [satisfies REQ-013] [depends: TRD-011, TRD-036]
+  - Target Files: `packages/e2e-testing/lib/test-runner-mode.js`, `packages/e2e-testing/lib/delegation-contract.js`, `packages/e2e-testing/agents/playwright-tester.yaml`, `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a stored `authStatePath`, when `resolveRunConfig()` runs in EITHER mode, then it resolves to `stored-storage-state` — the same file authenticates a headed and a headless run alike; only Playwright's `headless` launch option differs.
+    - Given no `authStatePath`, when `resolveRunConfig('headed')` runs, then it falls back to `interactive-login` (renamed from `interactive-entra-login` — no consuming repo's specific SSO provider is this tool's business to assume); `resolveRunConfig('headless')` with no `authStatePath` still throws, since no human is present to log in live.
+    - Given a non-string, non-empty `authStatePath` (a stray number/object), when `resolveRunConfig()` runs in either mode, then it throws — never silently treated as "no path given" just because headed mode has a fallback available.
+
+- [x] **TRD-037-TEST**: Verify mode/auth-strategy decoupling in both directions (3h) [verifies TRD-037] [satisfies REQ-013] [depends: TRD-037]
+  - Target Files: `packages/e2e-testing/tests/test-runner-mode.test.js`
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
@@ -428,6 +444,8 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 > **v1.4.0 addendum:** PR 8 (TRD-033/TRD-033-TEST) adds 2 tasks / 9h, found live-testing the actual installed plugin against a real CRIBs PR. `backend-developer` fits.
 >
 > **v1.5.0 addendum:** PR 9 (TRD-034 through TRD-036 + a combined TEST task) adds 4 tasks / 17h, found live-dogfooding this feature against a real CRIBs PR. `backend-developer` fits — plain Node.js library logic (grounded-marker-checker.js, deriveAuthStatePath) and orchestrator/agent prose, not Playwright execution itself.
+>
+> **v1.6.0 addendum:** PR 10 (TRD-037/TRD-037-TEST) adds 2 tasks / 7h, found live-dogfooding PR 9. `backend-developer` fits.
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `cribs-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -482,6 +500,7 @@ team:
 - PR 7: real base-branch grounding and live Azure DevOps MCP status format (v1.3.0 addendum — see amendment note above).
 - PR 8: grounding works once actually installed as a plugin (v1.4.0 addendum — see amendment note above).
 - PR 9: a wrong-but-reachable QA environment must never look like a regression (v1.5.0 addendum — see amendment note above).
+- PR 10: auth strategy is not the same choice as headed/headless (v1.6.0 addendum — see amendment note above).
 
 ## Acceptance Criteria Traceability
 
@@ -499,7 +518,7 @@ team:
 | REQ-010 | AC-gap ADO task filing | TRD-021, TRD-029 | TRD-021-TEST |
 | REQ-011 | Session resumability & idempotence | TRD-005, TRD-023, TRD-025, TRD-030 | TRD-005-TEST, TRD-023-TEST |
 | REQ-012 | Session completion summary | TRD-022, TRD-030 | — |
-| REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013, TRD-026, TRD-034, TRD-036 | TRD-011-TEST, TRD-036-TEST |
+| REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013, TRD-026, TRD-034, TRD-036, TRD-037 | TRD-011-TEST, TRD-036-TEST, TRD-037-TEST |
 | REQ-014 | Traceability tagging | TRD-015, TRD-027 | TRD-015-TEST |
 | REQ-015 | No new paid infra | TRD-006 | — |
 | REQ-016 | Session action observability | TRD-024, TRD-030 | — |
@@ -536,6 +555,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 5. **Issue (found live-dogfooding, v1.5.0):** `qa-env-guard.js`'s reachability check confirms a URL responds, never that it's running the branch under test. A reachable-but-un-deployed per-developer QA slot produced a real test failure indistinguishable from a regression — real debugging time was spent before `git log`/`git branch --contains` traced it to the actual cause. A second, compounding issue: `test-runner-mode.js`'s stored auth-state path was one static value, origin-scoped, so switching to the correct URL broke authentication in a way that also looked like a real problem. Neither is CRIBs-specific — per-branch/per-developer deploy targets are common for any repo with more than one deploy destination.
    **Resolution:** Added PR 9 (TRD-034/TRD-035/TRD-036): (1) the orchestrator explicitly asks the QA engineer to confirm the resolved URL before proceeding, rather than trusting a reachable default silently; (2) `grounded-marker-checker.js` extracts checkable, framework-agnostic markers from a grounding diff so a failed test whose live page shows none of them is reported with "possible wrong environment" as the leading hypothesis, not a bare failure — mirroring `ac-gap-detector.js`'s pure-extraction/live-judgment split; (3) `deriveAuthStatePath()` scopes the stored auth state per resolved environment URL, so switching environments never silently reuses a stale session from a different origin.
 
+6. **Issue (found live-dogfooding PR 9, v1.6.0):** even after TRD-036, `test-runner-mode.js` still modeled mode and auth strategy as the same choice: headed always meant a live interactive login with no stored credentials; headless always meant a stored auth-state file. Real harnesses behind SSO (CRIBs' included, but not unique to it) capture one stored auth state once and reuse it for every run, headed or headless alike — headed/headless there only toggles whether a human is watching. The contract's documented model never reflected this, resurfacing the same thread as an earlier "auth state file not found" blocker.
+   **Resolution:** Added PR 10 (TRD-037/TRD-037-TEST): `resolveRunConfig()` now uses a stored `authStatePath` regardless of mode whenever one is given; a live interactive login is the fallback only when a human is present (`headed`) and no stored state exists. Also generalized `'interactive-entra-login'` to `'interactive-login'` and tightened validation so a stray non-string `authStatePath` is always an error, never silently ignored.
+
 ### Dependency and Estimate Issues
 
 1. **Issue:** The chain TRD-001 → TRD-003 → TRD-004 → TRD-008 → TRD-010 → TRD-012 is depth 6 (> 3).
@@ -563,5 +585,6 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 - PR 6 (TRD-031/TRD-031-TEST): implemented directly on the same branch/PR #10, verified against CRIBs' actual Azure DevOps remote URL and its own test suite.
 - PR 7 (TRD-032/TRD-032-TEST): implemented directly on the same branch/PR #10, found and verified live-dogfooding PR 6 against a real, open CRIBs PR.
 - PR 8 (TRD-033/TRD-033-TEST): implemented directly on the same branch/PR #10, found and verified live-testing the actual installed plugin against a real CRIBs PR.
-- PR 9 (TRD-034 through TRD-036 + combined TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 + 4/4 = 56/56 tasks now complete), found and verified live-dogfooding this feature against a real, open CRIBs PR. `packages/e2e-testing` is 385/385.
-- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0 through v1.5.0 amendment notes under Document Overview.
+- PR 9 (TRD-034 through TRD-036 + combined TEST): implemented directly on the same branch/PR #10, found and verified live-dogfooding this feature against a real, open CRIBs PR.
+- PR 10 (TRD-037/TRD-037-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 + 4/4 + 2/2 = 58/58 tasks now complete), found and verified live-dogfooding PR 9 against a real CRIBs PR. `packages/e2e-testing` is 393/393.
+- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0 through v1.6.0 amendment notes under Document Overview.
