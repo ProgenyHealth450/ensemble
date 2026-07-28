@@ -1,7 +1,7 @@
 metadata:
   name: ensemble:author-playwright-tests
   description: Interactive, post-implementation Playwright test-authoring session grounded in shipped code and PRD acceptance criteria
-  version: 2.1.0
+  version: 2.2.0
   lastUpdated: "2026-07-27"
   category: testing
   output_path: ensemble/author-playwright-tests.md
@@ -109,10 +109,20 @@ workflow:
           description: |
             TRD-013/TRD-026 (satisfies REQ-013): safety-critical — never let a
             test run against anything but the designated QA environment.
+            TRD-034 (found live-dogfooding this feature): reachable is not the
+            same as "running this branch's code." Many repos have more than
+            one QA/staging deploy target (per-branch or per-developer slots
+            are a common pattern, not specific to any one project) — a
+            reachable-but-wrong slot produces test failures indistinguishable
+            from a real regression. Confirm the resolved URL is actually the
+            right one for this session before proceeding, not just that it
+            responds.
           actions:
             - 'Call resolveQaEnvUrl(opts) from packages/e2e-testing/lib/qa-env-guard.js with an explicit opts.url or opts.envVar naming where the target app''s QA URL is configured — never hardcode or guess one'
             - 'Call checkQaEnvReachable(url) from the same module. If reachable is false, halt the session here: report the unreachable environment to Sonia and do not run, propose, or land any test this session — never fall back to another URL'
-            - 'If reachable is true, carry this resolved URL forward as targetEnv for every delegation request in the REQ loop below'
+            - 'Ask Sonia to confirm: "Is <resolved URL> running the code from this session''s branch/PR? If this repo uses per-branch or per-developer QA/staging deployments, provide the correct URL for this session instead." Never assume the configured default is correct just because it is reachable — if she provides a different URL, re-run the reachability check against it before proceeding'
+            - 'If mode (Phase 2 Step 1) is "headless" and the consuming repo configures a base auth-state path, call deriveAuthStatePath(baseAuthStatePath, url) from packages/e2e-testing/lib/test-runner-mode.js to get an environment-scoped authStatePath — never reuse one static path across different resolved URLs, since a stored auth state is scoped to the origin it was captured against'
+            - 'Carry the resolved URL forward as targetEnv, and (when derived) the environment-scoped authStatePath, for every delegation request in the REQ loop below'
 
     - name: REQ Batching and Delegation
       order: 3
@@ -140,8 +150,8 @@ workflow:
               headed or headless against the resolved QA environment, per
               packages/e2e-testing/lib/delegation-contract.js.
           actions:
-            - 'Build a request {acText, groundingDiff, targetEnv, mode} and validate it with validateDelegationRequest(req) from packages/e2e-testing/lib/delegation-contract.js — acText is this AC''s own text (not the whole REQ), groundingDiff is Phase 1''s groundImplementation() result for its REQ, targetEnv is Phase 2''s resolved QA URL, mode is Phase 2''s chosen headed/headless'
-            - 'Delegate the validated request to @playwright-tester (packages/e2e-testing/agents/playwright-tester.md), which grounds the AC, authors a test, and runs it per its own TRD-011 mode-aware logic (test-runner-mode.js''s resolveRunConfig)'
+            - 'Build a request {acText, groundingDiff, targetEnv, mode, authStatePath} and validate it with validateDelegationRequest(req) from packages/e2e-testing/lib/delegation-contract.js — acText is this AC''s own text (not the whole REQ), groundingDiff is Phase 1''s groundImplementation() result for its REQ, targetEnv is Phase 2''s resolved QA URL, mode is Phase 2''s chosen headed/headless, authStatePath is Phase 2''s derived per-environment path (omit entirely when mode is "headed" or no base path is configured)'
+            - 'Delegate the validated request to @playwright-tester (packages/e2e-testing/agents/playwright-tester.md), which grounds the AC, authors a test, and runs it per its own TRD-011 mode-aware logic (test-runner-mode.js''s resolveRunConfig) — TRD-035: on a failed run, it also checks the live page for grounded-marker-checker.js''s extractGroundedMarkers(groundingDiff.diffs) and reports whether an environment mismatch is suspected'
             - 'Validate the response with validateDelegationResponse(res) from delegation-contract.js — it always carries either a pass/fail runResult or an explicit authoringFailure, never neither'
             - 'Log the outcome via logAction({type: "run-result", acId, mode, runResult}) from packages/e2e-testing/lib/session-logger.js'
 
@@ -152,8 +162,11 @@ workflow:
           title: Present the Proposed Test and Record Sonia's Decision
           description: |
             TRD-027 (satisfies REQ-003, REQ-017): the accept/request-changes/
-            reject decision point, per proposed test.
+            reject decision point, per proposed test. TRD-035: a failing test
+            is not automatically a regression — check for an environment
+            mismatch signal before framing it as one.
           actions:
+            - 'If the run failed and runResult.environmentMismatchSuspected is true: lead the failure report with buildEnvironmentMismatchHint({markersChecked: runResult.groundedMarkersChecked, markersFound: []}) from packages/e2e-testing/lib/grounded-marker-checker.js — present this as the LEADING hypothesis, before any suggestion that the implementation itself is broken, and prompt Sonia to confirm the environment (Phase 2 Step 2''s question) before deciding'
             - 'Present the proposed test (and its run result) to Sonia; call recordDecision(decision, {acId, proposedTest, changeDescription, iterationCount}) from packages/e2e-testing/lib/ac-decision-loop.js with exactly one of "accept" | "request-changes" | "reject"'
             - 'outcome "revise": re-delegate to @playwright-tester with changeDescription folded into a fresh request for the same AC (loop back to the REQ Batching and Delegation phase, step 2, incrementing iterationCount)'
             - 'outcome "manual-escape-hatch" (an outright reject), or an accepted delegation whose runResult was an authoringFailure with no viable alternative: call markManual(acId, reason) from packages/e2e-testing/lib/manual-ac-tracker.js, log via logAction({type: "manual-ac-marked", acId, reason}), and move to the next AC — never silently drop it'

@@ -2,7 +2,7 @@
 document_id: TRD-2026-da72aa86
 label: trd-playwright-test-authoring
 prd_reference: docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md
-version: 1.4.0
+version: 1.5.0
 status: Draft
 date: 2026-07-24
 design_readiness_score: 4.43
@@ -25,6 +25,8 @@ This TRD translates `PRD-2026-da72aa86` into an implementation plan for a new `/
 **v1.3.0 amendment:** live-dogfooding PR 6 against a real, open CRIBs PR surfaced two further bugs in the same area, both found before PR 6 had even merged: (1) neither `checkPrState()` nor `checkPrStateAdo()` surfaced the PR's actual base/target branch, so `implementation-grounding.js`'s `groundImplementation()` kept falling back to its hardcoded `main`/`origin/main` default even on CRIBs — whose feature branches target `integration`, not `main` — silently diffing against the wrong base and pulling in unrelated already-integrated work as if it belonged to the PR under test; (2) `checkPrStateAdo()`'s `pr.status === 'active'` string check always failed against a live Azure DevOps MCP server response, which serializes `status` as the underlying .NET `PullRequestStatus` enum's numeric ordinal (`1` = Active) rather than the REST API's string form — meaning PR 6's own Azure DevOps path, while passing every hand-written (string-status) unit test, was still non-functional against the real server. PR 7 (TRD-032/TRD-032-TEST) fixes both: `checkPrState()`/`checkPrStateAdo()` now surface `baseBranch`, threaded through the orchestrator into every `groundImplementation()` call (including the AC-gap override re-run); `isAdoStatusActive()` accepts both the numeric and string status representations; `implementation-grounding.js`'s `resolveMergeBase()` tries an explicit `baseBranch` both bare and `origin/`-prefixed, mirroring the fallback its own hardcoded defaults already got.
 
 **v1.4.0 amendment:** confirmed live against a real, installed CRIBs plugin (not the monorepo checkout): `implementation-grounding.js`'s `DEFAULT_TRD_CLI_PATH = path.resolve(__dirname, '../../development/lib/trd-cli.js')` assumed `packages/e2e-testing` and `packages/development` are sibling directories under a shared `packages/` root — true only in the monorepo, not once each package is published and installed independently as a separate Claude Code plugin (each lands in its own top-level plugin-cache directory). Every `groundImplementation()` call ENOENT'd resolving `trd-cli.js` before any REQ-specific logic ran, unconditionally — the three fixes from PR 6/PR 7 were all correct but moot, since grounding never got far enough to exercise any of them once actually installed. Not caught by the existing 300+ passing tests because every one of them injects `opts.parseTrd`, so `defaultParseTrd()` — the function that actually resolved the broken path — was never exercised. PR 8 (TRD-033/TRD-033-TEST) fixes this the same way `packages/e2e-testing/lib/prd-ac-parser.js` already resolved the identical "e2e-testing needs a sibling package's parser" problem for PRD parsing: a new, scoped `packages/e2e-testing/lib/trd-task-parser.js` extracting only what grounding actually needs (`tasksById` with `satisfies`/`targetFiles` per task — not trd-parser.js's full PR/Phase/Sprint/AC/synthetic-task surface), called in-process with no subprocess and no cross-package path at all. Verified by running the real `groundImplementation()` (no mocks) from an isolated directory with no sibling `development` package present at all, reproducing the installed-plugin layout exactly. Also fixed, incidentally: `extractSatisfies()`'s regex only captured the first REQ id in a multi-REQ `[satisfies REQ-005, REQ-012]` bracket — a real, common convention in this repo's own TRDs — a bug this new module inherited by porting trd-parser.js's exact regex, caught by its own test suite, and fixed in the new module (trd-parser.js itself still has it; out of scope here, worth a separate look).
+
+**v1.5.0 amendment:** live-dogfooding this feature against a real, open CRIBs PR surfaced a design gap distinct from PR 6-8's bug fixes: `qa-env-guard.js`'s reachability check answers "is a URL responding," never "is it running the branch under test." A real incident: a reachable-but-un-deployed per-developer QA slot produced a test failure indistinguishable from a real regression — the HTTP check passed, the test ran, and it failed on real assertions, with nothing pointing at "wrong deploy" as a cause; `git log`/`git branch --contains` eventually confirmed the implementing commit had never reached the shared QA slot the tool defaulted to. Compounding it: switching to the correct per-developer URL broke a second time, because `test-runner-mode.js`'s stored auth-state path was a single static value — origin-scoped, so it silently didn't apply against a different environment (an auth redirect loop, which *also* looked like a real problem). Confirmed generic, not CRIBs-specific: per-branch/per-developer QA/staging deploy targets are a common pattern for any repo with more than one deploy destination. PR 9 (TRD-034/TRD-035/TRD-036 + their TEST siblings) addresses all three angles: (1) the orchestrator now explicitly asks the QA engineer to confirm the resolved URL is running *this* branch before proceeding, rather than trusting a configured default just because it's reachable; (2) a new `packages/e2e-testing/lib/grounded-marker-checker.js` extracts checkable markers (quoted strings, attribute values, tag-inner text — no framework/naming assumptions) from a grounding diff, so a failed test whose live page shows NONE of them can be reported with "this may be the wrong environment" as the leading hypothesis, not "the implementation is broken," mirroring `ac-gap-detector.js`'s "pure extraction here, live judgment there" split; (3) `test-runner-mode.js`'s new `deriveAuthStatePath()` derives a per-environment-scoped auth-state path from whatever base path a consuming repo already configures, so switching environments naturally uses (or needs to create) its own stored state instead of silently reusing a stale one from a different origin. The win condition per the finding: a test failing against the wrong environment must never look identical to a test failing against a real regression.
 
 ## Architecture Decision
 
@@ -95,7 +97,9 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 | Generated command | `packages/e2e-testing/commands/ensemble/author-playwright-tests.md` | Generated user-facing command doc/runtime text |
 | PRD/AC parser | `packages/e2e-testing/lib/prd-ac-parser.js` | LF+CRLF-safe, Title-Case-frontmatter-safe REQ/AC extraction (deliberately independent of the buggy shared `prd-parser.js`) |
 | Implementation grounding | `packages/e2e-testing/lib/implementation-grounding.js` | Resolve changed files/diff on the open PR's branch per REQ; report grounding gaps |
+| TRD task parser | `packages/e2e-testing/lib/trd-task-parser.js` | Scoped, in-package `tasksById` extraction for grounding (TRD-033) — deliberately independent of `packages/development/lib/trd-parser.js`, which cannot be reached across an installed plugin boundary |
 | Resume scan | `packages/e2e-testing/lib/resume-scan.js` | Scan spec files for per-AC `@hash:`/`@ado-testcase:` tags to detect already-confirmed ACs |
+| Grounded-marker checker | `packages/e2e-testing/lib/grounded-marker-checker.js` | Extract checkable markers from a grounding diff; build the environment-mismatch hint when none are found live (TRD-035) |
 | Delegation contract | `packages/e2e-testing/lib/delegation-contract.js` | Request/response shape between orchestrator and `@playwright-tester` |
 | `@playwright-tester` (extended) | `packages/e2e-testing/agents/playwright-tester.md` | Ground one AC in code, propose a test, run it headed or headless against QA |
 | REQ batcher | `packages/e2e-testing/lib/req-batcher.js` | Walk ACs one REQ at a time; checkpoint between REQs |
@@ -385,6 +389,32 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
   - Implementation AC:
     - Given a real TRD file written to a temp directory, when `groundImplementation()` is called without `opts.parseTrd`, then it grounds correctly via the real default path — the exact code path 300+ mocked-`parseTrd` tests never once exercised, which is what let this ship.
 
+### PR 9: A Wrong-But-Reachable QA Environment Must Never Look Like a Regression
+
+**Shippable State:** Before treating a failing test as a real regression, the session confirms the resolved QA environment is actually running the branch under test — up front by asking, and after the fact by checking whether any of the diff's grounded markers are live on the page — and headless auth state is scoped per environment so switching QA URLs doesn't silently break authentication. Generic: no assumption that any one consuming repo has per-branch/per-developer deploy slots, only that some might.
+
+- [x] **TRD-034**: Ask the QA engineer to confirm the resolved URL is running this session's branch, before proceeding (2h) [satisfies REQ-013] [depends: TRD-013]
+  - Target Files: `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given the QA environment resolves as reachable, when Phase 2 Step 2 runs, then it explicitly asks whether that URL is running this session's branch/PR, phrased generically (never assuming or naming any one repo's deploy-slot convention), before any delegation request is built.
+    - Given she provides a different URL, when the session accepts it, then the reachability check re-runs against the new URL before it is carried forward as `targetEnv`.
+
+- [x] **TRD-035**: Extract grounded markers from a diff; surface an environment-mismatch hint when none are found live (5h) [satisfies REQ-005] [depends: TRD-004, TRD-011]
+  - Target Files: `packages/e2e-testing/lib/grounded-marker-checker.js` (new), `packages/e2e-testing/lib/delegation-contract.js`, `packages/e2e-testing/agents/playwright-tester.yaml`, `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a grounding diff, when `extractGroundedMarkers()` runs, then it returns checkable candidate strings (quoted values, attribute values, tag-inner text) from only the diff's added lines, with no framework- or repo-specific assumption.
+    - Given a failed test run where none of the checked markers appear on the live page, when `@playwright-tester` responds, then `runResult.environmentMismatchSuspected` is `true` and the orchestrator leads the failure report with `buildEnvironmentMismatchHint()`'s hedged hint, before any suggestion the implementation itself is broken.
+    - Given a failed test run where at least one marker IS found live, when `@playwright-tester` responds, then no environment-mismatch signal is raised — the failure is reported as an ordinary test failure.
+
+- [x] **TRD-036**: Scope the stored auth-state path per resolved environment, not one static path for every target (3h) [satisfies REQ-013] [depends: TRD-011]
+  - Target Files: `packages/e2e-testing/lib/test-runner-mode.js`, `packages/e2e-testing/lib/delegation-contract.js`, `packages/e2e-testing/agents/playwright-tester.yaml`, `packages/e2e-testing/commands/author-playwright-tests.yaml`, generated `packages/e2e-testing/commands/ensemble/author-playwright-tests.md`
+  - Implementation AC:
+    - Given a consuming repo's configured base auth-state path and a resolved QA URL, when `deriveAuthStatePath()` runs, then it returns a distinct, deterministic path per URL — two different resolved URLs never derive the same path.
+    - Given headless mode, when the orchestrator delegates, then it passes the environment-scoped `authStatePath` (not a single static value) through the delegation request.
+
+- [x] **TRD-034-TEST/TRD-035-TEST/TRD-036-TEST**: Unit coverage for all three (7h) [verifies TRD-034, TRD-035, TRD-036] [satisfies REQ-005, REQ-013] [depends: TRD-034, TRD-035, TRD-036]
+  - Target Files: `packages/e2e-testing/tests/grounded-marker-checker.test.js` (new), `packages/e2e-testing/tests/test-runner-mode.test.js`, `packages/e2e-testing/tests/delegation-contract.test.js` (new), `packages/e2e-testing/tests/author-playwright-tests-workflow.test.js`
+
 ## Team Configuration
 
 > Auto-configured by `/ensemble:configure-team` — **Complex** tier. 39 tasks, 111h estimated, 5 domains detected (testing, documentation, infrastructure, security, devops), 3 cross-cutting tasks, dependency depth 10.
@@ -396,6 +426,8 @@ Precondition: implement-trd-beads has completed a PR boundary; PR is open (REQ-0
 > **v1.3.0 addendum:** PR 7 (TRD-032/TRD-032-TEST) adds 2 tasks / 7h, found live-dogfooding PR 6 against a real CRIBs PR before PR 6 had even merged. `backend-developer` fits, same as PR 6.
 >
 > **v1.4.0 addendum:** PR 8 (TRD-033/TRD-033-TEST) adds 2 tasks / 9h, found live-testing the actual installed plugin against a real CRIBs PR. `backend-developer` fits.
+>
+> **v1.5.0 addendum:** PR 9 (TRD-034 through TRD-036 + a combined TEST task) adds 4 tasks / 17h, found live-dogfooding this feature against a real CRIBs PR. `backend-developer` fits — plain Node.js library logic (grounded-marker-checker.js, deriveAuthStatePath) and orchestrator/agent prose, not Playwright execution itself.
 >
 > **Note:** the domain-keyword scan is tuned for web-app TRDs and misreads this one — ~20 of 39 tasks (plain Node.js library/orchestration modules: `resume-scan.js`, `ac-decision-loop.js`, `spec-writer.js`, `ado-test-case-sync.js`, `req-batcher.js`, etc.) match no domain keyword at all, while `documentation`/`infrastructure`/`security`/`devops` each fired from a single substring false positive (`document`/`infra` in "no-new-infra guardrail" TRD-006, `auth` in `cribs-e2e-auth-state.json` TRD-011/011-TEST, `logging` in "console logging" TRD-024). Builder roster below is corrected per user direction: `backend-developer` covers the undetected plain-implementation tasks; `playwright-tester` covers the genuine E2E/testing-domain tasks (TRD-008, TRD-011, TRD-014, TRD-016–021 and their test tasks).
 
@@ -449,6 +481,7 @@ team:
 - PR 6: Azure DevOps Repos support for the REQ-001 trigger check (v1.2.0 addendum — see amendment note above).
 - PR 7: real base-branch grounding and live Azure DevOps MCP status format (v1.3.0 addendum — see amendment note above).
 - PR 8: grounding works once actually installed as a plugin (v1.4.0 addendum — see amendment note above).
+- PR 9: a wrong-but-reachable QA environment must never look like a regression (v1.5.0 addendum — see amendment note above).
 
 ## Acceptance Criteria Traceability
 
@@ -458,7 +491,7 @@ team:
 | REQ-002 | PRD + implementation grounding | TRD-002, TRD-004, TRD-025, TRD-032, TRD-033 | TRD-002-TEST, TRD-004-TEST, TRD-032-TEST, TRD-033-TEST |
 | REQ-003 | Interactive AC walkthrough | TRD-010, TRD-027 | TRD-010-TEST |
 | REQ-004 | REQ-level batching with checkpoints | TRD-009, TRD-026 | TRD-009-TEST |
-| REQ-005 | In-session test confirmation run | TRD-011, TRD-026 | TRD-011-TEST |
+| REQ-005 | In-session test confirmation run | TRD-011, TRD-026, TRD-035 | TRD-011-TEST, TRD-035-TEST |
 | REQ-006 | Test placement per existing conventions | TRD-014, TRD-027 | TRD-014-TEST |
 | REQ-007 | ADO Test Case step sync | TRD-016, TRD-017, TRD-018, TRD-028 | TRD-017-TEST, TRD-018-TEST |
 | REQ-008 | ADO sync resilience & fallback flag | TRD-019, TRD-028 | TRD-019-TEST |
@@ -466,7 +499,7 @@ team:
 | REQ-010 | AC-gap ADO task filing | TRD-021, TRD-029 | TRD-021-TEST |
 | REQ-011 | Session resumability & idempotence | TRD-005, TRD-023, TRD-025, TRD-030 | TRD-005-TEST, TRD-023-TEST |
 | REQ-012 | Session completion summary | TRD-022, TRD-030 | — |
-| REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013, TRD-026 | TRD-011-TEST |
+| REQ-013 | QA-environment-only execution, selectable mode | TRD-007, TRD-011, TRD-013, TRD-026, TRD-034, TRD-036 | TRD-011-TEST, TRD-036-TEST |
 | REQ-014 | Traceability tagging | TRD-015, TRD-027 | TRD-015-TEST |
 | REQ-015 | No new paid infra | TRD-006 | — |
 | REQ-016 | Session action observability | TRD-024, TRD-030 | — |
@@ -500,6 +533,9 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 4. **Issue (found live-testing the installed plugin, v1.4.0):** TRD-004's `groundImplementation()` resolved `packages/development/lib/trd-cli.js` via a hardcoded relative path assuming `packages/e2e-testing` and `packages/development` are sibling directories under a shared `packages/` root — true only in the monorepo checkout. Once installed as independently-published Claude Code plugins, each lands in its own top-level plugin-cache directory; the path resolves to nowhere, and grounding ENOENT'd for every REQ, unconditionally, the moment the plugin was actually installed. Every existing test injected `opts.parseTrd`, so the broken default path was never once exercised despite 300+ passing tests.
    **Resolution:** Added PR 8 (TRD-033/TRD-033-TEST): a new, scoped `packages/e2e-testing/lib/trd-task-parser.js` extracting only what grounding needs (`tasksById` with `satisfies`/`targetFiles`), called in-process — no subprocess, no cross-package path — following the exact precedent `packages/e2e-testing/lib/prd-ac-parser.js` already set for the identical problem in PRD parsing. Verified by running the real `groundImplementation()` from a directory with no sibling `development` package present at all.
 
+5. **Issue (found live-dogfooding, v1.5.0):** `qa-env-guard.js`'s reachability check confirms a URL responds, never that it's running the branch under test. A reachable-but-un-deployed per-developer QA slot produced a real test failure indistinguishable from a regression — real debugging time was spent before `git log`/`git branch --contains` traced it to the actual cause. A second, compounding issue: `test-runner-mode.js`'s stored auth-state path was one static value, origin-scoped, so switching to the correct URL broke authentication in a way that also looked like a real problem. Neither is CRIBs-specific — per-branch/per-developer deploy targets are common for any repo with more than one deploy destination.
+   **Resolution:** Added PR 9 (TRD-034/TRD-035/TRD-036): (1) the orchestrator explicitly asks the QA engineer to confirm the resolved URL before proceeding, rather than trusting a reachable default silently; (2) `grounded-marker-checker.js` extracts checkable, framework-agnostic markers from a grounding diff so a failed test whose live page shows none of them is reported with "possible wrong environment" as the leading hypothesis, not a bare failure — mirroring `ac-gap-detector.js`'s pure-extraction/live-judgment split; (3) `deriveAuthStatePath()` scopes the stored auth state per resolved environment URL, so switching environments never silently reuses a stale session from a different origin.
+
 ### Dependency and Estimate Issues
 
 1. **Issue:** The chain TRD-001 → TRD-003 → TRD-004 → TRD-008 → TRD-010 → TRD-012 is depth 6 (> 3).
@@ -526,5 +562,6 @@ Traceability check: 17 requirements covered, 0 uncovered, 0 orphaned annotations
 - PR 5 (TRD-025 through TRD-030-TEST): implemented directly on the same branch/PR #10, verified via `packages/e2e-testing`'s test suite plus a fixture dry-run chaining all 12 pipeline stages. Ready to merge.
 - PR 6 (TRD-031/TRD-031-TEST): implemented directly on the same branch/PR #10, verified against CRIBs' actual Azure DevOps remote URL and its own test suite.
 - PR 7 (TRD-032/TRD-032-TEST): implemented directly on the same branch/PR #10, found and verified live-dogfooding PR 6 against a real, open CRIBs PR.
-- PR 8 (TRD-033/TRD-033-TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 = 52/52 tasks now complete), found and verified live-testing the actual installed plugin against a real CRIBs PR. `packages/e2e-testing` is 339/339.
-- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0/v1.2.0/v1.3.0/v1.4.0 amendment notes under Document Overview.
+- PR 8 (TRD-033/TRD-033-TEST): implemented directly on the same branch/PR #10, found and verified live-testing the actual installed plugin against a real CRIBs PR.
+- PR 9 (TRD-034 through TRD-036 + combined TEST): implemented directly on the same branch/PR #10 (39/39 + 7/7 + 2/2 + 2/2 + 2/2 + 4/4 = 56/56 tasks now complete), found and verified live-dogfooding this feature against a real, open CRIBs PR. `packages/e2e-testing` is 385/385.
+- The feature is installable/usable in a consuming repo (e.g. CRIBs) once PR #10 merges — see the v1.1.0 through v1.5.0 amendment notes under Document Overview.

@@ -5,7 +5,7 @@
 // no runResult/display data. That's orchestrator/agent behavior, not this
 // module's concern.
 
-const { resolveRunConfig, VALID_MODES } = require('../lib/test-runner-mode');
+const { resolveRunConfig, deriveAuthStatePath, VALID_MODES } = require('../lib/test-runner-mode');
 
 describe('resolveRunConfig (AC-013-3: headed uses Sonia\'s interactive Entra login)', () => {
   test('headed mode always resolves to interactive-entra-login with no auth state, regardless of authStatePath', () => {
@@ -110,5 +110,63 @@ describe('resolveRunConfig (purity: no key leakage, no shared mutated references
     const headless = resolveRunConfig('headless', '/path/a.json');
     expect(Object.keys(headless).sort()).toEqual(['auth', 'headless', 'mode']);
     expect(Object.keys(headless.auth).sort()).toEqual(['authStatePath', 'strategy']);
+  });
+});
+
+describe('deriveAuthStatePath (TRD-036: a stored auth state is scoped to one origin)', () => {
+  test('inserts a sanitized environment token before the file extension', () => {
+    expect(deriveAuthStatePath('secrets/e2e-auth-state.json', 'https://qa.example.com')).toBe(
+      'secrets/e2e-auth-state.qa-example-com.json'
+    );
+  });
+
+  test('two different resolved environment URLs derive two different paths', () => {
+    const base = 'auth-state.json';
+    const a = deriveAuthStatePath(base, 'https://app-qa-alice.example.com');
+    const b = deriveAuthStatePath(base, 'https://app-qa-bob.example.com');
+    expect(a).not.toBe(b);
+  });
+
+  test('the same environment URL always derives the same path (deterministic)', () => {
+    const a = deriveAuthStatePath('auth-state.json', 'https://qa.example.com');
+    const b = deriveAuthStatePath('auth-state.json', 'https://qa.example.com');
+    expect(a).toBe(b);
+  });
+
+  test('a base path with no extension appends the token as a trailing suffix', () => {
+    expect(deriveAuthStatePath('secrets/auth-state', 'https://qa.example.com')).toBe(
+      'secrets/auth-state.qa-example-com'
+    );
+  });
+
+  test('a dotted directory name in the path is not mistaken for a file extension', () => {
+    expect(deriveAuthStatePath('secrets.d/auth-state', 'https://qa.example.com')).toBe(
+      'secrets.d/auth-state.qa-example-com'
+    );
+  });
+
+  test('is not tied to any one naming convention -- works for any base path a consuming repo configures', () => {
+    expect(deriveAuthStatePath('cribs-e2e-auth-state.json', 'https://cribs-qa-mikedevenney.azurewebsites.net')).toBe(
+      'cribs-e2e-auth-state.cribs-qa-mikedevenney-azurewebsites-net.json'
+    );
+    expect(deriveAuthStatePath('.auth/state.json', 'http://localhost:3000')).toBe('.auth/state.localhost-3000.json');
+  });
+
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace-only', '   '],
+  ])('missing/blank baseAuthStatePath (%s) throws', (_label, value) => {
+    expect(() => deriveAuthStatePath(value, 'https://qa.example.com')).toThrow(/non-empty baseAuthStatePath/);
+  });
+
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace-only', '   '],
+  ])('missing/blank qaEnvUrl (%s) throws', (_label, value) => {
+    expect(() => deriveAuthStatePath('auth-state.json', value)).toThrow(/non-empty qaEnvUrl/);
   });
 });

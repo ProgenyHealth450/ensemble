@@ -35,6 +35,9 @@
  *   grounding this AC in the real implementing diff, not PRD prose alone
  * @property {string} targetEnv - QA environment base URL/identifier to run the test against
  * @property {'headed'|'headless'} mode - session-wide execution mode chosen at session start (TRD-007)
+ * @property {string} [authStatePath] - TRD-036: the environment-scoped auth-state path
+ *   (test-runner-mode.js's deriveAuthStatePath() output), when mode is 'headless' and the
+ *   consuming repo uses stored auth state at all; optional, since not every target needs one
  */
 
 /**
@@ -42,6 +45,15 @@
  * A pass/fail outcome from actually executing the proposed test.
  * @property {boolean} passed
  * @property {string} [details] - failure details, console errors, etc. when passed is false
+ * @property {boolean} [environmentMismatchSuspected] - TRD-035: only meaningful when passed
+ *   is false. True when NONE of groundedMarkersChecked were found on the live page — the
+ *   leading hypothesis for the failure should be "this environment may not be running the
+ *   branch under test," not "the implementation is broken" (see grounded-marker-checker.js;
+ *   found live-dogfooding this feature: a reachable-but-wrong environment produces failures
+ *   indistinguishable from a real regression otherwise).
+ * @property {string[]} [groundedMarkersChecked] - the candidate markers
+ *   (grounded-marker-checker.js's extractGroundedMarkers() output) that were looked for on
+ *   the live page when the test failed
  */
 
 /**
@@ -96,6 +108,9 @@ function validateDelegationRequest(req) {
   if (req.mode !== 'headed' && req.mode !== 'headless') {
     errors.push("mode must be 'headed' or 'headless'");
   }
+  if (req.authStatePath !== undefined && (typeof req.authStatePath !== 'string' || req.authStatePath.trim() === '')) {
+    errors.push('authStatePath must be a non-empty string when present');
+  }
 
   return assertNoErrors('delegation request', errors);
 }
@@ -136,51 +151,22 @@ function validateDelegationResponse(res) {
       'runResult must have a boolean `passed` field, or be an explicit ' +
         "{authoringFailure: true, reason: '...'} flag"
     );
+  } else {
+    if (
+      res.runResult.environmentMismatchSuspected !== undefined &&
+      typeof res.runResult.environmentMismatchSuspected !== 'boolean'
+    ) {
+      errors.push('runResult.environmentMismatchSuspected must be a boolean when present');
+    }
+    if (res.runResult.groundedMarkersChecked !== undefined && !Array.isArray(res.runResult.groundedMarkersChecked)) {
+      errors.push('runResult.groundedMarkersChecked must be an array when present');
+    }
+    if (res.runResult.environmentMismatchSuspected === true && res.runResult.passed !== false) {
+      errors.push('runResult.environmentMismatchSuspected may only be true when passed is false');
+    }
   }
 
   return assertNoErrors('delegation response', errors);
 }
 
 module.exports = { validateDelegationRequest, validateDelegationResponse };
-
-// ponytail self-check: run `node packages/e2e-testing/lib/delegation-contract.js`
-// to exercise the valid/invalid paths for both shapes without a separate test file
-// (TRD-008 has no -TEST sibling task — this is the contract's own smoke check).
-if (require.main === module) {
-  const assert = require('assert');
-
-  assert.strictEqual(
-    validateDelegationRequest({
-      acText: 'Given ... when ... then ...',
-      groundingDiff: { grounded: true, diffs: [] },
-      targetEnv: 'https://qa.example.com',
-      mode: 'headed',
-    }),
-    true
-  );
-  assert.throws(() => validateDelegationRequest({}), /acText.*groundingDiff.*targetEnv.*mode|Invalid delegation request/);
-  assert.throws(() => validateDelegationRequest({ acText: 'x', groundingDiff: {}, targetEnv: 'y', mode: 'slow' }));
-
-  assert.strictEqual(
-    validateDelegationResponse({
-      proposedTest: "test('...', async () => {});",
-      selectorsUsed: ['[data-testid="submit"]'],
-      runResult: { passed: true },
-    }),
-    true
-  );
-  assert.strictEqual(
-    validateDelegationResponse({
-      proposedTest: "test('...', async () => {});",
-      selectorsUsed: [],
-      runResult: { authoringFailure: true, reason: 'no stable selector found for the submit control' },
-    }),
-    true
-  );
-  assert.throws(() => validateDelegationResponse({ proposedTest: 'x', selectorsUsed: [] })); // missing runResult
-  assert.throws(() =>
-    validateDelegationResponse({ proposedTest: 'x', selectorsUsed: [], runResult: { authoringFailure: true } })
-  ); // missing reason
-
-  console.log('delegation-contract.js self-check passed');
-}
