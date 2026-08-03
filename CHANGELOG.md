@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **development:** removed Team mode from `beads-build` and `implement-trd-beads`. The graph-aware scheduler `bv --robot-plan` is now the only scheduler; each wave partitions the ready set into parallel tracks (up to `--max-parallel`) and dispatches each track concurrently to a `tech-lead-orchestrator` Bead-Track subagent. Per-task reviewer/QA delegation, rejection-cycle tracking, `get_sub_state`/`validate_transition` utilities, and team-metrics comments are gone. The comment-format spec block is preserved for legacy traceability data, but `skip-review`/`skip-qa` examples are no longer written by the new workflow.
+
 ## [6.9.2] - 2026-06-23
 
 ### Fixed
