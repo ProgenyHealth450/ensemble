@@ -64,7 +64,7 @@ function makeAgentResult(overrides: Partial<TransformResult> = {}): TransformRes
 function makeCommandResult(overrides: Partial<TransformResult> = {}): TransformResult {
   return {
     sourcePath: '/fake/src/command.yaml',
-    outputPath: '/fake/out/prompts/ensemble-cmd.md',
+    outputPath: '/fake/out/commands/ensemble-cmd.md',
     content: '# Some Title\n\nCommand instructions.',
     type: 'command',
     ...overrides,
@@ -218,7 +218,7 @@ describe('--validate flag: multiple errors are collected', () => {
       content: '---\ndescription: no-name\n---\n# body',
     });
     const badCommand = makeCommandResult({
-      outputPath: '/fake/out/prompts/bad2.md',
+      outputPath: '/fake/out/commands/bad2.md',
       content: 'no heading here',
     });
     injectResults([badAgent, badCommand]);

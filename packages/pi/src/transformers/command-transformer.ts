@@ -2,7 +2,7 @@
  * Command Transformer
  *
  * Transforms Ensemble YAML command definitions (phases/steps/actions) into
- * Pi-compatible prompt templates written to packages/pi/prompts/.
+ * Pi-compatible command templates written to packages/pi/commands/.
  *
  * Output format per command:
  *   - HTML comment header with version and description

@@ -72,25 +72,25 @@ describe('generate() — CLI flag handling', () => {
       await expect(generate(options)).resolves.toBeUndefined();
     });
 
-    it('does not write command prompt files when dryRun is true', async () => {
+    it('does not write command files when dryRun is true', async () => {
       const outputRoot = allocOutputRoot();
       const options = makeOptions({ dryRun: true, outputRoot });
 
       await generate(options);
 
-      // In dry-run mode the prompts directory must not be created at all
-      const promptsDir = path.join(outputRoot, 'prompts');
-      expect(fs.existsSync(promptsDir)).toBe(false);
+      // In dry-run mode the commands directory must not be created at all
+      const commandsDir = path.join(outputRoot, 'commands');
+      expect(fs.existsSync(commandsDir)).toBe(false);
     });
 
-    it('does not create a prompts/ directory when dryRun is true', async () => {
+    it('does not create a commands/ directory when dryRun is true', async () => {
       const outputRoot = allocOutputRoot();
       const options = makeOptions({ dryRun: true, outputRoot });
 
       await generate(options);
 
-      const promptsDir = path.join(outputRoot, 'prompts');
-      expect(fs.existsSync(promptsDir)).toBe(false);
+      const commandsDir = path.join(outputRoot, 'commands');
+      expect(fs.existsSync(commandsDir)).toBe(false);
     });
 
     it('does not create a skills/ directory when dryRun is true', async () => {
@@ -192,12 +192,12 @@ describe('generate() — CLI flag handling', () => {
       await generate(options);
 
       // At least one of these output dirs should exist
-      const promptsDir = path.join(outputRoot, 'prompts');
+      const commandsDir = path.join(outputRoot, 'commands');
       const agentsDir = path.join(outputRoot, 'agents');
       const skillsDir = path.join(outputRoot, 'skills');
 
       const anyExists =
-        fs.existsSync(promptsDir) || fs.existsSync(agentsDir) || fs.existsSync(skillsDir);
+        fs.existsSync(commandsDir) || fs.existsSync(agentsDir) || fs.existsSync(skillsDir);
       expect(anyExists).toBe(true);
     });
 
@@ -208,12 +208,12 @@ describe('generate() — CLI flag handling', () => {
       await generate(options);
 
       // Verify files were actually written by counting entries in known output dirs
-      const promptsDir = path.join(outputRoot, 'prompts');
+      const commandsDir = path.join(outputRoot, 'commands');
       const agentsDir = path.join(outputRoot, 'agents');
       const skillsDir = path.join(outputRoot, 'skills');
 
       let totalFiles = 0;
-      for (const dir of [promptsDir, agentsDir, skillsDir]) {
+      for (const dir of [commandsDir, agentsDir, skillsDir]) {
         if (fs.existsSync(dir)) {
           totalFiles += fs.readdirSync(dir, { recursive: true }).length;
         }

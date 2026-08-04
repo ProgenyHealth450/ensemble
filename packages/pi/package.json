@@ -6,7 +6,7 @@
   "files": [
     "dist/",
     "skills/",
-    "prompts/",
+    "commands/",
     "agents/",
     ".claude-plugin/",
     "README.md",
@@ -40,7 +40,7 @@
   },
   "pi": {
     "skills": ["./skills"],
-    "prompts": ["./prompts"],
+    "commands": ["./commands"],
     "agents": ["./agents"]
   },
   "engines": {
