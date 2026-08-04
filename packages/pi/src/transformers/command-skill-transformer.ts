@@ -1,7 +1,7 @@
 /**
  * Command Skill Transformer
  *
- * Generates SKILL.md wrappers for targeted command prompts so they appear in
+ * Generates SKILL.md wrappers for targeted command files so they appear in
  * Pi's skill inventory with the full workflow content embedded directly.
  *
  * Only wraps commands that need explicit skill registration — does not flood
@@ -50,10 +50,10 @@ function extractDescription(promptContent: string, skillName: string): string {
 }
 
 /**
- * Generate SKILL.md wrappers for targeted command prompts.
+ * Generate SKILL.md wrappers for targeted commands.
  *
- * Reads the already-generated prompt files from outputRoot/prompts/, extracts
- * the full prompt body (stripping the HTML header comment), and writes a
+ * Reads the already-generated command files from outputRoot/commands/, extracts
+ * the full command body (stripping the HTML header comment), and writes a
  * SKILL.md with that content embedded directly so the skill is self-contained.
  *
  * Files are written directly (like copySkills) and results returned with
@@ -69,12 +69,12 @@ export async function generateCommandSkills(
 ): Promise<TransformResult[]> {
   const { dryRun = false, verbose = false } = options;
 
-  const promptsDir = path.join(outputRoot, 'prompts');
+  const commandsDir = path.join(outputRoot, 'commands');
   const skillsOutputDir = path.join(outputRoot, 'skills');
   const results: TransformResult[] = [];
 
   for (const [skillName, promptSuffix] of Object.entries(TARGET_COMMANDS)) {
-    const promptPath = path.join(promptsDir, `${promptSuffix}.md`);
+    const promptPath = path.join(commandsDir, `${promptSuffix}.md`);
 
     if (!fs.existsSync(promptPath)) {
       if (verbose) {

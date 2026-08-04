@@ -3,7 +3,7 @@
  *
  * Discovers Ensemble YAML sources across packages/*, validates structural
  * requirements, calls transformers, and writes Pi-compatible artifacts to
- * packages/pi/prompts/, agents/, skills/, and AGENTS.md.
+ * packages/pi/commands/, agents/, skills/, and AGENTS.md.
  *
  * Supports --dry-run (collect without writing), --verbose (log paths),
  * and --validate (parse output .md files after generation).
@@ -264,7 +264,9 @@ export function generateAgentsMd(
 
 /**
  * Wrap the imported command transformer to produce a TransformResult.
- * Normalises "ensemble:command-name" → "ensemble-command-name" for filesystem safety.
+ * Output path keeps the canonical "ensemble:command-name" form so that OMP
+ * (which derives the slash-command name from the filename) registers the
+ * command under its original "/ensemble:command-name" namespace.
  */
 function buildCommandResult(
   commandYaml: CommandYaml,
@@ -273,8 +275,7 @@ function buildCommandResult(
   verbose: boolean
 ): TransformResult {
   const name = commandYaml.metadata.name;
-  const safeName = name.replace(/:/g, '-');
-  const outputPath = path.join(outputRoot, 'prompts', `${safeName}.md`);
+  const outputPath = path.join(outputRoot, 'commands', `${name}.md`);
   const content = transformCommand(commandYaml, sourcePath, { verbose });
   return { sourcePath, outputPath, content, type: 'command' };
 }
@@ -416,7 +417,7 @@ export async function generate(options: GeneratorOptions): Promise<void> {
     if (name.startsWith('ensemble:')) {
       const commandPart = name.slice('ensemble:'.length); // e.g. 'create-prd'
       const aliasName = `ensemble-full-${commandPart}`;
-      const aliasPath = path.join(outputRoot, 'prompts', `${aliasName}.md`);
+      const aliasPath = path.join(outputRoot, 'commands', `${aliasName}.md`);
       results.push({ sourcePath: filePath, outputPath: aliasPath, content: result.content, type: 'command' });
       if (verbose) {
         process.stdout.write(`  alias: ${filePath} → ${aliasPath}\n`);

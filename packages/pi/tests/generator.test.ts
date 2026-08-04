@@ -270,25 +270,25 @@ describe('generate() pipeline — dryRun:false (write mode) on real repo', () =>
     rmrf(outputRoot);
   });
 
-  // --- prompts/ directory ---
-  it('creates a prompts/ directory', () => {
-    expect(fs.existsSync(path.join(outputRoot, 'prompts'))).toBe(true);
+  // --- commands/ directory ---
+  it('creates a commands/ directory', () => {
+    expect(fs.existsSync(path.join(outputRoot, 'commands'))).toBe(true);
   });
 
-  it('prompts/ contains at least one file', () => {
-    const files = walkDir(path.join(outputRoot, 'prompts'));
+  it('commands/ contains at least one file', () => {
+    const files = walkDir(path.join(outputRoot, 'commands'));
     expect(files.length).toBeGreaterThan(0);
   });
 
-  it('all files in prompts/ end with .md', () => {
-    const files = walkDir(path.join(outputRoot, 'prompts'));
+  it('all files in commands/ end with .md', () => {
+    const files = walkDir(path.join(outputRoot, 'commands'));
     for (const f of files) {
       expect(path.extname(f)).toBe('.md');
     }
   });
 
-  it('prompt .md files are non-empty', () => {
-    const files = walkDir(path.join(outputRoot, 'prompts'));
+  it('command .md files are non-empty', () => {
+    const files = walkDir(path.join(outputRoot, 'commands'));
     for (const f of files) {
       const size = fs.statSync(f).size;
       expect(size).toBeGreaterThan(0);
@@ -360,11 +360,12 @@ describe('generate() pipeline — dryRun:false (write mode) on real repo', () =>
     expect(allFiles.length).toBeGreaterThan(0);
   });
 
-  // --- prompt file names ---
-  it('prompt file names use hyphens (no colons — filesystem safe)', () => {
-    const files = walkDir(path.join(outputRoot, 'prompts'));
-    for (const f of files) {
-      expect(path.basename(f)).not.toContain(':');
+  // --- command file names ---
+  it('non-alias command file names preserve colons for slash-command namespace', () => {
+    const files = walkDir(path.join(outputRoot, 'commands'));
+    const commandFiles = files.filter((f) => !path.basename(f).startsWith('ensemble-full-'));
+    for (const f of commandFiles) {
+      expect(path.basename(f)).toContain(':');
     }
   });
 });
