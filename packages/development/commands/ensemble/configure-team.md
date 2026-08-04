@@ -1,7 +1,7 @@
 ---
 name: ensemble:configure-team
 description: Analyze TRD complexity and auto-configure team roles, agent assignments, and marketplace plugins
-version: 1.1.3
+version: 1.1.4
 category: planning
 last-updated: 2026-08-04
 argument-hint: [trd-path] [--team] [--no-team]
@@ -30,12 +30,17 @@ selects appropriate agents for each detected technical domain.
    - Extract document frontmatter (Document ID, PRD reference)
 
 **2. Extract Task List**
-   Parse the Master Task List into structured task data
+   Parse the Master Task List into structured task data, accepting BOTH the canonical
+(checkbox, co-located description) and actual (nested-description, IDs without
+checkboxes) task shapes. The actual shape is the form used in published TRDs such as
+TRD-2026-6af02293 and is the more permissive input shape for downstream complexity
+analysis. Task shape detection and per-task extraction happen in a single pass.
 
-   - Scan TRD content for entries matching '- [ ] **TRD-XXX** description (Nh)' pattern
-   - Extract task ID, description, hour estimate, and annotations from each entry
-   - Build structured task registry for analysis
-   - If no tasks found, print error and halt: 'No TRD-NNN tasks found in Master Task List'
+
+   - Format detection: scan the Master Task List once to identify which task shapes are present. Accept either of the two patterns: (1) CANONICAL = '- [ ] **TRD-XXX** description (Nh) [annotations]' where the description is the text between the bold ID and the '(Nh)' estimate; (2) ACTUAL = '- **TRD-XXX** (Nh) [annotations]' on the ID line with the task description as a nested bullet block immediately after the ID line, terminating at the next sibling task entry or any non-indented line. Both shapes may coexist in the same Master Task List. Record per-task format_tag (canonical | actual). Skip and emit a one-line WARN for lines matching neither shape.
+   - Extract per task: task_id (TRD-NNN or TRD-NNN-TEST), estimated_hours (from '(Nh)', default 2h when absent), description (canonical: text between ID and '(Nh)'; actual: first nested bullet block after the ID line), annotations (any '[...]' segments on the ID line: satisfies / depends / verifies), format_tag (canonical | actual), and dependencies parsed from '[depends: TRD-NNN[, TRD-MMM]]' annotations (support both colon form 'depends:' and bracket form 'depends' for older TRDs).
+   - Build structured task registry TASKS: List of {task_id, estimated_hours, description, annotations, format_tag, dependencies}.
+   - If TASKS is empty, print error and halt: 'No TRD-NNN tasks found in Master Task List'.
 
 ### Phase 2: Complexity Analysis
 
@@ -48,12 +53,15 @@ selects appropriate agents for each detected technical domain.
    - Store flag values in FORCE_TEAM and FORCE_NO_TEAM variables for use within this command
 
 **2. Task Counter and Hour Estimator**
-   Count tasks and total estimated hours from the Master Task List
+   Count tasks and total estimated hours from the TASKS registry built in Phase 1 Step 2.
+The registry is the authoritative source after format-aware extraction — do not re-grep
+the TRD here. Both canonical and actual format tasks are already counted and have
+estimated_hours populated.
 
-   - Count total tasks matching the '- [ ] **TRD-' pattern (TASK_COUNT)
-   - For each task extract hour estimate from parenthetical notation e.g. (2h); default 2h if absent
-   - Sum all extracted hours to compute ESTIMATED_HOURS
-   - Store results in COMPLEXITY_METRICS with task_count and estimated_hours
+
+   - Count entries in the TASKS registry (TASK_COUNT). Both canonical and actual format tasks are present; do NOT re-match the '- [ ] **TRD-' regex here — that pattern misses actual-format tasks.
+   - Sum the estimated_hours field across all TASKS entries to compute ESTIMATED_HOURS
+   - Store {task_count: TASK_COUNT, estimated_hours: ESTIMATED_HOURS} in COMPLEXITY_METRICS
 
 **3. Domain Detection**
    Scan task titles and descriptions against domain_keywords to detect technical domains

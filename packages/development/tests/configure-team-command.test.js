@@ -64,7 +64,7 @@ describe('configure-team command agent discovery', () => {
   test('version bumped to reflect agent-discovery fix', () => {
     const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
     // Matches the metadata.version field
-    expect(text).toMatch(/^\s*version:\s*1\.1\.3\s*$/m);
+    expect(text).toMatch(/^\s*version:\s*1\.1\.4\s*$/m);
   });
 
   test('Phase 3 Step 1b includes symlink-safe find -L fallback', () => {
@@ -146,5 +146,49 @@ describe('implement-trd-beads command agent registry build', () => {
     expect(text).toContain('packages/*/skills/');
     expect(text).toContain('~/.omp/plugins/node_modules/@*/*/skills/*/SKILL.md');
     expect(text).toContain('~/.omp/plugins/node_modules/*/skills/*/SKILL.md');
+  });
+});
+
+
+describe('configure-team command TRD parser dual-format acceptance', () => {
+  test('Phase 1 Step 2 accepts canonical checkbox format', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // Must document the canonical shape so legacy TRDs continue to parse.
+    expect(text).toContain("CANONICAL = '- [ ] **TRD-XXX** description (Nh) [annotations]'");
+    expect(text).toContain("'- [ ] **TRD-XXX**");
+  });
+
+  test('Phase 1 Step 2 accepts actual nested-description format (TRD-2026-6af02293 shape)', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // Must document the actual shape (bold ID, hours in parens, description on nested bullets).
+    expect(text).toContain("ACTUAL = '- **TRD-XXX** (Nh) [annotations]'");
+    expect(text).toContain('TRD-2026-6af02293');
+    expect(text).toContain('format_tag (canonical | actual)');
+  });
+
+  test('Phase 1 Step 2 records format_tag per task and supports both dependency annotation forms', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('format_tag');
+    // Both colon and bracket dependency annotation forms must be parsed (some older TRDs use 'depends' without colon).
+    expect(text).toContain("'[depends: TRD-NNN");
+    expect(text).toContain("colon form 'depends:' and bracket form 'depends'");
+  });
+
+  test('Phase 1 Step 2 default 2h estimate applies when hour parenthetical is absent', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('default 2h when absent');
+  });
+
+  test('Phase 2 Step 2 task counter is format-agnostic via TASKS registry', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The counter must consume the registry, not re-grep for the checkbox-only regex.
+    expect(text).toContain('TASKS registry');
+    expect(text).toContain("do NOT re-match the '- [ ] **TRD-' regex here");
+    expect(text).toContain('that pattern misses actual-format tasks');
+  });
+
+  test('version bumped to 1.1.4 to reflect parser broadening', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toMatch(/^\s*version:\s*1\.1\.4\s*$/m);
   });
 });
