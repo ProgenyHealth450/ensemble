@@ -1,8 +1,8 @@
 metadata:
   name: ensemble:implement-trd-beads
   description: Implement TRD with beads project management — persistent bead hierarchy, dependency-aware execution via br/bv, and cross-session resumability
-  version: 2.19.0
-  lastUpdated: "2026-06-05"
+  version: 2.20.0
+  lastUpdated: "2026-08-03"
   category: implementation
   output_path: ensemble/implement-trd-beads.md
   source: fortium
@@ -413,26 +413,35 @@ workflow:
           description: |
             Before execution begins, check for marketplace capability gaps that may affect
             agent availability. Presents suggestions for missing agents/skills and installs approved
-            plugins. Re-runs agent discovery after installation to refresh KNOWN_AGENTS and
-            AGENT_ALIAS_MAP. AC: FR-11.1 through FR-11.6, AC-8.1 through AC-8.6
+            plugins. Builds KNOWN_AGENTS and AGENT_ALIAS_MAP from BOTH source packages/*/agents/*.yaml
+            AND the runtime-visible Task agent registry at ~/.omp/plugins/node_modules/@*/agents/*.md.
+            Re-runs agent discovery after installation to refresh both maps. AC: FR-11.1 through FR-11.6,
+            AC-8.1 through AC-8.6, AC-TD-2, FR-5.6
           actions:
             - "Step 1 — Load marketplace.json: Read marketplace.json from repository root"
             - "If missing or malformed: log 'marketplace.json not found -- skipping marketplace preflight'; skip remaining steps"
             - "Step 2 — Domain scan: identify TRD task domains using same keyword matching as /create-trd Phase 4 Step 3"
-            - "Step 3 — Installed-plugin detection: for each plugin in marketplace.json derive local path from source field; use Glob to check packages/<name>/ directory; build PREFLIGHT_INSTALLED set"
-            - "Step 4 — Gap analysis: for each TRD domain check if default agent exists in packages/*/agents/*.yaml registry; for framework-specific keywords check corresponding skills/ directory"
+            - "Step 3 — Build KNOWN_AGENTS and AGENT_ALIAS_MAP (initial agent registry). This is the binding contract the executionContract.agentResolution rules refer to. Without this step the alias map is undefined and every Task() delegation fails."
+            - "  3a — Source packages scan: Use Glob to scan packages/*/agents/*.yaml relative to CWD. For each file extract basename without .yaml extension as the unqualified agent name."
+            - "  3b — Runtime plugin agent fallback (REQUIRED): Use Glob to scan ~/.omp/plugins/node_modules/@*/agents/*.md. For each discovered agent markdown file derive a runtime agent identifier of the form '<plugin>:<agent_name>' by combining the plugin directory name (e.g. ensemble-pi -> 'ensemble-full' when the plugin's marketplace name is ensemble-full, otherwise the raw plugin directory name) with the basename without .md extension. Add the runtime identifier to KNOWN_AGENTS and also add the unqualified basename as an alias."
+            - "  3c — Router-rules overlay: If .claude/router-rules.json exists in CWD, read it and merge any custom agent names defined there into KNOWN_AGENTS (these are user-defined aliases the runtime resolves)."
+            - "  3d — Build KNOWN_AGENTS as a sorted set of every discovered name (both unqualified and runtime-namespaced)."
+            - "  3e — Build AGENT_ALIAS_MAP: for every namespaced entry of the form '<plugin>:<name>' where no exact unqualified '<name>' is also present, map '<name>' to '<plugin>:<name>'. Example: if only 'ensemble-full:backend-developer' is present, AGENT_ALIAS_MAP['backend-developer'] = 'ensemble-full:backend-developer'. If 'backend-developer' is present both qualified and unqualified, the unqualified entry wins (no alias needed)."
+            - "  3f — Store KNOWN_AGENTS and AGENT_ALIAS_MAP for the lifetime of the command. Downstream scaffolding and executionContract.agentResolution MUST look up every specialist name in AGENT_ALIAS_MAP before delegating; never pass a bare name to Task() when the runtime accepts only the namespaced form."
+            - "Step 4 — Installed-plugin detection: for each plugin in marketplace.json derive local path from source field; use Glob to check packages/<name>/ directory; build PREFLIGHT_INSTALLED set"
+            - "Step 5 — Gap analysis: for each TRD domain check if the default agent exists in KNOWN_AGENTS (not in a fresh packages/*/agents/*.yaml glob — use the map built in Step 3); for framework-specific keywords check corresponding skills/ directory under packages/*/skills/. This ensures gap analysis reflects the full runtime agent surface, including agents installed via plugins at ~/.omp/plugins/node_modules/@*/agents/*.md."
             - "Exclude plugins already in PREFLIGHT_INSTALLED; consolidate multiple gaps pointing to same plugin"
             - "Context-aware filtering: generic 'test' keyword alone must NOT trigger testing framework suggestions"
-            - "Step 5 — Track declined plugins within this session: build SESSION_DECLINED_PLUGINS set (empty at start)"
-            - "Step 6 — For each gap suggestion (excluding SESSION_DECLINED_PLUGINS):"
+            - "Step 6 — Track declined plugins within this session: build SESSION_DECLINED_PLUGINS set (empty at start)"
+            - "Step 7 — For each gap suggestion (excluding SESSION_DECLINED_PLUGINS):"
             - "  If AskUserQuestion is available: present yes/no prompt with plugin name, description, rationale, agents/skills provided"
             - "  If user approves: run 'claude plugin install <plugin_name>' via Bash; verify packages/<name>/ directory created"
             - "  If user declines: add to SESSION_DECLINED_PLUGINS (do not re-suggest during this session)"
             - "  If non-interactive: log suggestion as [INFO] and skip all installations"
-            - "Step 7 — If any plugins were installed:"
-            - "  Re-run agent discovery: scan packages/*/agents/*.yaml to refresh KNOWN_AGENTS and AGENT_REGISTRY"
+            - "Step 8 — If any plugins were installed:"
+            - "  Re-run the full agent discovery from Step 3 in order: re-glob packages/*/agents/*.yaml (3a), re-glob ~/.omp/plugins/node_modules/@*/agents/*.md (3b), re-merge .claude/router-rules.json (3c), re-dedupe KNOWN_AGENTS (3d), and rebuild AGENT_ALIAS_MAP (3e). Newly installed plugins expose runtime agent identifiers that source-only scanning cannot see."
             - "  Log: 'Newly installed agents now available in registry: <agent names>'"
-            - "Step 8 — If user declines all suggestions: proceed with existing agent registry"
+            - "Step 9 — If user declines all suggestions: proceed with existing KNOWN_AGENTS / AGENT_ALIAS_MAP from Step 3"
         - order: 12
           title: Traceability Validation Gate
           description: |

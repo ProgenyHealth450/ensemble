@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **development:** removed Team mode from `beads-build` and `implement-trd-beads`. The graph-aware scheduler `bv --robot-plan` is now the only scheduler; each wave partitions the ready set into parallel tracks (up to `--max-parallel`) and dispatches each track concurrently to a `tech-lead-orchestrator` Bead-Track subagent. Per-task reviewer/QA delegation, rejection-cycle tracking, `get_sub_state`/`validate_transition` utilities, and team-metrics comments are gone. The comment-format spec block is preserved for legacy traceability data, but `skip-review`/`skip-qa` examples are no longer written by the new workflow.
+- **development:** resolve shorthand agent names to installed namespaced plugin agents before Task delegation.
+
+### Fixed
+
+- **development:** include runtime-installed plugin agents (`~/.omp/plugins/node_modules/@*/agents/*.md`) in `AGENT_REGISTRY` and `KNOWN_AGENTS`. `configure-team` Phase 3 Step 1 and `implement-trd-beads` Preflight Order 11 now scan both the source `packages/*/agents/*.yaml` tree and the runtime plugin path, dedupe with the runtime entry winning, and rebuild `KNOWN_AGENTS` / `AGENT_ALIAS_MAP` after every plugin install. Fixes consumer-repo agent discovery gaps (e.g. foreman's local 3-agent registry shadowing the 30-agent OMP install registry).
 
 ## [6.9.2] - 2026-06-23
 

@@ -84,13 +84,19 @@ selects appropriate agents for each detected technical domain.
 ### Phase 3: Agent and Skill Discovery
 
 **1. Agent Auto-Discovery**
-   Scan packages/*/agents/*.yaml to build a registry of available agents
+   Build AGENT_REGISTRY from BOTH source packages/*/agents/*.yaml AND the runtime-visible
+Task agent registry exposed by installed plugins. The runtime fallback is critical when
+this command runs from a consumer repo (e.g. a project that does not vendor the ensemble
+monorepo) — without it, only the project's local agents (typically a tiny set like
+planner/reviewer/worker) are visible, and the full team roster (tech-lead-orchestrator,
+code-reviewer, qa-orchestrator, test-runner, etc.) is incorrectly absent.
 
-   - Use Glob tool to scan packages/*/agents/*.yaml
-   - For each discovered YAML file use Read tool to extract name and description fields from front matter
-   - Also extract the '## Mission' section body text (first paragraph after heading)
-   - Build AGENT_REGISTRY as Map of agent_name to description, mission_keywords, and source_file
-   - Extract capability keywords from description and mission text (tokenize, lowercase)
+
+   - Step 1a — Source packages scan: Use Glob tool to scan packages/*/agents/*.yaml relative to CWD. For each discovered YAML file use Read tool to extract name and description fields from front matter. Also extract the '## Mission' section body text (first paragraph after heading).
+   - Step 1b — Runtime plugin agent fallback (REQUIRED): Use Glob tool to scan ~/.omp/plugins/node_modules/@*/agents/*.md. For each discovered agent markdown file, derive a runtime agent identifier of the form '<plugin>:<agent_name>' by combining the plugin directory name (e.g. ensemble-pi -> 'ensemble-full' when the plugin's marketplace name is ensemble-full, otherwise the raw plugin directory name) with the basename without .md extension. Also include the unqualified basename as an alias. This ensures AGENT_REGISTRY reflects agents the Task tool can actually invoke in the current runtime, not just agents vendored in the consumer repo's source tree.
+   - Step 1c — Router-rules overlay: If .claude/router-rules.json exists in CWD, read it and merge any custom agent names defined there into AGENT_REGISTRY (these are user-defined aliases the runtime resolves).
+   - Step 1d — Dedupe and freeze: Build AGENT_REGISTRY as Map of agent_name to {description, mission_keywords, source_file, runtime_id, source}. When the same agent_name appears in both source packages and runtime plugins, prefer the runtime entry (it carries the most accurate description and the runtime_id the Task tool consumes). Sort AGENT_REGISTRY keys alphabetically for deterministic downstream behavior.
+   - Step 1e — Capability keywords: Extract capability keywords from description and mission text (tokenize, lowercase). Used by Step 3 (Builder Agent Matching) for keyword-overlap ranking.
 
 **2. Skill Auto-Discovery**
    Scan packages/*/skills/ directories to build a registry of available skills
@@ -156,7 +162,7 @@ selects appropriate agents for each detected technical domain.
    - If interactive: for each suggestion present yes/no prompt with plugin name, description, rationale
    - Track APPROVED_PLUGINS and DECLINED_PLUGINS; do not re-prompt declined plugins
    - For each approved plugin: run 'claude plugin install <name>' via Bash; track INSTALLED_DURING_RUN and FAILED_INSTALLS
-   - If plugins were installed, refresh AGENT_REGISTRY by re-scanning packages/*/agents/*.yaml once
+   - If plugins were installed, refresh AGENT_REGISTRY by re-running Phase 3 Step 1 in full (Steps 1a + 1b + 1c + 1d): re-glob packages/*/agents/*.yaml, re-glob ~/.omp/plugins/node_modules/@*/agents/*.md, re-merge .claude/router-rules.json, and re-dedupe. Newly installed plugins expose runtime agent identifiers that source-only scanning cannot see.
    - Log summary: 'Marketplace analysis: N gaps identified, M plugins suggested, A approved, D declined, F failed'
 
 ### Phase 5: Team Configuration Injection

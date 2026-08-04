@@ -1,0 +1,116 @@
+/**
+ * Tests for the configure-team and implement-trd-beads command YAML
+ * ensuring agent discovery consults the runtime-visible Task agent registry
+ * (i.e. plugins installed under the OMP plugins node_modules directory),
+ * not only source packages vendored in the consumer repo at packages/agents.
+ *
+ * Background: when configure-team is run from a consumer repo (for example foreman,
+ * which only vendors 3 local agents) without this fallback, it returns a skeleton team
+ * roster of planner/reviewer/worker and never sees the 30-agent registry installed via
+ * the OMP plugin, so tech-lead-orchestrator / code-reviewer / qa-orchestrator / test-runner
+ * are incorrectly treated as missing.
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const CONFIGURE_TEAM_YAML = path.join(__dirname, '../commands/configure-team.yaml');
+const IMPLEMENT_TRD_BEADS_YAML = path.join(__dirname, '../commands/implement-trd-beads.yaml');
+
+describe('configure-team command agent discovery', () => {
+  test('Phase 3 Step 1 includes runtime plugin agent fallback (REQUIRED)', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('Step 1b');
+    expect(text).toContain('Runtime plugin agent fallback (REQUIRED)');
+    expect(text).toContain('~/.omp/plugins/node_modules/@*/agents/*.md');
+    // Runtime identifiers take the form '<plugin>:<agent_name>'.
+    expect(text).toContain("'<plugin>:<agent_name>'");
+    // Plugin directory name example.
+    expect(text).toContain('ensemble-pi -> \'ensemble-full\'');
+    // Marketplace excludes the ensemble-full plugin from gap analysis.
+    expect(text).toContain('exclude ensemble-full');
+  });
+
+  test('Phase 3 Step 1 still scans source packages (do not regress)', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('Step 1a');
+    expect(text).toContain('Source packages scan');
+    expect(text).toContain('packages/*/agents/*.yaml');
+  });
+
+  test('Phase 3 Step 1 reads router-rules.json overlay', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('Step 1c');
+    expect(text).toContain('router-rules.json');
+  });
+
+  test('Phase 3 Step 1 dedupes source and runtime entries with runtime winning', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('Step 1d');
+    expect(text).toContain('Dedupe and freeze');
+    expect(text).toContain('prefer the runtime entry');
+  });
+
+  test('Phase 4 Step 4 refresh re-globs runtime plugin agents after install', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The refresh logic must re-run Step 1 in full, including 1b (runtime glob)
+    // — not only the source packages glob.
+    expect(text).toContain('re-running Phase 3 Step 1 in full');
+    expect(text).toContain('re-glob ~/.omp/plugins/node_modules/@*/agents/*.md');
+  });
+
+  test('version bumped to reflect agent-discovery fix', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // Matches the metadata.version field
+    expect(text).toMatch(/^\s*version:\s*1\.1\.0\s*$/m);
+  });
+});
+
+
+describe('implement-trd-beads command agent registry build', () => {
+  test('Preflight Order 11 builds KNOWN_AGENTS from both source packages and runtime plugin agents', () => {
+    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
+    // Step 3 — initial build of KNOWN_AGENTS / AGENT_ALIAS_MAP
+    expect(text).toContain('Step 3 — Build KNOWN_AGENTS and AGENT_ALIAS_MAP');
+    // 3a — source packages glob (preserved from prior behavior)
+    expect(text).toContain('3a — Source packages scan');
+    expect(text).toContain('packages/*/agents/*.yaml');
+    // 3b — runtime plugin agents glob (NEW)
+    expect(text).toContain('3b — Runtime plugin agent fallback');
+    expect(text).toContain('~/.omp/plugins/node_modules/@*/agents/*.md');
+    // 3c — router-rules overlay
+    expect(text).toContain('3c — Router-rules overlay');
+    expect(text).toContain('router-rules.json');
+    // 3e — AGENT_ALIAS_MAP construction
+    expect(text).toContain('AGENT_ALIAS_MAP');
+    expect(text).toContain('AGENT_ALIAS_MAP[\'backend-developer\'] = \'ensemble-full:backend-developer\'');
+  });
+
+  test('Preflight Order 11 Step 5 (gap analysis) consults KNOWN_AGENTS, not raw glob', () => {
+    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
+    expect(text).toContain('Step 5 — Gap analysis');
+    expect(text).toContain('default agent exists in KNOWN_AGENTS');
+  });
+
+  test('Preflight Order 11 Step 8 (post-install refresh) re-runs both globs and rebuilds maps', () => {
+    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
+    expect(text).toContain('Step 8 — If any plugins were installed');
+    expect(text).toContain('Re-run the full agent discovery from Step 3');
+    expect(text).toContain('rebuild AGENT_ALIAS_MAP');
+  });
+
+  test('AGENT_ALIAS_MAP contract still present at executionContract level', () => {
+    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
+    expect(text).toContain('AGENT_ALIAS_MAP is the source for agent identity resolution');
+    expect(text).toContain('Task(agent_type=<resolved_specialist>');
+    expect(text).toContain('resolved @code-reviewer');
+    expect(text).toContain('resolved @deep-debugger');
+  });
+
+  test('version bumped to reflect agent-registry-build fix', () => {
+    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
+    expect(text).toMatch(/^\s*version:\s*2\.20\.0\s*$/m);
+  });
+});
