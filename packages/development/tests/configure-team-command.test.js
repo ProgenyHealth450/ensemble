@@ -64,7 +64,7 @@ describe('configure-team command agent discovery', () => {
   test('version bumped to reflect agent-discovery fix', () => {
     const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
     // Matches the metadata.version field
-    expect(text).toMatch(/^\s*version:\s*1\.1\.4\s*$/m);
+    expect(text).toMatch(/^\s*version:\s*1\.1\.5\s*$/m);
   });
 
   test('Phase 3 Step 1b includes symlink-safe find -L fallback', () => {
@@ -201,8 +201,63 @@ describe('configure-team command TRD parser dual-format acceptance', () => {
     expect(text).toContain('restrict ALL task parsing to that section only');
   });
 
-  test('version bumped to 1.1.4 to reflect parser broadening', () => {
+  test('version bumped to 1.1.5 to reflect deterministic edit boundary', () => {
     const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
-    expect(text).toMatch(/^\s*version:\s*1\.1\.4\s*$/m);
+    expect(text).toMatch(/^\s*version:\s*1\.1\.5\s*$/m);
+  });
+
+  test('Phase 5 Step 2 next-heading search starts strictly AFTER the existing heading (does not match the §4.1 heading itself)', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The algorithm must say "strictly greater than" / "strictly after" so that the §4.1 heading
+    // is not chosen as the "next ## heading", which would produce an empty replacement span.
+    expect(text).toMatch(/strictly greater than|STRICTLY AFTER|at or after.*EXISTING_START.*note:.*strictly|search does not return it again/i);
+  });
+
+  test('Phase 5 Step 2 in REPLACE mode: PREFIX ends at EXISTING_START, SUFFIX starts at the next ## heading strictly after', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('PREFIX = FULL_TEXT[:EXISTING_START]');
+    expect(text).toContain('SUFFIX = FULL_TEXT[find_heading_at(FULL_TEXT, EXISTING_START):]');
+  });
+
+  test('Phase 5 Step 2 in INSERT mode: SUFFIX is the rest of the file (non-empty) and PREFIX ends at MTL_END', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('SUFFIX = FULL_TEXT[MTL_END:]');
+    expect(text).toContain('it is NOT empty');
+  });
+
+  test('Phase 5 Step 2 NEW_SECTION always starts with the canonical heading text in both modes', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The new section must be self-contained: it begins with the `## 4.1 Team Configuration`
+    // heading text in every case, so the PREFIX stop in REPLACE mode (which excludes the
+    // existing heading) and the absence of a heading in INSERT mode both yield a correct file.
+    expect(text).toMatch(/NEW_SECTION as the canonical block[\s\S]{0,200}`## 4\.1 Team Configuration\\n\\n`/);
+  });
+
+  test('Phase 5 Step 2 uses the exact same NEW_FULL_TEXT = PREFIX + NEW_SECTION + SUFFIX expression in both modes (no conditional concatenation)', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('NEW_FULL_TEXT = PREFIX + NEW_SECTION + SUFFIX');
+    expect(text).toContain('EXACT same expression in both modes');
+    expect(text).toContain('no conditional concatenation');
+  });
+
+  test('Phase 5 Step 2 preservation check is a post-write equality check against NEW_FULL_TEXT (not boundary-only checks)', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The action list must include a disk read AFTER the write.
+    expect(text).toContain('Re-read the file from disk as WRITTEN_TEXT');
+    // The check must compare WRITTEN_TEXT == NEW_FULL_TEXT (not against FULL_TEXT, which would
+    // revive the false-damage loop, and not boundary-only checks which miss disk corruption).
+    expect(text).toContain('WRITTEN_TEXT == NEW_FULL_TEXT');
+    expect(text).toContain('post_write_mismatch');
+    // The workflow must explicitly forbid full-file diff, length compare, and re-scanning.
+    expect(text).toContain('do NOT loop, retry, or scan it again');
+    expect(text).toContain('Do NOT compare WRITTEN_TEXT against FULL_TEXT');
+    expect(text).toContain('do NOT scan for \\"damaged\\" sections');
+    expect(text).toContain('did the file land on disk as exactly the bytes we wrote');
+  });
+
+  test('Phase 5 Step 2 emits a single terminal marker on a successful boundary check', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    expect(text).toContain('injection_ok prefix=YES suffix=YES bytes=<len(WRITTEN_TEXT)>');
+    expect(text).toContain('terminal marker for this phase');
   });
 });
