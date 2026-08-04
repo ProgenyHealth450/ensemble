@@ -81,7 +81,7 @@ Cross-reference PRD_REQUIREMENTS (if available) with VERIFIED_REQS and TEST_TASK
 For each REQ-NNN in PRD_REQUIREMENTS (or VERIFIED_REQS if no PRD):
   Status determination:
     SATISFIED: REQ-NNN in VERIFIED_REQS (test bead closed with PASSED)
-    IN PROGRESS: corresponding -TEST bead is in_progress or in_review or in_qa
+    IN PROGRESS: corresponding -TEST bead is in_progress (bead lifecycle status only; team-mode sub-states removed)
     PENDING: corresponding -TEST bead is open (not yet started)
     NOT PLANNED: no -TEST bead found for this requirement
 

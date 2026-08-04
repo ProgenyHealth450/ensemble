@@ -260,4 +260,33 @@ describe('configure-team command TRD parser dual-format acceptance', () => {
     expect(text).toContain('injection_ok prefix=YES suffix=YES bytes=<len(WRITTEN_TEXT)>');
     expect(text).toContain('terminal marker for this phase');
   });
+
+  test('Phase 5 Step 2 REPLACE mode skips stale-output headings (Validation Failure / Options / etc.) until the next real document section', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The algorithm must explicitly enumerate the stale-output headings it skips. These are
+    // top-level `## ` headings that prior runs have emitted as "smart" prose when validation
+    // failed. Without explicit skipping, the REPLACE span stops at the first stale heading and
+    // leaves the rest of the prior-run block in the file.
+    expect(text).toContain('Validation Failure');
+    expect(text).toContain('Pre-existing block');
+    expect(text).toContain('Revert confirmation');
+    expect(text).toContain('What this run did not do');
+    expect(text).toContain('Next command');
+    // The algorithm must use a WHILE loop or equivalent to advance past stale headings.
+    expect(text).toMatch(/WHILE BOUND is a stale-output heading|while\s+BOUND\s+is\s+not\s+None\s+AND/i);
+    // The action must advance BOUND using find_heading_at with the current BOUND as the from offset.
+    expect(text).toMatch(/find_heading_at\(FULL_TEXT,\s*BOUND\)/);
+    // The boundary-final "append to SUFFIX" semantics must be expressed.
+    expect(text).toMatch(/SUFFIX\s*=\s*FULL_TEXT\[BOUND(:|\])/);
+  });
+
+  test('Phase 5 Step 2 terminal marker is unconditional: no post-marker inspection, validation, re-read, or fix TodoList', () => {
+    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // The description block must contain the post-marker prohibition wording.
+    expect(text).toContain('Do NOT inspect the');
+    expect(text).toContain('do NOT validate the team.roles schema');
+    expect(text).toContain('do NOT look for stale');
+    expect(text).toContain('add a TodoList to "fix" the section');
+    expect(text).toContain('do NOT re-read the file again');
+  });
 });

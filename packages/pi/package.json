@@ -1,6 +1,6 @@
 {
   "name": "@fortium/ensemble-pi",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Pi runtime support — translates ensemble artifacts for Pi coding agent",
   "main": "dist/index.js",
   "files": [
