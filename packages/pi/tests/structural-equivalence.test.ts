@@ -24,6 +24,10 @@ import * as path from 'path';
 
 const COMMANDS_DIR = path.resolve(__dirname, '..', 'commands');
 
+// Reads the Windows-safe "ensemble-full-<cmd>.md" alias rather than the
+// colon-namespaced "ensemble:<cmd>.md" primary. The alias is emitted from the
+// same content, but the colon form is gitignored (illegal on NTFS) and only
+// exists after a generate, so reading it would fail on a fresh clone.
 function readCommand(name: string): string {
   return fs.readFileSync(path.join(COMMANDS_DIR, name), 'utf8');
 }
@@ -36,7 +40,7 @@ describe('PRD template structural equivalence', () => {
   let createPrd: string;
 
   beforeAll(() => {
-    createPrd = readCommand('ensemble:create-prd.md');
+    createPrd = readCommand('ensemble-full-create-prd.md');
   });
 
   it('has document frontmatter instructions', () => {
@@ -85,7 +89,7 @@ describe('TRD template structural equivalence', () => {
   let createTrd: string;
 
   beforeAll(() => {
-    createTrd = readCommand('ensemble:create-trd.md');
+    createTrd = readCommand('ensemble-full-create-trd.md');
   });
 
   it('has architecture decision section', () => {
@@ -127,7 +131,7 @@ describe('Refine-PRD template structural equivalence', () => {
   let refinePrd: string;
 
   beforeAll(() => {
-    refinePrd = readCommand('ensemble:refine-prd.md');
+    refinePrd = readCommand('ensemble-full-refine-prd.md');
   });
 
   it('has interview protocol for gathering feedback', () => {
