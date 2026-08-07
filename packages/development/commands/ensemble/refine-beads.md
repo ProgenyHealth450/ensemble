@@ -6,7 +6,7 @@ category: "implementation"
 last-updated: "2026-06-18"
 allowed-tools: "Bash, Read"
 argument-hint: "[epic-id|release-train-id|slug] [--scope project]"
-model: sonnet
+model: "sonnet"
 ---
 <!-- DO NOT EDIT - Generated from refine-beads.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

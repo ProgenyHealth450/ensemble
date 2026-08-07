@@ -5,7 +5,7 @@ version: "1.0.0"
 category: "quality"
 last-updated: "2026-06-29"
 argument-hint: "[prd-path] [--out <dir>]"
-model: haiku
+model: "haiku"
 ---
 <!-- DO NOT EDIT - Generated from check-feature-drift.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

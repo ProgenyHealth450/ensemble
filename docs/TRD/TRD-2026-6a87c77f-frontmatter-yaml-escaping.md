@@ -69,6 +69,11 @@ emitter's heuristics for a seven-key flat map. Option A has no heuristics at all
 emitters already exist and `packages/pi`'s copy has already drifted into incorrectness. One helper,
 one rule.
 
+> **Note on the third emitter.** `scripts/generate-codex/index.js` already builds frontmatter with
+> `yaml.dump(data, { lineWidth: 1000 })` — that is Option B, and it is correct by construction, so
+> codex was never exposed to this bug class. Its artifacts only *look* unquoted because js-yaml
+> quotes on demand. No change is needed there, and the repo-wide check in REQ-005 covers it anyway.
+
 ### 1.3 Two shapes that must not be conflated
 
 The single highest-risk detail in this change. Two frontmatter keys look similar and are not:

@@ -6,7 +6,7 @@ category: "implementation"
 last-updated: "2026-06-20"
 allowed-tools: "Bash, Read, Write"
 argument-hint: "<trd-path> <trd-path> [more-trd-paths] [--out path]"
-model: sonnet
+model: "sonnet"
 ---
 <!-- DO NOT EDIT - Generated from create-workstream-trd.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

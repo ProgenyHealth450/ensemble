@@ -5,7 +5,7 @@ version: "1.0.0"
 category: "analysis"
 last-updated: "2026-06-30"
 argument-hint: "[trd-dir|paths...] [--format json|mermaid|dot] [--overlap]"
-model: haiku
+model: "haiku"
 ---
 <!-- DO NOT EDIT - Generated from trd-dependency-graph.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

@@ -86,7 +86,7 @@ function generateCommandFrontmatter(data) {
     const emitted = Object.prototype.hasOwnProperty.call(TIER_TO_ALIAS, meta.model)
       ? TIER_TO_ALIAS[meta.model]
       : meta.model;
-    lines.push(`model: ${emitted}`);
+    lines.push(`model: ${yamlScalar(emitted)}`);
   }
 
   lines.push('---');

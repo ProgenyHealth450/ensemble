@@ -5,7 +5,7 @@ version: "1.0.0"
 category: "testing"
 last-updated: "2026-06-29"
 argument-hint: "[prd-path] [--sut <csproj>] [--out <dir>]"
-model: opus
+model: "opus"
 ---
 <!-- DO NOT EDIT - Generated from reqnroll-tdd.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

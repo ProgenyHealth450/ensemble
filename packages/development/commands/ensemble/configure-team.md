@@ -5,7 +5,7 @@ version: "1.1.5"
 category: "planning"
 last-updated: "2026-08-04"
 argument-hint: "[trd-path] [--team] [--no-team]"
-model: opus
+model: "opus"
 ---
 <!-- DO NOT EDIT - Generated from configure-team.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

@@ -88,3 +88,67 @@ describe('agent frontmatter', () => {
     expect(parsed.description).toBe('Helm charts: templating, values, releases');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Structural guard.
+//
+// The value-level assertions above pass whether or not a field was quoted --
+// `model: opus` and `model: "opus"` both parse to "opus". That blind spot let
+// the `model` key ship unquoted after the other six were converted. These
+// assert on the emitted TEXT, so any future key that skips yamlScalar fails
+// here rather than waiting for a value that happens to contain YAML syntax.
+// ---------------------------------------------------------------------------
+
+/** Every `key: value` line inside a frontmatter block, excluding the --- fences. */
+const frontmatterLines = (block) =>
+  block.split('\n').filter(line => line !== '---' && line.includes(':'));
+
+describe('every emitted frontmatter value is quoted', () => {
+  const FULL_COMMAND = {
+    metadata: {
+      name: 'ensemble:feature',
+      description: 'Orchestrate the pipeline',
+      version: '1.0.0',
+      category: 'planning',
+      lastUpdated: '2026-03-15',
+      allowed_tools: ['Read', 'Bash'],
+      argument_hint: '<description> [--flag]',
+      model: 'high'
+    }
+  };
+
+  test('command: no key emits a bare unquoted scalar', () => {
+    const unquoted = frontmatterLines(generateCommandFrontmatter(FULL_COMMAND))
+      .filter(line => !/^[a-z-]+: ("|\[)/.test(line));
+    expect(unquoted).toEqual([]);
+  });
+
+  test('command: model is quoted after tier mapping', () => {
+    // Regression: model was the one key left raw-interpolated.
+    expect(generateCommandFrontmatter(FULL_COMMAND)).toContain('model: "opus"');
+  });
+
+  test('command: every metadata key present in the source appears in the output', () => {
+    const emitted = frontmatterLines(generateCommandFrontmatter(FULL_COMMAND))
+      .map(line => line.split(':')[0]);
+    expect(emitted.sort()).toEqual(
+      ['allowed-tools', 'argument-hint', 'category', 'description', 'last-updated', 'model', 'name', 'version']
+    );
+  });
+
+  test('agent: no key emits a bare unquoted scalar', () => {
+    const block = generateAgentFrontmatter({
+      metadata: { name: 'a', description: 'd', tools: ['Read', 'Write'] }
+    });
+    const unquoted = frontmatterLines(block).filter(line => !/^[a-z-]+: ("|\[)/.test(line));
+    expect(unquoted).toEqual([]);
+  });
+
+  test('agent: every element inside the tools sequence is quoted', () => {
+    const block = generateAgentFrontmatter({
+      metadata: { name: 'a', description: 'd', tools: ['Read', 'Write'] }
+    });
+    const toolsLine = block.split('\n').find(l => l.startsWith('tools:'));
+    expect(toolsLine).toBe('tools: ["Read", "Write"]');
+  });
+});
