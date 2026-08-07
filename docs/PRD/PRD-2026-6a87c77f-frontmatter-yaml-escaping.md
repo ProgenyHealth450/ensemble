@@ -1,7 +1,7 @@
 ---
 document_id: PRD-2026-6a87c77f
 label: prd-frontmatter-yaml-escaping
-version: 1.0.1
+version: 1.0.2
 status: Draft
 date: 2026-08-07
 scale_depth: LIGHT
@@ -75,7 +75,7 @@ absence that looks like a failed install.
 
 **Non-goals (v1):**
 - Not changing Claude Code's plugin loader — Ensemble does not control it. This PRD makes the artifacts valid; it does not make the loader warn.
-- Not migrating frontmatter emission to `yaml.dump()`. Correct by construction, but it reorders keys and restyles quoting across all 73 artifacts — a much noisier diff for no additional correctness once the helper exists.
+- Not migrating frontmatter emission to `yaml.dump()`. Measured during TRD design, it in fact produces a *smaller* diff than always-quoting, because js-yaml quotes only when necessary. It is excluded on different grounds: it emits a multi-line description as a `|` block scalar, restyles agent `tools` into a block sequence, and decides date quoting itself — trading our own quoting logic for negotiation with a general-purpose emitter's heuristics. See TRD §1.2.
 - Not adding a length limit or readability lint on folded descriptions.
 
 **Accepted v1 loss:** folding `git/release.yaml`'s two-line block-scalar description produces one
