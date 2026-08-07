@@ -47,9 +47,13 @@ function findFilesRecursive(dir: string, ext: string): string[] {
 /**
  * Discover YAML files matching a glob pattern.
  * Returns absolute paths sorted lexicographically for deterministic output.
+ *
+ * Callers build patterns with path.join(), which on Windows yields backslashes
+ * that glob reads as escape characters rather than separators -- matching zero
+ * files. Normalising here covers every caller rather than each pattern site.
  */
 async function discoverYamlFiles(pattern: string): Promise<string[]> {
-  const files = await glob(pattern, { absolute: true });
+  const files = await glob(pattern.split(path.sep).join('/'), { absolute: true });
   return files.sort();
 }
 

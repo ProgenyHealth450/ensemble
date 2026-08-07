@@ -5,6 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const { globSync } = require('glob');
+// glob needs forward-slash patterns even on Windows, where path.join() produces
+// backslashes that glob reads as escape characters. Without this every pattern
+// below matched zero files on Windows and the generator deleted its own output
+// as orphaned.
+const { toGlobPattern } = require('../lib/file-discovery');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGES_DIR = path.join(ROOT, 'packages');
@@ -221,7 +226,7 @@ function detectAgentSkills(name, content) {
 }
 
 function copyFrameworkSkills({ dryRun, verbose }) {
-  const skillFiles = globSync(path.join(PACKAGES_DIR, '*/skills/SKILL.md')).sort();
+  const skillFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/skills/SKILL.md'))).sort();
   let count = 0;
 
   for (const skillFile of skillFiles) {
@@ -268,7 +273,7 @@ function copyFrameworkSkills({ dryRun, verbose }) {
 }
 
 function generateCommandSkills({ dryRun, verbose }) {
-  const commandYamlFiles = globSync(path.join(PACKAGES_DIR, '*/commands/*.yaml')).sort();
+  const commandYamlFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/commands/*.yaml'))).sort();
   let count = 0;
 
   for (const yamlFile of commandYamlFiles) {
@@ -308,7 +313,7 @@ function generateCommandSkills({ dryRun, verbose }) {
 }
 
 function generateAgents({ dryRun, verbose }) {
-  const agentYamlFiles = globSync(path.join(PACKAGES_DIR, '*/agents/*.yaml')).sort();
+  const agentYamlFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/agents/*.yaml'))).sort();
   const agents = [];
 
   for (const yamlFile of agentYamlFiles) {
