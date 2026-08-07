@@ -86,6 +86,36 @@ describe('parsePRD', () => {
   });
 });
 
+describe('parsePRD — CRLF line endings', () => {
+  // Deliberately constructed CRLF variant, independent of the checked-out
+  // fixture's own line endings (which vary by OS/core.autocrlf and would
+  // otherwise hide this regression on an LF checkout, e.g. Linux CI). Every
+  // heading/AC-line regex is `$`-anchored, and JS regex treats a lone
+  // trailing `\r` as its own line terminator that `.` cannot consume, so a
+  // CRLF-sourced PRD (the norm on Windows checkouts with core.autocrlf=true)
+  // silently failed REQ/AC extraction and frontmatter parsing before this fix.
+  const CRLF_SAMPLE = SAMPLE.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+
+  test('extracts frontmatter despite trailing \\r on delimiter/field lines', () => {
+    const prd = parsePRD(CRLF_SAMPLE);
+    expect(prd.documentId).toBe('PRD-2026-a1b2c3d4');
+    expect(prd.label).toBe('prd-sample-feature');
+  });
+
+  test('still finds every REQ and AC despite trailing \\r on heading/bullet lines', () => {
+    const prd = parsePRD(CRLF_SAMPLE);
+    expect(prd.reqs.map((r) => r.id)).toEqual(['REQ-001', 'REQ-002']);
+    expect(prd.reqs[0].acs.map((a) => a.id)).toEqual(['AC-001-1', 'AC-001-2']);
+    expect(prd.reqs[1].acs.map((a) => a.id)).toEqual(['AC-002-1', 'AC-002-2', 'AC-002-3']);
+  });
+
+  test('still splits Given/When/Then despite trailing \\r', () => {
+    const ac = parsePRD(CRLF_SAMPLE).reqs[0].acs[0];
+    expect(ac.given).toBe('a user with valid credentials');
+    expect(ac.then).toBe('they are authenticated and see the dashboard');
+  });
+});
+
 describe('deriveLabel (display fallback for docs without an authored label)', () => {
   test('prefixes with prd/trd from the document id and kebabs the title', () => {
     expect(deriveLabel('PRD-2026-a1b2c3d4', 'Multi TRD Beads Workstream')).toBe(

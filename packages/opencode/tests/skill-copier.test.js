@@ -40,6 +40,7 @@ function createTempPackages(tmpDir, packages) {
 // We need to load the SkillCopier. Since it's TypeScript, we'll use
 // a JS wrapper that the implementation should export.
 let SkillCopier;
+let parseFrontmatter;
 
 beforeAll(() => {
   // Try loading from the lib/ compiled output first, then from src/ via a loader
@@ -61,9 +62,9 @@ beforeAll(() => {
   );
 
   if (fs.existsSync(libPath)) {
-    SkillCopier = require(libPath).SkillCopier;
+    ({ SkillCopier, parseFrontmatter } = require(libPath));
   } else if (fs.existsSync(srcPath)) {
-    SkillCopier = require(srcPath).SkillCopier;
+    ({ SkillCopier, parseFrontmatter } = require(srcPath));
   } else {
     throw new Error(
       'SkillCopier not found. Ensure either packages/opencode/lib/skill-copier.js ' +
@@ -337,6 +338,31 @@ describe('OC-S1-SK-002: Frontmatter injection', () => {
     expect(content).not.toMatch(/^---\n/);
     // Should contain original content as-is
     expect(content).toBe('# React Skill\n\nReact patterns.');
+  });
+});
+
+describe('parseFrontmatter — CRLF line endings', () => {
+  // Before the fix, parseFrontmatter's delimiter checks required a literal
+  // '\n' next to '---', so a CRLF-sourced SKILL.md (the norm on Windows
+  // checkouts with core.autocrlf=true) silently read as hasFrontmatter:
+  // false, discarding real frontmatter as if it were part of the file body.
+  const CRLF_CONTENT =
+    '---\r\nname: nestjs\r\ndescription: NestJS backend\r\n---\r\n\r\n# NestJS Skill\r\n';
+
+  it('detects frontmatter despite \\r\\n around the delimiters', () => {
+    const result = parseFrontmatter(CRLF_CONTENT);
+    expect(result.hasFrontmatter).toBe(true);
+    expect(result.data).toEqual({ name: 'nestjs', description: 'NestJS backend' });
+  });
+
+  it('extracts the body content with the frontmatter block removed', () => {
+    const result = parseFrontmatter(CRLF_CONTENT);
+    expect(result.content.trim()).toBe('# NestJS Skill');
+  });
+
+  it('still reports no frontmatter for CRLF content with none', () => {
+    const result = parseFrontmatter('# React Skill\r\n\r\nReact patterns.\r\n');
+    expect(result.hasFrontmatter).toBe(false);
   });
 });
 
