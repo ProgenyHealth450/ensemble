@@ -194,17 +194,46 @@ Specific expertise and responsibility
 
 ### Command Development
 
-Commands have three files:
+The YAML file is the only file you edit:
 
-1. **YAML definition** (`my-command.yaml`):
+1. **YAML definition** (`my-command.yaml`) — the source of truth:
    ```yaml
    name: my-command
    description: Command description
    agent: my-agent
    ```
 
-2. **Markdown documentation** (`my-command.md`)
-3. **Plain text variant** (`my-command.txt`)
+2. **Markdown** (`my-command.md`) — **generated, never hand-edited.** Carries a
+   `<!-- DO NOT EDIT -->` header; edits are overwritten on the next generate.
+
+Agent markdown (`agents/*.md`) is generated from `agents/*.yaml` the same way.
+
+**After changing any `.yaml` under `agents/` or `commands/`, regenerate and commit
+the result:**
+
+```bash
+npm run generate            # rewrites the .md files from YAML
+npm run generate -- --dry-run   # preview without writing
+```
+
+CI fails the PR if a generated `.md` does not match its YAML source.
+
+### Versioning a Plugin
+
+Every package carries its version in **three** places that must always match:
+
+| File | Read by |
+|------|---------|
+| `packages/<name>/package.json` | npm |
+| `packages/<name>/.claude-plugin/plugin.json` | the Claude Code plugin installer |
+| `marketplace.json` (that plugin's entry) | the marketplace catalog |
+
+Bump all three together. `plugin.json` is the one that matters most: `claude plugin
+install/update` gates on its version *string*, not on content or commit hash. If it
+lags behind a real change, consumers who already installed that version string never
+re-sync — they silently keep running stale plugin content with no error.
+
+`npm run validate` fails on any mismatch.
 
 ### Skill Development
 

@@ -52,7 +52,9 @@ describe('create-workstream-trd', () => {
 
   test('default workstream path uses micro UUID instead of sequence number', () => {
     const out = nextWorkstreamPath('docs/TRD/workstreams', 2026, 'alpha-beta', 'a1b2c3d4');
-    expect(out).toBe('docs/TRD/workstreams/TRD-2026-a1b2c3d4-workstream-alpha-beta.md');
+    expect(out).toBe(
+      path.join('docs/TRD/workstreams', 'TRD-2026-a1b2c3d4-workstream-alpha-beta.md')
+    );
     expect(out).not.toMatch(/TRD-2026-\d{3}-workstream/);
   });
 });

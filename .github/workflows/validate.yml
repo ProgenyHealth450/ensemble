@@ -39,42 +39,24 @@ jobs:
       - name: Test build scripts
         run: npx jest scripts/tests
 
-      - name: Validate marketplace.json
-        run: npx ajv validate -s schemas/marketplace-schema.json -d marketplace.json -c ajv-formats
+      # Replaces the hand-rolled steps this job used to run. scripts/validate-all.js
+      # is a strict superset of them (marketplace.json and every plugin.json against
+      # their schemas, agent YAML syntax, @fortium/ensemble-* package naming), and
+      # `npm run validate` additionally enforces manifest version sync and model
+      # IDs. The old steps never checked versions at all, which is how six packages
+      # drifted unnoticed. The separate OpenCode plugin.json step was redundant:
+      # validate-all.js iterates every package, including opencode.
+      - name: Validate
+        run: npm run validate
 
-      - name: Validate all plugin.json files
+      # Generated .md must match its .yaml source. `npm run generate:validate`
+      # only schema-checks the YAML and never compares against what is on disk,
+      # so stale generated markdown was caught nowhere -- configure-team.md sat
+      # stale on main because of it.
+      - name: Check generated markdown is up to date
         run: |
-          for plugin in packages/*/; do
-            if [ -f "$plugin.claude-plugin/plugin.json" ]; then
-              echo "Validating $plugin.claude-plugin/plugin.json"
-              npx ajv validate -s schemas/plugin-schema.json -d "$plugin.claude-plugin/plugin.json" -c ajv-formats
-            fi
-          done
-
-      - name: Validate agent YAML files
-        run: |
-          for yaml in packages/*/agents/*.yaml; do
-            if [ -f "$yaml" ]; then
-              echo "Validating $yaml"
-              npx js-yaml "$yaml" > /dev/null
-            fi
-          done
-
-      - name: Check package.json consistency
-        run: |
-          for pkg in packages/*/package.json; do
-            if [ -f "$pkg" ]; then
-              echo "Checking $pkg"
-              node -e "const p = require('./$pkg'); if (!p.name.startsWith('@fortium/ensemble-')) process.exit(1);"
-            fi
-          done
-
-      - name: Validate OpenCode plugin.json
-        run: |
-          OPENCODE_PLUGIN="packages/opencode/.claude-plugin/plugin.json"
-          if [ -f "$OPENCODE_PLUGIN" ]; then
-            echo "Validating $OPENCODE_PLUGIN"
-            npx ajv validate -s schemas/plugin-schema.json -d "$OPENCODE_PLUGIN" -c ajv-formats
-          else
-            echo "WARNING: packages/opencode/.claude-plugin/plugin.json not found"
-          fi
+          npm run generate
+          git diff --exit-code -- 'packages/**/*.md' || {
+            echo "::error::Generated markdown is stale. Run 'npm run generate' and commit the result."
+            exit 1
+          }
