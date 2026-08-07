@@ -38,3 +38,6 @@ redirect
 
 # bv (beads viewer) lock file
 .bv.lock
+
+# fsqlite (SQLite backend) namespace markers — local-only state
+beads.db-fsqlite-ns-*
