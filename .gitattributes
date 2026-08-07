@@ -1,1 +1,6 @@
+# Normalize to LF everywhere. `npm run generate` writes LF, so without this a
+# Windows checkout (core.autocrlf=true) leaves every generated .md showing as
+# modified with zero content difference.
+* text=auto eol=lf
+
 .mulch/expertise/*.jsonl merge=union
