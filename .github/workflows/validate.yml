@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      # scripts/ is not an npm workspace, so `npm test` (which runs
+      # --workspaces) never reaches these. Without this step the Windows
+      # glob-pattern regression test would never actually run.
+      - name: Test build scripts
+        run: npx jest scripts/tests
+
       - name: Validate marketplace.json
         run: npx ajv validate -s schemas/marketplace-schema.json -d marketplace.json -c ajv-formats
 
