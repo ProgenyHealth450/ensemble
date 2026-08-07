@@ -29,13 +29,23 @@ jobs:
         run: npm run generate:pi
 
       # PI-CI-002: Drift detection - fail if generated artifacts differ from committed versions
+      #
+      # Guards packages/pi/commands, the actual output directory since the move
+      # off prompts/. This previously pointed at prompts/, which the generator
+      # no longer writes, so the check passed vacuously and real drift in
+      # commands/ went unnoticed.
+      #
+      # The colon-namespaced commands/ensemble:*.md files are gitignored (illegal
+      # on NTFS, generated at publish time), so git diff correctly ignores them
+      # here; the committed ensemble-full-*.md aliases are what gets compared.
       - name: Check for stale generated output
         run: |
-          git diff --exit-code packages/pi/prompts packages/pi/agents packages/pi/skills packages/pi/AGENTS.md || {
+          PATHS="packages/pi/commands packages/pi/agents packages/pi/skills packages/pi/AGENTS.md"
+          git diff --exit-code $PATHS || {
             echo "ERROR: Generated Pi artifacts are stale. Run 'npm run generate:pi' and commit the results."
             echo ""
             echo "Changed files:"
-            git diff --name-only packages/pi/prompts packages/pi/agents packages/pi/skills packages/pi/AGENTS.md
+            git diff --name-only $PATHS
             exit 1
           }
           echo "Pi generated output is up to date."

@@ -35,7 +35,7 @@ describe('config-path', () => {
     it('should use XDG_CONFIG_HOME when set', () => {
       process.env.XDG_CONFIG_HOME = '/custom/config';
       const result = configPath.getEnsembleConfigRoot();
-      expect(result).toBe('/custom/config/ensemble');
+      expect(result).toBe(path.join('/custom/config', 'ensemble'));
     });
 
     it('should use ~/.config/ensemble when ~/.config exists', () => {
@@ -54,7 +54,7 @@ describe('config-path', () => {
       process.env.XDG_CONFIG_HOME = '/xdg/config';
       fs.existsSync.mockReturnValue(true); // ~/.config exists but should be ignored
       const result = configPath.getEnsembleConfigRoot();
-      expect(result).toBe('/xdg/config/ensemble');
+      expect(result).toBe(path.join('/xdg/config', 'ensemble'));
     });
   });
 
@@ -68,7 +68,7 @@ describe('config-path', () => {
     it('should work with XDG_CONFIG_HOME', () => {
       process.env.XDG_CONFIG_HOME = '/custom';
       const result = configPath.getPluginConfigPath('pane-viewer');
-      expect(result).toBe('/custom/ensemble/plugins/pane-viewer');
+      expect(result).toBe(path.join('/custom', 'ensemble', 'plugins', 'pane-viewer'));
     });
   });
 

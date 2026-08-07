@@ -47,9 +47,13 @@ function findFilesRecursive(dir: string, ext: string): string[] {
 /**
  * Discover YAML files matching a glob pattern.
  * Returns absolute paths sorted lexicographically for deterministic output.
+ *
+ * Callers build patterns with path.join(), which on Windows yields backslashes
+ * that glob reads as escape characters rather than separators -- matching zero
+ * files. Normalising here covers every caller rather than each pattern site.
  */
 async function discoverYamlFiles(pattern: string): Promise<string[]> {
-  const files = await glob(pattern, { absolute: true });
+  const files = await glob(pattern.split(path.sep).join('/'), { absolute: true });
   return files.sort();
 }
 
@@ -267,6 +271,13 @@ export function generateAgentsMd(
  * Output path keeps the canonical "ensemble:command-name" form so that OMP
  * (which derives the slash-command name from the filename) registers the
  * command under its original "/ensemble:command-name" namespace.
+ *
+ * ':' is illegal on NTFS, so these files are gitignored and generated at
+ * publish time (see packages/pi/.npmignore and prepublishOnly) rather than
+ * committed — committing them made the repo, and the marketplace clone Claude
+ * Code keeps under ~/.claude/plugins/marketplaces/, impossible to check out on
+ * Windows. Do not "fix" that gitignore rule. The ensemble-full-<cmd>.md
+ * aliases emitted below are the committed, cross-platform artifacts.
  */
 function buildCommandResult(
   commandYaml: CommandYaml,

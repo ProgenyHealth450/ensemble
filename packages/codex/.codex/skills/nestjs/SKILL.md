@@ -15,7 +15,7 @@ languages:
   - typescript
   - javascript
 category: backend
-updated: '2025-10-22'
+updated: 2025-10-22T00:00:00.000Z
 user-invocable: true
 ---
 

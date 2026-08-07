@@ -9,6 +9,12 @@ const fs = require('fs').promises;
 const path = require('path');
 const { glob } = require('glob');
 
+// glob (node-glob) requires forward-slash patterns even on Windows —
+// path.join() produces backslashes there, which glob treats as escape chars.
+function toGlobPattern(p) {
+  return p.split(path.sep).join('/');
+}
+
 /**
  * Discover all YAML files to process by scanning plugin manifests
  * @param {string} packagesDir - Path to packages directory
@@ -25,7 +31,7 @@ async function discoverYamlFiles(packagesDir, options = {}) {
 
   // Find all plugin.json files
   const pluginJsonPattern = path.join(packagesDir, '*/.claude-plugin/plugin.json');
-  const pluginJsonFiles = await glob(pluginJsonPattern);
+  const pluginJsonFiles = await glob(toGlobPattern(pluginJsonPattern));
 
   for (const pluginJsonPath of pluginJsonFiles) {
     try {
@@ -101,7 +107,7 @@ async function discoverYamlsInDir(dir) {
   }
 
   const pattern = path.join(dir, '*.yaml');
-  return glob(pattern);
+  return glob(toGlobPattern(pattern));
 }
 
 /**
@@ -118,7 +124,7 @@ async function discoverMarkdownFiles(packagesDir) {
 
   // Find all plugin.json files
   const pluginJsonPattern = path.join(packagesDir, '*/.claude-plugin/plugin.json');
-  const pluginJsonFiles = await glob(pluginJsonPattern);
+  const pluginJsonFiles = await glob(toGlobPattern(pluginJsonPattern));
 
   for (const pluginJsonPath of pluginJsonFiles) {
     try {
@@ -192,7 +198,7 @@ async function discoverMdsInDir(dir) {
   }
 
   const pattern = path.join(dir, '*.md');
-  return glob(pattern);
+  return glob(toGlobPattern(pattern));
 }
 
 /**
@@ -227,5 +233,6 @@ module.exports = {
   discoverYamlsInDir,
   discoverMarkdownFiles,
   discoverMdsInDir,
-  getOutputPath
+  getOutputPath,
+  toGlobPattern
 };

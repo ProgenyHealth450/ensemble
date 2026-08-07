@@ -115,7 +115,11 @@ describe('lint-model-ids.js script integration', () => {
 const path = require('path');
 const fs = require('fs');
 
-const ROOT = '${tmpDir}';
+// JSON.stringify, not quotes: on Windows tmpDir contains backslashes, which
+// would be read as escape sequences inside a plain string literal and mangle
+// ROOT into a path that matches nothing (the linter then found no files and
+// exited 0, so this test could never fail for the right reason).
+const ROOT = ${JSON.stringify(tmpDir)};
 
 function collectYamlFiles(dir, results) {
   const entries = fs.readdirSync(dir);

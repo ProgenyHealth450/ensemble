@@ -31,3 +31,12 @@ __pycache__/
 
 # Beads local issue database (sync state; do not track)
 .beads/issues.jsonl
+
+# Pi colon-namespaced command artifacts. OMP derives its slash-command name
+# from the filename, so these must keep the canonical "ensemble:<cmd>" form —
+# but ':' is illegal on NTFS, and committing them makes the repo (and the
+# marketplace clone Claude Code keeps under ~/.claude/plugins/marketplaces/)
+# impossible to check out on Windows. They are generated at publish time
+# instead, via packages/pi's prepublishOnly. The Windows-safe
+# ensemble-full-<cmd>.md aliases remain committed.
+packages/pi/commands/ensemble:*.md
