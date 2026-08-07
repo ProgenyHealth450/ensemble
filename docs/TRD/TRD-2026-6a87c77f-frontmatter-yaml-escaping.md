@@ -133,7 +133,7 @@ Placing the check *inside* `generateMarkdown()` means a caller cannot generate w
 That is intentional — failing closed is the entire point of REQ-004 — and there is no existing
 caller that wants raw unvalidated generation.
 
-## 3. Master Task List
+## Master Task List
 
 ### PR 1: Correct frontmatter emission and gate it
 
@@ -235,7 +235,7 @@ codex artifact's frontmatter ever becomes unparseable.
 **Total: 18 tasks (10 implementation, 8 test), 11.0h** — PR 1 is 9.0h, PR 2 is 2.0h. No task
 exceeds 1h; none is an 8h+ breakdown candidate.
 
-## 4. Sprint Planning
+## 3. Sprint Planning
 
 *Informational grouping only — not parsed by `implement-trd-beads`.*
 
@@ -248,7 +248,7 @@ Should-priority parity work that can slip without blocking the fix.
 - **Day 2** — TRD-006 → TRD-008. Validate-side walk, regeneration, type-change confirmation. PR 1 complete.
 - **Day 2 (tail)** — TRD-009 → TRD-010. PR 2 complete.
 
-## 5. Acceptance Criteria Traceability
+## 4. Acceptance Criteria Traceability
 
 | REQ-NNN | Description | Priority | Implementation Tasks | Test Tasks |
 |---|---|---|---|---|
@@ -266,7 +266,7 @@ Should-priority parity work that can slip without blocking the fix.
 **Traceability check: 10 requirements covered, 0 uncovered, 0 orphaned annotations.**
 Every task maps to a REQ; no `[satisfies ARCH]` or `[satisfies INFRA]` orphans remain.
 
-## 6. Quality Requirements
+## 5. Quality Requirements
 
 - **Testing.** Jest, matching the existing `scripts/tests/` convention. New modules get unit tests; no integration harness required — every AC is a `yaml.load` assertion or a process exit code.
 - **Security.** No new dependency, no network, no filesystem writes outside the existing `writeFileAtomic` path. `validatePathSecurity` in `file-utils.js` continues to govern write paths; the new walk is read-only.
@@ -274,32 +274,32 @@ Every task maps to a REQ; no `[satisfies ARCH]` or `[satisfies INFRA]` orphans r
 - **Compatibility.** Output remains valid YAML for any consumer. The only type change is `last-updated` (Date → string), verified to have zero consumers.
 - **Style.** Conventional commits, `fix(generator):` / `test(generator):` scopes. Matches the surrounding CommonJS `'use strict'` idiom in `scripts/lib`.
 
-## 7. Adversarial Review Findings
+## 6. Adversarial Review Findings
 
-### 7.1 Architecture
+### 6.1 Architecture
 
 1. **`allowed-tools` vs `tools` type divergence.** Conflating them silently changes tool permissions — a string becomes a list or vice versa. *Resolution:* pinned by explicit ACs in TRD-002 and TRD-003 asserting the parsed YAML **type**, not just parseability. Documented in §1.3.
 2. **`last-updated` Date→string.** Bare `2026-03-15` parses as a JS `Date`; quoted it is a string. *Resolution:* TRD-008. Pre-verified — one producer, zero consumers.
 3. **Check inside `generateMarkdown()` couples generation to validation.** No caller can opt out. *Resolution:* accepted deliberately; failing closed is REQ-004's purpose and no such caller exists. Documented in §2.3.
 4. **Hand-authored `.md` files are in scope of the repo-wide walk.** The walk cannot distinguish generated from hand-written artifacts, so a hand-authored file with broken frontmatter will now fail CI. *Resolution:* accepted — that file would be equally dropped by the loader, so flagging it is correct behaviour, not a false positive.
 
-### 7.2 Coverage
+### 6.2 Coverage
 
 1. **REQ-009 is a Must with only one PRD-side AC** (the gate wants two for Musts). *Resolution:* TRD-007 and TRD-008 carry three implementation ACs between them, covering both the diff-confinement claim and the type-change risk. No PRD amendment needed.
 2. **PRD v1.0.1's `yaml.dump()` rationale is factually wrong.** Measurement contradicts it. *Resolution:* corrected in PRD v1.0.2 during this design pass; the conclusion is unchanged, only the reasoning.
 
-### 7.3 Dependencies and estimates
+### 6.3 Dependencies and estimates
 
 1. **One dependency chain of depth 4** — TRD-001 → TRD-002 → TRD-007 → TRD-010. *Resolution:* accepted; every link is ≤1h, so the critical path is ~3h. No circular dependencies exist.
 2. Estimates are uniform (0.25–1h) and consistent across similar tasks. No task is flagged for breakdown.
 
-### 7.4 Testability
+### 6.4 Testability
 
 All implementation ACs resolve to a `yaml.load` equality assertion, a parsed-type assertion, a
 process exit code, or a `git status` result. No subjective language ("fast", "clean",
 "user-friendly") appears in any AC.
 
-## 8. Design Readiness Scorecard
+## 7. Design Readiness Scorecard
 
 | Dimension | Score | Notes |
 |---|---|---|
@@ -309,7 +309,7 @@ process exit code, or a `git status` result. No subjective language ("fast", "cl
 | Estimate confidence | 4.5 | Uniform 0.25–1h tasks, no 8h+ items. Regeneration hours are the least certain if the diff surprises. |
 | **Overall** | **4.63** | **PASS** |
 
-## 9. Next Steps
+## 8. Next Steps
 
 ```
 /ensemble:implement-trd-beads docs/TRD/TRD-2026-6a87c77f-frontmatter-yaml-escaping.md
