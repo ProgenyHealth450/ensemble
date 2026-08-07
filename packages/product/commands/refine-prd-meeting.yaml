@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-07-13"
   category: planning
   output_path: ensemble/refine-prd-meeting.md
-  source: fortium
+  source: sunstone
   model: high
 
 constraints:
