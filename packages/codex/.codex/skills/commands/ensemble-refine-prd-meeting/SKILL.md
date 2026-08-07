@@ -1,11 +1,15 @@
 ---
-name: "ensemble:refine-prd-meeting"
-description: "Refine an existing PRD using a meeting summary as the feedback source, instead of a live interview"
-version: "1.0.0"
-category: "planning"
-last-updated: "2026-07-13"
-model: "opus"
+name: ensemble-refine-prd-meeting
+description: Refine an existing PRD using a meeting summary as the feedback source, instead of a live interview (Codex skill for /ensemble:refine-prd-meeting)
+user-invocable: true
+model: gpt-5.1-codex
 ---
+
+# Ensemble Command: /ensemble:refine-prd-meeting
+
+This Codex skill mirrors the Ensemble slash command `/ensemble:refine-prd-meeting`.
+Follow the workflow below, adapt to the current repository, and keep outputs structured.
+
 <!-- DO NOT EDIT - Generated from refine-prd-meeting.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->
 
