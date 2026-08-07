@@ -142,73 +142,73 @@ caller that wants raw unvalidated generation.
 invocable in a Claude Code session; and a contributor whose description would break frontmatter now
 gets a build failure naming the file and the parser reason instead of a silently dead command.
 
-- [ ] **TRD-001** Create `scripts/lib/yaml-scalar.js` exporting `foldScalar` and `yamlScalar` (0.5h) `[satisfies REQ-001]`
+- [x] **TRD-001** Create `scripts/lib/yaml-scalar.js` exporting `foldScalar` and `yamlScalar` (0.5h) `[satisfies REQ-001]`
   - Validates PRD ACs: AC-001-1, AC-001-2
   - Implementation AC: Given any string, when passed to `yamlScalar`, then the result is a valid YAML double-quoted scalar whose `yaml.load` equals `foldScalar` of the input.
   - Implementation AC: Given a value with newlines, tabs, or runs of spaces, when folded, then all whitespace runs collapse to single spaces and the result is trimmed.
 
-- [ ] **TRD-001-TEST** Unit tests for `yaml-scalar` over the eight adversarial inputs (0.5h) `[verifies TRD-001] [satisfies REQ-001] [depends: TRD-001]`
+- [x] **TRD-001-TEST** Unit tests for `yaml-scalar` over the eight adversarial inputs (0.5h) `[verifies TRD-001] [satisfies REQ-001] [depends: TRD-001]`
   - Validates PRD ACs: AC-001-1, AC-001-2
   - Implementation AC: Given each of mid-string `: `, `[a] [b]`, embedded `\n\n`, embedded `"` and `\`, leading `*` with `#|>%&!`, `ensemble:feature`, padded whitespace, and non-ASCII, when emitted as `key: <scalar>` and parsed, then each round-trips to the folded original.
 
-- [ ] **TRD-002** Route all seven command frontmatter keys through `yamlScalar`; keep `allowed-tools` a joined **string** (1h) `[satisfies REQ-002] [satisfies REQ-003] [depends: TRD-001]`
+- [x] **TRD-002** Route all seven command frontmatter keys through `yamlScalar`; keep `allowed-tools` a joined **string** (1h) `[satisfies REQ-002] [satisfies REQ-003] [depends: TRD-001]`
   - Validates PRD ACs: AC-002-1, AC-002-2, AC-003-1, AC-003-2
   - Implementation AC: Given a command YAML with `category: "planning: internal"`, when generated, then the frontmatter parses and `category` round-trips exactly.
   - Implementation AC: Given a command with `allowed_tools: [Read, Write]`, when generated, then `yaml.load` returns the **string** `"Read, Write"` for `allowed-tools`, not an array.
   - Implementation AC: Given `git/release.yaml`'s block-scalar description, when generated, then `description` occupies exactly one line with no trailing blank line inside the block.
 
-- [ ] **TRD-002-TEST** Unit tests for command frontmatter emission (0.5h) `[verifies TRD-002] [satisfies REQ-002] [depends: TRD-002]`
+- [x] **TRD-002-TEST** Unit tests for command frontmatter emission (0.5h) `[verifies TRD-002] [satisfies REQ-002] [depends: TRD-002]`
   - Validates PRD ACs: AC-002-1, AC-002-2, AC-003-1, AC-003-2
   - Implementation AC: Given a fixture exercising all seven keys with hostile values, when generated, then the frontmatter parses and every key round-trips with its original YAML type.
 
-- [ ] **TRD-003** Route agent frontmatter through `yamlScalar`; keep `tools` a **flow sequence** with quoted elements (0.5h) `[satisfies REQ-002] [satisfies REQ-003] [depends: TRD-001]`
+- [x] **TRD-003** Route agent frontmatter through `yamlScalar`; keep `tools` a **flow sequence** with quoted elements (0.5h) `[satisfies REQ-002] [satisfies REQ-003] [depends: TRD-001]`
   - Validates PRD ACs: AC-002-1, AC-003-1
   - Implementation AC: Given an agent with `tools: [Read, Bash]`, when generated, then `yaml.load` returns the **array** `["Read","Bash"]`, not a string.
   - Implementation AC: Given `helm-chart-specialist`'s description, when generated, then its frontmatter parses.
 
-- [ ] **TRD-003-TEST** Unit tests for agent frontmatter emission (0.5h) `[verifies TRD-003] [satisfies REQ-002] [depends: TRD-003]`
+- [x] **TRD-003-TEST** Unit tests for agent frontmatter emission (0.5h) `[verifies TRD-003] [satisfies REQ-002] [depends: TRD-003]`
   - Validates PRD ACs: AC-002-1, AC-003-1
   - Implementation AC: Given an agent fixture with a colon in the description and a tool name containing a space, when generated, then `description` is a string and `tools` remains an array of the original elements.
 
-- [ ] **TRD-004** Create `scripts/lib/frontmatter-check.js` with `extractFrontmatter` and `checkFrontmatter` (1h) `[satisfies REQ-004] [satisfies REQ-006]`
+- [x] **TRD-004** Create `scripts/lib/frontmatter-check.js` with `extractFrontmatter` and `checkFrontmatter` (1h) `[satisfies REQ-004] [satisfies REQ-006]`
   - Validates PRD ACs: AC-004-1, AC-006-1
   - Implementation AC: Given content whose frontmatter fails to parse, when `checkFrontmatter` runs, then it throws a `GenerationError` whose message contains the source path and the js-yaml `reason` string.
   - Implementation AC: Given content with no `---` block at all, when `checkFrontmatter` runs, then it returns without throwing (absent frontmatter is not a defect).
 
-- [ ] **TRD-004-TEST** Unit tests for the check, one per PRD defect class (0.5h) `[verifies TRD-004] [satisfies REQ-004] [depends: TRD-004]`
+- [x] **TRD-004-TEST** Unit tests for the check, one per PRD defect class (0.5h) `[verifies TRD-004] [satisfies REQ-004] [depends: TRD-004]`
   - Validates PRD ACs: AC-004-1, AC-006-1
   - Implementation AC: Given one fixture per defect class (bracket-with-trailing, mid-string colon, column-0 continuation), when checked, then each throws and each message names its file.
 
-- [ ] **TRD-005** Call `checkFrontmatter` inside `generateMarkdown()` before returning (0.5h) `[satisfies REQ-004] [depends: TRD-004]`
+- [x] **TRD-005** Call `checkFrontmatter` inside `generateMarkdown()` before returning (0.5h) `[satisfies REQ-004] [depends: TRD-004]`
   - Validates PRD ACs: AC-004-1, AC-004-2
   - Implementation AC: Given a deliberately corrupted emitter, when `npm run generate` runs, then it exits non-zero and no artifact is written for the failing source.
   - Implementation AC: Given the corrected sources, when `npm run generate` runs, then it exits zero and reports 73/73 frontmatter blocks parsed.
 
-- [ ] **TRD-005-TEST** Test that generation fails closed (0.5h) `[verifies TRD-005] [satisfies REQ-004] [depends: TRD-005]`
+- [x] **TRD-005-TEST** Test that generation fails closed (0.5h) `[verifies TRD-005] [satisfies REQ-004] [depends: TRD-005]`
   - Validates PRD ACs: AC-004-1
   - Implementation AC: Given a stubbed transformer returning invalid frontmatter, when `generateMarkdown` is called, then it throws and `writeFileAtomic` is never reached.
 
-- [ ] **TRD-006** Add a repo-wide `packages/**/*.md` frontmatter walk to `validate-all.js` (1h) `[satisfies REQ-005] [depends: TRD-004]`
+- [x] **TRD-006** Add a repo-wide `packages/**/*.md` frontmatter walk to `validate-all.js` (1h) `[satisfies REQ-005] [depends: TRD-004]`
   - Validates PRD ACs: AC-005-1, AC-005-2, AC-005-3
   - Implementation AC: Given a committed artifact hand-edited to break its frontmatter, when `npm run validate` runs, then it exits non-zero and names that file.
   - Implementation AC: Given a broken artifact under `packages/pi` or `packages/codex`, when `npm run validate` runs, then it exits non-zero — the walk is not scoped to `scripts/lib`'s output.
   - Implementation AC: Given the repository after TRD-007, when `npm run validate` runs, then it exits zero.
 
-- [ ] **TRD-006-TEST** Test the validate-side walk over a temp fixture tree (0.5h) `[verifies TRD-006] [satisfies REQ-005] [depends: TRD-006]`
+- [x] **TRD-006-TEST** Test the validate-side walk over a temp fixture tree (0.5h) `[verifies TRD-006] [satisfies REQ-005] [depends: TRD-006]`
   - Validates PRD ACs: AC-005-1, AC-005-3
   - Implementation AC: Given a fixture tree with one broken artifact outside `commands/` and `agents/`, when the walk runs, then it is reported.
 
-- [ ] **TRD-007** Regenerate all artifacts and verify the repro is clean (0.5h) `[satisfies REQ-007] [satisfies REQ-009] [depends: TRD-002, TRD-003, TRD-005]`
+- [x] **TRD-007** Regenerate all artifacts and verify the repro is clean (0.5h) `[satisfies REQ-007] [satisfies REQ-009] [depends: TRD-002, TRD-003, TRD-005]`
   - Validates PRD ACs: AC-007-1, AC-007-2, AC-009-1
   - Implementation AC: Given the PR head, when the repro walk parses every generated command/agent frontmatter block, then 0 of 73 raise.
   - Implementation AC: Given the PR head, when `npm run generate` is re-run, then `git status` reports no changes.
   - Implementation AC: Given any previously-parseable artifact, when its diff is inspected, then every changed line lies inside the `---` frontmatter block.
 
-- [ ] **TRD-007-TEST** Assert the regenerated tree is clean and body-stable (0.5h) `[verifies TRD-007] [satisfies REQ-007] [depends: TRD-007]`
+- [x] **TRD-007-TEST** Assert the regenerated tree is clean and body-stable (0.5h) `[verifies TRD-007] [satisfies REQ-007] [depends: TRD-007]`
   - Validates PRD ACs: AC-007-1, AC-009-1
   - Implementation AC: Given every generated artifact, when the frontmatter block is stripped, then the remaining body is byte-identical to the pre-change body.
 
-- [ ] **TRD-008** Confirm the `last-updated` Date→string type change breaks no consumer (0.5h) `[satisfies REQ-009] [depends: TRD-002]`
+- [x] **TRD-008** Confirm the `last-updated` Date→string type change breaks no consumer (0.5h) `[satisfies REQ-009] [depends: TRD-002]`
   - Validates PRD ACs: AC-009-1
   - Implementation AC: Given a repo-wide search for readers of `last-updated`/`lastUpdated`, when run, then the only non-test match is the producer in `command-transformer.js` — recorded in the PR description. *(Pre-verified during design: one producer, zero consumers.)*
 
@@ -218,16 +218,16 @@ gets a build failure naming the file and the parser reason instead of a silently
 containing a colon instead of emitting frontmatter that would be dropped, and CI fails if any pi or
 codex artifact's frontmatter ever becomes unparseable.
 
-- [ ] **TRD-009** Replace pi's `descSafe` predicate with the unconditional fold-and-quote rule in `packages/pi/src/transformers/agent-transformer.ts`; rebuild `dist/` (1h) `[satisfies REQ-008] [depends: TRD-001]`
+- [x] **TRD-009** Replace pi's `descSafe` predicate with the unconditional fold-and-quote rule in `packages/pi/src/transformers/agent-transformer.ts`; rebuild `dist/` (1h) `[satisfies REQ-008] [depends: TRD-001]`
   - Validates PRD ACs: AC-008-1
   - Implementation AC: Given an agent description containing a mid-string `: `, when pi generates its artifact, then the frontmatter parses.
   - Implementation AC: Given a rebuilt `dist/`, when `npm run generate:pi` runs, then the regenerated agent artifacts carry quoted frontmatter. *(`dist/` is gitignored — the rebuild is local-only, there is no committed build output.)*
 
-- [ ] **TRD-009-TEST** Unit test for pi's agent frontmatter (0.5h) `[verifies TRD-009] [satisfies REQ-008] [depends: TRD-009]`
+- [x] **TRD-009-TEST** Unit test for pi's agent frontmatter (0.5h) `[verifies TRD-009] [satisfies REQ-008] [depends: TRD-009]`
   - Validates PRD ACs: AC-008-1
   - Implementation AC: Given the same eight adversarial inputs from TRD-001-TEST, when pi emits an agent frontmatter, then all eight round-trip.
 
-- [ ] **TRD-010** Full-suite regression confirmation (0.5h) `[satisfies REQ-010] [depends: TRD-007, TRD-009]`
+- [x] **TRD-010** Full-suite regression confirmation (0.5h) `[satisfies REQ-010] [depends: TRD-007, TRD-009]`
   - Validates PRD ACs: AC-010-1
   - Implementation AC: Given the PR head, when `npm test` runs, then no test fails that passes on `main`. Pre-existing `main` failures (`packages/product` `prd-parser.test.js`, `packages/router`'s Windows-incompatible `test` script) are recorded as out of scope in the PR description.
 
