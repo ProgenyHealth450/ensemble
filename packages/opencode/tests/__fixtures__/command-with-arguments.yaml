@@ -6,7 +6,7 @@ metadata:
   lastUpdated: "2026-02-16"
   category: planning
   output_path: ensemble/create-trd.md
-  source: fortium
+  source: sunstone
   model: opus
 
 constraints:

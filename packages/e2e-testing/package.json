@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-e2e-testing",
+  "name": "@sunstone-partners/ensemble-e2e-testing",
   "version": "5.2.1",
   "description": "End-to-end testing with Playwright integration",
   "main": "lib/index.js",
@@ -14,17 +14,17 @@
     "testing",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/e2e-testing"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0"
   }
 }

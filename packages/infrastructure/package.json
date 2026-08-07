@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-infrastructure",
+  "name": "@sunstone-partners/ensemble-infrastructure",
   "version": "5.3.0",
   "description": "Infrastructure management for AWS, Kubernetes, Docker, Helm, Fly.io",
   "main": "lib/index.js",
@@ -15,17 +15,17 @@
     "aws",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/infrastructure"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0"
   }
 }

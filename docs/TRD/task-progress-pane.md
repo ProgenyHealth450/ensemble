@@ -43,8 +43,8 @@ This Technical Requirements Document (TRD) provides the implementation blueprint
 
 | Aspect | Specification |
 |--------|---------------|
-| Package Name | `@fortium/ensemble-task-progress-pane` |
-| Shared Package | `@fortium/ensemble-multiplexer-adapters` (new) |
+| Package Name | `@sunstone-partners/ensemble-task-progress-pane` |
+| Shared Package | `@sunstone-partners/ensemble-multiplexer-adapters` (new) |
 | Language | JavaScript (Node.js) + Bash |
 | Runtime | Node.js 20+ (LTS) |
 | Test Framework | Vitest |
@@ -85,7 +85,7 @@ Format: `TPP-{sprint}-{category}-{number}`
 
 | Task ID | Description | Priority | Depends On | Status |
 |---------|-------------|----------|------------|--------|
-| TPP-S1-PKG-001 | Create @fortium/ensemble-multiplexer-adapters package structure | P0 | - | [ ] |
+| TPP-S1-PKG-001 | Create @sunstone-partners/ensemble-multiplexer-adapters package structure | P0 | - | [ ] |
 | TPP-S1-PKG-002 | Extract base-adapter.js to shared package | P0 | TPP-S1-PKG-001 | [ ] |
 | TPP-S1-PKG-003 | Extract wezterm-adapter.js to shared package | P0 | TPP-S1-PKG-002 | [ ] |
 | TPP-S1-PKG-004 | Extract zellij-adapter.js to shared package | P0 | TPP-S1-PKG-002 | [ ] |
@@ -252,7 +252,7 @@ Format: `TPP-{sprint}-{category}-{number}`
 │  ┌───────────────────────────────┼──────────────────────────────────────┼──┐│
 │  │                               ▼    Shared Package                    │  ││
 │  │                    ┌─────────────────────────────────────────┐       │  ││
-│  │                    │  @fortium/ensemble-multiplexer-adapters          │       │  ││
+│  │                    │  @sunstone-partners/ensemble-multiplexer-adapters          │       │  ││
 │  │                    │  packages/multiplexer-adapters/         │       │  ││
 │  │                    ├─────────────────────────────────────────┤       │  ││
 │  │                    │  MultiplexerDetector                    │       │  ││
@@ -315,7 +315,7 @@ Format: `TPP-{sprint}-{category}-{number}`
 └─────────────────────────────────────────────────────────────────────────────┘
 
                     ┌────────────────────────────────┐
-                    │ @fortium/ensemble-multiplexer-adapters  │
+                    │ @sunstone-partners/ensemble-multiplexer-adapters  │
                     │ packages/multiplexer-adapters/ │
                     │                                │
                     │ Exports:                       │
@@ -330,7 +330,7 @@ Format: `TPP-{sprint}-{category}-{number}`
               │                                     │
               ▼                                     ▼
 ┌─────────────────────────────┐     ┌─────────────────────────────┐
-│   @fortium/ensemble-pane-viewer      │     │ @fortium/ensemble-task-progress-pane │
+│   @sunstone-partners/ensemble-pane-viewer      │     │ @sunstone-partners/ensemble-task-progress-pane │
 │   packages/pane-viewer/     │     │ packages/task-progress-pane/│
 │                             │     │                             │
 │   Uses: MultiplexerDetector │     │   Uses: MultiplexerDetector │
@@ -406,7 +406,7 @@ Format: `TPP-{sprint}-{category}-{number}`
               ▼
 5. MULTIPLEXER SPLIT (via shared package)
    ┌────────────────────────┐
-   │ @fortium/ensemble-multiplexer-  │
+   │ @sunstone-partners/ensemble-multiplexer-  │
    │ adapters               │
    │ - Auto-detect mux      │
    │ - WezTerm: wezterm cli │
@@ -509,7 +509,7 @@ Estimated Lines of Code:
 
 ## Component Specifications
 
-### Component 0: @fortium/ensemble-multiplexer-adapters (Shared Package)
+### Component 0: @sunstone-partners/ensemble-multiplexer-adapters (Shared Package)
 
 **Purpose:** Shared terminal multiplexer detection and control
 
@@ -852,7 +852,7 @@ interface Session {
 **Interface:**
 
 ```javascript
-const { MultiplexerDetector } = require('@fortium/ensemble-multiplexer-adapters');
+const { MultiplexerDetector } = require('@sunstone-partners/ensemble-multiplexer-adapters');
 
 class TaskPaneManager {
   constructor(config) {
@@ -1257,7 +1257,7 @@ export default defineConfig({
 **Goal:** Extract shared adapters, establish plugin structure, and core data flow
 
 **Deliverables:**
-- [ ] @fortium/ensemble-multiplexer-adapters package created and working
+- [ ] @sunstone-partners/ensemble-multiplexer-adapters package created and working
 - [ ] pane-viewer updated to use shared package
 - [ ] task-progress-pane package structure created
 - [ ] task-parser.js complete with tests (Vitest)
@@ -1532,7 +1532,7 @@ export default defineConfig({
 
 | Dependency | Risk | Mitigation |
 |------------|------|------------|
-| @fortium/ensemble-multiplexer-adapters | Internal package changes | Version pinning, integration tests |
+| @sunstone-partners/ensemble-multiplexer-adapters | Internal package changes | Version pinning, integration tests |
 | Claude Code hook system | API changes | Follow documented patterns |
 | Terminal multiplexers | Version differences | Test across versions |
 | Node.js | Version compatibility | Require Node 20 LTS |
@@ -1627,7 +1627,7 @@ TPP-S1-PKG-001 (Shared package structure)
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0.0 | 2025-12-12 | Ensemble Team | Initial TRD |
-| 1.1.0 | 2025-12-12 | Ensemble Team | Refined based on technical review: Added shared @fortium/ensemble-multiplexer-adapters package (7 new tasks), inotifywait + polling fallback for state watching, 50ms debounce for rapid updates, tool_use_id as session identifier, failed tasks included in progress calculation (reduce %), Vitest as test framework, Node.js 20 LTS requirement, CI/CD out of scope |
+| 1.1.0 | 2025-12-12 | Ensemble Team | Refined based on technical review: Added shared @sunstone-partners/ensemble-multiplexer-adapters package (7 new tasks), inotifywait + polling fallback for state watching, 50ms debounce for rapid updates, tool_use_id as session identifier, failed tasks included in progress calculation (reduce %), Vitest as test framework, Node.js 20 LTS requirement, CI/CD out of scope |
 
 ---
 
@@ -1635,7 +1635,7 @@ TPP-S1-PKG-001 (Shared package structure)
 
 **Technical Decisions Summary:**
 - State watching: inotifywait with 200ms polling fallback
-- Adapter sharing: New @fortium/ensemble-multiplexer-adapters package
+- Adapter sharing: New @sunstone-partners/ensemble-multiplexer-adapters package
 - Test framework: Vitest
 - Session ID: tool_use_id from hook input
 - Debouncing: 50ms window for rapid updates
@@ -1649,7 +1649,7 @@ TPP-S1-PKG-001 (Shared package structure)
 - [ ] Security Review
 
 **Next Steps:**
-1. Create @fortium/ensemble-multiplexer-adapters package (TPP-S1-PKG-001)
+1. Create @sunstone-partners/ensemble-multiplexer-adapters package (TPP-S1-PKG-001)
 2. Extract adapters from pane-viewer
 3. Update pane-viewer to use shared package
 4. Begin task-progress-pane implementation

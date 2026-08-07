@@ -1,6 +1,6 @@
 /**
  * Quality Assurance Plugin
- * @fortium/ensemble-quality
+ * @sunstone-partners/ensemble-quality
  *
  * Security-enhanced code review with DoD enforcement and quality gates
  */

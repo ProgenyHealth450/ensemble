@@ -1,6 +1,6 @@
 /**
  * xUnit Testing Skill
- * @fortium/ensemble-xunit
+ * @sunstone-partners/ensemble-xunit
  *
  * Provides xUnit test generation and execution for C#/.NET projects
  */

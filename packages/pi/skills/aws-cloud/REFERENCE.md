@@ -2706,7 +2706,7 @@ aws s3api head-object --bucket bucket-name --key path/to/file
 
 - **Version**: 1.0.0
 - **Last Updated**: October 2025
-- **Maintainer**: Fortium Infrastructure Team
+- **Maintainer**: Sunstone Infrastructure Team
 - **Terraform Compatibility**: ≥1.5.0
 - **AWS Provider**: ≥5.0.0
 - **Total Reference Size**: ~200KB

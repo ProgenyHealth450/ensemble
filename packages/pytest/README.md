@@ -1,11 +1,11 @@
-# @fortium/ensemble-pytest
+# @sunstone-partners/ensemble-pytest
 
 pytest testing framework integration for Claude Code - Execute and generate Python tests with fixtures, parametrization, and mocking support.
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-pytest
+claude plugin install @sunstone-partners/ensemble-pytest
 ```
 
 Or via marketplace:
@@ -296,11 +296,11 @@ def test_exception():
 
 - **Skills Reference**: See `skills/SKILL.md` for quick reference
 - **Comprehensive Guide**: See `skills/REFERENCE.md` for detailed patterns
-- **Main Repository**: [ensemble](https://github.com/FortiumPartners/ensemble)
+- **Main Repository**: [ensemble](https://github.com/Sunstone-Partners/ensemble)
 
 ## Support
 
-For issues, questions, or contributions, please visit the [ensemble repository](https://github.com/FortiumPartners/ensemble).
+For issues, questions, or contributions, please visit the [ensemble repository](https://github.com/Sunstone-Partners/ensemble).
 
 ## License
 
@@ -308,4 +308,4 @@ MIT
 
 ---
 
-Part of the [ensemble plugin ecosystem](https://github.com/FortiumPartners/ensemble) - Modular, composable plugins for Claude Code.
+Part of the [ensemble plugin ecosystem](https://github.com/Sunstone-Partners/ensemble) - Modular, composable plugins for Claude Code.

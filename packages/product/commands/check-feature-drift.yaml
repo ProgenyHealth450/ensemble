@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-29"
   category: quality
   output_path: ensemble/check-feature-drift.md
-  source: fortium
+  source: sunstone
   model: low
   argument_hint: "[prd-path] [--out <dir>]"
 

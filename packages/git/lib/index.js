@@ -1,6 +1,6 @@
 /**
  * Git Workflow Plugin
- * @fortium/ensemble-git
+ * @sunstone-partners/ensemble-git
  *
  * Enhanced git operations with conventional commits, semantic versioning, and safety protocols
  */

@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- peerDependencies documentation for `@fortium/ensemble-full` (optional, >=5.0.0)
+- peerDependencies documentation for `@sunstone-partners/ensemble-full` (optional, >=5.0.0)
 - README section explaining skill dependencies and standalone usage
 
 ## [5.0.0] - 2025-12-28

@@ -3,7 +3,7 @@
 **Version**: 1.0.0
 **Date**: 2025-12-10
 **Status**: Active
-**Owner**: Fortium Partners Engineering Team
+**Owner**: Sunstone Partners Engineering Team
 
 ## Table of Contents
 
@@ -83,7 +83,7 @@ Increment MAJOR when introducing changes that require user action:
 **Plugin-Specific Examples:**
 
 ```javascript
-// @fortium/ensemble-core: MAJOR bump
+// @sunstone-partners/ensemble-core: MAJOR bump
 // Before (v3.x.x):
 orchestrator.delegate(agentName, task)
 
@@ -92,7 +92,7 @@ orchestrator.delegate({ agent: agentName, task, priority: 'normal' })
 ```
 
 ```yaml
-# @fortium/ensemble-pane-viewer: MAJOR bump
+# @sunstone-partners/ensemble-pane-viewer: MAJOR bump
 # Before (v0.x.x):
 hooks:
   pre_tool_use: true
@@ -127,14 +127,14 @@ Increment MINOR when adding backward-compatible functionality:
 **Plugin-Specific Examples:**
 
 ```javascript
-// @fortium/ensemble-infrastructure: MINOR bump (v2.2.0)
+// @sunstone-partners/ensemble-infrastructure: MINOR bump (v2.2.0)
 // Added: Fly.io detection without breaking existing AWS/K8s detection
 skills.detect.flyio()  // NEW
 skills.detect.aws()    // UNCHANGED
 ```
 
 ```yaml
-# @fortium/ensemble-nestjs: MINOR bump (v1.5.0)
+# @sunstone-partners/ensemble-nestjs: MINOR bump (v1.5.0)
 # Added: GraphQL federation support
 features:
   rest_api: true        # EXISTING
@@ -167,13 +167,13 @@ Increment PATCH for backward-compatible fixes:
 **Plugin-Specific Examples:**
 
 ```javascript
-// @fortium/ensemble-jest: PATCH bump (v1.2.3)
+// @sunstone-partners/ensemble-jest: PATCH bump (v1.2.3)
 // Fixed: Test file detection now handles .test.ts files
 // Impact: No API changes, just correct behavior
 ```
 
 ```yaml
-# @fortium/ensemble-react: PATCH bump (v2.1.4)
+# @sunstone-partners/ensemble-react: PATCH bump (v2.1.4)
 # Fixed: Hook dependency detection for React 18.3+
 # Impact: Silent fix, no user action required
 ```
@@ -198,13 +198,13 @@ Pre-release versions follow this progression:
 **Usage:**
 ```bash
 # Install latest stable
-npm install @fortium/ensemble-core
+npm install @sunstone-partners/ensemble-core
 
 # Opt-in to beta testing
-npm install @fortium/ensemble-core@beta
+npm install @sunstone-partners/ensemble-core@beta
 
 # Install specific pre-release
-npm install @fortium/ensemble-core@4.0.0-rc.1
+npm install @sunstone-partners/ensemble-core@4.0.0-rc.1
 ```
 
 ### 2.4 Special Cases
@@ -214,7 +214,7 @@ npm install @fortium/ensemble-core@4.0.0-rc.1
 Per SemVer, `0.y.z` indicates initial development where anything may change:
 
 - **0.y.z**: APIs unstable, breaking changes allowed in MINOR versions
-- **Applies to**: New experimental plugins (e.g., `@fortium/ensemble-pane-viewer@0.1.0`)
+- **Applies to**: New experimental plugins (e.g., `@sunstone-partners/ensemble-pane-viewer@0.1.0`)
 - **Graduation**: Once stable, bump to 1.0.0 with compatibility guarantees
 
 #### Pre-1.0 Version Strategy
@@ -239,14 +239,14 @@ Plugins declare peer dependencies for cross-plugin compatibility:
 
 ```json
 {
-  "name": "@fortium/ensemble-react",
+  "name": "@sunstone-partners/ensemble-react",
   "version": "2.3.0",
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0",
-    "@fortium/ensemble-development": "^3.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0",
+    "@sunstone-partners/ensemble-development": "^3.0.0"
   },
   "peerDependenciesMeta": {
-    "@fortium/ensemble-development": {
+    "@sunstone-partners/ensemble-development": {
       "optional": true
     }
   }
@@ -258,7 +258,7 @@ Plugins declare peer dependencies for cross-plugin compatibility:
 **Caret Ranges (^) - Default for Peer Dependencies:**
 
 ```json
-"@fortium/ensemble-core": "^4.0.0"
+"@sunstone-partners/ensemble-core": "^4.0.0"
 ```
 
 **Accepts**: 4.0.0, 4.1.0, 4.9.9
@@ -268,7 +268,7 @@ Plugins declare peer dependencies for cross-plugin compatibility:
 **Tilde Ranges (~) - Conservative Updates:**
 
 ```json
-"@fortium/ensemble-metrics": "~2.3.0"
+"@sunstone-partners/ensemble-metrics": "~2.3.0"
 ```
 
 **Accepts**: 2.3.0, 2.3.1, 2.3.9
@@ -278,7 +278,7 @@ Plugins declare peer dependencies for cross-plugin compatibility:
 **Exact Versions - Maximum Stability:**
 
 ```json
-"@fortium/ensemble-orchestrator": "3.2.1"
+"@sunstone-partners/ensemble-orchestrator": "3.2.1"
 ```
 
 **Accepts**: 3.2.1 only
@@ -287,7 +287,7 @@ Plugins declare peer dependencies for cross-plugin compatibility:
 **Wildcard Ranges (*) - Maximum Flexibility:**
 
 ```json
-"@fortium/ensemble-exunit": "*"
+"@sunstone-partners/ensemble-exunit": "*"
 ```
 
 **Accepts**: Any version
@@ -307,7 +307,7 @@ The monorepo maintains a compatibility matrix in `COMPATIBILITY.md`:
 
 **Compatibility Rules:**
 
-1. **Core Plugin**: All other plugins declare `@fortium/ensemble-core` as peer dependency
+1. **Core Plugin**: All other plugins declare `@sunstone-partners/ensemble-core` as peer dependency
 2. **Orchestrators**: Must be compatible with current core version
 3. **Specialists**: Can lag one MAJOR version behind core
 4. **Framework Plugins**: Independent versioning, declare core peer dependency
@@ -317,14 +317,14 @@ The monorepo maintains a compatibility matrix in `COMPATIBILITY.md`:
 
 When a plugin introduces breaking changes, downstream impact follows this protocol:
 
-**Scenario**: `@fortium/ensemble-core` releases v5.0.0 with breaking API changes
+**Scenario**: `@sunstone-partners/ensemble-core` releases v5.0.0 with breaking API changes
 
 **Immediate Impact (Within 1 week):**
-- `@fortium/ensemble-orchestrator` → v4.0.0 (adapts to new core API)
-- `@fortium/ensemble-development` → v4.0.0 (adapts to new core API)
+- `@sunstone-partners/ensemble-orchestrator` → v4.0.0 (adapts to new core API)
+- `@sunstone-partners/ensemble-development` → v4.0.0 (adapts to new core API)
 
 **Short-term Impact (Within 1 month):**
-- `@fortium/ensemble-quality` → v3.0.0 (adapts to new orchestrator API)
+- `@sunstone-partners/ensemble-quality` → v3.0.0 (adapts to new orchestrator API)
 - All specialist plugins → MINOR version bumps (transparent adaptation)
 
 **Long-term Impact (Within 3 months):**
@@ -334,9 +334,9 @@ When a plugin introduces breaking changes, downstream impact follows this protoc
 **Communication:**
 ```bash
 # Users receive clear upgrade guidance:
-npm WARN @fortium/ensemble-core@5.0.0 requires @fortium/ensemble-orchestrator@^4.0.0
-npm WARN Current: @fortium/ensemble-orchestrator@3.5.2
-npm WARN Run: npm update @fortium/ensemble-orchestrator
+npm WARN @sunstone-partners/ensemble-core@5.0.0 requires @sunstone-partners/ensemble-orchestrator@^4.0.0
+npm WARN Current: @sunstone-partners/ensemble-orchestrator@3.5.2
+npm WARN Run: npm update @sunstone-partners/ensemble-orchestrator
 ```
 
 ---
@@ -427,24 +427,24 @@ async function shouldAutoUpdate(plugin, currentVersion, latestVersion) {
 # On Claude Code startup or scheduled check
 [ensemble] Checking for updates...
 [ensemble] Found 3 available updates:
-  - @fortium/ensemble-core: 4.2.0 → 4.2.1 (patch, security)
-  - @fortium/ensemble-react: 2.5.0 → 2.6.0 (minor, features)
-  - @fortium/ensemble-nestjs: 3.0.0 → 4.0.0 (major, breaking)
+  - @sunstone-partners/ensemble-core: 4.2.0 → 4.2.1 (patch, security)
+  - @sunstone-partners/ensemble-react: 2.5.0 → 2.6.0 (minor, features)
+  - @sunstone-partners/ensemble-nestjs: 3.0.0 → 4.0.0 (major, breaking)
 ```
 
 **Step 2: Analysis**
 ```bash
 [ensemble] Auto-update policy applied:
-  ✓ @fortium/ensemble-core: Installing 4.2.1 (security patch)
-  ✓ @fortium/ensemble-react: Installing 2.6.0 (new features)
-  ! @fortium/ensemble-nestjs: Manual upgrade required (breaking changes)
+  ✓ @sunstone-partners/ensemble-core: Installing 4.2.1 (security patch)
+  ✓ @sunstone-partners/ensemble-react: Installing 2.6.0 (new features)
+  ! @sunstone-partners/ensemble-nestjs: Manual upgrade required (breaking changes)
 ```
 
 **Step 3: Installation**
 ```bash
 [ensemble] Installing updates...
-  ✓ @fortium/ensemble-core@4.2.1 (completed in 1.2s)
-  ✓ @fortium/ensemble-react@2.6.0 (completed in 0.8s)
+  ✓ @sunstone-partners/ensemble-core@4.2.1 (completed in 1.2s)
+  ✓ @sunstone-partners/ensemble-react@2.6.0 (completed in 0.8s)
 
 [ensemble] ✓ 2 plugins updated successfully
 [ensemble] ! 1 plugin requires manual upgrade (see upgrade guide)
@@ -470,9 +470,9 @@ async function shouldAutoUpdate(plugin, currentVersion, latestVersion) {
 
 **Rollback Process:**
 ```bash
-[ensemble] ERROR: @fortium/ensemble-core@4.2.1 failed health check
+[ensemble] ERROR: @sunstone-partners/ensemble-core@4.2.1 failed health check
 [ensemble] Initiating automatic rollback...
-  ✓ Restored @fortium/ensemble-core@4.2.0
+  ✓ Restored @sunstone-partners/ensemble-core@4.2.0
   ✓ Configuration reverted
   ✓ System stable
 
@@ -483,10 +483,10 @@ async function shouldAutoUpdate(plugin, currentVersion, latestVersion) {
 **Manual Rollback:**
 ```bash
 # User-initiated rollback
-ensemble rollback @fortium/ensemble-core
+ensemble rollback @sunstone-partners/ensemble-core
 
 # Rollback to specific version
-ensemble install @fortium/ensemble-core@4.1.5
+ensemble install @sunstone-partners/ensemble-core@4.1.5
 
 # Rollback all updates from today
 ensemble rollback --since today
@@ -500,7 +500,7 @@ ensemble rollback --since today
 {
   "lastCheck": "2025-12-10T14:30:00Z",
   "cache": {
-    "@fortium/ensemble-core": {
+    "@sunstone-partners/ensemble-core": {
       "current": "4.2.0",
       "latest": "4.2.1",
       "latestMajor": "4.2.1",
@@ -669,7 +669,7 @@ For plugins requiring manual release (e.g., experimental features):
 git status
 
 # Step 2: Run tests
-npm test --workspace=@fortium/ensemble-core
+npm test --workspace=@sunstone-partners/ensemble-core
 
 # Step 3: Version bump
 cd packages/core
@@ -681,7 +681,7 @@ npm version minor  # or major/patch
 # Step 5: Commit and tag
 git add .
 git commit -m "chore(core): release v4.3.0"
-git tag @fortium/ensemble-core@4.3.0
+git tag @sunstone-partners/ensemble-core@4.3.0
 
 # Step 6: Publish
 npm publish --access public
@@ -690,7 +690,7 @@ npm publish --access public
 git push --follow-tags
 
 # Step 8: Create GitHub Release
-gh release create @fortium/ensemble-core@4.3.0 \
+gh release create @sunstone-partners/ensemble-core@4.3.0 \
   --title "Core v4.3.0: Advanced Delegation" \
   --notes-file packages/core/CHANGELOG.md
 ```
@@ -700,7 +700,7 @@ gh release create @fortium/ensemble-core@4.3.0 \
 **Automated Changelog Format:**
 
 ```markdown
-# @fortium/ensemble-core
+# @sunstone-partners/ensemble-core
 
 ## [4.3.0] - 2025-12-10
 
@@ -729,16 +729,16 @@ gh release create @fortium/ensemble-core@4.3.0 \
   // After (v4.x)
   orchestrator.delegate({ agent: 'backend-developer', task, priority: 'normal' })
   ```
-  **Migration**: Run codemod: `npx @fortium/ensemble-codemod v3-to-v4-delegate`
+  **Migration**: Run codemod: `npx @sunstone-partners/ensemble-codemod v3-to-v4-delegate`
 
-[4.3.0]: https://github.com/FortiumPartners/ensemble/compare/@fortium/ensemble-core@4.2.0...@fortium/ensemble-core@4.3.0
+[4.3.0]: https://github.com/Sunstone-Partners/ensemble/compare/@sunstone-partners/ensemble-core@4.2.0...@sunstone-partners/ensemble-core@4.3.0
 ```
 
 ### 5.5 GitHub Release Automation
 
 **Release Asset Structure:**
 ```
-Release @fortium/ensemble-core@4.3.0
+Release @sunstone-partners/ensemble-core@4.3.0
 ├── ensemble-core-4.3.0.tgz          # npm package tarball
 ├── CHANGELOG.md                    # Full changelog
 ├── MIGRATION-v3-to-v4.md          # Migration guide
@@ -818,29 +818,29 @@ Plugins maintain compatibility across version ranges:
 
 **Tier 1: Core Plugins** (strict compatibility)
 ```
-@fortium/ensemble-core@4.0.0 requires:
-  - @fortium/ensemble-orchestrator@^3.0.0
-  - @fortium/ensemble-development@^3.0.0
-  - @fortium/ensemble-quality@^2.0.0
+@sunstone-partners/ensemble-core@4.0.0 requires:
+  - @sunstone-partners/ensemble-orchestrator@^3.0.0
+  - @sunstone-partners/ensemble-development@^3.0.0
+  - @sunstone-partners/ensemble-quality@^2.0.0
 ```
 
 **Tier 2: Workflow Plugins** (flexible compatibility)
 ```
-@fortium/ensemble-product@2.0.0 requires:
-  - @fortium/ensemble-core@^3.5.0 || ^4.0.0
+@sunstone-partners/ensemble-product@2.0.0 requires:
+  - @sunstone-partners/ensemble-core@^3.5.0 || ^4.0.0
 ```
 
 **Tier 3: Framework Plugins** (loose compatibility)
 ```
-@fortium/ensemble-react@2.5.0 requires:
-  - @fortium/ensemble-core@^4.0.0
-  - @fortium/ensemble-development@* (optional)
+@sunstone-partners/ensemble-react@2.5.0 requires:
+  - @sunstone-partners/ensemble-core@^4.0.0
+  - @sunstone-partners/ensemble-development@* (optional)
 ```
 
 **Tier 4: Testing Plugins** (maximum compatibility)
 ```
-@fortium/ensemble-jest@1.4.0 requires:
-  - @fortium/ensemble-core@^3.0.0 || ^4.0.0
+@sunstone-partners/ensemble-jest@1.4.0 requires:
+  - @sunstone-partners/ensemble-core@^3.0.0 || ^4.0.0
   - jest@^27.0.0 || ^28.0.0 || ^29.0.0
 ```
 
@@ -873,7 +873,7 @@ function delegate(agent, task) {
 function delegate(agent, task) {
   console.error(
     'DEPRECATED (Removal in v5.0.0): delegate(agent, task) is deprecated. ' +
-    'Auto-migrate with: npx @fortium/ensemble-codemod v4-to-v5-delegate'
+    'Auto-migrate with: npx @sunstone-partners/ensemble-codemod v4-to-v5-delegate'
   );
   return delegateNew({ agent, task });
 }
@@ -922,13 +922,13 @@ module.exports = function transformer(file, api) {
 **Usage:**
 ```bash
 # Dry run (preview changes)
-npx @fortium/ensemble-codemod v4-to-v5-delegate --dry
+npx @sunstone-partners/ensemble-codemod v4-to-v5-delegate --dry
 
 # Apply migration
-npx @fortium/ensemble-codemod v4-to-v5-delegate
+npx @sunstone-partners/ensemble-codemod v4-to-v5-delegate
 
 # Apply to specific directory
-npx @fortium/ensemble-codemod v4-to-v5-delegate --path ./src
+npx @sunstone-partners/ensemble-codemod v4-to-v5-delegate --path ./src
 ```
 
 ### 7.3 Migration Guides
@@ -960,7 +960,7 @@ orchestrator.delegate({ agent: 'backend-developer', task, priority: 'normal' });
 
 **Migration:**
 ```bash
-npx @fortium/ensemble-codemod v4-to-v5-delegate
+npx @sunstone-partners/ensemble-codemod v4-to-v5-delegate
 ```
 
 ### 2. Configuration Schema (Power Users)
@@ -998,13 +998,13 @@ ensemble validate-config --migration-mode v4-to-v5
 
 ### Step 1: Update Dependencies
 ```bash
-npm install @fortium/ensemble-core@^5.0.0
-npm install @fortium/ensemble-orchestrator@^4.0.0
+npm install @sunstone-partners/ensemble-core@^5.0.0
+npm install @sunstone-partners/ensemble-orchestrator@^4.0.0
 ```
 
 ### Step 2: Run Codemods
 ```bash
-npx @fortium/ensemble-codemod v4-to-v5 --all
+npx @sunstone-partners/ensemble-codemod v4-to-v5 --all
 ```
 
 ### Step 3: Update Configuration
@@ -1026,13 +1026,13 @@ ensemble rollback --to v4
 ## Compatibility Layer
 For gradual migration, install compatibility layer:
 ```bash
-npm install @fortium/ensemble-compat-v4
+npm install @sunstone-partners/ensemble-compat-v4
 ```
 
 ## Support
-- Migration issues: https://github.com/FortiumPartners/ensemble/discussions
+- Migration issues: https://github.com/Sunstone-Partners/ensemble/discussions
 - Documentation: https://docs.ensemble.dev/migrations/v4-to-v5
-- Support: support@fortiumpartners.com
+- Support: info@sunstonepartners.com
 ```
 
 ### 7.4 Sunset Timeline
@@ -1063,7 +1063,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 
 ### 8.1 Tier 1: Core Plugins
 
-**Plugins**: `@fortium/ensemble-core`, `@fortium/ensemble-orchestrator`, `@fortium/ensemble-development`, `@fortium/ensemble-quality`
+**Plugins**: `@sunstone-partners/ensemble-core`, `@sunstone-partners/ensemble-orchestrator`, `@sunstone-partners/ensemble-development`, `@sunstone-partners/ensemble-quality`
 
 **Versioning Policy:**
 - **Stability First**: Breaking changes require RFC (Request for Comments) process
@@ -1074,7 +1074,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 **Example:**
 ```json
 {
-  "name": "@fortium/ensemble-core",
+  "name": "@sunstone-partners/ensemble-core",
   "version": "4.5.2",
   "releasePolicy": {
     "stabilityIndex": "stable",
@@ -1087,7 +1087,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 
 ### 8.2 Tier 2: Workflow Plugins
 
-**Plugins**: `@fortium/ensemble-product`, `@fortium/ensemble-git`, `@fortium/ensemble-infrastructure`
+**Plugins**: `@sunstone-partners/ensemble-product`, `@sunstone-partners/ensemble-git`, `@sunstone-partners/ensemble-infrastructure`
 
 **Versioning Policy:**
 - **Iterative Development**: Faster release cycle (monthly)
@@ -1098,7 +1098,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 **Example:**
 ```json
 {
-  "name": "@fortium/ensemble-product",
+  "name": "@sunstone-partners/ensemble-product",
   "version": "2.8.0",
   "releasePolicy": {
     "stabilityIndex": "stable",
@@ -1110,7 +1110,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 
 ### 8.3 Tier 3: Framework Plugins
 
-**Plugins**: `@fortium/ensemble-react`, `@fortium/ensemble-nestjs`, `@fortium/ensemble-phoenix`, etc.
+**Plugins**: `@sunstone-partners/ensemble-react`, `@sunstone-partners/ensemble-nestjs`, `@sunstone-partners/ensemble-phoenix`, etc.
 
 **Versioning Policy:**
 - **Framework-Aligned**: Versions track supported framework versions
@@ -1121,7 +1121,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 **Example:**
 ```json
 {
-  "name": "@fortium/ensemble-react",
+  "name": "@sunstone-partners/ensemble-react",
   "version": "2.5.3",
   "releasePolicy": {
     "stabilityIndex": "stable",
@@ -1134,7 +1134,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 
 ### 8.4 Tier 4: Testing Plugins
 
-**Plugins**: `@fortium/ensemble-jest`, `@fortium/ensemble-playwright`, `@fortium/ensemble-e2e-testing`
+**Plugins**: `@sunstone-partners/ensemble-jest`, `@sunstone-partners/ensemble-playwright`, `@sunstone-partners/ensemble-e2e-testing`
 
 **Versioning Policy:**
 - **Test Framework Compatibility**: Support multiple framework versions
@@ -1145,7 +1145,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 **Example:**
 ```json
 {
-  "name": "@fortium/ensemble-jest",
+  "name": "@sunstone-partners/ensemble-jest",
   "version": "1.6.0",
   "releasePolicy": {
     "stabilityIndex": "stable",
@@ -1174,7 +1174,7 @@ Example: A feature deprecated in v4.0.0 must remain functional (with warnings) t
 
 ```bash
 # Hour 0: Vulnerability disclosed
-[SECURITY] CVE-2025-XXXX: Critical RCE in @fortium/ensemble-core@4.5.0-4.5.2
+[SECURITY] CVE-2025-XXXX: Critical RCE in @sunstone-partners/ensemble-core@4.5.0-4.5.2
 
 # Hour 1: Fix developed and tested
 git checkout -b hotfix/CVE-2025-XXXX
@@ -1189,8 +1189,8 @@ git push --tags
 
 # Hour 3: User notification
 # All users receive immediate notification on next Claude Code startup
-[SECURITY ALERT] Critical update available for @fortium/ensemble-core
-[SECURITY ALERT] Installing @fortium/ensemble-core@4.5.3 (fixes CVE-2025-XXXX)
+[SECURITY ALERT] Critical update available for @sunstone-partners/ensemble-core
+[SECURITY ALERT] Installing @sunstone-partners/ensemble-core@4.5.3 (fixes CVE-2025-XXXX)
 [SECURITY ALERT] Update completed. System secure.
 
 # Hour 4: Post-mortem and disclosure
@@ -1250,7 +1250,7 @@ In rare cases, a hotfix may include breaking changes (e.g., disabling insecure f
 
 **Example:**
 ```javascript
-// @fortium/ensemble-core@4.5.3 (hotfix with breaking change)
+// @sunstone-partners/ensemble-core@4.5.3 (hotfix with breaking change)
 
 // BREAKING: Insecure delegateUnsafe() method removed due to CVE-2025-XXXX
 // Migration: Use delegate() with proper authentication
@@ -1324,7 +1324,7 @@ Development → Alpha → Beta → RC → Stable → LTS → Security-Only → E
 ### 10.3 Version Support Timeline Example
 
 ```
-Timeline for @fortium/ensemble-core:
+Timeline for @sunstone-partners/ensemble-core:
 
 2024-01-01: v3.0.0 released (Stable)
 2024-07-01: v4.0.0 released (Stable) → v3.x.x enters LTS
@@ -1428,5 +1428,5 @@ Is this a breaking change?
 **Document Version**: 1.0.0
 **Last Updated**: 2025-12-10
 **Next Review**: 2025-03-10 (Quarterly)
-**Maintained By**: Fortium Partners Engineering Team
-**Feedback**: https://github.com/FortiumPartners/ensemble/discussions
+**Maintained By**: Sunstone Partners Engineering Team
+**Feedback**: https://github.com/Sunstone-Partners/ensemble/discussions

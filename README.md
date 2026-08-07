@@ -75,7 +75,7 @@ In Claude Code, run:
 
 ```
 # Add the Ensemble marketplace
-/plugin marketplace add FortiumPartners/ensemble
+/plugin marketplace add Sunstone-Partners/ensemble
 
 # Install the full bundle (all plugins)
 /plugin install ensemble-full@ensemble
@@ -114,7 +114,7 @@ For local development or testing, use the `--plugin-dir` flag:
 
 ```bash
 # Clone the repository
-git clone https://github.com/FortiumPartners/ensemble.git
+git clone https://github.com/Sunstone-Partners/ensemble.git
 
 # Run Claude Code with a local plugin
 claude --plugin-dir ./ensemble/packages/core
@@ -275,7 +275,7 @@ ensemble/
 
 ```bash
 # Clone repository
-git clone https://github.com/FortiumPartners/ensemble.git
+git clone https://github.com/Sunstone-Partners/ensemble.git
 cd ensemble
 
 # Install dependencies
@@ -416,10 +416,10 @@ MIT - See [LICENSE](LICENSE) for details.
 
 ## Support
 
-- **Documentation**: [https://github.com/FortiumPartners/ensemble](https://github.com/FortiumPartners/ensemble)
-- **Issues**: [GitHub Issues](https://github.com/FortiumPartners/ensemble/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/FortiumPartners/ensemble/discussions)
-- **Email**: support@fortiumpartners.com
+- **Documentation**: [https://github.com/Sunstone-Partners/ensemble](https://github.com/Sunstone-Partners/ensemble)
+- **Issues**: [GitHub Issues](https://github.com/Sunstone-Partners/ensemble/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Sunstone-Partners/ensemble/discussions)
+- **Email**: info@sunstonepartners.com
 
 ## Acknowledgments
 
@@ -435,4 +435,4 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and release notes.
 
 ---
 
-**Maintained by Fortium Partners** | [Website](https://fortiumpartners.com) | [GitHub](https://github.com/FortiumPartners)
+**Maintained by Sunstone Partners** | [Website](https://sunstonepartners.com) | [GitHub](https://github.com/Sunstone-Partners)

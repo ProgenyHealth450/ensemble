@@ -1,6 +1,6 @@
 /**
  * ExUnit Testing Skill
- * @fortium/ensemble-exunit
+ * @sunstone-partners/ensemble-exunit
  *
  * Provides ExUnit test generation and execution for Elixir projects
  */

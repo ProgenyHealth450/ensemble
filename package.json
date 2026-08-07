@@ -41,8 +41,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git"
+    "url": "https://github.com/Sunstone-Partners/ensemble.git"
   },
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT"
 }

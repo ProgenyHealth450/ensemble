@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2025-10-13"
   category: testing
   output_path: ensemble/playwright-test.md
-  source: fortium
+  source: sunstone
 
 mission:
   summary: |

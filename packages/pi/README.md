@@ -1,4 +1,4 @@
-# @fortium/ensemble-pi
+# @sunstone-partners/ensemble-pi
 
 Pi runtime support — translates Ensemble YAML sources into Pi coding agent artifacts.
 
@@ -17,7 +17,7 @@ The generated output lives inside this package and is loaded by Pi at runtime vi
 **From the Pi package registry:**
 
 ```bash
-pi install @fortium/ensemble-pi
+pi install @sunstone-partners/ensemble-pi
 ```
 
 **Local development install:**
@@ -111,9 +111,9 @@ Ensemble YAML sources (packages/*/commands/*.yaml, agents/*.yaml, skills/)
 - **agents-md-generator** — extracts the agent mesh overview from `packages/CLAUDE.md`
 ## Contributing
 
-Bug reports and feature requests: [https://github.com/FortiumPartners/ensemble/issues](https://github.com/FortiumPartners/ensemble/issues)
+Bug reports and feature requests: [https://github.com/Sunstone-Partners/ensemble/issues](https://github.com/Sunstone-Partners/ensemble/issues)
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for
 development conventions, commit standards, and the PR process.
 
 ## License

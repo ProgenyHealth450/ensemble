@@ -1,6 +1,6 @@
 /**
  * Infrastructure Plugin
- * @fortium/ensemble-infrastructure
+ * @sunstone-partners/ensemble-infrastructure
  *
  * Cloud-agnostic infrastructure automation with deployment orchestration
  */

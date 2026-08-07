@@ -1,11 +1,11 @@
-# @fortium/ensemble-exunit
+# @sunstone-partners/ensemble-exunit
 
 ExUnit testing framework integration for Elixir
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-exunit
+claude plugin install @sunstone-partners/ensemble-exunit
 ```
 
 ## Description
@@ -22,7 +22,7 @@ After installation, this plugin's agents, commands, and skills will be automatic
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 

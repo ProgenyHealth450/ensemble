@@ -30,17 +30,17 @@
 Ensemble's full-lifecycle development workflows — PRD/TRD creation, implementation orchestration, code review, git automation, and quality pipelines — are only available to Claude Code and OpenCode users. Pi, a rapidly growing open-source coding agent with 28k+ stars, 15+ providers, and an extensible package ecosystem, has no equivalent workflow suite. Pi developers either work without structured workflows or build their own from scratch.
 
 **Solution Overview:**
-Add `packages/pi` to the Ensemble monorepo — a translation layer that reads Ensemble's YAML command definitions (the single source of truth) and generates Pi-compatible artifacts: prompt templates, agent definitions, SKILL.md files, and a TypeScript extension bundle. The generated artifacts are published to npm as `@fortium/ensemble-pi` with the `pi-package` keyword, installable with a single `pi install` command.
+Add `packages/pi` to the Ensemble monorepo — a translation layer that reads Ensemble's YAML command definitions (the single source of truth) and generates Pi-compatible artifacts: prompt templates, agent definitions, SKILL.md files, and a TypeScript extension bundle. The generated artifacts are published to npm as `@sunstone-partners/ensemble-pi` with the `pi-package` keyword, installable with a single `pi install` command.
 
 **Value Proposition:**
 - Pi developers gain production-grade AI workflows (PRD/TRD, code review, git automation) without building them from scratch
 - Ensemble users gain Pi as a third runtime alongside Claude Code and OpenCode
-- Fortium distributes Ensemble to a new ecosystem with zero ongoing maintenance overhead (single YAML source of truth)
+- Sunstone distributes Ensemble to a new ecosystem with zero ongoing maintenance overhead (single YAML source of truth)
 
 **Target Users:**
 - Solo developers using Pi who want structured product/engineering workflows
 - Small teams (2-5) on Pi wanting the PRD → TRD → implementation pipeline
-- Fortium team using Pi on client projects
+- Sunstone team using Pi on client projects
 - Enterprise/multi-team Ensemble users evaluating Pi as a runtime option
 - Open-source contributors to the Pi ecosystem
 
@@ -54,12 +54,12 @@ Add `packages/pi` to the Ensemble monorepo — a translation layer that reads En
 |------|-----------|----------------|
 | Pi solo dev | No structured PRD/TRD workflow; ad-hoc planning | `/create-prd`, `/create-trd` with full interview protocol |
 | Pi team lead | Can't enforce consistent requirements process | Standardized PRD/TRD templates across team |
-| Fortium consultant | Context-switches between Claude Code and Pi | Same Ensemble workflows on any runtime |
+| Sunstone consultant | Context-switches between Claude Code and Pi | Same Ensemble workflows on any runtime |
 | Ensemble power user | Locked to Claude Code / OpenCode runtimes | Pi as third runtime option |
 | Pi ecosystem contributor | Limited workflow packages available | Inspiration + foundation for extending ensemble-pi |
 
 ### Success Metrics
-- `pi install npm:@fortium/ensemble-pi` completes without errors
+- `pi install npm:@sunstone-partners/ensemble-pi` completes without errors
 - `/create-prd` runs in Pi and produces a PRD of equivalent quality to Claude Code
 - `/create-trd` runs in Pi and produces a TRD of equivalent quality to Claude Code
 - AskUserQuestion interview protocol functions interactively in Pi's TUI
@@ -69,7 +69,7 @@ Add `packages/pi` to the Ensemble monorepo — a translation layer that reads En
 ## Goals and Non-Goals
 
 ### Goals (v1)
-- Publish `@fortium/ensemble-pi` to npm as a Pi-installable package
+- Publish `@sunstone-partners/ensemble-pi` to npm as a Pi-installable package
 - Translate all PRD/TRD commands to Pi prompt templates via generator script
 - Ship a TypeScript extension that provides `AskUserQuestion` tool in Pi
 - Generate Pi agent definitions for `product-management-orchestrator`
@@ -103,9 +103,9 @@ Create `packages/pi/` with the standard Ensemble package structure: `src/`, `ski
 #### REQ-002: Pi-Compatible package.json {#req-002}
 **Priority:** Must | **Complexity:** Low
 
-`packages/pi/package.json` must include: name `@fortium/ensemble-pi`, `pi-package` in keywords, a `pi` manifest field declaring extensions/skills/prompts/agents directories, and be publishable to npm.
+`packages/pi/package.json` must include: name `@sunstone-partners/ensemble-pi`, `pi-package` in keywords, a `pi` manifest field declaring extensions/skills/prompts/agents directories, and be publishable to npm.
 
-- AC-002-1: Given `packages/pi/package.json`, when `pi install npm:@fortium/ensemble-pi` runs, then Pi discovers and loads all declared extensions, skills, prompts, and agents.
+- AC-002-1: Given `packages/pi/package.json`, when `pi install npm:@sunstone-partners/ensemble-pi` runs, then Pi discovers and loads all declared extensions, skills, prompts, and agents.
 - AC-002-2: Given `package.json`, when `npm publish --dry-run` runs, then all required fields are present and valid.
 - AC-002-3: Given the `pi` manifest field, when Pi auto-discovers, then it finds extensions in `extensions/`, skills in `skills/`, prompts in `prompts/`, agents in `agents/`.
 
@@ -278,10 +278,10 @@ The Pi package's `pi` manifest or extension configures Pi to discover `agents/` 
 #### REQ-020: npm Publish Pipeline {#req-020}
 **Priority:** Must | **Complexity:** Low
 
-`packages/pi` is included in the existing `npm run publish:changed` script. The package publishes as `@fortium/ensemble-pi` with `pi-package` keyword.
+`packages/pi` is included in the existing `npm run publish:changed` script. The package publishes as `@sunstone-partners/ensemble-pi` with `pi-package` keyword.
 
-- AC-020-1: Given a version bump, when `npm run publish:changed` runs, then `@fortium/ensemble-pi` is published to npm.
-- AC-020-2: Given the published package, when `pi install npm:@fortium/ensemble-pi` runs, then installation succeeds and `pi list` shows the package.
+- AC-020-1: Given a version bump, when `npm run publish:changed` runs, then `@sunstone-partners/ensemble-pi` is published to npm.
+- AC-020-2: Given the published package, when `pi install npm:@sunstone-partners/ensemble-pi` runs, then installation succeeds and `pi list` shows the package.
 
 #### REQ-021: CI Integration {#req-021}
 **Priority:** Must | **Complexity:** Low
@@ -301,9 +301,9 @@ The Pi package's `pi` manifest or extension configures Pi to discover `agents/` 
 #### REQ-023: Local Development Install {#req-023}
 **Priority:** Should | **Complexity:** Low
 
-Developers can test the Pi package locally without publishing, using `pi install git:github.com/FortiumPartners/ensemble` or a local path install.
+Developers can test the Pi package locally without publishing, using `pi install git:github.com/Sunstone-Partners/ensemble` or a local path install.
 
-- AC-023-1: Given a local clone of the ensemble repo, when `pi -e git:github.com/FortiumPartners/ensemble` runs (or local path equivalent), then the package loads without errors.
+- AC-023-1: Given a local clone of the ensemble repo, when `pi -e git:github.com/Sunstone-Partners/ensemble` runs (or local path equivalent), then the package loads without errors.
 
 ---
 

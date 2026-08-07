@@ -5,7 +5,7 @@
 **Version**: 2.0.0
 **Last Updated**: 2025-12-31
 **License**: MIT
-**Author**: Fortium Partners
+**Author**: Sunstone Partners
 
 ---
 
@@ -325,7 +325,7 @@ git town hack new-feature --parent main
 
 ```javascript
 // Fetch latest git-town docs from Context7
-const { createLibraryHelper } = require('@fortium/ensemble-core');
+const { createLibraryHelper } = require('@sunstone-partners/ensemble-core');
 
 const gitTown = createLibraryHelper('git-town');
 const hackDocs = await gitTown.fetchDocs('hack command', 3000);
@@ -530,11 +530,11 @@ This skill integrates with Context7 MCP for dynamic documentation:
 
 ```javascript
 // Check if Context7 is available
-const { checkContext7Available } = require('@fortium/ensemble-core');
+const { checkContext7Available } = require('@sunstone-partners/ensemble-core');
 
 if (checkContext7Available()) {
   // Use Context7 for up-to-date git-town docs
-  const { createLibraryHelper } = require('@fortium/ensemble-core');
+  const { createLibraryHelper } = require('@sunstone-partners/ensemble-core');
   const gitTown = createLibraryHelper('git-town');
 
   // Fetch latest documentation
@@ -683,9 +683,9 @@ MIT License - see LICENSE file for details
 
 ## Support
 
-- **Issues**: https://github.com/FortiumPartners/ensemble/issues
-- **Discussions**: https://github.com/FortiumPartners/ensemble/discussions
-- **Email**: support@fortiumpartners.com
+- **Issues**: https://github.com/Sunstone-Partners/ensemble/issues
+- **Discussions**: https://github.com/Sunstone-Partners/ensemble/discussions
+- **Email**: info@sunstonepartners.com
 
 ---
 

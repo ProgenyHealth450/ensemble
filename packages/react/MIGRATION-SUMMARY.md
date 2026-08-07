@@ -1,8 +1,8 @@
 # React Framework Skill Extraction - Migration Summary
 
 **Date**: 2025-12-10
-**Source**: `/Users/ldangelo/Development/Fortium/ensemble/skills/react-framework/`
-**Target**: `/Users/ldangelo/Development/Fortium/ensemble/packages/react/`
+**Source**: `/Users/ldangelo/Development/Sunstone/ensemble/skills/react-framework/`
+**Target**: `/Users/ldangelo/Development/Sunstone/ensemble/packages/react/`
 **Status**: ✅ COMPLETE
 
 ## Migration Overview
@@ -137,14 +137,14 @@ The plugin will be automatically loaded by `frontend-developer` when:
 
 ## Dependencies
 
-- `@fortium/ensemble-development@4.0.0` - Core development agent functionality
+- `@sunstone-partners/ensemble-development@4.0.0` - Core development agent functionality
 
 ## Related Plugins (Future)
 
-- `@fortium/ensemble-typescript` - TypeScript-specific patterns
-- `@fortium/ensemble-testing` - Testing frameworks
-- `@fortium/ensemble-vite` - Vite bundler configuration
-- `@fortium/ensemble-nextjs` - Next.js framework skills
+- `@sunstone-partners/ensemble-typescript` - TypeScript-specific patterns
+- `@sunstone-partners/ensemble-testing` - Testing frameworks
+- `@sunstone-partners/ensemble-vite` - Vite bundler configuration
+- `@sunstone-partners/ensemble-nextjs` - Next.js framework skills
 
 ## Directory Structure
 
@@ -192,7 +192,7 @@ packages/react/
 ## Testing Recommendations
 
 ### Manual Testing
-1. Install plugin via marketplace: `claude plugin install @fortium/ensemble-react`
+1. Install plugin via marketplace: `claude plugin install @sunstone-partners/ensemble-react`
 2. Verify skill detection in React project
 3. Test template generation
 4. Validate example access
@@ -256,13 +256,13 @@ None identified during migration.
 
 ## Contact
 
-- **Maintainer**: Fortium Software Configuration Team
-- **Repository**: https://github.com/FortiumPartners/ensemble
-- **Issues**: https://github.com/FortiumPartners/ensemble/issues
+- **Maintainer**: Sunstone Software Configuration Team
+- **Repository**: https://github.com/Sunstone-Partners/ensemble
+- **Issues**: https://github.com/Sunstone-Partners/ensemble/issues
 
 ---
 
 **Migration Status**: ✅ COMPLETE
 **Date**: 2025-12-10
 **Extracted From**: ensemble v3.x monolith
-**Target Plugin**: @fortium/ensemble-react v4.0.0
+**Target Plugin**: @sunstone-partners/ensemble-react v4.0.0

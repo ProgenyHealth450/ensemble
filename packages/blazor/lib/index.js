@@ -1,6 +1,6 @@
 /**
  * Blazor Framework Plugin
- * @fortium/ensemble-blazor
+ * @sunstone-partners/ensemble-blazor
  *
  * Blazor and .NET framework skills for web development
  */

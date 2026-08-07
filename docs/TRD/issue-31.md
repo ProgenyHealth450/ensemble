@@ -408,7 +408,7 @@ metadata:
   model: opus  # Use Opus 4.6 for superior reasoning
   category: planning
   output_path: ensemble/create-prd.md
-  source: fortium
+  source: sunstone
 
 mission:
   summary: |
@@ -1565,7 +1565,7 @@ metadata:
   model: opus  # Superior reasoning for strategic planning
   category: planning
   output_path: ensemble/create-prd.md
-  source: fortium
+  source: sunstone
 
 mission:
   summary: |
@@ -1581,7 +1581,7 @@ metadata:
   version: 2.0.0
   model: sonnet  # Balanced for code generation
   category: development
-  source: fortium
+  source: sunstone
 
 mission:
   summary: |

@@ -37,7 +37,7 @@ function validatePlugin(pluginDir) {
 
   // Validate package.json structure
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-  if (!packageJson.name.startsWith('@fortium/ensemble-')) {
+  if (!packageJson.name.startsWith('@sunstone-partners/ensemble-')) {
     throw new Error(`Invalid package name for ${pluginName}: ${packageJson.name}`);
   }
 

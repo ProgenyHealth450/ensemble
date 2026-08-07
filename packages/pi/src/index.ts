@@ -13,7 +13,7 @@
  *   1 — error (missing required fields, YAML parse error, I/O error)
  *
  * @module ensemble-pi
- * @see {@link https://github.com/FortiumPartners/ensemble}
+ * @see {@link https://github.com/Sunstone-Partners/ensemble}
  */
 
 import { GeneratorOptions } from './types';

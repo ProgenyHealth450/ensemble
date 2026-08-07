@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-03-08"
   category: documentation
   output_path: ensemble/sessionlog.md
-  source: fortium
+  source: sunstone
 
 mission:
   summary: |

@@ -76,7 +76,7 @@ describe('configure-team command agent discovery', () => {
     // PATH PARSING: plugin is two dirname() levels above the file (not the parent 'agents' dir).
     expect(text).toContain('PATH PARSING');
     expect(text).toContain('dirname(dirname(file))');
-    expect(text).toContain('@fortium/ensemble-pi');
+    expect(text).toContain('@sunstone-partners/ensemble-pi');
   });
 
   test('Phase 3 Step 2b includes symlink-safe find -L fallback', () => {

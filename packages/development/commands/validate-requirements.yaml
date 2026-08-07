@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-03-15"
   category: planning
   output_path: ensemble/validate-requirements.md
-  source: fortium
+  source: sunstone
   model: medium
   argument_hint: "[prd-path] [trd-path]"
 

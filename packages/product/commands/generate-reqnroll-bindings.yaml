@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-29"
   category: testing
   output_path: ensemble/generate-reqnroll-bindings.md
-  source: fortium
+  source: sunstone
   model: low
   argument_hint: "[prd-path] [--out <dir>] [--sut <csproj>] [--dry-run] [--force]"
 

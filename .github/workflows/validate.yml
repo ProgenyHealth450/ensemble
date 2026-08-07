@@ -41,7 +41,7 @@ jobs:
 
       # Replaces the hand-rolled steps this job used to run. scripts/validate-all.js
       # is a strict superset of them (marketplace.json and every plugin.json against
-      # their schemas, agent YAML syntax, @fortium/ensemble-* package naming), and
+      # their schemas, agent YAML syntax, @sunstone-partners/ensemble-* package naming), and
       # `npm run validate` additionally enforces manifest version sync and model
       # IDs. The old steps never checked versions at all, which is how six packages
       # drifted unnoticed. The separate OpenCode plugin.json step was redundant:
@@ -60,3 +60,22 @@ jobs:
             echo "::error::Generated markdown is stale. Run 'npm run generate' and commit the result."
             exit 1
           }
+
+      - name: Check package.json consistency
+        run: |
+          for pkg in packages/*/package.json; do
+            if [ -f "$pkg" ]; then
+              echo "Checking $pkg"
+              node -e "const p = require('./$pkg'); if (!p.name.startsWith('@sunstone-partners/ensemble-')) process.exit(1);"
+            fi
+          done
+
+      - name: Validate OpenCode plugin.json
+        run: |
+          OPENCODE_PLUGIN="packages/opencode/.claude-plugin/plugin.json"
+          if [ -f "$OPENCODE_PLUGIN" ]; then
+            echo "Validating $OPENCODE_PLUGIN"
+            npx ajv validate -s schemas/plugin-schema.json -d "$OPENCODE_PLUGIN" -c ajv-formats
+          else
+            echo "WARNING: packages/opencode/.claude-plugin/plugin.json not found"
+          fi

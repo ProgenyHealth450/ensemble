@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-git",
+  "name": "@sunstone-partners/ensemble-git",
   "version": "5.2.1",
   "description": "Git workflow automation and conventional commits",
   "main": "lib/index.js",
@@ -14,17 +14,17 @@
     "commits",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/git"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0"
   }
 }

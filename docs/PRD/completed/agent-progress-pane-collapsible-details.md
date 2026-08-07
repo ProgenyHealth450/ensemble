@@ -9,7 +9,7 @@
 | **Status** | Draft |
 | **Created** | 2025-12-16 |
 | **Last Updated** | 2025-12-16 |
-| **Author** | Fortium Partners |
+| **Author** | Sunstone Partners |
 
 ---
 

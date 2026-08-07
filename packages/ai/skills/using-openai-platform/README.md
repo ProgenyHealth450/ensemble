@@ -235,4 +235,4 @@ For issues or improvements:
 ---
 
 _Part of Skills-Based Framework Architecture_
-_Related: @fortium/ensemble-ai_
+_Related: @sunstone-partners/ensemble-ai_

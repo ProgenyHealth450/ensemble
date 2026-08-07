@@ -814,7 +814,7 @@ Reference the git-town skill for command syntax and workflows.
 ## 9. Appendix
 
 ### 9.1 Related Documents
-- Ensemble Plugin Development Guide: `/Users/ldangelo/Development/Fortium/ensemble/CLAUDE.md`
+- Ensemble Plugin Development Guide: `/Users/ldangelo/Development/Sunstone/ensemble/CLAUDE.md`
 - Git-Town Official Documentation: https://www.git-town.com/
 - Act Local CI Skill (reference example): `packages/git/skills/act-local-ci/`
 - XDG Base Directory Specification: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html

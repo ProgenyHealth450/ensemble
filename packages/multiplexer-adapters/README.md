@@ -1,17 +1,17 @@
-# @fortium/ensemble-multiplexer-adapters
+# @sunstone-partners/ensemble-multiplexer-adapters
 
 Shared terminal multiplexer adapters for Ensemble plugins. Provides a unified interface for managing panes across WezTerm, Zellij, and tmux.
 
 ## Installation
 
 ```bash
-npm install @fortium/ensemble-multiplexer-adapters
+npm install @sunstone-partners/ensemble-multiplexer-adapters
 ```
 
 ## Usage
 
 ```javascript
-const { MultiplexerDetector } = require('@fortium/ensemble-multiplexer-adapters');
+const { MultiplexerDetector } = require('@sunstone-partners/ensemble-multiplexer-adapters');
 
 // Auto-detect and get the appropriate adapter
 const detector = new MultiplexerDetector();

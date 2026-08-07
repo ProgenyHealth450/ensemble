@@ -1338,8 +1338,8 @@ packages/permitter/
   "version": "1.0.0",
   "description": "Smart permission expansion hook for Claude Code - semantic command matching",
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com"
   },
   "hooks": "./hooks/hooks.json"
 }

@@ -1,13 +1,13 @@
-# @fortium/ensemble-dotnet
+# @sunstone-partners/ensemble-dotnet
 
 .NET backend development agents and skills for ASP.NET Core, Wolverine CQRS, MartenDB event sourcing, and idiomatic C# patterns.
 
-This package is separate from `@fortium/ensemble-blazor`, which covers Blazor frontend work. The `dotnet` package is focused exclusively on server-side .NET backend development.
+This package is separate from `@sunstone-partners/ensemble-blazor`, which covers Blazor frontend work. The `dotnet` package is focused exclusively on server-side .NET backend development.
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-dotnet
+claude plugin install @sunstone-partners/ensemble-dotnet
 ```
 
 ## Agents
@@ -52,7 +52,7 @@ After installation, the `dotnet-backend-expert` agent is automatically available
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 

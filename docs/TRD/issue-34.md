@@ -741,7 +741,7 @@ metadata:
   category: development
   model: sonnet  # Default model for orchestrator
   output_path: ensemble/fix-issue.md
-  source: fortium
+  source: sunstone
 
 parameters:
   - name: description
@@ -1034,7 +1034,7 @@ workflow:
 
                Fixes #{issue-number}
 
-               🤖 Generated with [Ensemble Fix-Issue](https://github.com/FortiumPartners/ensemble)
+               🤖 Generated with [Ensemble Fix-Issue](https://github.com/Sunstone-Partners/ensemble)
                ```
 
             6. Create PR:
@@ -1230,7 +1230,7 @@ Fixes #{issueNumber}
 
 ---
 
-🤖 Generated with [Ensemble Fix-Issue](https://github.com/FortiumPartners/ensemble)
+🤖 Generated with [Ensemble Fix-Issue](https://github.com/Sunstone-Partners/ensemble)
 ```
 
 ---

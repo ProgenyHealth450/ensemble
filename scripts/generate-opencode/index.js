@@ -380,6 +380,17 @@ async function runPipeline(opts) {
       if (!dryRun) {
         fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
         fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
+
+        // OC-S1-PKG-006: ensure each output directory persists in git
+        const gitkeepDirs = [
+          path.join(outputDir, '.opencode', 'commands', 'ensemble'),
+          path.join(outputDir, '.opencode', 'agents'),
+          path.join(outputDir, '.opencode', 'skill'),
+        ];
+        for (const dir of gitkeepDirs) {
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, '.gitkeep'), '');
+        }
       }
 
       const info = timer.end('opencode.json generated');

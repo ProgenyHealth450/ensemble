@@ -1,10 +1,10 @@
 /**
  * Reqnroll BDD Skill
- * @fortium/ensemble-reqnroll
+ * @sunstone-partners/ensemble-reqnroll
  *
  * Provides the reqnroll-binding-specialist agent and Reqnroll + xUnit binding
  * guidance. The deterministic codegen (PRD -> .feature + step stubs + project)
- * lives in @fortium/ensemble-product (lib/reqnroll-*.js); this package supplies
+ * lives in @sunstone-partners/ensemble-product (lib/reqnroll-*.js); this package supplies
  * the agent + skill that fill the generated Pending() bindings test-first.
  */
 

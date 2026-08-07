@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-core",
+  "name": "@sunstone-partners/ensemble-core",
   "version": "5.3.1",
   "description": "Core orchestration and utilities for ensemble ecosystem",
   "main": "lib/index.js",
@@ -14,11 +14,11 @@
     "core",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/core"
   },
   "devDependencies": {

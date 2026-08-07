@@ -187,17 +187,17 @@ describe('OC-S3-DIST-004: package.json publishing configuration', () => {
   it('should have repository info', () => {
     expect(pkg.repository).toBeDefined();
     expect(pkg.repository.type).toBe('git');
-    expect(pkg.repository.url).toContain('FortiumPartners/ensemble');
+    expect(pkg.repository.url).toContain('Sunstone-Partners/ensemble');
   });
 
   it('should have homepage', () => {
     expect(pkg.homepage).toBeDefined();
-    expect(pkg.homepage).toContain('FortiumPartners/ensemble');
+    expect(pkg.homepage).toContain('Sunstone-Partners/ensemble');
   });
 
   it('should have bugs URL', () => {
     expect(pkg.bugs).toBeDefined();
-    expect(pkg.bugs.url).toContain('FortiumPartners/ensemble');
+    expect(pkg.bugs.url).toContain('Sunstone-Partners/ensemble');
   });
 
   it('should have @opencode-ai/plugin as optional peer dependency', () => {

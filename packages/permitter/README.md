@@ -46,7 +46,7 @@ Claude Code's permission allowlist uses exact prefix matching. The format `Bash(
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-permitter
+claude plugin install @sunstone-partners/ensemble-permitter
 ```
 
 Or install from the ensemble marketplace:

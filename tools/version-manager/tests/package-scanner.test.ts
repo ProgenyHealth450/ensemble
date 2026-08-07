@@ -32,7 +32,7 @@ describe('Package Scanner', () => {
       );
       fs.writeFileSync(
         path.join(pkg1, 'package.json'),
-        '{"name":"@fortium/ensemble-pkg1","version":"1.0.0"}'
+        '{"name":"@sunstone-partners/ensemble-pkg1","version":"1.0.0"}'
       );
 
       const packages = scanPackages(testDir);
@@ -58,7 +58,7 @@ describe('Package Scanner', () => {
         );
         fs.writeFileSync(
           path.join(pkg, 'package.json'),
-          `{"name":"@fortium/ensemble-pkg${i}","version":"1.0.0"}`
+          `{"name":"@sunstone-partners/ensemble-pkg${i}","version":"1.0.0"}`
         );
       }
 
@@ -87,7 +87,7 @@ describe('Package Scanner', () => {
       );
       fs.writeFileSync(
         path.join(pkg2, 'package.json'),
-        '{"name":"@fortium/ensemble-pkg2","version":"1.0.0"}'
+        '{"name":"@sunstone-partners/ensemble-pkg2","version":"1.0.0"}'
       );
 
       const packages = scanPackages(testDir);
@@ -116,7 +116,7 @@ describe('Package Scanner', () => {
       );
       fs.writeFileSync(
         path.join(pkg2, 'package.json'),
-        '{"name":"@fortium/ensemble-pkg2","version":"1.0.0"}'
+        '{"name":"@sunstone-partners/ensemble-pkg2","version":"1.0.0"}'
       );
 
       const packages = scanPackages(testDir);
@@ -139,7 +139,7 @@ describe('Package Scanner', () => {
       );
       fs.writeFileSync(
         path.join(pkg1, 'package.json'),
-        '{"name":"@fortium/ensemble-pkg1","version":"1.0.0"}'
+        '{"name":"@sunstone-partners/ensemble-pkg1","version":"1.0.0"}'
       );
 
       const packages = scanPackages(testDir);
@@ -171,7 +171,7 @@ describe('Package Scanner', () => {
       );
       fs.writeFileSync(
         path.join(pkg1, 'package.json'),
-        '{"name":"@fortium/ensemble-pkg1","version":"1.0.0"}'
+        '{"name":"@sunstone-partners/ensemble-pkg1","version":"1.0.0"}'
       );
 
       // Create a symlink to another directory (should be skipped or handled gracefully)
@@ -202,7 +202,7 @@ describe('Package Scanner', () => {
       );
       fs.writeFileSync(
         path.join(pkg1, 'package.json'),
-        '{"name":"@fortium/ensemble-pkg1","version":"1.0.0"}'
+        '{"name":"@sunstone-partners/ensemble-pkg1","version":"1.0.0"}'
       );
 
       const packages = scanPackages(testDir);

@@ -25,7 +25,7 @@ PRD ──(deterministic, ensemble-product)──▶ .feature files             
  └── .feature ↔ bindings drift          [/ensemble:check-binding-drift]
 ```
 
-The deterministic codegen lives in `@fortium/ensemble-product`
+The deterministic codegen lives in `@sunstone-partners/ensemble-product`
 (`lib/reqnroll-{gen,run,cli}.js`). This package is the agentic half: the specialist
 agent + the Reqnroll knowledge it loads.
 

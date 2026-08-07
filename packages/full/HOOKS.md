@@ -122,7 +122,7 @@ After syncing, verify hooks work correctly:
    # From repository root
    cd packages/full
    npm pack
-   claude plugin install --local fortium-ensemble-full-*.tgz --force
+   claude plugin install --local sunstone-partners-ensemble-full-*.tgz --force
    ```
 
 2. **Test agent progress pane**:

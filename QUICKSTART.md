@@ -29,7 +29,7 @@ ensemble/
 ### 1. Verify Structure (Already Done ✅)
 
 ```bash
-cd /Users/ldangelo/Development/Fortium/ensemble
+cd /Users/ldangelo/Development/Sunstone/ensemble
 ./verify-structure.sh
 ```
 
@@ -179,17 +179,17 @@ npm run publish:changed   # Publish changed plugins to NPM
 ## File Locations
 
 **Key Configuration:**
-- Root package.json: `/Users/ldangelo/Development/Fortium/ensemble/package.json`
-- Marketplace: `/Users/ldangelo/Development/Fortium/ensemble/marketplace.json`
-- Validation schemas: `/Users/ldangelo/Development/Fortium/ensemble/schemas/`
+- Root package.json: `/Users/ldangelo/Development/Sunstone/ensemble/package.json`
+- Marketplace: `/Users/ldangelo/Development/Sunstone/ensemble/marketplace.json`
+- Validation schemas: `/Users/ldangelo/Development/Sunstone/ensemble/schemas/`
 
 **Plugin Packages:**
-- All in: `/Users/ldangelo/Development/Fortium/ensemble/packages/`
+- All in: `/Users/ldangelo/Development/Sunstone/ensemble/packages/`
 
 **Documentation:**
-- Main README: `/Users/ldangelo/Development/Fortium/ensemble/README.md`
-- Setup Summary: `/Users/ldangelo/Development/Fortium/ensemble/SETUP_SUMMARY.md`
-- Contributing: `/Users/ldangelo/Development/Fortium/ensemble/CONTRIBUTING.md`
+- Main README: `/Users/ldangelo/Development/Sunstone/ensemble/README.md`
+- Setup Summary: `/Users/ldangelo/Development/Sunstone/ensemble/SETUP_SUMMARY.md`
+- Contributing: `/Users/ldangelo/Development/Sunstone/ensemble/CONTRIBUTING.md`
 
 ## Current Status
 

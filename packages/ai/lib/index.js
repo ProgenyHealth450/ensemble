@@ -1,5 +1,5 @@
 /**
- * @fortium/ensemble-ai - AI SDK Skills Plugin
+ * @sunstone-partners/ensemble-ai - AI SDK Skills Plugin
  *
  * Provides comprehensive AI development skills including:
  * - OpenAI Chat Completions API patterns

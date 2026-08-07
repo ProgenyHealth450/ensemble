@@ -77,7 +77,7 @@ packages/<plugin-name>/
 ### Tier 1: Core Foundation
 
 #### packages/core/
-- **NPM Name**: @fortium/ensemble-core
+- **NPM Name**: @sunstone-partners/ensemble-core
 - **Version**: 4.0.0
 - **Description**: Core orchestration and utilities
 - **Dependencies**: None (foundation)
@@ -85,43 +85,43 @@ packages/<plugin-name>/
 ### Tier 2: Workflow Plugins
 
 #### packages/product/
-- **NPM Name**: @fortium/ensemble-product
+- **NPM Name**: @sunstone-partners/ensemble-product
 - **Version**: 4.0.0
 - **Description**: Product management agents and workflows
 - **Dependencies**: ensemble-core@4.0.0
 
 #### packages/development/
-- **NPM Name**: @fortium/ensemble-development
+- **NPM Name**: @sunstone-partners/ensemble-development
 - **Version**: 4.0.0
 - **Description**: Development agents for frontend/backend
 - **Dependencies**: ensemble-core@4.0.0
 
 #### packages/quality/
-- **NPM Name**: @fortium/ensemble-quality
+- **NPM Name**: @sunstone-partners/ensemble-quality
 - **Version**: 4.0.0
 - **Description**: Quality assurance, code review, DoD
 - **Dependencies**: ensemble-core@4.0.0
 
 #### packages/infrastructure/
-- **NPM Name**: @fortium/ensemble-infrastructure
+- **NPM Name**: @sunstone-partners/ensemble-infrastructure
 - **Version**: 4.0.0
 - **Description**: Infrastructure automation (AWS/K8s/Docker/Helm/Fly.io)
 - **Dependencies**: ensemble-core@4.0.0
 
 #### packages/git/
-- **NPM Name**: @fortium/ensemble-git
+- **NPM Name**: @sunstone-partners/ensemble-git
 - **Version**: 4.0.0
 - **Description**: Git workflow automation
 - **Dependencies**: ensemble-core@4.0.0
 
 #### packages/e2e-testing/
-- **NPM Name**: @fortium/ensemble-e2e-testing
+- **NPM Name**: @sunstone-partners/ensemble-e2e-testing
 - **Version**: 4.0.0
 - **Description**: Playwright E2E testing integration
 - **Dependencies**: ensemble-core@4.0.0
 
 #### packages/metrics/
-- **NPM Name**: @fortium/ensemble-metrics
+- **NPM Name**: @sunstone-partners/ensemble-metrics
 - **Version**: 4.0.0
 - **Description**: Productivity analytics dashboard
 - **Dependencies**: ensemble-core@4.0.0
@@ -129,31 +129,31 @@ packages/<plugin-name>/
 ### Tier 3: Framework Skills
 
 #### packages/react/
-- **NPM Name**: @fortium/ensemble-react
+- **NPM Name**: @sunstone-partners/ensemble-react
 - **Version**: 4.0.0
 - **Description**: React framework skills
 - **Dependencies**: ensemble-development@4.0.0
 
 #### packages/nestjs/
-- **NPM Name**: @fortium/ensemble-nestjs
+- **NPM Name**: @sunstone-partners/ensemble-nestjs
 - **Version**: 4.0.0
 - **Description**: NestJS backend framework skills
 - **Dependencies**: ensemble-development@4.0.0
 
 #### packages/rails/
-- **NPM Name**: @fortium/ensemble-rails
+- **NPM Name**: @sunstone-partners/ensemble-rails
 - **Version**: 4.0.0
 - **Description**: Ruby on Rails backend skills
 - **Dependencies**: ensemble-development@4.0.0
 
 #### packages/phoenix/
-- **NPM Name**: @fortium/ensemble-phoenix
+- **NPM Name**: @sunstone-partners/ensemble-phoenix
 - **Version**: 4.0.0
 - **Description**: Phoenix LiveView framework skills
 - **Dependencies**: ensemble-development@4.0.0
 
 #### packages/blazor/
-- **NPM Name**: @fortium/ensemble-blazor
+- **NPM Name**: @sunstone-partners/ensemble-blazor
 - **Version**: 4.0.0
 - **Description**: Blazor .NET framework skills
 - **Dependencies**: ensemble-development@4.0.0
@@ -161,31 +161,31 @@ packages/<plugin-name>/
 ### Tier 4: Testing Framework Integration
 
 #### packages/jest/
-- **NPM Name**: @fortium/ensemble-jest
+- **NPM Name**: @sunstone-partners/ensemble-jest
 - **Version**: 4.0.0
 - **Description**: Jest testing framework
 - **Dependencies**: ensemble-quality@4.0.0
 
 #### packages/pytest/
-- **NPM Name**: @fortium/ensemble-pytest
+- **NPM Name**: @sunstone-partners/ensemble-pytest
 - **Version**: 4.0.0
 - **Description**: Pytest testing framework
 - **Dependencies**: ensemble-quality@4.0.0
 
 #### packages/rspec/
-- **NPM Name**: @fortium/ensemble-rspec
+- **NPM Name**: @sunstone-partners/ensemble-rspec
 - **Version**: 4.0.0
 - **Description**: RSpec testing framework
 - **Dependencies**: ensemble-quality@4.0.0
 
 #### packages/xunit/
-- **NPM Name**: @fortium/ensemble-xunit
+- **NPM Name**: @sunstone-partners/ensemble-xunit
 - **Version**: 4.0.0
 - **Description**: xUnit testing framework (.NET)
 - **Dependencies**: ensemble-quality@4.0.0
 
 #### packages/exunit/
-- **NPM Name**: @fortium/ensemble-exunit
+- **NPM Name**: @sunstone-partners/ensemble-exunit
 - **Version**: 4.0.0
 - **Description**: ExUnit testing framework (Elixir)
 - **Dependencies**: ensemble-quality@4.0.0
@@ -193,7 +193,7 @@ packages/<plugin-name>/
 ### Utilities
 
 #### packages/pane-viewer/
-- **NPM Name**: @fortium/ensemble-pane-viewer
+- **NPM Name**: @sunstone-partners/ensemble-pane-viewer
 - **Version**: 0.1.0
 - **Description**: Real-time subagent monitoring
 - **Dependencies**: None (standalone)
@@ -201,7 +201,7 @@ packages/<plugin-name>/
 ### Meta-Package
 
 #### packages/full/
-- **NPM Name**: @fortium/ensemble-full
+- **NPM Name**: @sunstone-partners/ensemble-full
 - **Version**: 4.0.0
 - **Description**: Complete ecosystem (all plugins)
 - **Dependencies**: All 19 other plugins
@@ -299,7 +299,7 @@ See `CONTRIBUTING.md` for:
 
 ## Repository Information
 
-- **Location**: /Users/ldangelo/Development/Fortium/ensemble
+- **Location**: /Users/ldangelo/Development/Sunstone/ensemble
 - **Status**: Structure complete, ready for plugin extraction
 - **Version**: 4.0.0 (all core/workflow/framework/testing plugins)
 - **License**: MIT

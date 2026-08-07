@@ -270,7 +270,7 @@ git town ship                 → Merge & cleanup
 
 Dynamic documentation fetching:
 ```javascript
-const { createLibraryHelper } = require('@fortium/ensemble-core');
+const { createLibraryHelper } = require('@sunstone-partners/ensemble-core');
 const gitTown = createLibraryHelper('git-town');
 const docs = await gitTown.fetchDocs('hack command', 3000);
 ```

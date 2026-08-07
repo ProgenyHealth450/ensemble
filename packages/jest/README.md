@@ -1,4 +1,4 @@
-# @fortium/ensemble-jest
+# @sunstone-partners/ensemble-jest
 
 Jest testing framework integration for Claude Code Ensemble ecosystem.
 
@@ -11,13 +11,13 @@ The Jest plugin provides comprehensive test execution and generation capabilitie
 ### Via Claude Marketplace
 
 ```bash
-claude plugin install @fortium/ensemble-jest
+claude plugin install @sunstone-partners/ensemble-jest
 ```
 
 ### Manual Installation
 
 ```bash
-git clone https://github.com/FortiumPartners/ensemble.git
+git clone https://github.com/Sunstone-Partners/ensemble.git
 cd ensemble/packages/jest
 claude plugin install .
 ```
@@ -134,7 +134,7 @@ node lib/run-test.js \
 The plugin can also be used programmatically in Node.js:
 
 ```javascript
-const { generateTest, runTest } = require('@fortium/ensemble-jest/lib');
+const { generateTest, runTest } = require('@sunstone-partners/ensemble-jest/lib');
 
 // Generate a test file
 async function createTest() {
@@ -340,7 +340,7 @@ The plugin provides structured error output for easy debugging:
 
 ## Contributing
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for contribution guidelines.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for contribution guidelines.
 
 ## Version History
 
@@ -353,12 +353,12 @@ MIT
 ## Support
 
 For issues, questions, or contributions:
-- **Email**: support@fortiumpartners.com
-- **Repository**: https://github.com/FortiumPartners/ensemble
+- **Email**: info@sunstonepartners.com
+- **Repository**: https://github.com/Sunstone-Partners/ensemble
 - **Documentation**: See [skills/](skills/) directory for detailed guides
 
 ## Related Plugins
 
-- `@fortium/ensemble-quality` - Quality assurance infrastructure
-- `@fortium/ensemble-playwright` - E2E testing with Playwright
-- `@fortium/ensemble-vitest` - Vitest testing framework integration
+- `@sunstone-partners/ensemble-quality` - Quality assurance infrastructure
+- `@sunstone-partners/ensemble-playwright` - E2E testing with Playwright
+- `@sunstone-partners/ensemble-vitest` - Vitest testing framework integration

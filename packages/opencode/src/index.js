@@ -7,7 +7,7 @@
  * Task IDs: OC-S3-DIST-001, OC-S3-DIST-002, OC-S3-DIST-003
  *
  * @module ensemble-opencode
- * @see {@link https://github.com/FortiumPartners/ensemble}
+ * @see {@link https://github.com/Sunstone-Partners/ensemble}
  *
  * Local installation (DIST-006):
  *   In opencode.json: "plugin": ["file:///path/to/packages/opencode"]

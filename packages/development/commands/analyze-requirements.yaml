@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-03-29"
   category: planning
   output_path: ensemble/analyze-requirements.md
-  source: fortium
+  source: sunstone
   model: medium
   argument_hint: "[prd-path] [trd-path]"
 

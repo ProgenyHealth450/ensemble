@@ -1,11 +1,11 @@
-# @fortium/ensemble-rspec
+# @sunstone-partners/ensemble-rspec
 
 RSpec testing framework integration
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-rspec
+claude plugin install @sunstone-partners/ensemble-rspec
 ```
 
 ## Description
@@ -22,7 +22,7 @@ After installation, this plugin's agents, commands, and skills will be automatic
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 

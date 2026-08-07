@@ -1,6 +1,6 @@
 /**
  * Product Management Plugin
- * @fortium/ensemble-product
+ * @sunstone-partners/ensemble-product
  *
  * Product lifecycle orchestration and requirements management
  */

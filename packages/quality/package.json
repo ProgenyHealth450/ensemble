@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-quality",
+  "name": "@sunstone-partners/ensemble-quality",
   "version": "5.3.0",
   "description": "Quality assurance, code review, and DoD enforcement",
   "main": "lib/index.js",
@@ -14,17 +14,17 @@
     "testing",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/quality"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0"
   }
 }

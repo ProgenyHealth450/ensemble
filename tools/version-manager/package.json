@@ -13,7 +13,7 @@
     "install-hook": "node scripts/install-hook.js"
   },
   "keywords": ["version-management", "conventional-commits", "semver"],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "dependencies": {
     "conventional-commits-parser": "^5.0.0"

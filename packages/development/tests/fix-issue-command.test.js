@@ -23,7 +23,7 @@ describe('Fix-Issue Command', () => {
       expect(commandYaml.metadata.version).toBe('1.1.0');
       expect(commandYaml.metadata.category).toBe('implementation');
       expect(commandYaml.metadata.model).toBe('medium');
-      expect(commandYaml.metadata.source).toBe('fortium');
+      expect(commandYaml.metadata.source).toBe('sunstone');
     });
 
     test('has valid output path', () => {

@@ -132,7 +132,7 @@ Key behaviors:
 
    - Run: git push -u origin <BRANCH_NAME>
    - Generate PR body referencing bead ID, title, description, and files changed
-   - Run: gh pr create --title "<BEAD_TITLE>" --body "$(cat <<EOF\n## Bead\n<BEAD_ID>: <BEAD_TITLE>\n\n## Description\n<BEAD_DESCRIPTION>\n\n## Changes\n<summary of files changed and what was implemented>\n\n## Test Plan\n<what was tested>\n\nCloses bead <BEAD_ID>\n\nGenerated with [Ensemble implement-bead](https://github.com/FortiumPartners/ensemble)\nEOF\n)"
+   - Run: gh pr create --title "<BEAD_TITLE>" --body "$(cat <<EOF\n## Bead\n<BEAD_ID>: <BEAD_TITLE>\n\n## Description\n<BEAD_DESCRIPTION>\n\n## Changes\n<summary of files changed and what was implemented>\n\n## Test Plan\n<what was tested>\n\nCloses bead <BEAD_ID>\n\nGenerated with [Ensemble implement-bead](https://github.com/Sunstone-Partners/ensemble)\nEOF\n)"
    - Extract PR URL from gh output
    - Run: br comment add <BEAD_ID> "status:closed agent:implement-bead pr:<PR_URL>"
    - Print: "Bead <BEAD_ID> complete. PR: <PR_URL> | Branch: <BRANCH_NAME>"

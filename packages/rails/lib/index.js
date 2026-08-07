@@ -1,6 +1,6 @@
 /**
  * Rails Framework Plugin
- * @fortium/ensemble-rails
+ * @sunstone-partners/ensemble-rails
  *
  * Ruby on Rails framework skills
  */

@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-18"
   category: implementation
   output_path: ensemble/refine-beads.md
-  source: fortium
+  source: sunstone
   model: medium
   argument_hint: "[epic-id|release-train-id|slug] [--scope project]"
   allowed_tools:

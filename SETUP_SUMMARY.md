@@ -37,36 +37,36 @@
 All 20 plugins created with identical structure:
 
 ### Tier 1: Core Foundation
-✅ **packages/core/** - Core orchestration (@fortium/ensemble-core v4.0.0)
+✅ **packages/core/** - Core orchestration (@sunstone-partners/ensemble-core v4.0.0)
 
 ### Tier 2: Workflow Plugins (7 packages)
-✅ **packages/product/** - Product management (@fortium/ensemble-product v4.0.0)
-✅ **packages/development/** - Development agents (@fortium/ensemble-development v4.0.0)
-✅ **packages/quality/** - Quality assurance (@fortium/ensemble-quality v4.0.0)
-✅ **packages/infrastructure/** - Infrastructure automation (@fortium/ensemble-infrastructure v4.0.0)
-✅ **packages/git/** - Git workflows (@fortium/ensemble-git v4.0.0)
-✅ **packages/e2e-testing/** - Playwright E2E (@fortium/ensemble-e2e-testing v4.0.0)
-✅ **packages/metrics/** - Analytics dashboard (@fortium/ensemble-metrics v4.0.0)
+✅ **packages/product/** - Product management (@sunstone-partners/ensemble-product v4.0.0)
+✅ **packages/development/** - Development agents (@sunstone-partners/ensemble-development v4.0.0)
+✅ **packages/quality/** - Quality assurance (@sunstone-partners/ensemble-quality v4.0.0)
+✅ **packages/infrastructure/** - Infrastructure automation (@sunstone-partners/ensemble-infrastructure v4.0.0)
+✅ **packages/git/** - Git workflows (@sunstone-partners/ensemble-git v4.0.0)
+✅ **packages/e2e-testing/** - Playwright E2E (@sunstone-partners/ensemble-e2e-testing v4.0.0)
+✅ **packages/metrics/** - Analytics dashboard (@sunstone-partners/ensemble-metrics v4.0.0)
 
 ### Tier 3: Framework Skills (5 packages)
-✅ **packages/react/** - React framework (@fortium/ensemble-react v4.0.0)
-✅ **packages/nestjs/** - NestJS backend (@fortium/ensemble-nestjs v4.0.0)
-✅ **packages/rails/** - Rails backend (@fortium/ensemble-rails v4.0.0)
-✅ **packages/phoenix/** - Phoenix LiveView (@fortium/ensemble-phoenix v4.0.0)
-✅ **packages/blazor/** - Blazor .NET (@fortium/ensemble-blazor v4.0.0)
+✅ **packages/react/** - React framework (@sunstone-partners/ensemble-react v4.0.0)
+✅ **packages/nestjs/** - NestJS backend (@sunstone-partners/ensemble-nestjs v4.0.0)
+✅ **packages/rails/** - Rails backend (@sunstone-partners/ensemble-rails v4.0.0)
+✅ **packages/phoenix/** - Phoenix LiveView (@sunstone-partners/ensemble-phoenix v4.0.0)
+✅ **packages/blazor/** - Blazor .NET (@sunstone-partners/ensemble-blazor v4.0.0)
 
 ### Tier 4: Testing Framework Integration (5 packages)
-✅ **packages/jest/** - Jest testing (@fortium/ensemble-jest v4.0.0)
-✅ **packages/pytest/** - Pytest testing (@fortium/ensemble-pytest v4.0.0)
-✅ **packages/rspec/** - RSpec testing (@fortium/ensemble-rspec v4.0.0)
-✅ **packages/xunit/** - xUnit testing (@fortium/ensemble-xunit v4.0.0)
-✅ **packages/exunit/** - ExUnit testing (@fortium/ensemble-exunit v4.0.0)
+✅ **packages/jest/** - Jest testing (@sunstone-partners/ensemble-jest v4.0.0)
+✅ **packages/pytest/** - Pytest testing (@sunstone-partners/ensemble-pytest v4.0.0)
+✅ **packages/rspec/** - RSpec testing (@sunstone-partners/ensemble-rspec v4.0.0)
+✅ **packages/xunit/** - xUnit testing (@sunstone-partners/ensemble-xunit v4.0.0)
+✅ **packages/exunit/** - ExUnit testing (@sunstone-partners/ensemble-exunit v4.0.0)
 
 ### Utilities
-✅ **packages/pane-viewer/** - Terminal monitoring (@fortium/ensemble-pane-viewer v0.1.0)
+✅ **packages/pane-viewer/** - Terminal monitoring (@sunstone-partners/ensemble-pane-viewer v0.1.0)
 
 ### Meta-Package
-✅ **packages/full/** - Complete ecosystem (@fortium/ensemble-full v4.0.0)
+✅ **packages/full/** - Complete ecosystem (@sunstone-partners/ensemble-full v4.0.0)
 
 ## Package Contents (Each Plugin)
 
@@ -188,14 +188,14 @@ Update each plugin's README.md with:
 Users can install only what they need:
 ```bash
 # Minimal installation
-claude plugin install @fortium/ensemble-core
+claude plugin install @sunstone-partners/ensemble-core
 
 # Add specific capabilities
-claude plugin install @fortium/ensemble-react
-claude plugin install @fortium/ensemble-jest
+claude plugin install @sunstone-partners/ensemble-react
+claude plugin install @sunstone-partners/ensemble-jest
 
 # Complete installation
-claude plugin install @fortium/ensemble-full
+claude plugin install @sunstone-partners/ensemble-full
 ```
 
 ### Automatic Dependency Resolution
@@ -224,8 +224,8 @@ The monorepo structure supports seamless migration:
 
 ## Repository Links
 
-- **GitHub**: https://github.com/FortiumPartners/ensemble (pending)
-- **NPM Organization**: @fortium (pending publication)
+- **GitHub**: https://github.com/Sunstone-Partners/ensemble (pending)
+- **NPM Organization**: @sunstone (pending publication)
 
 ## Status
 

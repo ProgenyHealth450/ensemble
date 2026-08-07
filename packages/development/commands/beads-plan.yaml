@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-03-29"
   category: implementation
   output_path: ensemble/beads-plan.md
-  source: fortium
+  source: sunstone
   model: medium
   argument_hint: "[epic-id|slug-pattern] [max parallel N]"
   allowed_tools:

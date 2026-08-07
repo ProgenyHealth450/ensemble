@@ -43,7 +43,7 @@ Rename the `ensemble-pane-viewer` plugin to `ensemble-agent-progress-pane` acros
 
 ```
 ensemble-pane-viewer        → ensemble-agent-progress-pane
-@fortium/ensemble-pane-viewer → @fortium/ensemble-agent-progress-pane
+@sunstone-partners/ensemble-pane-viewer → @sunstone-partners/ensemble-agent-progress-pane
 packages/pane-viewer/       → packages/agent-progress-pane/
 pane-viewer (config)        → agent-progress-pane
 ```
@@ -169,7 +169,7 @@ marketplace.json
 
 #### Phase 1.2: Package Configuration
 - [ ] **RENAME-002**: Update `packages/agent-progress-pane/package.json`
-  - Change `name` from `@fortium/ensemble-pane-viewer` to `@fortium/ensemble-agent-progress-pane`
+  - Change `name` from `@sunstone-partners/ensemble-pane-viewer` to `@sunstone-partners/ensemble-agent-progress-pane`
   - Update `description` to "Real-time agent progress visualization in terminal panes"
   - Add keywords: "agent", "progress", "monitoring"
 
@@ -329,7 +329,7 @@ marketplace.json
   claude plugin uninstall ensemble-pane-viewer@ensemble
 
   # Install new plugin
-  claude plugin install github:FortiumPartners/ensemble/packages/agent-progress-pane
+  claude plugin install github:Sunstone-Partners/ensemble/packages/agent-progress-pane
 
   # Verify installation
   claude plugin list
@@ -428,7 +428,7 @@ function loadConfig() {
   "description": "Real-time subagent monitoring in terminal panes",
   "category": "utilities",
   "tags": ["monitoring", "terminal", "panes"],
-  "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+  "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
 }
 
 // AFTER
@@ -439,7 +439,7 @@ function loadConfig() {
   "description": "Real-time agent progress visualization in terminal panes",
   "category": "utilities",
   "tags": ["agent", "progress", "monitoring", "terminal", "panes"],
-  "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+  "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
 }
 ```
 
@@ -487,7 +487,7 @@ function loadConfig() {
 
 | ID | Criteria | Verification Command |
 |----|----------|---------------------|
-| AC4.1 | Plugin installs from GitHub | `claude plugin install github:FortiumPartners/ensemble/packages/agent-progress-pane` |
+| AC4.1 | Plugin installs from GitHub | `claude plugin install github:Sunstone-Partners/ensemble/packages/agent-progress-pane` |
 | AC4.2 | Plugin appears in list | `claude plugin list \| grep agent-progress-pane` |
 | AC4.3 | Hooks execute correctly | Trigger Task tool, verify pane spawns |
 

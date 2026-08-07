@@ -2984,7 +2984,7 @@ test_merge_conflict_handling() {
 
 ```javascript
 // Import ensemble-core utilities
-const { checkContext7Available, createLibraryHelper } = require('@fortium/ensemble-core');
+const { checkContext7Available, createLibraryHelper } = require('@sunstone-partners/ensemble-core');
 
 // Check if Context7 is available
 if (checkContext7Available()) {
@@ -2997,7 +2997,7 @@ if (checkContext7Available()) {
   const errorRecoveryDocs = await gitTown.fetchDocs('error recovery', 3000);
 } else {
   // Show installation instructions
-  const { getContext7InstallInstructions } = require('@fortium/ensemble-core');
+  const { getContext7InstallInstructions } = require('@sunstone-partners/ensemble-core');
   console.log(getContext7InstallInstructions());
 
   // Fall back to local ERROR_HANDLING.md (this file)
@@ -3037,7 +3037,7 @@ await gitTown.fetchDocs('common errors');
 Use `withContext7Fallback` for automatic fallback:
 
 ```javascript
-const { withContext7Fallback } = require('@fortium/ensemble-core');
+const { withContext7Fallback } = require('@sunstone-partners/ensemble-core');
 
 const errorDocs = await withContext7Fallback('git-town', 'merge conflicts', async () => {
   // Fallback: Use local ERROR_HANDLING.md

@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-20"
   category: implementation
   output_path: ensemble/create-workstream-trd.md
-  source: fortium
+  source: sunstone
   model: medium
   argument_hint: "<trd-path> <trd-path> [more-trd-paths] [--out path]"
   allowed_tools:

@@ -1,4 +1,4 @@
-# @fortium/ensemble-ai
+# @sunstone-partners/ensemble-ai
 
 **Version**: 5.1.0
 **Category**: AI Development
@@ -24,14 +24,14 @@ This plugin provides AI development skills extracted into a modular, reusable pa
 ### Via Claude Code Marketplace
 
 ```bash
-claude plugin install @fortium/ensemble-ai
+claude plugin install @sunstone-partners/ensemble-ai
 ```
 
 ### Manual Installation
 
 ```bash
 # Clone the ensemble repository
-git clone https://github.com/FortiumPartners/ensemble.git
+git clone https://github.com/Sunstone-Partners/ensemble.git
 cd ensemble
 
 # Install dependencies
@@ -69,7 +69,7 @@ You can also explicitly load AI skills:
 
 ```javascript
 // In your agent or command
-const aiSkill = require('@fortium/ensemble-ai');
+const aiSkill = require('@sunstone-partners/ensemble-ai');
 
 // Load quick reference for fast lookups
 const quickRef = await aiSkill.loadSkill('quick');
@@ -284,12 +284,12 @@ This plugin has no required peer dependencies.
 
 ## Related Plugins
 
-- `@fortium/ensemble-development` - Core development agent functionality
-- `@fortium/ensemble-python` - Python-specific patterns (if available)
+- `@sunstone-partners/ensemble-development` - Core development agent functionality
+- `@sunstone-partners/ensemble-python` - Python-specific patterns (if available)
 
 ## Contributing
 
-Contributions are welcome! Please see the [main repository](https://github.com/FortiumPartners/ensemble) for contribution guidelines.
+Contributions are welcome! Please see the [main repository](https://github.com/Sunstone-Partners/ensemble) for contribution guidelines.
 
 ### Updating Content
 
@@ -312,16 +312,18 @@ Before releasing updates:
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/FortiumPartners/ensemble/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/FortiumPartners/ensemble/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Sunstone-Partners/ensemble/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Sunstone-Partners/ensemble/discussions)
 - **Documentation**: [OpenAI API Documentation](https://platform.openai.com/docs)
 
 ## License
 
 MIT (c) 2025 Fortium Partners
 
+Copyright (c) 2026 Sunstone Partners
+
 ---
 
 **Plugin Version**: 5.1.0
 **Last Updated**: 2025-12-31
-**Maintainer**: Fortium Software Configuration Team
+**Maintainer**: Sunstone Software Configuration Team

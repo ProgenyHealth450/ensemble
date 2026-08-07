@@ -55,7 +55,7 @@ jobs:
       - name: Generate release notes
         run: npm run release-notes:codex -- --output .github/codex-release-notes.md
 
-      - name: Publish @fortium/ensemble-codex
+      - name: Publish @sunstone-partners/ensemble-codex
         run: npm publish --workspace=packages/codex --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

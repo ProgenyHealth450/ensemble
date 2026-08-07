@@ -1,13 +1,13 @@
 {
   "name": "ensemble",
   "version": "5.0.0",
-  "description": "Official Fortium Ensemble plugin marketplace - AI-augmented development workflows",
+  "description": "Official Sunstone Ensemble plugin marketplace - AI-augmented development workflows",
   "owner": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com",
-    "url": "https://github.com/FortiumPartners"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com",
+    "url": "https://github.com/Sunstone-Partners"
   },
-  "homepage": "https://github.com/FortiumPartners/ensemble",
+  "homepage": "https://github.com/Sunstone-Partners/ensemble",
   "categories": [
     {
       "id": "core",
@@ -43,7 +43,7 @@
       "description": "Core utilities including framework detection and XDG-compliant configuration",
       "category": "core",
       "tags": ["core", "framework-detection", "config"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-product",
@@ -52,7 +52,7 @@
       "description": "Product management workflows - PRD and TRD creation",
       "category": "workflow",
       "tags": ["product", "prd", "trd", "requirements"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-development",
@@ -61,7 +61,7 @@
       "description": "Development workflow orchestration and best practices",
       "category": "workflow",
       "tags": ["development", "workflow", "orchestration"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-quality",
@@ -70,7 +70,7 @@
       "description": "Quality assurance and code review workflows",
       "category": "workflow",
       "tags": ["quality", "testing", "code-review"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-infrastructure",
@@ -79,7 +79,7 @@
       "description": "Infrastructure and DevOps workflows",
       "category": "workflow",
       "tags": ["infrastructure", "devops", "deployment"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-git",
@@ -88,7 +88,7 @@
       "description": "Git workflow automation and best practices",
       "category": "workflow",
       "tags": ["git", "version-control", "commits"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-e2e-testing",
@@ -97,7 +97,7 @@
       "description": "End-to-end testing workflows with Playwright",
       "category": "testing",
       "tags": ["e2e", "playwright", "testing"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-metrics",
@@ -106,7 +106,7 @@
       "description": "Development metrics and analytics",
       "category": "utilities",
       "tags": ["metrics", "analytics", "productivity"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-react",
@@ -115,7 +115,7 @@
       "description": "React framework skills and patterns",
       "category": "frameworks",
       "tags": ["react", "frontend", "javascript"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-nestjs",
@@ -124,7 +124,7 @@
       "description": "NestJS backend framework skills",
       "category": "frameworks",
       "tags": ["nestjs", "backend", "typescript"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-rails",
@@ -133,7 +133,7 @@
       "description": "Ruby on Rails framework skills",
       "category": "frameworks",
       "tags": ["rails", "ruby", "backend"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-phoenix",
@@ -142,7 +142,7 @@
       "description": "Phoenix/Elixir framework skills",
       "category": "frameworks",
       "tags": ["phoenix", "elixir", "backend"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-blazor",
@@ -151,7 +151,7 @@
       "description": "Blazor/.NET framework skills",
       "category": "frameworks",
       "tags": ["blazor", "dotnet", "csharp"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-jest",
@@ -160,7 +160,7 @@
       "description": "Jest testing framework skills",
       "category": "testing",
       "tags": ["jest", "javascript", "unit-testing"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-pytest",
@@ -169,7 +169,7 @@
       "description": "Pytest testing framework skills",
       "category": "testing",
       "tags": ["pytest", "python", "unit-testing"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-rspec",
@@ -178,7 +178,7 @@
       "description": "RSpec testing framework skills",
       "category": "testing",
       "tags": ["rspec", "ruby", "unit-testing"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-xunit",
@@ -187,7 +187,7 @@
       "description": "xUnit testing framework skills for .NET",
       "category": "testing",
       "tags": ["xunit", "dotnet", "unit-testing"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-exunit",
@@ -196,7 +196,7 @@
       "description": "ExUnit testing framework skills for Elixir",
       "category": "testing",
       "tags": ["exunit", "elixir", "unit-testing"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-pane-viewer",
@@ -205,7 +205,7 @@
       "description": "Real-time subagent monitoring in terminal panes",
       "category": "utilities",
       "tags": ["monitoring", "terminal", "panes"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-task-progress-pane",
@@ -214,7 +214,7 @@
       "description": "Real-time task progress visualization for TodoWrite operations",
       "category": "utilities",
       "tags": ["progress", "todowrite", "terminal"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     },
     {
       "name": "ensemble-full",
@@ -223,7 +223,7 @@
       "description": "Complete Ensemble suite - all plugins in one package",
       "category": "core",
       "tags": ["full", "complete", "bundle"],
-      "author": {"name": "Fortium Partners", "url": "https://github.com/FortiumPartners"}
+      "author": {"name": "Sunstone Partners", "url": "https://github.com/Sunstone-Partners"}
     }
   ]
 }

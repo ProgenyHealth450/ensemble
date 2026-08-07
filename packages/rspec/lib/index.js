@@ -1,6 +1,6 @@
 /**
  * RSpec Testing Skill
- * @fortium/ensemble-rspec
+ * @sunstone-partners/ensemble-rspec
  *
  * Provides RSpec test generation and execution for Ruby projects
  */

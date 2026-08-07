@@ -413,13 +413,13 @@ Generated CHANGELOG.md:
 ## [6.0.0] - 2026-01-09
 
 ### ⚠️ Breaking Changes
-- Rewrite plugin loading ([ghi789](https://github.com/FortiumPartners/ensemble/commit/ghi789))
+- Rewrite plugin loading ([ghi789](https://github.com/Sunstone-Partners/ensemble/commit/ghi789))
 
 ### ✨ Features
-- **core**: Add framework detection ([abc123](https://github.com/FortiumPartners/ensemble/commit/abc123))
+- **core**: Add framework detection ([abc123](https://github.com/Sunstone-Partners/ensemble/commit/abc123))
 
 ### 🐛 Bug Fixes
-- **router**: Resolve delegation loop ([def456](https://github.com/FortiumPartners/ensemble/commit/def456))
+- **router**: Resolve delegation loop ([def456](https://github.com/Sunstone-Partners/ensemble/commit/def456))
 
 ---
 ```
@@ -575,7 +575,7 @@ Preview Mode:
 **Test**:
 ```bash
 # Fresh clone
-git clone https://github.com/FortiumPartners/ensemble
+git clone https://github.com/Sunstone-Partners/ensemble
 cd ensemble
 npm install
 
@@ -615,7 +615,7 @@ cat packages/full/.claude-plugin/plugin.json | grep version
 # Expected: "version": "5.2.0"
 
 cat packages/full/package.json | grep ensemble-react
-# Expected: "@fortium/ensemble-react": "5.1.0"
+# Expected: "@sunstone-partners/ensemble-react": "5.1.0"
 ```
 
 ### AC-3: Manual Override
@@ -805,7 +805,7 @@ npm run fix-versions --package core
 3. **Slack notifications** - Notify channel on major version bumps
 4. **Version metrics dashboard** - Grafana dashboard with bump trends
 5. **LTS version tracking** - Mark and freeze LTS versions (e.g., 5.x branch)
-6. **Multi-repository support** - Extend to other Fortium monorepos
+6. **Multi-repository support** - Extend to other Sunstone monorepos
 
 ---
 

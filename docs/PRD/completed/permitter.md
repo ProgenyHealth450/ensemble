@@ -737,11 +737,11 @@ packages/permitter/
   "version": "1.0.0",
   "description": "PreToolUse hook for intelligent permission expansion (disabled by default)",
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com"
   },
   "hooks": "./hooks/hooks.json",
-  "repository": "https://github.com/FortiumPartners/ensemble"
+  "repository": "https://github.com/Sunstone-Partners/ensemble"
 }
 ```
 

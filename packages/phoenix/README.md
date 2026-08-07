@@ -1,11 +1,11 @@
-# @fortium/ensemble-phoenix
+# @sunstone-partners/ensemble-phoenix
 
 Phoenix LiveView framework skills
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-phoenix
+claude plugin install @sunstone-partners/ensemble-phoenix
 ```
 
 ## Description
@@ -22,7 +22,7 @@ After installation, this plugin's agents, commands, and skills will be automatic
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 

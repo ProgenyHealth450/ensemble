@@ -9,7 +9,7 @@
 | **Status** | Ready for Development |
 | **Created** | 2025-12-19 |
 | **Last Updated** | 2025-12-19 |
-| **Author** | Fortium Partners |
+| **Author** | Sunstone Partners |
 | **Version** | 1.1 |
 | **PRD Reference** | PRD-CORE-003 v1.1 |
 
@@ -1576,7 +1576,7 @@ process.on('SIGINT', () => {
         },
         "source": {
           "type": "string",
-          "const": "fortium"
+          "const": "sunstone"
         },
         "model": {
           "type": "string",
@@ -1966,7 +1966,7 @@ interface CommandYaml {
     lastUpdated: string;
     category: 'analysis' | 'workflow' | 'infrastructure' | 'quality';
     output_path?: string;
-    source: 'fortium';
+    source: 'sunstone';
     model?: string;
     allowed_tools?: string[];
     argument_hint?: string;
@@ -2320,7 +2320,7 @@ describe('schema-validator', () => {
         version: '1.0.0',
         lastUpdated: '2025-12-19',
         category: 'analysis',
-        source: 'fortium'
+        source: 'sunstone'
       },
       mission: {
         summary: 'Test mission summary'
@@ -2595,7 +2595,7 @@ metadata:
   version: 1.0.0
   lastUpdated: "2025-12-19"
   category: analysis
-  source: fortium
+  source: sunstone
 
 mission:
   summary: This is a test command for unit testing purposes
@@ -3188,8 +3188,8 @@ ensemble/
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.1 | 2025-12-19 | Fortium Partners | Updated with user interview decisions: orphan safety (DO NOT EDIT header check), watch mode debounce (500ms), strict model validation (opus/sonnet/haiku), --fail-fast CLI option, phase numbering validation, schema extensibility (additionalProperties: true), symlink resolution in security, CI drift check |
-| 1.0 | 2025-12-19 | Fortium Partners | Initial TRD creation based on PRD-CORE-003 v1.1 |
+| 1.1 | 2025-12-19 | Sunstone Partners | Updated with user interview decisions: orphan safety (DO NOT EDIT header check), watch mode debounce (500ms), strict model validation (opus/sonnet/haiku), --fail-fast CLI option, phase numbering validation, schema extensibility (additionalProperties: true), symlink resolution in security, CI drift check |
+| 1.0 | 2025-12-19 | Sunstone Partners | Initial TRD creation based on PRD-CORE-003 v1.1 |
 
 ---
 

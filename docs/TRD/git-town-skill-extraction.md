@@ -714,7 +714,7 @@ This section formalizes the structure and metadata requirements for all skill fi
 ---
 skill_name: git-town
 version: 1.0.0
-author: Fortium Partners
+author: Sunstone Partners
 created: 2025-12-29
 updated: 2025-12-29
 tags: [git, workflow, branching]

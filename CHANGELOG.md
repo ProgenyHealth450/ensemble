@@ -158,7 +158,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Installation moved from a single monolith to modular plugin installs.
-- Plugin names now use the `ensemble-` prefix and `@fortium/` npm scope.
+- Plugin names now use the `ensemble-` prefix and `@sunstone-partners/` npm scope.
 - Installation size and plugin load time were significantly reduced through modularization.
 
 ## [3.6.5]

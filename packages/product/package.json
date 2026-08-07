@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-product",
+  "name": "@sunstone-partners/ensemble-product",
   "version": "5.6.0",
   "description": "Product management agents and workflows (PRD creation, analysis)",
   "main": "lib/index.js",
@@ -14,17 +14,17 @@
     "planning",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/product"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0"
   }
 }

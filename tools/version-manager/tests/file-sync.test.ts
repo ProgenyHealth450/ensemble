@@ -33,7 +33,7 @@ describe('File Synchronizer', () => {
     };
 
     const packageJson = {
-      name: `@fortium/ensemble-${name}`,
+      name: `@sunstone-partners/ensemble-${name}`,
       version,
       description: `Test package ${name}`
     };

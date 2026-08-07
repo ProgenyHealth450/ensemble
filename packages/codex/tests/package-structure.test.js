@@ -8,7 +8,7 @@ const CODEX_DIR = path.join(PACKAGE_DIR, '.codex');
 describe('ensemble-codex package structure', () => {
   test('package.json exists and has expected package name', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'package.json'), 'utf-8'));
-    expect(pkg.name).toBe('@fortium/ensemble-codex');
+    expect(pkg.name).toBe('@sunstone-partners/ensemble-codex');
   });
 
   test('plugin.json exists and has expected plugin name', () => {

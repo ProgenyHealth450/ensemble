@@ -302,7 +302,7 @@ fi
 Use Context7 MCP for up-to-date command reference:
 
 ```javascript
-const { createLibraryHelper } = require('@fortium/ensemble-core');
+const { createLibraryHelper } = require('@sunstone-partners/ensemble-core');
 
 // Create git-town helper
 const gitTown = createLibraryHelper('git-town');

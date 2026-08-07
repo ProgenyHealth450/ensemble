@@ -88,7 +88,7 @@ metadata:
   lastUpdated: "2026-03-15"
   category: planning
   output_path: ensemble/feature.md
-  source: fortium
+  source: sunstone
   model: opus
   argument_hint: "<description> [--skip-refine]"
 ```

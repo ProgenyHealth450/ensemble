@@ -1,6 +1,6 @@
 /**
  * Metrics Dashboard Plugin
- * @fortium/ensemble-metrics
+ * @sunstone-partners/ensemble-metrics
  *
  * Team productivity metrics and development analytics
  */

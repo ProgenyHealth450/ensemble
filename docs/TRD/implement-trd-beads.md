@@ -449,7 +449,7 @@ metadata:
   lastUpdated: "2026-03-07"
   category: implementation
   output_path: ensemble/implement-trd-beads.md
-  source: fortium
+  source: sunstone
   model: sonnet
 
 parameters:

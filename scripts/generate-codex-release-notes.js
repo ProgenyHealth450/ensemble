@@ -80,7 +80,7 @@ function buildReleaseNotes(version, previousTag, commits) {
   }
 
   const lines = [
-    `# @fortium/ensemble-codex ${version}`,
+    `# @sunstone-partners/ensemble-codex ${version}`,
     '',
     previousTag
       ? `Changes since ${previousTag}.`
@@ -99,7 +99,7 @@ function buildReleaseNotes(version, previousTag, commits) {
   lines.push('## Install');
   lines.push('');
   lines.push('```bash');
-  lines.push('npm install -D @fortium/ensemble-codex');
+  lines.push('npm install -D @sunstone-partners/ensemble-codex');
   lines.push('npx ensemble-codex-install . --force');
   lines.push('```');
   lines.push('');

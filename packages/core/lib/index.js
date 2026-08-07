@@ -1,6 +1,6 @@
 /**
  * Ensemble Core Plugin
- * @fortium/ensemble-core
+ * @sunstone-partners/ensemble-core
  *
  * Core utilities including framework detection and configuration management
  */

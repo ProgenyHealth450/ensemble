@@ -176,21 +176,21 @@ For suggested skills to work, the corresponding ensemble packages must be instal
 
 ```bash
 # Recommended: Install the complete ensemble ecosystem
-claude plugins install @fortium/ensemble-full
+claude plugins install @sunstone-partners/ensemble-full
 
 # Or install individual packages as needed
-claude plugins install @fortium/ensemble-quality     # For testing skills
-claude plugins install @fortium/ensemble-development # For framework skills
+claude plugins install @sunstone-partners/ensemble-quality     # For testing skills
+claude plugins install @sunstone-partners/ensemble-development # For framework skills
 ```
 
 ### Standalone Usage
 
-When installed standalone (without `@fortium/ensemble-full`):
+When installed standalone (without `@sunstone-partners/ensemble-full`):
 - **Routing hints will work**: Agents and skills will be suggested based on prompt analysis
 - **Some skills may not be available**: Suggested skills require their packages to be installed
 - **Basic orchestration functions**: Core routing and agent selection works independently
 
-For complete functionality, we recommend installing `@fortium/ensemble-full` which bundles all ensemble packages and their skills.
+For complete functionality, we recommend installing `@sunstone-partners/ensemble-full` which bundles all ensemble packages and their skills.
 
 ## License
 
@@ -198,4 +198,4 @@ MIT - See LICENSE file for details.
 
 ## Author
 
-Fortium Partners - [https://github.com/FortiumPartners](https://github.com/FortiumPartners)
+Sunstone Partners - [https://github.com/Sunstone-Partners](https://github.com/Sunstone-Partners)

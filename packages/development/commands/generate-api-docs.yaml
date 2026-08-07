@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2025-10-13"
   category: documentation
   output_path: ensemble/generate-api-docs.md
-  source: fortium
+  source: sunstone
 
 constraints:
   - DO NOT modify, refactor, or change any code in the codebase

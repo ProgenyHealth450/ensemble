@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-pi",
+  "name": "@sunstone-partners/ensemble-pi",
   "version": "1.5.0",
   "description": "Pi runtime support — translates ensemble artifacts for Pi coding agent",
   "main": "dist/index.js",
@@ -25,18 +25,18 @@
     "ai-agents"
   ],
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/pi"
   },
-  "homepage": "https://github.com/FortiumPartners/ensemble/tree/main/packages/pi",
+  "homepage": "https://github.com/Sunstone-Partners/ensemble/tree/main/packages/pi",
   "bugs": {
-    "url": "https://github.com/FortiumPartners/ensemble/issues"
+    "url": "https://github.com/Sunstone-Partners/ensemble/issues"
   },
   "pi": {
     "skills": ["./skills"],

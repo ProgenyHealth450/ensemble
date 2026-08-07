@@ -43,7 +43,7 @@ This project adheres to a code of conduct that promotes a welcoming and inclusiv
 
 3. Add upstream remote:
    ```bash
-   git remote add upstream https://github.com/FortiumPartners/ensemble.git
+   git remote add upstream https://github.com/Sunstone-Partners/ensemble.git
    ```
 
 4. Install dependencies:
@@ -104,7 +104,7 @@ git rebase upstream/main
        "email": "you@example.com",
        "url": "https://github.com/yourname"
      },
-     "repository": "https://github.com/FortiumPartners/ensemble",
+     "repository": "https://github.com/Sunstone-Partners/ensemble",
      "license": "MIT",
      "keywords": ["my-plugin", "ensemble"],
      "agents": "./agents",
@@ -116,7 +116,7 @@ git rebase upstream/main
 3. **Create package.json** (`packages/my-plugin/package.json`):
    ```json
    {
-     "name": "@fortium/ensemble-my-plugin",
+     "name": "@sunstone-partners/ensemble-my-plugin",
      "version": "1.0.0",
      "description": "Description of your plugin",
      "main": "lib/index.js",
@@ -130,7 +130,7 @@ git rebase upstream/main
      "license": "MIT",
      "repository": {
        "type": "git",
-       "url": "https://github.com/FortiumPartners/ensemble.git",
+       "url": "https://github.com/Sunstone-Partners/ensemble.git",
        "directory": "packages/my-plugin"
      },
      "devDependencies": {
@@ -396,9 +396,9 @@ Maintainers only:
 ## Questions?
 
 - **Documentation**: Check the [README.md](README.md)
-- **Issues**: Search [GitHub Issues](https://github.com/FortiumPartners/ensemble/issues)
-- **Discussions**: Ask in [GitHub Discussions](https://github.com/FortiumPartners/ensemble/discussions)
-- **Email**: support@fortiumpartners.com
+- **Issues**: Search [GitHub Issues](https://github.com/Sunstone-Partners/ensemble/issues)
+- **Discussions**: Ask in [GitHub Discussions](https://github.com/Sunstone-Partners/ensemble/discussions)
+- **Email**: info@sunstonepartners.com
 
 ## License
 

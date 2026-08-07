@@ -85,7 +85,7 @@ Rename the plugin across all touchpoints:
 
 1. **Package Name**: `ensemble-pane-viewer` → `ensemble-agent-progress-pane`
 2. **Package Folder**: `packages/pane-viewer/` → `packages/agent-progress-pane/`
-3. **NPM Package**: `@fortium/ensemble-pane-viewer` → `@fortium/ensemble-agent-progress-pane`
+3. **NPM Package**: `@sunstone-partners/ensemble-pane-viewer` → `@sunstone-partners/ensemble-agent-progress-pane`
 4. **Plugin Registry**: Update marketplace.json entry
 5. **Documentation**: Update all references in README, CLAUDE.md, and other docs
 6. **Configuration**: Update default config paths
@@ -228,7 +228,7 @@ Rename the plugin across all touchpoints:
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | FR1.1 | Rename folder from `packages/pane-viewer/` to `packages/agent-progress-pane/` | P0 |
-| FR1.2 | Update `package.json` name to `@fortium/ensemble-agent-progress-pane` | P0 |
+| FR1.2 | Update `package.json` name to `@sunstone-partners/ensemble-agent-progress-pane` | P0 |
 | FR1.3 | Update `plugin.json` name to `ensemble-agent-progress-pane` | P0 |
 | FR1.4 | Update description to "Real-time agent progress visualization in terminal panes" | P0 |
 | FR1.5 | Update keywords to include "agent", "progress", "monitoring" | P1 |
@@ -384,7 +384,7 @@ const migrations = [
 | ID | Criteria | Test Method |
 |----|----------|-------------|
 | AC1.1 | Package folder is `packages/agent-progress-pane/` | File system check |
-| AC1.2 | npm package name is `@fortium/ensemble-agent-progress-pane` | package.json check |
+| AC1.2 | npm package name is `@sunstone-partners/ensemble-agent-progress-pane` | package.json check |
 | AC1.3 | Plugin name in manifest is `ensemble-agent-progress-pane` | plugin.json check |
 | AC1.4 | `npm run validate` passes | CLI verification |
 
@@ -392,7 +392,7 @@ const migrations = [
 
 | ID | Criteria | Test Method |
 |----|----------|-------------|
-| AC2.1 | Plugin installs with `claude plugin install github:FortiumPartners/ensemble/packages/agent-progress-pane` | CLI test |
+| AC2.1 | Plugin installs with `claude plugin install github:Sunstone-Partners/ensemble/packages/agent-progress-pane` | CLI test |
 | AC2.2 | Plugin appears in `claude plugin list` | CLI test |
 | AC2.3 | Plugin hooks execute correctly | E2E test |
 
@@ -479,7 +479,7 @@ const migrations = [
 | File | Change |
 |------|--------|
 | `packages/pane-viewer/` | Rename to `packages/agent-progress-pane/` |
-| `package.json` | Update name to `@fortium/ensemble-agent-progress-pane` |
+| `package.json` | Update name to `@sunstone-partners/ensemble-agent-progress-pane` |
 | `.claude-plugin/plugin.json` | Update name and description |
 | `README.md` (package) | Update all references |
 | `CHANGELOG.md` (package) | Add rename entry |

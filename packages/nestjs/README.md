@@ -1,10 +1,10 @@
-# @fortium/ensemble-nestjs
+# @sunstone-partners/ensemble-nestjs
 
 NestJS backend framework skills for Claude Code AI-Augmented Development
 
 ## Overview
 
-The `@fortium/ensemble-nestjs` plugin provides comprehensive NestJS framework expertise for the Ensemble development ecosystem. This plugin enables Claude Code to architect, develop, and maintain production-ready NestJS applications following enterprise patterns and best practices.
+The `@sunstone-partners/ensemble-nestjs` plugin provides comprehensive NestJS framework expertise for the Ensemble development ecosystem. This plugin enables Claude Code to architect, develop, and maintain production-ready NestJS applications following enterprise patterns and best practices.
 
 ## Features
 
@@ -23,13 +23,13 @@ The `@fortium/ensemble-nestjs` plugin provides comprehensive NestJS framework ex
 ### Via Claude Code Marketplace
 
 ```bash
-claude plugin add @fortium/ensemble-nestjs
+claude plugin add @sunstone-partners/ensemble-nestjs
 ```
 
 ### Manual Installation
 
 ```bash
-npm install @fortium/ensemble-nestjs
+npm install @sunstone-partners/ensemble-nestjs
 ```
 
 ## Plugin Contents
@@ -231,7 +231,7 @@ Templates use variable substitution with these placeholders:
 ## Directory Structure
 
 ```
-@fortium/ensemble-nestjs/
+@sunstone-partners/ensemble-nestjs/
 ├── skills/                         # NestJS expertise and patterns
 │   ├── SKILL.md                    # Quick reference (13KB)
 │   ├── REFERENCE.md                # Comprehensive guide (72KB)
@@ -285,15 +285,15 @@ The plugin enforces these quality targets:
 
 This plugin is part of the Ensemble plugin ecosystem and works seamlessly with:
 
-- **@fortium/ensemble-development** - Core development workflows and agents
-- **@fortium/ensemble-react** - Frontend React framework (for full-stack apps)
-- **@fortium/ensemble-blazor** - Blazor framework (for .NET full-stack)
+- **@sunstone-partners/ensemble-development** - Core development workflows and agents
+- **@sunstone-partners/ensemble-react** - Frontend React framework (for full-stack apps)
+- **@sunstone-partners/ensemble-blazor** - Blazor framework (for .NET full-stack)
 - **Backend Agents**: Automatically loaded by `backend-developer` agent
 
 ## Dependencies
 
 ### Required
-- **@fortium/ensemble-development**: ^4.0.0 (core agent system)
+- **@sunstone-partners/ensemble-development**: ^4.0.0 (core agent system)
 
 ### Optional (for testing)
 - **jest**: ^29.7.0 (unit testing framework)
@@ -386,9 +386,9 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history and migration notes.
 
 ## Support
 
-- **Documentation**: [Ensemble Plugins Repository](https://github.com/FortiumPartners/ensemble)
-- **Issues**: [GitHub Issues](https://github.com/FortiumPartners/ensemble/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/FortiumPartners/ensemble/discussions)
+- **Documentation**: [Ensemble Plugins Repository](https://github.com/Sunstone-Partners/ensemble)
+- **Issues**: [GitHub Issues](https://github.com/Sunstone-Partners/ensemble/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Sunstone-Partners/ensemble/discussions)
 
 ## License
 
@@ -396,11 +396,11 @@ MIT - See [LICENSE](../../LICENSE) for details.
 
 ## Contributing
 
-See the [main repository](https://github.com/FortiumPartners/ensemble) for contribution guidelines.
+See the [main repository](https://github.com/Sunstone-Partners/ensemble) for contribution guidelines.
 
 ## Credits
 
-Extracted from ensemble v3.x monolith as part of the plugin architecture migration. Originally developed by the Fortium Partners team as part of the Leo AI-Augmented Development Process.
+Extracted from ensemble v3.x monolith as part of the plugin architecture migration. Originally developed by the Sunstone Partners team as part of the Leo AI-Augmented Development Process.
 
 ---
 

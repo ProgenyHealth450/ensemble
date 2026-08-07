@@ -1,11 +1,11 @@
-# @fortium/ensemble-development
+# @sunstone-partners/ensemble-development
 
 Development agents for frontend/backend implementation
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-development
+claude plugin install @sunstone-partners/ensemble-development
 ```
 
 ## Description
@@ -98,7 +98,7 @@ After refinement, continue with `/ensemble:beads-plan` or `/ensemble:beads-build
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 

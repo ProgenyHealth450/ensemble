@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-30"
   category: analysis
   output_path: ensemble/trd-dependency-graph.md
-  source: fortium
+  source: sunstone
   model: low
   argument_hint: "[trd-dir|paths...] [--format json|mermaid|dot] [--overlap]"
 

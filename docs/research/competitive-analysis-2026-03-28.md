@@ -10,7 +10,7 @@ This analysis compares five AI coding agent frameworks to identify Ensemble's co
 
 ## Framework Profiles
 
-### Ensemble (v5.1.0) -- Fortium Partners
+### Ensemble (v5.1.0) -- Sunstone Partners
 **Philosophy:** Full-lifecycle orchestration platform with specialized agent mesh.
 **Size:** 23 npm packages, 28 agents, 15+ commands, 5 framework skills, 5 test framework skills.
 **Architecture:** 4-tier monorepo (Core -> Workflow -> Framework Skills -> Test Frameworks) with YAML agents, JSON manifests, and hook system.

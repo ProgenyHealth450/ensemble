@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-react",
+  "name": "@sunstone-partners/ensemble-react",
   "version": "5.1.0",
   "description": "React framework skills and component development",
   "main": "lib/index.js",
@@ -14,17 +14,17 @@
     "components",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/react"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-development": "^4.0.0"
+    "@sunstone-partners/ensemble-development": "^4.0.0"
   }
 }

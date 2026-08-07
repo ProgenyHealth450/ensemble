@@ -1,5 +1,5 @@
 /**
- * @fortium/ensemble-react - React Framework Skills Plugin
+ * @sunstone-partners/ensemble-react - React Framework Skills Plugin
  *
  * Provides comprehensive React development skills including:
  * - Modern component patterns with hooks

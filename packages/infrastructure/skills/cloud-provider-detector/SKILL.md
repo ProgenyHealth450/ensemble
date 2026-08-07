@@ -277,4 +277,4 @@ npm install glob
 
 - **Version**: 1.0.0
 - **Last Updated**: October 2025
-- **Maintainer**: Fortium Infrastructure Team
+- **Maintainer**: Sunstone Infrastructure Team

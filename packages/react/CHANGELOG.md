@@ -74,8 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This release extracts the React framework skill from the ensemble monolith into a standalone plugin:
 
-**Source**: `/Users/ldangelo/Development/Fortium/ensemble/skills/react-framework/`
-**Target**: `/Users/ldangelo/Development/Fortium/ensemble/packages/react/`
+**Source**: `/Users/ldangelo/Development/Sunstone/ensemble/skills/react-framework/`
+**Target**: `/Users/ldangelo/Development/Sunstone/ensemble/packages/react/`
 
 **Files Migrated**:
 - 5 documentation files (SKILL.md, REFERENCE.md, README.md, PATTERNS-EXTRACTED.md, VALIDATION.md)
@@ -110,14 +110,14 @@ This release extracts the React framework skill from the ensemble monolith into 
 
 ### Dependencies
 
-- `@fortium/ensemble-development@4.0.0` - Core development agent functionality
+- `@sunstone-partners/ensemble-development@4.0.0` - Core development agent functionality
 
 ### Related Plugins
 
-- `@fortium/ensemble-typescript` - TypeScript-specific patterns
-- `@fortium/ensemble-testing` - Testing frameworks beyond React Testing Library
-- `@fortium/ensemble-vite` - Vite bundler configuration
-- `@fortium/ensemble-nextjs` - Next.js framework skills
+- `@sunstone-partners/ensemble-typescript` - TypeScript-specific patterns
+- `@sunstone-partners/ensemble-testing` - Testing frameworks beyond React Testing Library
+- `@sunstone-partners/ensemble-vite` - Vite bundler configuration
+- `@sunstone-partners/ensemble-nextjs` - Next.js framework skills
 
 ---
 
@@ -138,4 +138,4 @@ This release extracts the React framework skill from the ensemble monolith into 
 **Extracted From**: ensemble v3.x monolith
 **Skill Version**: 1.0.0
 **Plugin Version**: 4.0.0
-**Maintainer**: Fortium Software Configuration Team
+**Maintainer**: Sunstone Software Configuration Team

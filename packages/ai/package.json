@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-ai",
+  "name": "@sunstone-partners/ensemble-ai",
   "version": "5.2.1",
   "description": "AI SDK skills for OpenAI and other AI providers",
   "main": "lib/index.js",
@@ -17,11 +17,11 @@
     "agents",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/ai"
   },
   "devDependencies": {

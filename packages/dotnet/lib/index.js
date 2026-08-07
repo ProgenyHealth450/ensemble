@@ -1,6 +1,6 @@
 /**
  * .NET Backend Plugin
- * @fortium/ensemble-dotnet
+ * @sunstone-partners/ensemble-dotnet
  *
  * ASP.NET Core, Wolverine CQRS, and MartenDB backend development skills
  */

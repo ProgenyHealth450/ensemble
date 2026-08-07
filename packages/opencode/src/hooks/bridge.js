@@ -9,7 +9,7 @@
  * Task IDs: OC-S2-HK-001 through OC-S2-HK-007
  *
  * @module ensemble-opencode/hooks/bridge
- * @see {@link https://github.com/FortiumPartners/ensemble}
+ * @see {@link https://github.com/Sunstone-Partners/ensemble}
  */
 
 'use strict';

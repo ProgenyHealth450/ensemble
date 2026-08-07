@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-05-31"
   category: analysis
   output_path: ensemble/fold-prompt.md
-  source: fortium
+  source: sunstone
 
 mission:
   summary: |

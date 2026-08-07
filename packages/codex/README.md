@@ -1,4 +1,4 @@
-# @fortium/ensemble-codex
+# @sunstone-partners/ensemble-codex
 
 Codex CLI runtime support for the Ensemble ecosystem.
 
@@ -54,7 +54,7 @@ npm run install:project --workspace=packages/codex -- /path/to/project --force
 ### From npm
 
 ```bash
-npm install -D @fortium/ensemble-codex
+npm install -D @sunstone-partners/ensemble-codex
 npx ensemble-codex-install . --force
 ```
 

@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-development",
+  "name": "@sunstone-partners/ensemble-development",
   "version": "6.0.4",
   "description": "Development agents for frontend/backend implementation",
   "main": "lib/index.js",
@@ -14,11 +14,11 @@
     "coding",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/development"
   },
   "dependencies": {
@@ -28,6 +28,6 @@
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-core": "^4.0.0"
+    "@sunstone-partners/ensemble-core": "^4.0.0"
   }
 }

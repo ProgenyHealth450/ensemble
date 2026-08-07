@@ -1,11 +1,11 @@
-# @fortium/ensemble-product
+# @sunstone-partners/ensemble-product
 
 Product management agents and workflows (PRD creation, analysis)
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-product
+claude plugin install @sunstone-partners/ensemble-product
 ```
 
 ## Description
@@ -22,7 +22,7 @@ After installation, this plugin's agents, commands, and skills will be automatic
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 

@@ -9,7 +9,7 @@
 | **Status** | Ready for Development |
 | **Created** | 2025-12-19 |
 | **Last Updated** | 2025-12-19 |
-| **Author** | Fortium Partners |
+| **Author** | Sunstone Partners |
 | **Version** | 1.1 |
 
 ---
@@ -218,7 +218,7 @@ metadata:
   lastUpdated: date               # Required: ISO 8601 date
   category: string                # Required: analysis|workflow|infrastructure|quality
   output_path: string             # Optional: override default output path
-  source: string                  # Required: "fortium"
+  source: string                  # Required: "sunstone"
   model: string                   # Optional: Claude model (default: current model)
   allowed_tools: string[]         # Optional: List of allowed tools (used in frontmatter)
 
@@ -1241,5 +1241,5 @@ See **Section 4.1.2** for detailed agent schema.
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2025-12-19 | Fortium Partners | Initial PRD creation |
-| 1.1 | 2025-12-19 | Fortium Partners | Updated with user interview decisions: plugin manifest discovery, auto-cleanup orphans, strict validation (delegation & step numbering), "DO NOT EDIT" warnings, collect-all-errors strategy, full v1 feature set including watch mode and CI integration, separate frontmatter fields (allowed-tools vs tools), no reverse converter |
+| 1.0 | 2025-12-19 | Sunstone Partners | Initial PRD creation |
+| 1.1 | 2025-12-19 | Sunstone Partners | Updated with user interview decisions: plugin manifest discovery, auto-cleanup orphans, strict validation (delegation & step numbering), "DO NOT EDIT" warnings, collect-all-errors strategy, full v1 feature set including watch mode and CI integration, separate frontmatter fields (allowed-tools vs tools), no reverse converter |

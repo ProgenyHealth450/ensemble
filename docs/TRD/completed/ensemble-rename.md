@@ -73,7 +73,7 @@ The following technical decisions were made during TRD refinement:
 
 | Task ID | Task Description | Priority | Dependencies | Status |
 |---------|------------------|----------|--------------|--------|
-| PREP-001 | Verify @fortium/ensemble-* package names available on NPM | N/A | None | [x] OUT OF SCOPE (no NPM publishing) |
+| PREP-001 | Verify @sunstone-partners/ensemble-* package names available on NPM | N/A | None | [x] OUT OF SCOPE (no NPM publishing) |
 | PREP-002 | **DONE**: Create comprehensive file inventory with line numbers | High | None | [x] |
 | PREP-003 | **DONE**: Create automated bulk rename script (Node built-in glob) | High | PREP-002 | [x] |
 | PREP-004 | **DONE**: Back up current repository state | Critical | None | [x] |
@@ -254,18 +254,18 @@ The following technical decisions were made during TRD refinement:
 ### 1.6 Publishing Tasks
 
 > **NOTE**: NPM publishing is OUT OF SCOPE. Plugins are distributed via GitHub only.
-> Users install plugins using: `claude plugin install github:FortiumPartners/ensemble/packages/*`
+> Users install plugins using: `claude plugin install github:Sunstone-Partners/ensemble/packages/*`
 
 | Task ID | Task Description | Priority | Dependencies | Status |
 |---------|------------------|----------|--------------|--------|
-| ~~PUB-001~~ | ~~Publish @fortium/ensemble-core v5.0.0~~ | ~~Critical~~ | N/A | [x] OUT OF SCOPE |
+| ~~PUB-001~~ | ~~Publish @sunstone-partners/ensemble-core v5.0.0~~ | ~~Critical~~ | N/A | [x] OUT OF SCOPE |
 | ~~PUB-002~~ | ~~Publish Tier 2 packages v5.0.0~~ | ~~Critical~~ | N/A | [x] OUT OF SCOPE |
 | ~~PUB-003~~ | ~~Publish Tier 3 packages v5.0.0~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
 | ~~PUB-004~~ | ~~Publish Tier 4 packages v5.0.0~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
 | ~~PUB-005~~ | ~~Publish utility packages v5.0.0~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
-| ~~PUB-006~~ | ~~Publish @fortium/ensemble-full v5.0.0~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
+| ~~PUB-006~~ | ~~Publish @sunstone-partners/ensemble-full v5.0.0~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
 | ~~PUB-007~~ | ~~Verify all packages install correctly~~ | ~~Critical~~ | N/A | [x] OUT OF SCOPE |
-| ~~PUB-008~~ | ~~Deprecate old @fortium/ensemble-* packages~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
+| ~~PUB-008~~ | ~~Deprecate old @sunstone-partners/ensemble-* packages~~ | ~~High~~ | N/A | [x] OUT OF SCOPE |
 | ~~PUB-009~~ | ~~Unpublish old packages~~ | ~~Medium~~ | N/A | [x] OUT OF SCOPE |
 
 ---
@@ -304,7 +304,7 @@ The following technical decisions were made during TRD refinement:
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐ │
-│  │   @fortium/     │    │   @fortium/     │    │   @fortium/     │ │
+│  │   @sunstone-partners/     │    │   @sunstone-partners/     │    │   @sunstone-partners/     │ │
 │  │ ensemble-core   │◄───│ ensemble-product│    │ensemble-quality │ │
 │  │    v5.0.0       │    │    v5.0.0       │    │    v5.0.0       │ │
 │  └────────┬────────┘    └────────┬────────┘    └────────┬────────┘ │
@@ -334,39 +334,39 @@ The following technical decisions were made during TRD refinement:
 
 ```
 Level 0 (Foundation):
-└── @fortium/ensemble-core v5.0.0
+└── @sunstone-partners/ensemble-core v5.0.0
     └── exports: lib/config-path.js (XDG-compliant config resolution)
 
 Level 1 (Workflow):
-├── @fortium/ensemble-product v5.0.0      ──► ensemble-core
-├── @fortium/ensemble-development v5.0.0  ──► ensemble-core
-├── @fortium/ensemble-quality v5.0.0      ──► ensemble-core
-├── @fortium/ensemble-infrastructure v5.0.0 ──► ensemble-core
-├── @fortium/ensemble-git v5.0.0          ──► ensemble-core
-├── @fortium/ensemble-e2e-testing v5.0.0  ──► ensemble-core
-└── @fortium/ensemble-metrics v5.0.0      ──► ensemble-core
+├── @sunstone-partners/ensemble-product v5.0.0      ──► ensemble-core
+├── @sunstone-partners/ensemble-development v5.0.0  ──► ensemble-core
+├── @sunstone-partners/ensemble-quality v5.0.0      ──► ensemble-core
+├── @sunstone-partners/ensemble-infrastructure v5.0.0 ──► ensemble-core
+├── @sunstone-partners/ensemble-git v5.0.0          ──► ensemble-core
+├── @sunstone-partners/ensemble-e2e-testing v5.0.0  ──► ensemble-core
+└── @sunstone-partners/ensemble-metrics v5.0.0      ──► ensemble-core
 
 Level 2 (Framework Skills):
-├── @fortium/ensemble-react v5.0.0   ──► ensemble-development
-├── @fortium/ensemble-nestjs v5.0.0  ──► ensemble-development
-├── @fortium/ensemble-rails v5.0.0   ──► ensemble-development
-├── @fortium/ensemble-phoenix v5.0.0 ──► ensemble-development
-└── @fortium/ensemble-blazor v5.0.0  ──► ensemble-development
+├── @sunstone-partners/ensemble-react v5.0.0   ──► ensemble-development
+├── @sunstone-partners/ensemble-nestjs v5.0.0  ──► ensemble-development
+├── @sunstone-partners/ensemble-rails v5.0.0   ──► ensemble-development
+├── @sunstone-partners/ensemble-phoenix v5.0.0 ──► ensemble-development
+└── @sunstone-partners/ensemble-blazor v5.0.0  ──► ensemble-development
 
 Level 3 (Testing Frameworks):
-├── @fortium/ensemble-jest v5.0.0   ──► ensemble-quality
-├── @fortium/ensemble-pytest v5.0.0 ──► ensemble-quality
-├── @fortium/ensemble-rspec v5.0.0  ──► ensemble-quality
-├── @fortium/ensemble-xunit v5.0.0  ──► ensemble-quality
-└── @fortium/ensemble-exunit v5.0.0 ──► ensemble-quality
+├── @sunstone-partners/ensemble-jest v5.0.0   ──► ensemble-quality
+├── @sunstone-partners/ensemble-pytest v5.0.0 ──► ensemble-quality
+├── @sunstone-partners/ensemble-rspec v5.0.0  ──► ensemble-quality
+├── @sunstone-partners/ensemble-xunit v5.0.0  ──► ensemble-quality
+└── @sunstone-partners/ensemble-exunit v5.0.0 ──► ensemble-quality
 
 Level 4 (Utilities):
-├── @fortium/ensemble-pane-viewer v5.0.0         ──► ensemble-core
-├── @fortium/ensemble-task-progress-pane v5.0.0  ──► ensemble-core
-└── @fortium/ensemble-multiplexer-adapters v5.0.0 (internal)
+├── @sunstone-partners/ensemble-pane-viewer v5.0.0         ──► ensemble-core
+├── @sunstone-partners/ensemble-task-progress-pane v5.0.0  ──► ensemble-core
+└── @sunstone-partners/ensemble-multiplexer-adapters v5.0.0 (internal)
 
 Level 5 (Meta):
-└── @fortium/ensemble-full v5.0.0 ──► All packages
+└── @sunstone-partners/ensemble-full v5.0.0 ──► All packages
 ```
 
 ### 2.3 Configuration Directory Structure
@@ -415,7 +415,7 @@ $CONFIG_ROOT/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                   getEnsembleConfigRoot()                   │
-│              (from @fortium/ensemble-core)                  │
+│              (from @sunstone-partners/ensemble-core)                  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -463,7 +463,7 @@ $CONFIG_ROOT/
 **Goal**: Set up infrastructure for safe rename operation
 
 **Tasks**:
-- [x] PREP-001: Verify @fortium/ensemble-* package names available on NPM (OUT OF SCOPE - no NPM publishing)
+- [x] PREP-001: Verify @sunstone-partners/ensemble-* package names available on NPM (OUT OF SCOPE - no NPM publishing)
 - [x] PREP-002: Create comprehensive file inventory with line numbers
 - [x] PREP-007: **Create pre-flight checklist script**
 - [x] TEST-007: **Run pre-flight validation**
@@ -479,7 +479,7 @@ $CONFIG_ROOT/
 3. ✅ Complete file inventory (JSON format)
 4. ✅ Backup archive
 5. ✅ Feature branch `feature/ensemble-rename`
-6. ✅ Renamed local directory (`/Users/ldangelo/Development/Fortium/ensemble`)
+6. ✅ Renamed local directory (`/Users/ldangelo/Development/Sunstone/ensemble`)
 7. ✅ Automated rename script (`scripts/rename-to-ensemble.js`)
 8. ✅ Rollback documentation
 
@@ -522,7 +522,7 @@ $CONFIG_ROOT/
 
 **Acceptance Criteria**:
 - [x] `grep -r "ai-mesh" --include="*.json"` returns 0 results (excluding docs)
-- [x] `grep -r "@fortium/ensemble-" --include="*.json"` confirms all packages renamed
+- [x] `grep -r "@sunstone-partners/ensemble-" --include="*.json"` confirms all packages renamed
 - [x] All packages at v5.0.0
 - [x] All packages validate against new schema pattern
 - [x] `npm run validate` passes
@@ -582,14 +582,14 @@ $CONFIG_ROOT/
 
 **Deliverables**:
 1. ✅ Tests run (14 pre-existing failures to fix)
-2. ✅ GitHub repository renamed to `FortiumPartners/ensemble`
+2. ✅ GitHub repository renamed to `Sunstone-Partners/ensemble`
 3. ✅ CI/CD workflows functional
 4. ⚠️ Migration tested on macOS only
 5. ✅ All 21 plugins install successfully via GitHub marketplace (tested 2025-12-16)
 
 **Acceptance Criteria**:
 - [x] CI pipeline passes on new repository
-- [x] Old URL (FortiumPartners/ai-mesh-plugins) redirects to new URL
+- [x] Old URL (Sunstone-Partners/ai-mesh-plugins) redirects to new URL
 - [~] Migration works on macOS (Linux/WSL untested)
 - [x] All slash commands functional with /ensemble: prefix
 
@@ -598,7 +598,7 @@ $CONFIG_ROOT/
 ### Sprint 5: Documentation & Cleanup ⚠️ IN PROGRESS
 
 > **NOTE**: NPM publishing is OUT OF SCOPE. Plugins are distributed via GitHub only.
-> Users install plugins using: `claude plugin install github:FortiumPartners/ensemble/packages/*`
+> Users install plugins using: `claude plugin install github:Sunstone-Partners/ensemble/packages/*`
 
 **Goal**: Finalize documentation and cleanup
 
@@ -739,7 +739,7 @@ function checkNpmLogin() {
 
 async function checkPackageAvailability(packageName) {
   return new Promise((resolve) => {
-    const url = `https://registry.npmjs.org/@fortium/${packageName}`;
+    const url = `https://registry.npmjs.org/@sunstone-partners/${packageName}`;
     https.get(url, (res) => {
       if (res.statusCode === 404) {
         resolve({ name: packageName, available: true });
@@ -760,12 +760,12 @@ async function checkAllPackagesAvailable() {
   const errors = results.filter(r => r.available === 'error');
 
   if (unavailable.length === 0 && errors.length === 0) {
-    log('pass', `All ${PACKAGES.length} @fortium/ensemble-* package names are available`);
+    log('pass', `All ${PACKAGES.length} @sunstone-partners/ensemble-* package names are available`);
     return true;
   } else {
     if (unavailable.length > 0) {
       log('fail', `${unavailable.length} package names are already taken:`);
-      unavailable.forEach(r => console.log(`         @fortium/${r.name}`));
+      unavailable.forEach(r => console.log(`         @sunstone-partners/${r.name}`));
     }
     if (errors.length > 0) {
       log('fail', `${errors.length} packages could not be checked (network error)`);
@@ -859,15 +859,15 @@ const NEW_VERSION = '5.0.0';
 
 const REPLACEMENTS = [
   // Package names
-  { from: '@fortium/ensemble-', to: '@fortium/ensemble-' },
-  { from: '@fortium/ensemble-', to: '@fortium/ensemble-' },
+  { from: '@sunstone-partners/ensemble-', to: '@sunstone-partners/ensemble-' },
+  { from: '@sunstone-partners/ensemble-', to: '@sunstone-partners/ensemble-' },
 
   // Plugin names
   { from: '"ensemble-', to: '"ensemble-' },
   { from: "'ensemble-", to: "'ensemble-" },
 
   // Repository URLs
-  { from: 'FortiumPartners/ensemble', to: 'FortiumPartners/ensemble' },
+  { from: 'Sunstone-Partners/ensemble', to: 'Sunstone-Partners/ensemble' },
 
   // Config paths
   { from: '.ensemble/plugins/task-progress-pane', to: '.ensemble/plugins/task-progress-pane' },
@@ -1011,14 +1011,14 @@ main().catch(console.error);
 ```javascript
 /**
  * XDG-compliant configuration path resolution for Ensemble
- * Part of @fortium/ensemble-core
+ * Part of @sunstone-partners/ensemble-core
  *
  * Priority:
  * 1. $XDG_CONFIG_HOME/ensemble/ (if XDG_CONFIG_HOME set)
  * 2. ~/.config/ensemble/ (if ~/.config exists)
  * 3. ~/.ensemble/ (fallback)
  *
- * @module @fortium/ensemble-core/config-path
+ * @module @sunstone-partners/ensemble-core/config-path
  * @version 5.0.0
  */
 
@@ -1162,7 +1162,7 @@ module.exports = {
 ```javascript
 /**
  * Unit tests for config-path module
- * @module @fortium/ensemble-core/tests/config-path
+ * @module @sunstone-partners/ensemble-core/tests/config-path
  */
 
 const { describe, it, expect, beforeEach, afterEach, vi } = require('vitest');
@@ -1323,7 +1323,7 @@ const os = require('os');
 // Try to import from ensemble-core, fallback to inline implementation
 let configPath;
 try {
-  configPath = require('@fortium/ensemble-core/lib/config-path');
+  configPath = require('@sunstone-partners/ensemble-core/lib/config-path');
 } catch {
   // Inline fallback for standalone use
   configPath = {
@@ -1547,8 +1547,8 @@ main();
 
 **Installation Method**: GitHub-based plugin installation
 ```bash
-claude plugin install github:FortiumPartners/ensemble/packages/core
-claude plugin install github:FortiumPartners/ensemble/packages/product
+claude plugin install github:Sunstone-Partners/ensemble/packages/core
+claude plugin install github:Sunstone-Partners/ensemble/packages/product
 # etc.
 ```
 
@@ -1697,7 +1697,7 @@ find packages -name "plugin.json" -exec grep -l "ensemble" {} \;
 
 # Test package installation
 npm pack packages/core
-npm install ./fortium-ensemble-core-5.0.0.tgz
+npm install ./sunstone-partners-ensemble-core-5.0.0.tgz
 
 # Verify XDG compliance
 XDG_CONFIG_HOME=/tmp/test-xdg node -e "console.log(require('./packages/core/lib/config-path').getEnsembleConfigRoot())"

@@ -1,6 +1,6 @@
 /**
  * E2E Testing Plugin
- * @fortium/ensemble-e2e-testing
+ * @sunstone-partners/ensemble-e2e-testing
  *
  * End-to-end testing with Playwright MCP integration
  */

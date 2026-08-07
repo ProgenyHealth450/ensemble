@@ -1,6 +1,6 @@
 /**
  * Phoenix Framework Plugin
- * @fortium/ensemble-phoenix
+ * @sunstone-partners/ensemble-phoenix
  *
  * Phoenix LiveView and Elixir framework skills
  */

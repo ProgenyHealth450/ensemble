@@ -489,9 +489,9 @@ Bash + Jest: count agents with `model: high` (expect 9), `model: medium` (expect
 **Estimate:** 3h  
 **Validates PRD ACs:** AC-012-1
 
-Run `npm run generate` (after ensuring node_modules are available) to regenerate all command markdown files. If the private package issue (`@fortium/ensemble-development`) prevents `npm install`, manually update each `.md` frontmatter `model:` field to match the corresponding YAML source.
+Run `npm run generate` (after ensuring node_modules are available) to regenerate all command markdown files. If the private package issue (`@sunstone-partners/ensemble-development`) prevents `npm install`, manually update each `.md` frontmatter `model:` field to match the corresponding YAML source.
 
-**Note:** The `npm install` issue (private package `@fortium/ensemble-development@^4.0.0` not on registry) may require manual `.md` updates. In that case, use a targeted script: `grep -l "model:" packages/*/commands/ensemble/*.md` and edit each file's frontmatter to match the YAML.
+**Note:** The `npm install` issue (private package `@sunstone-partners/ensemble-development@^4.0.0` not on registry) may require manual `.md` updates. In that case, use a targeted script: `grep -l "model:" packages/*/commands/ensemble/*.md` and edit each file's frontmatter to match the YAML.
 
 **Implementation AC checklist:**
 - [ ] Given each `.md` file in `packages/*/commands/ensemble/`, when its `model:` frontmatter field is compared to its YAML source, then they match

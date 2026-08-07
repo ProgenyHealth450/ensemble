@@ -1,6 +1,6 @@
 /**
  * Development Plugin
- * @fortium/ensemble-development
+ * @sunstone-partners/ensemble-development
  *
  * Technical documentation, API docs, guides, and examples
  */

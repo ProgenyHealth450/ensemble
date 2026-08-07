@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-codex",
+  "name": "@sunstone-partners/ensemble-codex",
   "version": "5.3.0",
   "description": "Codex CLI runtime support — translates Ensemble artifacts into Codex-compatible agents and skills",
   "files": [
@@ -27,8 +27,8 @@
     "translation"
   ],
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com"
   },
   "license": "MIT",
   "bin": {
@@ -39,12 +39,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/codex"
   },
-  "homepage": "https://github.com/FortiumPartners/ensemble/tree/main/packages/codex",
+  "homepage": "https://github.com/Sunstone-Partners/ensemble/tree/main/packages/codex",
   "bugs": {
-    "url": "https://github.com/FortiumPartners/ensemble/issues"
+    "url": "https://github.com/Sunstone-Partners/ensemble/issues"
   },
   "engines": {
     "node": ">=20.0.0"

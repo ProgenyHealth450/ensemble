@@ -52,7 +52,7 @@ The solution consists of:
 | Ensemble maintainers | 5-10x addressable user base; reduced single-runtime risk |
 | OpenCode users | Access to a mature 28-agent mesh, 10+ framework skills, and 15+ orchestrated commands |
 | Plugin developers | Write once, deploy to Claude Code and OpenCode |
-| Fortium Partners | Market leadership in cross-runtime AI agent ecosystems |
+| Sunstone Partners | Market leadership in cross-runtime AI agent ecosystems |
 
 ---
 
@@ -677,10 +677,10 @@ Ensemble agent YAML files reference Claude-specific models (e.g., `model: opus`)
 
 ### 11.3 Related Documents
 
-- Research: `/Users/ldangelo/Development/Fortium/ensemble/docs/research/opencode-research.md`
-- Ensemble Architecture: `/Users/ldangelo/Development/Fortium/ensemble/CLAUDE.md`
-- Plugin Schema: `/Users/ldangelo/Development/Fortium/ensemble/schemas/plugin-schema.json`
-- Marketplace Schema: `/Users/ldangelo/Development/Fortium/ensemble/schemas/marketplace-schema.json`
+- Research: `/Users/ldangelo/Development/Sunstone/ensemble/docs/research/opencode-research.md`
+- Ensemble Architecture: `/Users/ldangelo/Development/Sunstone/ensemble/CLAUDE.md`
+- Plugin Schema: `/Users/ldangelo/Development/Sunstone/ensemble/schemas/plugin-schema.json`
+- Marketplace Schema: `/Users/ldangelo/Development/Sunstone/ensemble/schemas/marketplace-schema.json`
 
 ### 11.4 Glossary
 

@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-05"
   category: implementation
   output_path: ensemble/implement-trd.md
-  source: fortium
+  source: sunstone
   model: medium
 
 mission:

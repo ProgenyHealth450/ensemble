@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-29"
   category: testing
   output_path: ensemble/check-binding-drift.md
-  source: fortium
+  source: sunstone
   model: low
   argument_hint: "[prd-path] [--out <dir>]"
 

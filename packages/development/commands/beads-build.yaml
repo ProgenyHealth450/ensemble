@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-06-05"
   category: implementation
   output_path: ensemble/beads-build.md
-  source: fortium
+  source: sunstone
   model: medium
   argument_hint: "[epic-id|slug-pattern] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [max parallel N]"
   allowed_tools:

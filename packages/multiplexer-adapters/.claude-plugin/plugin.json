@@ -3,9 +3,9 @@
   "version": "5.2.2",
   "description": "Shared terminal multiplexer adapters for Ensemble plugins",
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com"
   },
   "license": "MIT",
-  "repository": "https://github.com/FortiumPartners/ensemble"
+  "repository": "https://github.com/Sunstone-Partners/ensemble"
 }

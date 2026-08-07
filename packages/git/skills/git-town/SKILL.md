@@ -232,7 +232,7 @@ git-town sync  # Pushes to remote
 
 ```javascript
 // Import ensemble-core utilities
-const { checkContext7Available, createLibraryHelper } = require('@fortium/ensemble-core');
+const { checkContext7Available, createLibraryHelper } = require('@sunstone-partners/ensemble-core');
 
 // Check if Context7 is available
 if (checkContext7Available()) {
@@ -244,7 +244,7 @@ if (checkContext7Available()) {
   const configDocs = await gitTown.fetchDocs('configuration', 5000);
 } else {
   // Show installation instructions
-  const { getContext7InstallInstructions } = require('@fortium/ensemble-core');
+  const { getContext7InstallInstructions } = require('@sunstone-partners/ensemble-core');
   console.log(getContext7InstallInstructions());
 
   // Fall back to local documentation
@@ -273,7 +273,7 @@ await gitTown.fetchDocs('troubleshooting');    // Error handling
 Use `withContext7Fallback` for automatic fallback to local docs:
 
 ```javascript
-const { withContext7Fallback } = require('@fortium/ensemble-core');
+const { withContext7Fallback } = require('@sunstone-partners/ensemble-core');
 
 const docs = await withContext7Fallback('git-town', 'hack command', async () => {
   // Fallback: Use local REFERENCE.md

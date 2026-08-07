@@ -1,13 +1,13 @@
 /**
  * XDG-compliant configuration path resolution for Ensemble
- * Part of @fortium/ensemble-core
+ * Part of @sunstone-partners/ensemble-core
  *
  * Priority:
  * 1. $XDG_CONFIG_HOME/ensemble/ (if XDG_CONFIG_HOME set)
  * 2. ~/.config/ensemble/ (if ~/.config exists)
  * 3. ~/.ensemble/ (fallback)
  *
- * @module @fortium/ensemble-core/config-path
+ * @module @sunstone-partners/ensemble-core/config-path
  * @version 5.0.0
  */
 

@@ -1,5 +1,5 @@
 /**
- * @fortium/ensemble-nestjs
+ * @sunstone-partners/ensemble-nestjs
  *
  * NestJS backend framework skills for Claude Code AI-Augmented Development
  * Part of the Ensemble plugin ecosystem

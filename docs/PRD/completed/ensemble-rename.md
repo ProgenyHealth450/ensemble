@@ -22,7 +22,7 @@
 ## Executive Summary
 
 This PRD defines the complete rename of the "ensemble" project to "ensemble" including:
-- Renaming all 23 NPM packages from `@fortium/ensemble-*` to `@fortium/ensemble-*`
+- Renaming all 23 NPM packages from `@sunstone-partners/ensemble-*` to `@sunstone-partners/ensemble-*`
 - Renaming the GitHub repository from `ensemble` to `ensemble`
 - Renaming the local project directory
 - Consolidating all configuration under `~/.ensemble/` (with XDG fallback)
@@ -41,7 +41,7 @@ The current project naming ("ensemble") and scattered configuration structure pr
 1. **Brand Clarity**: "ensemble" doesn't clearly communicate the product's value proposition of orchestrating AI agents working together harmoniously
 2. **Configuration Fragmentation**: Settings, state, and configuration are spread across multiple locations (`~/.ensemble/plugins/task-progress-pane/`, individual plugin configs)
 3. **Discoverability**: Users struggle to find and manage configuration files scattered across the filesystem
-4. **Maintenance Overhead**: Multiple naming conventions (@fortium/ensemble-*, @fortium/ensemble-*) create confusion
+4. **Maintenance Overhead**: Multiple naming conventions (@sunstone-partners/ensemble-*, @sunstone-partners/ensemble-*) create confusion
 
 ### 1.2 Proposed Solution
 
@@ -49,7 +49,7 @@ Rename the project from "ensemble" to "ensemble" and consolidate all configurati
 
 - **New Name**: "Ensemble" - Evokes the concept of multiple AI agents working together in harmony, like musicians in an orchestra
 - **Unified Config**: All settings, state, and configuration consolidated under `~/.ensemble/` (with XDG support)
-- **Consistent Naming**: Single namespace `@fortium/ensemble-*` for all packages
+- **Consistent Naming**: Single namespace `@sunstone-partners/ensemble-*` for all packages
 - **Clean Cutover**: No backward compatibility period - clean break with migration documentation
 
 ### 1.3 Value Proposition
@@ -99,7 +99,7 @@ Rename the project from "ensemble" to "ensemble" and consolidate all configurati
 2. Config files appear in `~/.ensemble/plugins/task-progress-pane/`
 3. User doesn't know where other plugin configs live
 4. User struggles to backup/migrate configuration
-5. User confused by @fortium/ensemble-* vs @fortium/ensemble-* naming
+5. User confused by @sunstone-partners/ensemble-* vs @sunstone-partners/ensemble-* naming
 6. Slash commands use inconsistent `/ensemble:` prefix
 
 **Future State (With Ensemble)**:
@@ -107,7 +107,7 @@ Rename the project from "ensemble" to "ensemble" and consolidate all configurati
 2. All config appears in `~/.ensemble/` (or `$XDG_CONFIG_HOME/ensemble/`)
 3. Clear, predictable structure for all plugin settings
 4. Easy backup: just copy the ensemble directory
-5. Consistent `@fortium/ensemble-*` naming throughout
+5. Consistent `@sunstone-partners/ensemble-*` naming throughout
 6. All commands use `/ensemble:` prefix
 
 ---
@@ -118,12 +118,12 @@ The following decisions were made during PRD refinement:
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Distribution Method** | GitHub only | Plugins installed via `claude plugin install github:FortiumPartners/ensemble/packages/*` |
+| **Distribution Method** | GitHub only | Plugins installed via `claude plugin install github:Sunstone-Partners/ensemble/packages/*` |
 | **NPM Publishing** | Not required | GitHub repository serves as sole distribution channel |
 | **Transition Period** | None (hard cutover) | Clean break simplifies implementation; migration docs sufficient |
 | **Local Directory** | Rename to `ensemble` | Full consistency across all project references |
 | **Command Prefix** | `/ensemble:*` | Consistent branding in user-facing commands |
-| **GitHub Organization** | Keep FortiumPartners | Maintain existing organizational structure |
+| **GitHub Organization** | Keep Sunstone-Partners | Maintain existing organizational structure |
 | **Config Directory** | XDG + fallback | `$XDG_CONFIG_HOME/ensemble/` preferred, `~/.ensemble/` fallback |
 | **CLI Tool** | Not needed | Migration handled via documentation and scripts |
 
@@ -136,15 +136,15 @@ The following decisions were made during PRD refinement:
 | ID | Goal | Success Metric |
 |----|------|----------------|
 | G1 | Rename all "ai-mesh" references to "ensemble" | 100% of references updated |
-| G2 | Rename GitHub repository to "ensemble" | Repository accessible at `FortiumPartners/ensemble` |
-| G3 | Rename local directory to "ensemble" | `/Users/ldangelo/Development/Fortium/ensemble` |
+| G2 | Rename GitHub repository to "ensemble" | Repository accessible at `Sunstone-Partners/ensemble` |
+| G3 | Rename local directory to "ensemble" | `/Users/ldangelo/Development/Sunstone/ensemble` |
 | G4 | Consolidate config under XDG-compliant paths | Single config directory with XDG support |
 | G5 | Update all slash commands | Commands use `/ensemble:*` prefix |
-| G6 | Update package.json names for local consistency | All packages named `@fortium/ensemble-*` internally |
+| G6 | Update package.json names for local consistency | All packages named `@sunstone-partners/ensemble-*` internally |
 
 ### 4.2 Success Criteria
 
-- [x] All 23 plugin packages renamed from `@fortium/ai-mesh-*` to `@fortium/ensemble-*`
+- [x] All 23 plugin packages renamed from `@sunstone-partners/ai-mesh-*` to `@sunstone-partners/ensemble-*`
 - [x] GitHub repository renamed from `ai-mesh-plugins` to `ensemble`
 - [x] Local directory renamed from `ai-mesh-plugins` to `ensemble`
 - [x] All configuration consolidated under `~/.ensemble/` or `$XDG_CONFIG_HOME/ensemble/`
@@ -165,7 +165,7 @@ The following decisions were made during PRD refinement:
 | Breaking API changes | Preserve compatibility |
 | Backward compatibility period | Stakeholder decision: hard cutover |
 | Creating new CLI tool | Migration via documentation only |
-| Changing GitHub organization | Keep FortiumPartners |
+| Changing GitHub organization | Keep Sunstone-Partners |
 
 ---
 
@@ -177,30 +177,30 @@ The following decisions were made during PRD refinement:
 
 | Current Name | New Name |
 |--------------|----------|
-| `@fortium/ensemble-core` | `@fortium/ensemble-core` |
-| `@fortium/ensemble-product` | `@fortium/ensemble-product` |
-| `@fortium/ensemble-development` | `@fortium/ensemble-development` |
-| `@fortium/ensemble-quality` | `@fortium/ensemble-quality` |
-| `@fortium/ensemble-infrastructure` | `@fortium/ensemble-infrastructure` |
-| `@fortium/ensemble-git` | `@fortium/ensemble-git` |
-| `@fortium/ensemble-e2e-testing` | `@fortium/ensemble-e2e-testing` |
-| `@fortium/ensemble-metrics` | `@fortium/ensemble-metrics` |
-| `@fortium/ensemble-react` | `@fortium/ensemble-react` |
-| `@fortium/ensemble-nestjs` | `@fortium/ensemble-nestjs` |
-| `@fortium/ensemble-rails` | `@fortium/ensemble-rails` |
-| `@fortium/ensemble-phoenix` | `@fortium/ensemble-phoenix` |
-| `@fortium/ensemble-blazor` | `@fortium/ensemble-blazor` |
-| `@fortium/ensemble-jest` | `@fortium/ensemble-jest` |
-| `@fortium/ensemble-pytest` | `@fortium/ensemble-pytest` |
-| `@fortium/ensemble-rspec` | `@fortium/ensemble-rspec` |
-| `@fortium/ensemble-xunit` | `@fortium/ensemble-xunit` |
-| `@fortium/ensemble-exunit` | `@fortium/ensemble-exunit` |
-| `@fortium/ensemble-full` | `@fortium/ensemble-full` |
-| `@fortium/ensemble-pane-viewer` | `@fortium/ensemble-pane-viewer` |
-| `@fortium/ensemble-task-progress-pane` | `@fortium/ensemble-task-progress-pane` |
-| `@fortium/ensemble-multiplexer-adapters` | `@fortium/ensemble-multiplexer-adapters` |
+| `@sunstone-partners/ensemble-core` | `@sunstone-partners/ensemble-core` |
+| `@sunstone-partners/ensemble-product` | `@sunstone-partners/ensemble-product` |
+| `@sunstone-partners/ensemble-development` | `@sunstone-partners/ensemble-development` |
+| `@sunstone-partners/ensemble-quality` | `@sunstone-partners/ensemble-quality` |
+| `@sunstone-partners/ensemble-infrastructure` | `@sunstone-partners/ensemble-infrastructure` |
+| `@sunstone-partners/ensemble-git` | `@sunstone-partners/ensemble-git` |
+| `@sunstone-partners/ensemble-e2e-testing` | `@sunstone-partners/ensemble-e2e-testing` |
+| `@sunstone-partners/ensemble-metrics` | `@sunstone-partners/ensemble-metrics` |
+| `@sunstone-partners/ensemble-react` | `@sunstone-partners/ensemble-react` |
+| `@sunstone-partners/ensemble-nestjs` | `@sunstone-partners/ensemble-nestjs` |
+| `@sunstone-partners/ensemble-rails` | `@sunstone-partners/ensemble-rails` |
+| `@sunstone-partners/ensemble-phoenix` | `@sunstone-partners/ensemble-phoenix` |
+| `@sunstone-partners/ensemble-blazor` | `@sunstone-partners/ensemble-blazor` |
+| `@sunstone-partners/ensemble-jest` | `@sunstone-partners/ensemble-jest` |
+| `@sunstone-partners/ensemble-pytest` | `@sunstone-partners/ensemble-pytest` |
+| `@sunstone-partners/ensemble-rspec` | `@sunstone-partners/ensemble-rspec` |
+| `@sunstone-partners/ensemble-xunit` | `@sunstone-partners/ensemble-xunit` |
+| `@sunstone-partners/ensemble-exunit` | `@sunstone-partners/ensemble-exunit` |
+| `@sunstone-partners/ensemble-full` | `@sunstone-partners/ensemble-full` |
+| `@sunstone-partners/ensemble-pane-viewer` | `@sunstone-partners/ensemble-pane-viewer` |
+| `@sunstone-partners/ensemble-task-progress-pane` | `@sunstone-partners/ensemble-task-progress-pane` |
+| `@sunstone-partners/ensemble-multiplexer-adapters` | `@sunstone-partners/ensemble-multiplexer-adapters` |
 
-**Note**: All packages unified under `@fortium` scope - no more `@ensemble` secondary scope.
+**Note**: All packages unified under `@sunstone` scope - no more `@ensemble` secondary scope.
 
 #### 5.1.2 Slash Command Renames
 
@@ -216,13 +216,13 @@ The following decisions were made during PRD refinement:
 
 | Current | New |
 |---------|-----|
-| `https://github.com/FortiumPartners/ensemble` | `https://github.com/FortiumPartners/ensemble` |
+| `https://github.com/Sunstone-Partners/ensemble` | `https://github.com/Sunstone-Partners/ensemble` |
 
 #### 5.1.4 Local Directory Rename
 
 | Current | New |
 |---------|-----|
-| `/Users/ldangelo/Development/Fortium/ensemble` | `/Users/ldangelo/Development/Fortium/ensemble` |
+| `/Users/ldangelo/Development/Sunstone/ensemble` | `/Users/ldangelo/Development/Sunstone/ensemble` |
 
 #### 5.1.5 Plugin Name Pattern
 
@@ -300,7 +300,7 @@ $CONFIG_ROOT/ensemble/          # ~/.ensemble or $XDG_CONFIG_HOME/ensemble
 
 | File | Changes Required |
 |------|------------------|
-| `scripts/validate-all.js` | Update naming validation to `@fortium/ensemble-` |
+| `scripts/validate-all.js` | Update naming validation to `@sunstone-partners/ensemble-` |
 | `scripts/publish-plugin.js` | Update package name handling |
 
 #### 5.3.4 GitHub Workflows
@@ -316,7 +316,7 @@ $CONFIG_ROOT/ensemble/          # ~/.ensemble or $XDG_CONFIG_HOME/ensemble
 Each plugin requires updates to:
 
 **package.json**:
-- `name`: `@fortium/ensemble-*` → `@fortium/ensemble-*`
+- `name`: `@sunstone-partners/ensemble-*` → `@sunstone-partners/ensemble-*`
 - `repository.url`: Update to new GitHub URL
 - `keywords`: Replace `ensemble` with `ensemble`
 - `dependencies`: Update any cross-plugin references
@@ -384,10 +384,10 @@ Each plugin requires updates to:
 
 | ID | Criteria | Test Method |
 |----|----------|-------------|
-| AC-1 | All package.json files contain `@fortium/ensemble-*` names | Automated validation |
+| AC-1 | All package.json files contain `@sunstone-partners/ensemble-*` names | Automated validation |
 | AC-2 | All plugin.json files contain `ensemble-*` plugin names | Automated validation |
 | AC-3 | No remaining references to "ensemble" in any source files | `grep -r "ensemble"` returns 0 results |
-| AC-4 | GitHub repository accessible at `FortiumPartners/ensemble` | Manual verification |
+| AC-4 | GitHub repository accessible at `Sunstone-Partners/ensemble` | Manual verification |
 | AC-5 | NPM packages published under new names | NPM registry check |
 | AC-6 | Old NPM packages unpublished | NPM registry check returns 404 |
 | AC-7 | All slash commands use `/ensemble:` prefix | Command listing verification |
@@ -565,13 +565,13 @@ migrate();
 # For older packages, use npm deprecate instead
 
 # Deprecate first (always works)
-npm deprecate "@fortium/ensemble-core@*" "Package renamed to @fortium/ensemble-core"
-npm deprecate "@fortium/ensemble-product@*" "Package renamed to @fortium/ensemble-product"
+npm deprecate "@sunstone-partners/ensemble-core@*" "Package renamed to @sunstone-partners/ensemble-core"
+npm deprecate "@sunstone-partners/ensemble-product@*" "Package renamed to @sunstone-partners/ensemble-product"
 # ... repeat for all packages
 
 # Unpublish if within 72 hours (or contact NPM support for older packages)
-npm unpublish @fortium/ensemble-core --force
-npm unpublish @fortium/ensemble-product --force
+npm unpublish @sunstone-partners/ensemble-core --force
+npm unpublish @sunstone-partners/ensemble-product --force
 # ... repeat for all packages
 ```
 
@@ -580,7 +580,7 @@ npm unpublish @fortium/ensemble-product --force
 ## 9. Implementation Phases
 
 ### Phase 1: Preparation (Pre-rename)
-- [ ] Verify `@fortium/ensemble-*` package names available on NPM
+- [ ] Verify `@sunstone-partners/ensemble-*` package names available on NPM
 - [ ] Create comprehensive file inventory with exact line numbers
 - [ ] Create automated rename script for bulk changes
 - [ ] Back up current state
@@ -609,7 +609,7 @@ npm unpublish @fortium/ensemble-product --force
 - [ ] Test migration on fresh system
 
 ### Phase 5: Publishing
-- [ ] Publish all packages to NPM under new `@fortium/ensemble-*` names
+- [ ] Publish all packages to NPM under new `@sunstone-partners/ensemble-*` names
 - [ ] Verify all packages install correctly
 - [ ] Update marketplace.json
 - [ ] Deprecate old NPM packages with rename notice
@@ -676,21 +676,21 @@ grep -r "ensemble" --include="*.json" --include="*.js" --include="*.md" --includ
 grep -r "\.ensemble" --include="*.js"
 
 # Find all old GitHub URL references
-grep -r "FortiumPartners/ensemble" --include="*.json" --include="*.md"
+grep -r "Sunstone-Partners/ensemble" --include="*.json" --include="*.md"
 
 # Find all old command references
 grep -r "/ensemble:" --include="*.md"
 
 # Find all @ensemble scope references
-grep -r "@fortium/ensemble-" --include="*.json"
+grep -r "@sunstone-partners/ensemble-" --include="*.json"
 ```
 
 ### C. NPM Package Verification
 
 ```bash
 # Check if new package names are available
-npm view @fortium/ensemble-core 2>&1 | grep -q "404" && echo "Available" || echo "Taken"
-npm view @fortium/ensemble-product 2>&1 | grep -q "404" && echo "Available" || echo "Taken"
+npm view @sunstone-partners/ensemble-core 2>&1 | grep -q "404" && echo "Available" || echo "Taken"
+npm view @sunstone-partners/ensemble-product 2>&1 | grep -q "404" && echo "Available" || echo "Taken"
 # ... repeat for all packages
 ```
 
@@ -701,14 +701,14 @@ npm view @fortium/ensemble-product 2>&1 | grep -q "404" && echo "Available" || e
 
 1. **Uninstall old packages**:
    ```bash
-   npm uninstall @fortium/ensemble-core @fortium/ensemble-product # etc.
+   npm uninstall @sunstone-partners/ensemble-core @sunstone-partners/ensemble-product # etc.
    ```
 
 2. **Install new packages**:
    ```bash
-   npm install @fortium/ensemble-core @fortium/ensemble-product # etc.
+   npm install @sunstone-partners/ensemble-core @sunstone-partners/ensemble-product # etc.
    # Or install all at once:
-   npm install @fortium/ensemble-full
+   npm install @sunstone-partners/ensemble-full
    ```
 
 3. **Migrate configuration**:

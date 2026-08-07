@@ -95,7 +95,7 @@ packages/<name>/
   "name": "ensemble-<name>",
   "version": "5.0.0",
   "description": "...",
-  "author": { "name": "Fortium Partners", "email": "support@fortiumpartners.com" },
+  "author": { "name": "Sunstone Partners", "email": "info@sunstonepartners.com" },
   "commands": "./commands",
   "skills": "./skills"
 }
@@ -407,6 +407,6 @@ Common issues:
 
 ## Links
 
-- **Repository**: https://github.com/FortiumPartners/ensemble
-- **Issues**: https://github.com/FortiumPartners/ensemble/issues
-- **Email**: support@fortiumpartners.com
+- **Repository**: https://github.com/Sunstone-Partners/ensemble
+- **Issues**: https://github.com/Sunstone-Partners/ensemble/issues
+- **Email**: info@sunstonepartners.com

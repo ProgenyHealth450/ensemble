@@ -1030,13 +1030,13 @@ The generator maintains a hash cache at `dist/opencode/.cache/hashes.json` mappi
     "test": "jest"
   },
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble"
+    "url": "https://github.com/Sunstone-Partners/ensemble"
   }
 }
 ```

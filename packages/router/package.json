@@ -1,21 +1,21 @@
 {
-  "name": "@fortium/ensemble-router",
+  "name": "@sunstone-partners/ensemble-router",
   "version": "5.2.1",
   "description": "UserPromptSubmit routing hook for intelligent agent delegation and skill invocation",
   "author": {
-    "name": "Fortium Partners",
-    "email": "support@fortiumpartners.com",
-    "url": "https://github.com/FortiumPartners"
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com",
+    "url": "https://github.com/Sunstone-Partners"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/router"
   },
-  "homepage": "https://github.com/FortiumPartners/ensemble/tree/main/packages/router#readme",
+  "homepage": "https://github.com/Sunstone-Partners/ensemble/tree/main/packages/router#readme",
   "bugs": {
-    "url": "https://github.com/FortiumPartners/ensemble/issues"
+    "url": "https://github.com/Sunstone-Partners/ensemble/issues"
   },
   "keywords": [
     "claude-code",
@@ -30,10 +30,10 @@
     "python": ">=3.8"
   },
   "peerDependencies": {
-    "@fortium/ensemble-full": ">=5.0.0"
+    "@sunstone-partners/ensemble-full": ">=5.0.0"
   },
   "peerDependenciesMeta": {
-    "@fortium/ensemble-full": {
+    "@sunstone-partners/ensemble-full": {
       "optional": true
     }
   },

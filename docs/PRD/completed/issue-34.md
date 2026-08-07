@@ -571,7 +571,7 @@ ELSE:
 
 Fixes #<issue-number>
 
-🤖 Generated with [Ensemble Fix-Issue](https://github.com/FortiumPartners/ensemble)
+🤖 Generated with [Ensemble Fix-Issue](https://github.com/Sunstone-Partners/ensemble)
 ```
 
 ### FR-10: Error Handling and Recovery

@@ -27,7 +27,7 @@ Deferred to v2: `scripts/lib/` was not designed as a public API and would requir
 ### Architecture Rationale
 - Single source of truth: YAML stays unchanged; no Pi-specific YAML authoring required
 - Established pattern: OpenCode precedent means the team knows how to maintain this
-- Independent publishability: `@fortium/ensemble-pi` is its own npm package
+- Independent publishability: `@sunstone-partners/ensemble-pi` is its own npm package
 - Clean test boundary: generator logic is isolated and fully unit-testable
 
 ---
@@ -59,7 +59,7 @@ packages/pi/
 │   └── generator.test.ts
 ├── .claude-plugin/
 │   └── plugin.json                 # Ensemble plugin manifest
-├── package.json                    # @fortium/ensemble-pi, pi-package keyword
+├── package.json                    # @sunstone-partners/ensemble-pi, pi-package keyword
 ├── tsconfig.json
 ├── README.md
 └── CHANGELOG.md
@@ -144,7 +144,7 @@ packages/CLAUDE.md (ensemble sections)
 ---
 
 **TRD-002: Create package.json** [satisfies REQ-002]
-- `name: "@fortium/ensemble-pi"`, `keywords: ["pi-package", "ensemble", "ai-agents"]`
+- `name: "@sunstone-partners/ensemble-pi"`, `keywords: ["pi-package", "ensemble", "ai-agents"]`
 - `pi` manifest field: `{ "extensions": ["./extensions"], "skills": ["./skills"], "prompts": ["./prompts"], "agents": ["./agents"] }`
 - `dependencies: { "js-yaml": "^4.1.0", "gray-matter": "^4.0.3" }`
 - `devDependencies: { "jest", "typescript", "@types/node", "@types/js-yaml" }`
@@ -153,7 +153,7 @@ packages/CLAUDE.md (ensemble sections)
 - Validates PRD ACs: AC-002-1, AC-002-2, AC-002-3
 
 **TRD-002-TEST: Validate pi install and manifest discovery** [verifies TRD-002][satisfies REQ-002][depends: TRD-002]
-- Run `pi install npm:@fortium/ensemble-pi` (against published or local package)
+- Run `pi install npm:@sunstone-partners/ensemble-pi` (against published or local package)
 - Run `pi list` — ensemble-pi appears in installed packages
 - Verify Pi discovers extensions, skills, prompts, agents from declared manifest directories
 - Estimate: 2h
@@ -430,7 +430,7 @@ packages/CLAUDE.md (ensemble sections)
 ---
 
 **TRD-019: Write README.md** [satisfies REQ-022]
-- Installation: `pi install npm:@fortium/ensemble-pi`
+- Installation: `pi install npm:@sunstone-partners/ensemble-pi`
 - Prerequisites: note that sub-agent support (for orchestrator) requires a Pi subagent extension
 - Quick-start: `/create-prd "your product idea"` and `/create-trd docs/PRD/...`
 - Full command list with one-line descriptions
@@ -441,7 +441,7 @@ packages/CLAUDE.md (ensemble sections)
 ---
 
 **TRD-020: Validate local development install** [satisfies REQ-023]
-- Document `pi -e git:github.com/FortiumPartners/ensemble` or local path equivalent
+- Document `pi -e git:github.com/Sunstone-Partners/ensemble` or local path equivalent
 - Test that this loads the package without errors
 - Document in README under "Development" section
 - Estimate: 1h

@@ -1,5 +1,5 @@
 {
-  "name": "@fortium/ensemble-full",
+  "name": "@sunstone-partners/ensemble-full",
   "version": "6.9.2",
   "description": "Complete ensemble ecosystem (meta-package with all plugins)",
   "scripts": {
@@ -13,38 +13,38 @@
     "meta",
     "ensemble"
   ],
-  "author": "Fortium Partners",
+  "author": "Sunstone Partners",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FortiumPartners/ensemble.git",
+    "url": "https://github.com/Sunstone-Partners/ensemble.git",
     "directory": "packages/full"
   },
   "devDependencies": {
     "jest": "^29.7.0"
   },
   "peerDependencies": {
-    "@fortium/ensemble-ai": "^5.1.0",
-    "@fortium/ensemble-core": "^4.0.0",
-    "@fortium/ensemble-product": "^4.0.0",
-    "@fortium/ensemble-development": "^5.4.0",
-    "@fortium/ensemble-quality": "^4.0.0",
-    "@fortium/ensemble-infrastructure": "^4.0.0",
-    "@fortium/ensemble-git": "^4.0.0",
-    "@fortium/ensemble-e2e-testing": "^4.0.0",
-    "@fortium/ensemble-metrics": "^4.0.0",
-    "@fortium/ensemble-react": "^4.0.0",
-    "@fortium/ensemble-nestjs": "^4.0.0",
-    "@fortium/ensemble-rails": "^4.0.0",
-    "@fortium/ensemble-phoenix": "^4.0.0",
-    "@fortium/ensemble-blazor": "^4.0.0",
-    "@fortium/ensemble-jest": "^4.0.0",
-    "@fortium/ensemble-pytest": "^4.0.0",
-    "@fortium/ensemble-rspec": "^4.0.0",
-    "@fortium/ensemble-router": "^5.0.0",
-    "@fortium/ensemble-permitter": "^5.0.0",
-    "@fortium/ensemble-xunit": "^4.0.0",
-    "@fortium/ensemble-exunit": "^4.0.0"
+    "@sunstone-partners/ensemble-ai": "^5.1.0",
+    "@sunstone-partners/ensemble-core": "^4.0.0",
+    "@sunstone-partners/ensemble-product": "^4.0.0",
+    "@sunstone-partners/ensemble-development": "^5.4.0",
+    "@sunstone-partners/ensemble-quality": "^4.0.0",
+    "@sunstone-partners/ensemble-infrastructure": "^4.0.0",
+    "@sunstone-partners/ensemble-git": "^4.0.0",
+    "@sunstone-partners/ensemble-e2e-testing": "^4.0.0",
+    "@sunstone-partners/ensemble-metrics": "^4.0.0",
+    "@sunstone-partners/ensemble-react": "^4.0.0",
+    "@sunstone-partners/ensemble-nestjs": "^4.0.0",
+    "@sunstone-partners/ensemble-rails": "^4.0.0",
+    "@sunstone-partners/ensemble-phoenix": "^4.0.0",
+    "@sunstone-partners/ensemble-blazor": "^4.0.0",
+    "@sunstone-partners/ensemble-jest": "^4.0.0",
+    "@sunstone-partners/ensemble-pytest": "^4.0.0",
+    "@sunstone-partners/ensemble-rspec": "^4.0.0",
+    "@sunstone-partners/ensemble-router": "^5.0.0",
+    "@sunstone-partners/ensemble-permitter": "^5.0.0",
+    "@sunstone-partners/ensemble-xunit": "^4.0.0",
+    "@sunstone-partners/ensemble-exunit": "^4.0.0"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"

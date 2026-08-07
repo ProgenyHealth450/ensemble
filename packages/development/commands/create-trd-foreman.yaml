@@ -5,7 +5,7 @@ metadata:
   lastUpdated: "2026-05-31"
   category: planning
   output_path: ensemble/create-trd-foreman.md
-  source: fortium
+  source: sunstone
   model: high
   argument_hint: "[prd-path] [--foundational]"
 

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://fortiumpartners.com/schemas/command-yaml-schema.json",
+  "$id": "https://sunstonepartners.com/schemas/command-yaml-schema.json",
   "title": "Ensemble Command YAML Schema",
   "description": "Schema for validating ensemble plugin command YAML files",
   "type": "object",

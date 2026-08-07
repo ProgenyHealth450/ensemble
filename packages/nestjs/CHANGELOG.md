@@ -39,8 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This release represents the extraction of NestJS framework expertise from the ensemble monolith (v3.x) to a standalone plugin. All content is sourced from:
 
-- **Source**: `/Users/ldangelo/Development/Fortium/ensemble/skills/nestjs-framework/`
-- **Target**: `/Users/ldangelo/Development/Fortium/ensemble/packages/nestjs/`
+- **Source**: `/Users/ldangelo/Development/Sunstone/ensemble/skills/nestjs-framework/`
+- **Target**: `/Users/ldangelo/Development/Sunstone/ensemble/packages/nestjs/`
 
 ### Features
 
@@ -68,7 +68,7 @@ This release represents the extraction of NestJS framework expertise from the en
 - **NestJS**: 8.0+ (recommended 10.4+)
 - **Node.js**: 18+
 - **TypeScript**: 5.0+
-- **Dependencies**: @fortium/ensemble-development ^4.0.0
+- **Dependencies**: @sunstone-partners/ensemble-development ^4.0.0
 
 ### Known Issues
 

@@ -1,4 +1,4 @@
-# @fortium/ensemble-react
+# @sunstone-partners/ensemble-react
 
 **Version**: 4.0.0
 **Framework**: React 18+
@@ -26,14 +26,14 @@ This plugin extracts React framework skills from the ensemble monolith into a mo
 ### Via Claude Code Marketplace
 
 ```bash
-claude plugin install @fortium/ensemble-react
+claude plugin install @sunstone-partners/ensemble-react
 ```
 
 ### Manual Installation
 
 ```bash
 # Clone the ensemble repository
-git clone https://github.com/FortiumPartners/ensemble.git
+git clone https://github.com/Sunstone-Partners/ensemble.git
 cd ensemble
 
 # Install dependencies
@@ -74,7 +74,7 @@ You can also explicitly load React skills:
 
 ```javascript
 // In your agent or command
-const reactSkill = require('@fortium/ensemble-react');
+const reactSkill = require('@sunstone-partners/ensemble-react');
 
 // Load quick reference for fast lookups
 const quickRef = await reactSkill.loadSkill('quick');
@@ -287,18 +287,18 @@ Demonstrates:
 ## Dependencies
 
 This plugin requires:
-- `@fortium/ensemble-development@4.0.0` - Core development agent functionality
+- `@sunstone-partners/ensemble-development@4.0.0` - Core development agent functionality
 
 ## Related Plugins
 
-- `@fortium/ensemble-typescript` - TypeScript-specific patterns
-- `@fortium/ensemble-testing` - Testing frameworks beyond React Testing Library
-- `@fortium/ensemble-vite` - Vite bundler configuration
-- `@fortium/ensemble-nextjs` - Next.js framework skills
+- `@sunstone-partners/ensemble-typescript` - TypeScript-specific patterns
+- `@sunstone-partners/ensemble-testing` - Testing frameworks beyond React Testing Library
+- `@sunstone-partners/ensemble-vite` - Vite bundler configuration
+- `@sunstone-partners/ensemble-nextjs` - Next.js framework skills
 
 ## Contributing
 
-Contributions are welcome! Please see the [main repository](https://github.com/FortiumPartners/ensemble) for contribution guidelines.
+Contributions are welcome! Please see the [main repository](https://github.com/Sunstone-Partners/ensemble) for contribution guidelines.
 
 ### Updating Content
 
@@ -322,17 +322,19 @@ Before releasing updates:
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/FortiumPartners/ensemble/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/FortiumPartners/ensemble/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Sunstone-Partners/ensemble/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Sunstone-Partners/ensemble/discussions)
 - **Documentation**: [Official React Documentation](https://react.dev/)
 
 ## License
 
 MIT © 2025 Fortium Partners
 
+Copyright (c) 2026 Sunstone Partners
+
 ---
 
 **Extracted from**: ensemble v3.x monolith
 **Plugin Version**: 4.0.0
 **Last Updated**: 2025-12-10
-**Maintainer**: Fortium Software Configuration Team
+**Maintainer**: Sunstone Software Configuration Team

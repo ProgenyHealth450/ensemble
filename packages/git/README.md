@@ -1,11 +1,11 @@
-# @fortium/ensemble-git
+# @sunstone-partners/ensemble-git
 
 Git workflow automation and conventional commits
 
 ## Installation
 
 ```bash
-claude plugin install @fortium/ensemble-git
+claude plugin install @sunstone-partners/ensemble-git
 ```
 
 ## Description
@@ -22,7 +22,7 @@ After installation, this plugin's agents, commands, and skills will be automatic
 
 ## Documentation
 
-See the [main ensemble repository](https://github.com/FortiumPartners/ensemble) for complete documentation.
+See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
 
 ## License
 
