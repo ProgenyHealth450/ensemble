@@ -206,7 +206,7 @@ YAML-special character. A mid-string `: ` still produces unparseable output (ver
 agent description triggers it — this is latent, not live. Fix in `packages/pi/src/transformers/`
 and rebuild `dist/`.
 
-[RISK: pi is a separate TS package with its own build; its `dist/` is committed, so the fix must include a rebuild or the source and artifact diverge.]
+[RISK: pi is a separate TS package with its own `tsc` build, so `dist/` must be rebuilt before `npm run generate:pi` picks the change up. *(Resolved during implementation: `dist/` is gitignored with zero tracked files, so there is no committed build output that could diverge — the rebuild is local-only.)*]
 
 - AC-008-1: Given an agent description containing `: ` mid-string, when pi generates its agent artifact, then the emitted frontmatter parses.
 

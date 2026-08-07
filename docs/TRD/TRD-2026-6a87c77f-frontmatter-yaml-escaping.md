@@ -221,7 +221,7 @@ codex artifact's frontmatter ever becomes unparseable.
 - [ ] **TRD-009** Replace pi's `descSafe` predicate with the unconditional fold-and-quote rule in `packages/pi/src/transformers/agent-transformer.ts`; rebuild `dist/` (1h) `[satisfies REQ-008] [depends: TRD-001]`
   - Validates PRD ACs: AC-008-1
   - Implementation AC: Given an agent description containing a mid-string `: `, when pi generates its artifact, then the frontmatter parses.
-  - Implementation AC: Given the rebuilt `dist/`, when compared to `src/`, then the committed build output reflects the source change.
+  - Implementation AC: Given a rebuilt `dist/`, when `npm run generate:pi` runs, then the regenerated agent artifacts carry quoted frontmatter. *(`dist/` is gitignored — the rebuild is local-only, there is no committed build output.)*
 
 - [ ] **TRD-009-TEST** Unit test for pi's agent frontmatter (0.5h) `[verifies TRD-009] [satisfies REQ-008] [depends: TRD-009]`
   - Validates PRD ACs: AC-008-1
