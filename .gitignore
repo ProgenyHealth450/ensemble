@@ -32,8 +32,9 @@ __pycache__/
 # Foreman runtime artifacts
 .foreman/
 
-# Beads local issue database (sync state; do not track)
-.beads/issues.jsonl
+# Beads local issue database — tracked in git when Dolt sync is unavailable
+# (no `dolt` CLI on this machine, no remote configured). The local JSONL
+# export from `br sync --flush-only` is the canonical accessible record.
 
 # Pi colon-namespaced command artifacts. OMP derives its slash-command name
 # from the filename, so these must keep the canonical "ensemble:<cmd>" form —
