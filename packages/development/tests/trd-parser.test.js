@@ -738,6 +738,38 @@ Summary.
 });
 
 // ---------------------------------------------------------------------------
+// CRLF line endings
+// ---------------------------------------------------------------------------
+
+describe('parseTRD — CRLF line endings', () => {
+  // Every `$`-anchored regex in this parser fails to match a line ending in a
+  // lone `\r` (CRLF source): JS regex treats `\r` as its own line terminator
+  // that `.` cannot consume, so it isn't the true end of string either. This
+  // is not a hypothetical: any TRD checked out on Windows with
+  // core.autocrlf=true reads back with CRLF regardless of how it's stored in
+  // git, so this exact input shape occurs on real Windows dev machines today.
+  const CRLF_TRD = LEGACY_PHASE_TRD.replace(/\n/g, '\r\n');
+
+  it('detects the PR/Phase boundary despite trailing \\r on heading lines', () => {
+    const result = parseTRD(CRLF_TRD);
+    expect(result.phases).toHaveLength(2);
+    expect(result.phases[0].title).toBe('Foundation');
+    expect(result.phases[1].title).toBe('API');
+  });
+
+  it('still finds every task line', () => {
+    const result = parseTRD(CRLF_TRD);
+    expect(Object.keys(result.tasksById)).toEqual(['TRD-001', 'TRD-002', 'TRD-003']);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('extracts the H1 title despite trailing \\r', () => {
+    const result = parseTRD(CRLF_TRD);
+    expect(result.title).toBe('TRD-100: Legacy Phase Format');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // hourEstimate
 // ---------------------------------------------------------------------------
 

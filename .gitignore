@@ -44,3 +44,6 @@ __pycache__/
 # instead, via packages/pi's prepublishOnly. The Windows-safe
 # ensemble-full-<cmd>.md aliases remain committed.
 packages/pi/commands/ensemble:*.md
+
+# Fork-local operating notes (never pushed upstream) — see CLAUDE.md
+CLAUDE.local.md
