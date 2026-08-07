@@ -1,10 +1,10 @@
 ---
-name: ensemble:configure-team
-description: Analyze TRD complexity and auto-configure team roles, agent assignments, and marketplace plugins
-version: 1.1.5
-category: planning
-last-updated: 2026-08-04
-argument-hint: [trd-path] [--team] [--no-team]
+name: "ensemble:configure-team"
+description: "Analyze TRD complexity and auto-configure team roles, agent assignments, and marketplace plugins"
+version: "1.1.5"
+category: "planning"
+last-updated: "2026-08-04"
+argument-hint: "[trd-path] [--team] [--no-team]"
 model: opus
 ---
 <!-- DO NOT EDIT - Generated from configure-team.yaml -->

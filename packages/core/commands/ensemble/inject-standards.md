@@ -1,10 +1,10 @@
 ---
-name: ensemble:inject-standards
-description: Selectively inject relevant standards from standards/index.yml into agent context based on current task
-version: 1.0.0
-category: implementation
-last-updated: 2026-03-29
-argument-hint: <task-description>
+name: "ensemble:inject-standards"
+description: "Selectively inject relevant standards from standards/index.yml into agent context based on current task"
+version: "1.0.0"
+category: "implementation"
+last-updated: "2026-03-29"
+argument-hint: "<task-description>"
 model: sonnet
 ---
 <!-- DO NOT EDIT - Generated from inject-standards.yaml -->

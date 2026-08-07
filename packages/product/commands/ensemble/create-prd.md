@@ -1,9 +1,9 @@
 ---
-name: ensemble:create-prd
-description: Create comprehensive Product Requirements Document with structured elicitation and adversarial review
-version: 2.4.0
-category: planning
-last-updated: 2026-03-29
+name: "ensemble:create-prd"
+description: "Create comprehensive Product Requirements Document with structured elicitation and adversarial review"
+version: "2.4.0"
+category: "planning"
+last-updated: "2026-03-29"
 model: opus
 ---
 <!-- DO NOT EDIT - Generated from create-prd.yaml -->

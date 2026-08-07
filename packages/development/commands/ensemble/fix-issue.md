@@ -1,9 +1,9 @@
 ---
-name: ensemble:fix-issue
-description: Lightweight workflow for bug fixes and small issues
-version: 1.1.0
-category: implementation
-last-updated: 2026-03-29
+name: "ensemble:fix-issue"
+description: "Lightweight workflow for bug fixes and small issues"
+version: "1.1.0"
+category: "implementation"
+last-updated: "2026-03-29"
 model: sonnet
 ---
 <!-- DO NOT EDIT - Generated from fix-issue.yaml -->

@@ -1,11 +1,11 @@
 ---
-name: ensemble:implement-bead
-description: Implement a single beads task by ID through analysis, implementation, and PR creation
-version: 1.0.0
-category: implementation
-last-updated: 2026-03-29
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task
-argument-hint: <bead-id>
+name: "ensemble:implement-bead"
+description: "Implement a single beads task by ID through analysis, implementation, and PR creation"
+version: "1.0.0"
+category: "implementation"
+last-updated: "2026-03-29"
+allowed-tools: "Read, Write, Edit, Bash, Grep, Glob, Task"
+argument-hint: "<bead-id>"
 model: sonnet
 ---
 <!-- DO NOT EDIT - Generated from implement-bead.yaml -->

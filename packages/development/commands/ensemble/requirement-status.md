@@ -1,10 +1,10 @@
 ---
-name: ensemble:requirement-status
-description: On-demand requirement satisfaction report — scans bead comments for req-verified tokens
-version: 1.0.0
-category: implementation
-last-updated: 2026-03-15
-argument-hint: [trd-path-or-slug]
+name: "ensemble:requirement-status"
+description: "On-demand requirement satisfaction report — scans bead comments for req-verified tokens"
+version: "1.0.0"
+category: "implementation"
+last-updated: "2026-03-15"
+argument-hint: "[trd-path-or-slug]"
 model: sonnet
 ---
 <!-- DO NOT EDIT - Generated from requirement-status.yaml -->

@@ -1,10 +1,10 @@
 ---
-name: ensemble:reqnroll-tdd
-description: Drive PRD acceptance criteria to green via an outside-in, red-gated Reqnroll + xUnit test-first loop
-version: 1.0.0
-category: testing
-last-updated: 2026-06-29
-argument-hint: [prd-path] [--sut <csproj>] [--out <dir>]
+name: "ensemble:reqnroll-tdd"
+description: "Drive PRD acceptance criteria to green via an outside-in, red-gated Reqnroll + xUnit test-first loop"
+version: "1.0.0"
+category: "testing"
+last-updated: "2026-06-29"
+argument-hint: "[prd-path] [--sut <csproj>] [--out <dir>]"
 model: opus
 ---
 <!-- DO NOT EDIT - Generated from reqnroll-tdd.yaml -->

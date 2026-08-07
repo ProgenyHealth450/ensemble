@@ -1,9 +1,9 @@
 ---
-name: ensemble:refine-prd
-description: Refine and enhance existing PRD with stakeholder feedback and additional detail
-version: 2.4.0
-category: planning
-last-updated: 2026-03-29
+name: "ensemble:refine-prd"
+description: "Refine and enhance existing PRD with stakeholder feedback and additional detail"
+version: "2.4.0"
+category: "planning"
+last-updated: "2026-03-29"
 model: opus
 ---
 <!-- DO NOT EDIT - Generated from refine-prd.yaml -->

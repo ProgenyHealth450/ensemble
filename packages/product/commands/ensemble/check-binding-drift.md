@@ -1,10 +1,10 @@
 ---
-name: ensemble:check-binding-drift
-description: Detect drift between a PRD's acceptance-criteria steps and the Reqnroll step bindings on disk
-version: 1.0.0
-category: testing
-last-updated: 2026-06-29
-argument-hint: [prd-path] [--out <dir>]
+name: "ensemble:check-binding-drift"
+description: "Detect drift between a PRD's acceptance-criteria steps and the Reqnroll step bindings on disk"
+version: "1.0.0"
+category: "testing"
+last-updated: "2026-06-29"
+argument-hint: "[prd-path] [--out <dir>]"
 model: haiku
 ---
 <!-- DO NOT EDIT - Generated from check-binding-drift.yaml -->
