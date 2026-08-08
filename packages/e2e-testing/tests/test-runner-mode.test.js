@@ -1,0 +1,204 @@
+'use strict';
+
+// AC-005-1 (pass/fail shown to the QA engineer before the next AC) is intentionally not
+// covered here: resolveRunConfig only maps mode -> launch/auth config, it has
+// no runResult/display data. That's orchestrator/agent behavior, not this
+// module's concern.
+
+const { resolveRunConfig, deriveAuthStatePath, VALID_MODES } = require('../lib/test-runner-mode');
+
+describe('resolveRunConfig (TRD-037: mode and auth strategy are orthogonal)', () => {
+  // Found live-dogfooding this feature: many real Playwright harnesses behind
+  // SSO capture ONE stored auth state once, out of band, and reuse it for
+  // every run afterward, headed or headless alike -- headed/headless there
+  // only toggles whether a human is watching, never how auth happens. mode
+  // must never dictate auth strategy; a stored state, when given, wins
+  // regardless of mode.
+
+  test('a stored authStatePath is used in HEADED mode too, not just headless', () => {
+    const authStatePath = '/secure/e2e-auth-state.json';
+    expect(resolveRunConfig('headed', authStatePath)).toEqual({
+      mode: 'headed',
+      headless: false,
+      auth: { strategy: 'stored-storage-state', authStatePath },
+    });
+  });
+
+  test('a stored authStatePath is used in headless mode (unchanged behavior)', () => {
+    const authStatePath = '/secure/e2e-auth-state.json';
+    expect(resolveRunConfig('headless', authStatePath)).toEqual({
+      mode: 'headless',
+      headless: true,
+      auth: { strategy: 'stored-storage-state', authStatePath },
+    });
+  });
+
+  test('headed mode with no authStatePath falls back to a live interactive login', () => {
+    expect(resolveRunConfig('headed')).toEqual({
+      mode: 'headed',
+      headless: false,
+      auth: { strategy: 'interactive-login', authStatePath: null },
+    });
+  });
+
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+  ])('headed mode with %s authStatePath falls back to interactive login (no error)', (_label, value) => {
+    expect(resolveRunConfig('headed', value).auth.strategy).toBe('interactive-login');
+  });
+});
+
+describe('resolveRunConfig (AC-013-4: headless has no interactive-login fallback -- no human present)', () => {
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+  ])('headless mode with %s authStatePath throws a clear error, never silently falls back to interactive login', (_label, value) => {
+    expect(() => resolveRunConfig('headless', value)).toThrow(/requires authStatePath/);
+  });
+
+  test.each([
+    ['empty string', ''],
+    ['whitespace-only string', '   '],
+  ])('headless mode with %s authStatePath throws (explicitly provided, but not a usable path)', (_label, value) => {
+    expect(() => resolveRunConfig('headless', value)).toThrow(/non-empty string/);
+  });
+});
+
+describe('resolveRunConfig (a garbage authStatePath is always an error, in either mode)', () => {
+  // Only undefined/null mean "no stored state was provided" -- anything else
+  // provided must be a valid non-empty string, regardless of mode. A stray
+  // number/object is almost certainly a caller bug, never silently treated
+  // as "no path given" just because headed mode has a fallback available.
+  test.each([
+    ['headed', 'number', 42],
+    ['headed', 'object', { path: '/secure/e2e-auth-state.json' }],
+    ['headed', 'array', ['/secure/e2e-auth-state.json']],
+    ['headless', 'number', 42],
+    ['headless', 'object', { path: '/secure/e2e-auth-state.json' }],
+    ['headless', 'array', ['/secure/e2e-auth-state.json']],
+  ])('%s mode with a non-string authStatePath (%s) throws', (mode, _label, value) => {
+    expect(() => resolveRunConfig(mode, value)).toThrow(/non-empty string/);
+  });
+
+  test.each(['headed', 'headless'])('%s mode with an empty-string authStatePath throws', (mode) => {
+    expect(() => resolveRunConfig(mode, '')).toThrow(/non-empty string/);
+  });
+});
+
+describe('resolveRunConfig (invalid mode -> throws, no silent default)', () => {
+  test.each([
+    ['typo', 'haedless'],
+    ['case variant', 'Headed'],
+    ['case variant', 'HEADLESS'],
+    ['non-string (number)', 1],
+    ['non-string (object)', { mode: 'headed' }],
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+  ])('mode = %s (%p) throws', (_label, value) => {
+    expect(() => resolveRunConfig(value)).toThrow();
+  });
+
+  test('error message names the invalid value and the valid options', () => {
+    expect(() => resolveRunConfig('slow')).toThrow(/Invalid mode 'slow'/);
+    expect(() => resolveRunConfig('slow')).toThrow(/headed/);
+    expect(() => resolveRunConfig('slow')).toThrow(/headless/);
+  });
+});
+
+describe('resolveRunConfig (VALID_MODES export)', () => {
+  test('exposes exactly the two supported modes', () => {
+    expect(VALID_MODES).toEqual(['headed', 'headless']);
+  });
+});
+
+describe('resolveRunConfig (purity: no key leakage, no shared mutated references)', () => {
+  test('same inputs produce equal but independent objects across repeated calls', () => {
+    const first = resolveRunConfig('headed');
+    const second = resolveRunConfig('headed');
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
+    expect(second.auth).not.toBe(first.auth);
+
+    first.auth.strategy = 'mutated';
+    expect(resolveRunConfig('headed').auth.strategy).toBe('interactive-login');
+  });
+
+  test('headless results for different authStatePaths do not share the auth object', () => {
+    const a = resolveRunConfig('headless', '/path/a.json');
+    const b = resolveRunConfig('headless', '/path/b.json');
+
+    expect(a.auth).not.toBe(b.auth);
+    expect(a.auth.authStatePath).toBe('/path/a.json');
+    expect(b.auth.authStatePath).toBe('/path/b.json');
+  });
+
+  test('result shape has exactly the documented keys, no leakage', () => {
+    const headed = resolveRunConfig('headed');
+    expect(Object.keys(headed).sort()).toEqual(['auth', 'headless', 'mode']);
+    expect(Object.keys(headed.auth).sort()).toEqual(['authStatePath', 'strategy']);
+
+    const headless = resolveRunConfig('headless', '/path/a.json');
+    expect(Object.keys(headless).sort()).toEqual(['auth', 'headless', 'mode']);
+    expect(Object.keys(headless.auth).sort()).toEqual(['authStatePath', 'strategy']);
+  });
+});
+
+describe('deriveAuthStatePath (TRD-036: a stored auth state is scoped to one origin)', () => {
+  test('inserts a sanitized environment token before the file extension', () => {
+    expect(deriveAuthStatePath('secrets/e2e-auth-state.json', 'https://qa.example.com')).toBe(
+      'secrets/e2e-auth-state.qa-example-com.json'
+    );
+  });
+
+  test('two different resolved environment URLs derive two different paths', () => {
+    const base = 'auth-state.json';
+    const a = deriveAuthStatePath(base, 'https://app-qa-alice.example.com');
+    const b = deriveAuthStatePath(base, 'https://app-qa-bob.example.com');
+    expect(a).not.toBe(b);
+  });
+
+  test('the same environment URL always derives the same path (deterministic)', () => {
+    const a = deriveAuthStatePath('auth-state.json', 'https://qa.example.com');
+    const b = deriveAuthStatePath('auth-state.json', 'https://qa.example.com');
+    expect(a).toBe(b);
+  });
+
+  test('a base path with no extension appends the token as a trailing suffix', () => {
+    expect(deriveAuthStatePath('secrets/auth-state', 'https://qa.example.com')).toBe(
+      'secrets/auth-state.qa-example-com'
+    );
+  });
+
+  test('a dotted directory name in the path is not mistaken for a file extension', () => {
+    expect(deriveAuthStatePath('secrets.d/auth-state', 'https://qa.example.com')).toBe(
+      'secrets.d/auth-state.qa-example-com'
+    );
+  });
+
+  test('is not tied to any one naming convention -- works for any base path a consuming repo configures', () => {
+    expect(deriveAuthStatePath('app-e2e-auth-state.json', 'https://app-qa-alice.azurewebsites.net')).toBe(
+      'app-e2e-auth-state.app-qa-alice-azurewebsites-net.json'
+    );
+    expect(deriveAuthStatePath('.auth/state.json', 'http://localhost:3000')).toBe('.auth/state.localhost-3000.json');
+  });
+
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace-only', '   '],
+  ])('missing/blank baseAuthStatePath (%s) throws', (_label, value) => {
+    expect(() => deriveAuthStatePath(value, 'https://qa.example.com')).toThrow(/non-empty baseAuthStatePath/);
+  });
+
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace-only', '   '],
+  ])('missing/blank qaEnvUrl (%s) throws', (_label, value) => {
+    expect(() => deriveAuthStatePath('auth-state.json', value)).toThrow(/non-empty qaEnvUrl/);
+  });
+});
