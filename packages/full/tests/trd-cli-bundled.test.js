@@ -242,3 +242,41 @@ describe('scaffold-planner — TRD Context in task descriptions', () => {
     expect(t.description).not.toContain('--- TRD Context ---');
   });
 });
+
+// Files vendored from packages/development/lib into packages/full/lib (a
+// standalone, self-contained plugin bundle rather than an npm dependency on
+// ensemble-development). Existence-tested above for the full set; byte-identity
+// guarded here for the subset that has a development counterpart.
+const BUNDLED_DEVELOPMENT_LIB_FILES = [
+  'trd-cli.js',
+  'trd-parser.js',
+  'scaffold-planner.js',
+  'phase-tracker.js',
+  'pr-strategy.js',
+  'workstream-planner.js',
+  'cross-trd-deps.js',
+  'workstream-status.js',
+  'workstream-trd.js',
+  'beads-refine-cli.js',
+  'beads-scope.js',
+  'beads-findings.js',
+  'beads-repair-plan.js',
+  'beads-repair-verify.js',
+];
+
+describe('ensemble-full bundled files stay in sync with packages/development/lib', () => {
+  // packages/full vendors these files with no automated sync --
+  // packages/full/lib/trd-parser.js drifted 4 commits behind its
+  // packages/development source before anyone noticed. Every other bundled
+  // file happened to stay in sync by hand; this test is the guard against
+  // that being luck rather than a guarantee, for this file or any other in
+  // the bundled set.
+  const devLibDir = path.join(__dirname, '..', '..', 'development', 'lib');
+  const fullLibDir = path.join(__dirname, '..', 'lib');
+
+  test.each(BUNDLED_DEVELOPMENT_LIB_FILES)('%s is byte-identical to packages/development/lib', (file) => {
+    const devContent = fs.readFileSync(path.join(devLibDir, file), 'utf8');
+    const fullContent = fs.readFileSync(path.join(fullLibDir, file), 'utf8');
+    expect(fullContent).toBe(devContent);
+  });
+});

@@ -20,6 +20,8 @@
  * @property {Phase[]} phases
  * @property {Object.<string,Task>} tasksById
  * @property {string[]} warnings
+ * @property {string|null} architectureDecision  prose from ## 1. Architecture Decision
+ * @property {string[]} keyTechnicalDecisions     entries from ### Key Technical Decisions
  *
  * @typedef {Object} Phase
  * @property {number} n
@@ -59,9 +61,10 @@ try {
 // Regular expressions (shared)
 // ---------------------------------------------------------------------------
 
-// Top-level task line: "- [ ] **TRD-001**: Description" / "- [x] **TRD-001-TEST**: ..."
+// Top-level task line: "- [ ] **TRD-001**: Description" / "- [ ] **TRD-001** — Description"
+// Accepts colon, em dash (—), en dash (–), or hyphen as separator after the bold id.
 // The bold id may carry a "-TEST" or "-TEST-S<k>" suffix.
-const TASK_LINE_RE = /^(\s*)- \[[ xX]\]\s+\*\*(TRD-[A-Za-z0-9-]+)\*\*\s*:?\s*(.*)$/;
+const TASK_LINE_RE = /^(\s*)- \[[ xX]\]\s+\*\*(TRD-[A-Za-z0-9-]+)\*\*\s*[-—–:]?\s*(.*)$/;
 
 // Any checklist line (used to detect nested sub-items).
 const CHECKLIST_LINE_RE = /^\s*- \[[ xX]\]\s+(.*)$/;
@@ -88,6 +91,11 @@ const TEST_KEYWORDS = [
   'xunit',
   'playwright',
 ];
+
+/** Normalize CRLF/CR to LF so every downstream regex can assume '\n'. */
+function normalizeLineEndings(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
 
 // ---------------------------------------------------------------------------
 // Frontmatter
@@ -221,6 +229,99 @@ function extractSummary(lines) {
   return '';
 }
 
+// ---------------------------------------------------------------------------
+// Architecture decision and key technical decisions
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the ## 1. Architecture Decision section prose.
+ * End boundary is the next ## heading (e.g. ## Master Task List) or EOF.
+ * Returns null when the section is absent.
+ */
+function extractArchitectureDecision(lines) {
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+(?:\d+\.\s+)?Architecture/i.test(lines[i])) {
+      start = i;
+      break;
+    }
+  }
+  if (start === -1) return null;
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    // Stop at ### Key Technical Decisions (exclusive boundary for that subsection),
+    // a top-level ## heading, or a horizontal rule.
+    if (/^###\s+Key\s+Technical\s+Decisions/i.test(lines[i]) ||
+        /^##\s/.test(lines[i]) ||
+        /^---/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+
+  // Strip the section heading and trailing blank lines.
+  const section = lines.slice(start + 1, end);
+  while (section.length && section[0].trim() === '') section.shift();
+  while (section.length && section[section.length - 1].trim() === '') section.pop();
+  return section.join('\n') || null;
+}
+
+/**
+ * Extract numbered entries from ### Key Technical Decisions.
+ * Each entry starts with "N. " where N is a number, and captures up to the
+ * next numbered entry, a horizontal-rule separator, or the next ##/### heading.
+ * Trailing blank lines are stripped from each entry.
+ * Returns an empty array when the subsection is absent.
+ */
+function extractKeyTechnicalDecisions(lines) {
+  let sectionStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^###\s+Key\s+Technical\s+Decisions/i.test(lines[i])) {
+      sectionStart = i;
+      break;
+    }
+  }
+  if (sectionStart === -1) return [];
+
+  // Find end of this subsection: next ---, any ##/### heading, or EOF.
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    if (/^---/.test(lines[i]) || /^#{2,3}\s/.test(lines[i])) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  const decisions = [];
+  const numbered = /^(\d+)\.\s+(.*)/;
+  let i = sectionStart + 1;
+
+  // Skip leading blank lines.
+  while (i < sectionEnd && lines[i].trim() === '') i++;
+
+  while (i < sectionEnd) {
+    const m = lines[i].match(numbered);
+    if (!m) {
+      // Append non-blank non-numbered continuation to the last entry.
+      if (decisions.length > 0 && lines[i].trim() !== '') {
+        decisions[decisions.length - 1] += '\n' + lines[i];
+      }
+      i++;
+      continue;
+    }
+    // Each numbered line is a new entry — push it directly.
+    decisions.push(lines[i]);
+    i++;
+  }
+
+  // Strip trailing blank lines from the final entry.
+  if (decisions.length > 0) {
+    decisions[decisions.length - 1] = decisions[decisions.length - 1].replace(/\n+$/, '');
+  }
+
+  return decisions;
+}
 // ---------------------------------------------------------------------------
 // Pass 3: PRD reference
 // ---------------------------------------------------------------------------
@@ -509,7 +610,8 @@ function isTestSubitem(text) {
  * Build a Task object from its line index range within `scopeLines`.
  */
 function buildTask(id, taskLineText, bodyLines, phaseN) {
-  const bodyText = [taskLineText, ...bodyLines].join('\n');
+  const rawMarkdown = [taskLineText, ...bodyLines].join('\n');
+  const bodyText = rawMarkdown;
   const fullText = bodyText;
 
   // Description = the task-line remainder, but stripped of trailing
@@ -580,6 +682,7 @@ function buildTask(id, taskLineText, bodyLines, phaseN) {
     nestedSubitems,
     testSubitems,
     proofOfRequirement,
+    rawMarkdown,
   };
 }
 
@@ -713,98 +816,6 @@ function addSyntheticValidationTasks(tasksById, phases, allLines, warnings) {
   if (acceptanceCriteria.length) warnings.push(`Generated ${acceptanceCriteria.length} acceptance-criteria validation task(s)`);
   if (crossCuttingRequirements.length) warnings.push(`Generated ${crossCuttingRequirements.length} cross-cutting requirement task(s)`);
 }
-// ---------------------------------------------------------------------------
-// Architecture decision + key technical decisions
-// ---------------------------------------------------------------------------
-
-/**
- * Extract the prose body of ## N. Architecture Decision (or ## Architecture Decision).
- * Matches both numbered and unnumbered variants.
- * Stops before ### Key Technical Decisions, any ## top-level heading, or ---.
- * Returns null when absent.
- *
- * @param {string[]} lines
- * @returns {string|null}
- */
-function extractArchitectureDecision(lines) {
-  let start = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+(?:\d+\.\s+)?Architecture/i.test(lines[i])) {
-      start = i;
-      break;
-    }
-  }
-  if (start === -1) return null;
-
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^###\s+Key\s+Technical\s+Decisions/i.test(lines[i]) ||
-        /^##\s/.test(lines[i]) ||
-        /^---/.test(lines[i])) {
-      end = i;
-      break;
-    }
-  }
-
-  const section = lines.slice(start + 1, end);
-  while (section.length && section[0].trim() === '') section.shift();
-  while (section.length && section[section.length - 1].trim() === '') section.pop();
-  return section.join('\n') || null;
-}
-
-/**
- * Extract numbered entries from ### Key Technical Decisions.
- * Each entry starts with "N. " and captures up to the next numbered entry,
- * a --- separator, or the next ##/### heading.
- * Trailing blank lines stripped from each entry.
- * Returns an empty array when absent.
- *
- * @param {string[]} lines
- * @returns {string[]}
- */
-function extractKeyTechnicalDecisions(lines) {
-  let sectionStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^###\s+Key\s+Technical\s+Decisions/i.test(lines[i])) {
-      sectionStart = i;
-      break;
-    }
-  }
-  if (sectionStart === -1) return [];
-
-  let sectionEnd = lines.length;
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    if (/^---/.test(lines[i]) || /^#{2,3}\s/.test(lines[i])) {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  const decisions = [];
-  const numbered = /^(\d+)\.\s+(.*)/;
-  let i = sectionStart + 1;
-
-  while (i < sectionEnd && lines[i].trim() === '') i++;
-
-  while (i < sectionEnd) {
-    const m = lines[i].match(numbered);
-    if (!m) {
-      if (decisions.length > 0 && lines[i].trim() !== '') {
-        decisions[decisions.length - 1] += '\n' + lines[i];
-      }
-      i++;
-      continue;
-    }
-    decisions.push(lines[i]);
-    i++;
-  }
-
-  if (decisions.length > 0) {
-    decisions[decisions.length - 1] = decisions[decisions.length - 1].replace(/\n+$/, '');
-  }
-
-  return decisions;
-}
 
 // ---------------------------------------------------------------------------
 // Main entry point
@@ -819,7 +830,15 @@ function extractKeyTechnicalDecisions(lines) {
  */
 function parseTRD(markdownString) {
   const warnings = [];
-  const md = typeof markdownString === 'string' ? markdownString : '';
+  // CRLF safety: every heading/task-line regex below is `$`-anchored, and JS
+  // regex treats `\r` as its own line terminator that `.` cannot consume —
+  // so a lone trailing `\r` (CRLF source, the norm for this repo's own
+  // Windows-authored TRDs) makes those regexes fail to match at all, even
+  // though the line trimmed correctly. packages/e2e-testing/lib/prd-ac-parser.js
+  // hit the identical class of bug in the sibling PRD parser and fixed it the
+  // same way: normalize line endings once, up front, before any line-based
+  // regex runs.
+  const md = normalizeLineEndings(typeof markdownString === 'string' ? markdownString : '');
 
   const { frontmatter, body } = splitFrontmatter(md);
   const designReadinessScore = extractDesignReadinessScore(frontmatter);
@@ -831,12 +850,12 @@ function parseTRD(markdownString) {
   const title = extractTitle(allLines);
   const summary = extractSummary(allLines);
 
-  // Pass 3 PRD reference (whole body).
-  const prdReference = extractPrdReference(body, frontmatter);
-
   // Architecture decision prose + key technical decisions (Pass 1).
   const architectureDecision = extractArchitectureDecision(allLines);
   const keyTechnicalDecisions = extractKeyTechnicalDecisions(allLines);
+
+  // Pass 3 PRD reference (whole body).
+  const prdReference = extractPrdReference(body, frontmatter);
 
   // Pass 3 scope: the Master Task List section.
   const scope = findMasterTaskListScope(allLines);
@@ -989,19 +1008,39 @@ function parseTRD(markdownString) {
     taskIds: p.taskIds,
   }));
 
+  const documentId =
+    frontmatter && frontmatter.document_id != null ? String(frontmatter.document_id) : null;
+  const label = frontmatter && frontmatter.label != null ? String(frontmatter.label) : null;
+  const kind =
+    frontmatter && frontmatter.kind != null ? String(frontmatter.kind).toLowerCase() : 'trd';
+
+  // Capabilities a (foundational) TRD provides. Accept a YAML list or a
+  // comma-separated string; normalize to a trimmed, non-empty string array.
+  let capabilities = [];
+  if (frontmatter && frontmatter.capabilities != null) {
+    const raw = Array.isArray(frontmatter.capabilities)
+      ? frontmatter.capabilities
+      : String(frontmatter.capabilities).split(',');
+    capabilities = raw.map((c) => String(c).trim()).filter(Boolean);
+  }
+
   return {
     title,
     summary,
+    documentId,
+    label,
+    kind,
+    capabilities,
     prdReference,
-    architectureDecision,
-    keyTechnicalDecisions,
     designReadinessScore,
     status,
     prFormat,
     phases: cleanPhases,
     tasksById,
     warnings,
+    architectureDecision,
+    keyTechnicalDecisions,
   };
 }
 
-module.exports = { parseTRD };
+module.exports = { parseTRD, normalizeLineEndings };

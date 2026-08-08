@@ -31,8 +31,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const { parseTRD } = require('./trd-parser');
 const { extractPrdContext } = require('./prd-parser');
+const { parseTRD } = require('./trd-parser');
 const {
   buildPhaseTaskIds,
   currentPhase,
@@ -134,10 +134,34 @@ function parseArgs(argv, valueFlags) {
  * @param {string} trdPath
  * @returns {string} file contents
  */
-function readTrd(trdPath) {
-  if (!trdPath) {
-    throw new Error('Missing required <trd-path> argument');
+/**
+ * Resolve a PRD reference to an absolute filesystem path, trying:
+ *   1. As-given (existing file from cwd)
+ *   2. Relative to the TRD file's directory
+ * Returns null if the file cannot be read.
+ * @param {string} prdRef  parsed.prdReference (as-written in the TRD, e.g. "docs/PRD/foo.md")
+ * @param {string} trdPath  absolute path of the TRD file
+ * @returns {string|null}
+ */
+function resolvePrd(prdRef, trdPath) {
+  if (!prdRef) return null;
+  const candidates = [
+    prdRef,                                             // as-given from cwd
+    path.join(path.dirname(path.resolve(trdPath)), prdRef), // relative to TRD dir
+  ];
+  for (const c of candidates) {
+    try {
+      fs.accessSync(c, fs.constants.R_OK);
+      return c;
+    } catch {
+      // try next candidate
+    }
   }
+  return null;
+}
+
+function readTrd(trdPath) {
+  if (!trdPath) throw new Error('Missing required <trd-path> argument');
   let contents;
   try {
     contents = fs.readFileSync(trdPath, 'utf8');
@@ -146,26 +170,22 @@ function readTrd(trdPath) {
   }
   return contents;
 }
-
 /**
  * Parse a TRD path into { slug, parsed, prdContext }. Shared by every subcommand.
+ * PRD context is enriched by loading and extracting the PRD if its reference
+ * is resolvable — callers that need prdContext pass it to buildScaffoldPlan.
  * @param {string} trdPath
  */
 function loadParsed(trdPath) {
   const markdown = readTrd(trdPath);
   const parsed = parseTRD(markdown);
   const slug = deriveSlug(trdPath);
-  // Load PRD context when a PRD reference is present.
-  let prdContext = null;
-  if (parsed.prdReference) {
-    try {
-      const prdPath = path.resolve(path.dirname(trdPath), parsed.prdReference);
-      const prdMarkdown = fs.readFileSync(prdPath, 'utf8');
-      prdContext = extractPrdContext(prdMarkdown);
-    } catch (_) {
-      // PRD reference is advisory; leave prdContext null on any read error.
-    }
-  }
+  const prdRef = parsed.prdReference || '';
+  const prdAbsPath = resolvePrd(prdRef, trdPath);
+  const prdContext =
+    prdAbsPath && prdRef
+      ? extractPrdContext(fs.readFileSync(prdAbsPath, 'utf8'))
+      : { requirements: {}, acs: {} };
   return { slug, parsed, prdContext };
 }
 
@@ -198,7 +218,7 @@ function runScaffoldPlan(argv) {
     trdSlug: slug,
     trdFilePath: trdPath,
     prdFilePath: parsed.prdReference || '',
-    prdContext: prdContext ?? null,
+    prdContext,
   });
   return { ok: true, slug, plan };
 }
@@ -253,7 +273,6 @@ function runNextTask(argv, env) {
 
   return { ok: true, selected };
 }
-
 /**
  * `pr-plan <trd-path> [--stacked]`
  *   -> { ok:true, slug, stacked, prFormat, branchFirst, actions }
@@ -350,7 +369,135 @@ function runWorkstreamStatus(argv) {
   }
   return summarizeWorkstream(issuesInput, { workstreamSlug: flags.workstream || null });
 }
+// ---------------------------------------------------------------------------
+// Workflow choices persistence
+// ---------------------------------------------------------------------------
 
+const CHOICES_KEY = 'ensemble_implement_trd_beads';
+
+/**
+ * `choices-read <trd-path>` -> { ok:true, choices:{ branch_name, use_proposed, stacked_prs } }
+ *
+ * Reads only the `ensemble_implement_trd_beads:` block from the TRD frontmatter.
+ * Returns empty strings/false for missing keys rather than erroring.
+ */
+function runChoicesRead(argv) {
+  const { positionals } = parseArgs(argv);
+  const trdPath = positionals[0];
+  if (!trdPath) throw new Error('Missing required <trd-path> argument');
+
+  const text = fs.readFileSync(trdPath, 'utf8');
+
+  // Find first frontmatter block: lines between first two `---`
+  const lines = text.split('\n');
+  const fmStart = lines.findIndex((l) => l.trim() === '---');
+  if (fmStart === -1) {
+    // No frontmatter at all
+    return { ok: true, choices: { branch_name: '', use_proposed: false, stacked_prs: false } };
+  }
+  const fmEnd = lines.findIndex((l, i) => i > fmStart && l.trim() === '---');
+  if (fmEnd === -1) {
+    // Unclosed frontmatter
+    return { ok: true, choices: { branch_name: '', use_proposed: false, stacked_prs: false } };
+  }
+
+  // Extract ensemble_implement_trd_beads: block
+  const fmLines = lines.slice(fmStart + 1, fmEnd);
+  let inBlock = false;
+  let branchName = '';
+  let useProposed = false;
+  let stackedPrs = false;
+
+  for (const line of fmLines) {
+    if (line.match(new RegExp(`^\\s*${CHOICES_KEY}\\s*:`))) {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock) {
+      const trimmed = line.trim();
+      // End of block: un-indented non-empty line — stop parsing choices
+      if (trimmed !== '' && !line.startsWith(' ') && !line.startsWith('\t')) {
+        break; // do NOT re-process as top-level — block is authoritative
+      }
+      // Indented child line — parse key:value
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx > 0) {
+        const key = trimmed.slice(0, colonIdx).trim();
+        const val = trimmed.slice(colonIdx + 1).trim();
+        if (key === 'branch_name') branchName = val.replace(/^['"]|['"]$/g, '');
+        else if (key === 'use_proposed') useProposed = val === 'true';
+        else if (key === 'stacked_prs') stackedPrs = val === 'true';
+      }
+    }
+  }
+
+  return { ok: true, choices: { branch_name: branchName, use_proposed: useProposed, stacked_prs: stackedPrs } };
+}
+
+/**
+ * `choices-write <trd-path> [--branch-name x] [--use-proposed] [--stacked-prs]`
+ *
+ * Performs a surgical textual upsert of only the `ensemble_implement_trd_beads:` block
+ * in the TRD frontmatter. Every other line is preserved verbatim.
+ */
+function runChoicesWrite(argv) {
+  const { flags } = parseArgs(argv, new Set(['branch-name']));
+  const trdPath = argv[0];
+  if (!trdPath) throw new Error('Missing required <trd-path> argument');
+
+  const text = fs.readFileSync(trdPath, 'utf8');
+  const lines = text.split('\n');
+
+  const fmStart = lines.findIndex((l) => l.trim() === '---');
+  if (fmStart === -1) {
+    throw new Error('TRD has no frontmatter — cannot write choices');
+  }
+  const fmEnd = lines.findIndex((l, i) => i > fmStart && l.trim() === '---');
+  if (fmEnd === -1) {
+    throw new Error('TRD frontmatter is unclosed');
+  }
+
+  const branchName = flags['branch-name'] != null ? String(flags['branch-name']) : '';
+  const useProposed = !!flags['use-proposed']; // boolean flag — true when present
+  const stackedPrs = !!flags['stacked-prs'];   // boolean flag — true when present
+
+  // Top-level YAML key + indented children
+  const newBlockLines = [
+    `${CHOICES_KEY}:`,
+    `  branch_name: ${branchName}`,
+    `  use_proposed: ${useProposed}`,
+    `  stacked_prs: ${stackedPrs}`,
+  ];
+
+  // Build replacement: find existing block, replace or insert
+  const beforeFm = lines.slice(0, fmStart + 1);
+  const afterFmEnd = lines.slice(fmEnd);
+
+  const fmBody = lines.slice(fmStart + 1, fmEnd);
+  const blockStartIdx = fmBody.findIndex((l) => l.match(new RegExp(`^\\s*${CHOICES_KEY}\\s*:`)));
+  const blockEndIdx = blockStartIdx !== -1
+    ? fmBody.findIndex((l, i) => i > blockStartIdx && l.trim() !== '' && !l.startsWith(' ') && !l.startsWith('\t'))
+    : -1;
+
+  let newFmBody;
+  if (blockStartIdx !== -1) {
+    // Replace existing block
+    const endIdx = blockEndIdx !== -1 ? blockEndIdx : fmBody.length;
+    const before = fmBody.slice(0, blockStartIdx);
+    const after = fmBody.slice(endIdx);
+    newFmBody = [...before, ...newBlockLines, ...after];
+  } else {
+    // No existing block — append just before the closing --- (safe, unambiguous)
+    newFmBody = [...fmBody, ...newBlockLines];
+  }
+
+  const newText = [...beforeFm, ...newFmBody, ...afterFmEnd].join('\n');
+  fs.writeFileSync(trdPath, newText, 'utf8');
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// CLI dispatch
 // ---------------------------------------------------------------------------
 // CLI dispatch
 // ---------------------------------------------------------------------------
@@ -365,6 +512,8 @@ const HANDLERS = {
   'create-workstream-trd': (argv) => runCreateWorkstreamTrd(argv),
   'workstream-plan': (argv) => runWorkstreamPlan(argv, process.env),
   'workstream-status': (argv) => runWorkstreamStatus(argv),
+  'choices-read': (argv) => runChoicesRead(argv),
+  'choices-write': (argv) => runChoicesWrite(argv),
 };
 
 /**
@@ -384,7 +533,7 @@ function main(argv) {
     process.stdout.write(
       JSON.stringify({
         error:
-          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|validate-workstream|create-workstream-trd|workstream-plan|workstream-status> <trd-path> [...]',
+          'Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|choices-read|choices-write> <trd-path> [...]',
       }) + '\n'
     );
     return 1;
@@ -425,6 +574,8 @@ module.exports = {
   runWorkstreamPlan,
   runWorkstreamStatus,
   main,
+  runChoicesRead,
+  runChoicesWrite,
   // exported for unit testing of the helpers
   deriveSlug,
   parseArgs,
