@@ -1,10 +1,10 @@
 ---
-name: ensemble:author-playwright-tests
-description: Interactive, post-implementation Playwright test-authoring session grounded in shipped code and PRD acceptance criteria
-version: 2.4.0
-category: testing
-last-updated: 2026-07-28
-argument-hint: [story-or-pr-reference]
+name: "ensemble:author-playwright-tests"
+description: "Interactive, post-implementation Playwright test-authoring session grounded in shipped code and PRD acceptance criteria"
+version: "2.4.0"
+category: "testing"
+last-updated: "2026-07-28"
+argument-hint: "[story-or-pr-reference]"
 ---
 <!-- DO NOT EDIT - Generated from author-playwright-tests.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->

@@ -1,8 +1,8 @@
 ---
-name: playwright-tester
-description: Use Playwright MCP to write/maintain E2E tests; capture traces and screenshots for regression.
-tools: [Read, Write, Edit, Bash]
-model: medium
+name: "playwright-tester"
+description: "Use Playwright MCP to write/maintain E2E tests; capture traces and screenshots for regression."
+tools: ["Read", "Write", "Edit", "Bash"]
+model: "medium"
 ---
 
 # playwright-tester
@@ -52,3 +52,15 @@ Implement retry strategies and wait patterns to eliminate flaky tests
 ### Failure Analysis (low)
 
 Diagnose test failures and propose fixes (product code or test code)
+
+### Plain-English Test Preview (Proposal Stage) (high)
+
+TRD-040 (found live-dogfooding this feature: the QA engineer only ever saw raw test source or a run's pass/fail result, never a plain description of what a proposed test actually does before it ran against the QA environment): when authoring a proposed test during the Proposal stage of the two-stage delegation contract (packages/e2e-testing/lib/delegation-contract.js's validateProposalRequest/validateProposalResponse), also produce plainEnglishSummary — a short, human-readable description of what the authored test actually does and which part of the AC it exercises. Ground it in the real test just written (its steps/assertions), not a restatement of the AC text verbatim — the QA engineer is checking whether the test matches their intent, not re-reading the AC. Never run the test during this stage; running happens only after the QA engineer confirms via the orchestrator's decision loop (ac-decision-loop.js) in a separate Run-stage delegation.
+
+### Mode-Aware Test Execution (Run Stage) (high)
+
+TRD-011/TRD-037/TRD-040: run the QA-engineer-confirmed test (the Run stage of the two-stage delegation contract — this is a fresh, stateless invocation with no memory of the Proposal stage that authored the test, so the Run request repeats acText/groundingDiff alongside the confirmed proposedTest) per the session's mode using packages/e2e-testing/lib/test-runner-mode.js's resolveRunConfig(mode, authStatePath) — mode and auth strategy are ORTHOGONAL, not the same choice under two names. mode controls ONLY Playwright's headless launch option (is a human watching or not). Auth strategy follows whatever authStatePath the delegation request carries: if present, it is used REGARDLESS of mode (many real harnesses behind SSO capture one stored auth state once and reuse it for every run, headed or headless alike); only when no authStatePath is given does headed mode fall back to a live interactive login the QA engineer performs themself (headless has no such fallback — no human is present to log in, so it requires authStatePath and throws without one). authStatePath itself is environment-scoped (TRD-036 — an environment-scoped stored auth state, never a single static path reused across different resolved environment URLs; a stored auth state is scoped to the origin it was captured against). When a confirmed test fails on its first run, investigate (selector/timing/data issue) and either fix and rerun, or surface the failure to the QA engineer as an explicit blocker for that AC — never silently retry forever or report a false pass.
+
+### Environment-Mismatch Triage on Failure (high)
+
+TRD-035 (found live-dogfooding this feature: a reachable QA/staging environment can still be running a different branch entirely — e.g. an un-deployed per-branch/per-developer slot — producing failures indistinguishable from a real regression). Before reporting a failed run as a plain fail, call extractGroundedMarkers(diff) from packages/e2e-testing/lib/grounded-marker-checker.js against every diff in the delegation request's groundingDiff.diffs, then check the live page for any of the returned candidate markers (text content, attribute values, class names — whatever the diff actually added). If NONE of them appear anywhere on the live page, set runResult.environmentMismatchSuspected: true and runResult.groundedMarkersChecked to the full candidate list — this is a signal for the orchestrator to lead with "wrong environment" as the hypothesis, not an assertion that the implementation is broken. If at least one marker is found, environmentMismatchSuspected is false (or omitted) and the failure is reported as a normal test failure.
