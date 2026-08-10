@@ -595,6 +595,22 @@ describe('Security: Fuzz Testing (PERM-P4-SEC-006)', () => {
   });
 
   describe('Mixed Unicode', () => {
+    // parseCommand rejects shell-injection constructs BY DESIGN, and every one of those
+    // rejections is phrased "<construct> not supported" (command-parser.js:199-214:
+    // "Command substitution $() not supported", "Command substitution `` not supported",
+    // "Heredocs not supported", "Process substitution not supported").
+    //
+    // A bare not.toThrow() over random code units therefore asserted the parser must NOT
+    // do its job. Sweeping all 65536 UTF-16 code units, exactly one throws on its own:
+    // U+0060 backtick. This test draws 100 x 20 = 2000 of them per run, so it failed
+    // 1 - (1 - 1/65536)^2000 = ~3.01% of runs at random, on any PR, regardless of content.
+    //
+    // "Handle random unicode" means must not crash unpredictably, not must never reject.
+    // So a design rejection passes and anything else still fails the test — which keeps
+    // the full alphabet in play and won't re-flake if the parser rejects more constructs
+    // later.
+    const DESIGN_REJECTION = /not supported$/;
+
     test('parser should handle random unicode', () => {
       for (let i = 0; i < 100; i++) {
         // Generate random unicode codepoints
@@ -603,7 +619,13 @@ describe('Security: Fuzz Testing (PERM-P4-SEC-006)', () => {
           const codepoint = Math.floor(Math.random() * 0xFFFF);
           cmd += String.fromCharCode(codepoint);
         }
-        expect(() => parseCommand(cmd)).not.toThrow();
+        expect(() => {
+          try {
+            parseCommand(cmd);
+          } catch (err) {
+            if (!DESIGN_REJECTION.test(err.message)) throw err;
+          }
+        }).not.toThrow();
       }
     });
   });
