@@ -327,6 +327,10 @@ function applyPhaseFilter(orderedIds, eligibleMap, closedBeads, phaseTaskIds, pr
   });
 
   // selectNextTasks filters to only the lowest-incomplete phase.
+  // Its option is named `stacked`, not `prFormat` — this planner's external flag is
+  // prFormat, phase-tracker's is stacked, and they must be translated here. Passing
+  // prFormat through verbatim left stacked undefined, which is phase-tracker's
+  // "schedule across phases freely" mode, so the phase gate silently did nothing.
   // Pass max=readyTaskIds.length so ALL same-phase candidates survive the filter —
   // applying the slot cap is applyFileClaimFilter's job, not selectNextTasks'.
   // Without this, selectNextTasks defaults max=1 and only one candidate reaches
@@ -335,7 +339,7 @@ function applyPhaseFilter(orderedIds, eligibleMap, closedBeads, phaseTaskIds, pr
     readyTaskIds,
     phaseTaskIds,
     closedTaskIds,
-    { prFormat: true, max: readyTaskIds.length }
+    { stacked: true, max: readyTaskIds.length }
   );
   const selectedSet = new Set(selectedTaskIds);
 

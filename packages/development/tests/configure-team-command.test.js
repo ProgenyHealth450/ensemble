@@ -16,6 +16,17 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Collapse every run of whitespace to a single space.
+ *
+ * The command YAML holds its prose in block scalars, which hard-wrap at the source
+ * line width and re-indent each continuation line. A phrase that reads as one
+ * sentence therefore may be stored with a newline plus indentation in the middle of
+ * it, which a raw substring assertion cannot see. Use this for prose assertions;
+ * use the raw file text for anything asserting on line structure.
+ */
+const collapseWhitespace = (text) => text.replace(/\s+/g, ' ');
+
 const CONFIGURE_TEAM_YAML = path.join(__dirname, '../commands/configure-team.yaml');
 const IMPLEMENT_TRD_BEADS_YAML = path.join(__dirname, '../commands/implement-trd-beads.yaml');
 
@@ -281,12 +292,20 @@ describe('configure-team command TRD parser dual-format acceptance', () => {
   });
 
   test('Phase 5 Step 2 terminal marker is unconditional: no post-marker inspection, validation, re-read, or fix TodoList', () => {
-    const text = fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8');
+    // Assert against whitespace-collapsed text: these are prose assertions, and the
+    // wording lives in a YAML block scalar that hard-wraps. "do NOT re-read the file
+    // again" is physically stored as "...the file\n              again", so a raw
+    // toContain fails on the line break even though the prohibition is present and
+    // correct. Collapsing runs of whitespace makes the assertion test the wording
+    // rather than the current line breaks. Do NOT use collapsed text for assertions
+    // that depend on line structure — the /^\s*version:\s*1\.1\.5\s*$/m checks below
+    // need the raw string.
+    const prose = collapseWhitespace(fs.readFileSync(CONFIGURE_TEAM_YAML, 'utf8'));
     // The description block must contain the post-marker prohibition wording.
-    expect(text).toContain('Do NOT inspect the');
-    expect(text).toContain('do NOT validate the team.roles schema');
-    expect(text).toContain('do NOT look for stale');
-    expect(text).toContain('add a TodoList to "fix" the section');
-    expect(text).toContain('do NOT re-read the file again');
+    expect(prose).toContain('Do NOT inspect the');
+    expect(prose).toContain('do NOT validate the team.roles schema');
+    expect(prose).toContain('do NOT look for stale');
+    expect(prose).toContain('add a TodoList to "fix" the section');
+    expect(prose).toContain('do NOT re-read the file again');
   });
 });

@@ -533,7 +533,7 @@ function main(argv) {
     process.stdout.write(
       JSON.stringify({
         error:
-          'Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|choices-read|choices-write> <trd-path> [...]',
+          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|choices-read|choices-write> <trd-path> [...]',
       }) + '\n'
     );
     return 1;
