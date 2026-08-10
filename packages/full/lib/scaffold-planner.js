@@ -29,6 +29,22 @@
  * @property {('story-blocks-epic'|'task-blocks-story'|'task-depends'|'synthtest-depends')} type
  * @property {string} blockerId  title-prefix of the blocking bead
  * @property {string} blockedId  title-prefix of the blocked bead
+ *
+ * @typedef {Object} PrdContext
+ * @property {Record<string, ReqEntry>} requirements
+ * @property {Record<string, AcEntry>} acs
+ * @typedef {Object} ReqEntry
+ * @property {string} id
+ * @property {string} title
+ * @property {string} text
+ * @property {string[]} acIds
+ * @typedef {Object} AcEntry
+ * @property {string} id
+ * @property {string} reqId
+ * @property {string} given
+ * @property {string} when
+ * @property {string} then
+ * @property {string} text
  */
 
 const DEFAULT_PRIORITY = 2;
@@ -160,27 +176,21 @@ function buildImplTaskDescription(task, opts) {
   sections.push(`Satisfies: ${satisfiesReq}`);
   sections.push(`PRD ACs: ${(task.validatesAcs || []).join(', ')}`);
   sections.push(`Target File: ${(task.targetFiles || []).join(', ')}`);
-
   sections.push('Actions:');
   sections.push(numberedBlock(task.actions || []));
-
   sections.push('Implementation AC:');
   sections.push(checklistBlock(task.implementationAc || []));
-
   // Sub-items section — only when nestedSubitems is non-empty.
   if (task.nestedSubitems && task.nestedSubitems.length) {
     sections.push('Sub-items (every checklist item below MUST be completed before this task is done):');
     sections.push(checklistBlock(task.nestedSubitems));
   }
-
   // Embedded tests section — only when testSubitems is non-empty.
   if (task.testSubitems && task.testSubitems.length) {
     sections.push('Embedded tests (implement AND run these — they have no separate TRD-NNN-TEST task):');
     sections.push(checklistBlock(task.testSubitems));
   }
-
   sections.push(`Dependencies: ${(task.dependsOn || []).join(', ')}`);
-
   return joinSections(sections);
 }
 
@@ -258,9 +268,8 @@ function buildSynthTestDescription(synthId, parentTask, subitemText) {
  * Build a pure scaffold plan from a ParsedTRD.
  * Never throws — problems are collected into the returned `warnings` array.
  *
- * @param {ParsedTRD} parsed  output of parseTRD()
- * @param {{trdSlug:string, trdFilePath:string, prdFilePath:string}} opts
- * @returns {ScaffoldPlan}
+ * @param {ParsedTRD} parsed
+ * @param {{trdSlug:string, trdFilePath:string, prdFilePath:string, prdContext:PrdContext}} opts
  */
 function buildScaffoldPlan(parsed, opts) {
   const warnings = [];
@@ -271,12 +280,13 @@ function buildScaffoldPlan(parsed, opts) {
   const slug = o.trdSlug == null ? '' : String(o.trdSlug);
   const trdFilePath = o.trdFilePath == null ? '' : String(o.trdFilePath);
   const prdFilePath = o.prdFilePath == null ? '' : String(o.prdFilePath);
+  const prdContext = o.prdContext && typeof o.prdContext === 'object' ? o.prdContext : { requirements: {}, acs: {} };
   const descOpts = {
     trdFilePath,
     prdFilePath,
-    prdContext: o.prdContext ?? null,
-    architectureDecision: safeParsed.architectureDecision ?? null,
-    keyTechnicalDecisions: safeParsed.keyTechnicalDecisions ?? [],
+    prdContext,
+    architectureDecision: safeParsed.architectureDecision || null,
+    keyTechnicalDecisions: Array.isArray(safeParsed.keyTechnicalDecisions) ? safeParsed.keyTechnicalDecisions : [],
   };
 
   const prFormat = !!safeParsed.prFormat;
