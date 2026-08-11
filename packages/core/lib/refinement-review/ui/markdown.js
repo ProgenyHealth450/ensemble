@@ -124,7 +124,7 @@
           const l = lines[i];
           if (listType(l) === lt) {
             if (cur) items.push(cur);
-            cur = { text: l.replace(/^\s*(?:[-*+]|\d+\.)\s+/, '') };
+            cur = { line: i + 1, text: l.replace(/^\s*(?:[-*+]|\d+\.)\s+/, '') };
             i++;
           } else if (cur && /^\s{2,}\S/.test(l) && l.trim() !== '') {
             cur.text += '\n' + l.trim();
@@ -135,7 +135,7 @@
         }
         if (cur) items.push(cur);
         const inner = items
-          .map((it) => `<li data-source-line="${startLine}">${inline(it.text)}</li>`)
+          .map((it) => `<li data-source-line="${it.line}">${inline(it.text)}</li>`)
           .join('');
         out.push(`<${tag} data-source-line="${startLine}">${inner}</${tag}>`);
         continue;

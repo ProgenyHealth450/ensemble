@@ -105,7 +105,7 @@ function writeJson(res, status, body) {
 /**
  * Start the refinement-review server.
  * @param {ServerOptions} opts
- * @returns {Promise<{url: string, port: number, host: string, stop: () => Promise<void>, address: {address: string, port: number, family: string}}>}
+ * @returns {Promise<{url: string, port: number, host: string, stop: () => Promise<void>, completed: Promise<{artifactPath: string, session: object}>, address: {address: string, port: number, family: string}}>}
  */
 async function startServer(opts) {
   if (!opts || typeof opts.sessionPath !== 'string')
@@ -121,8 +121,14 @@ async function startServer(opts) {
   const log = opts.log || (() => {});
   const logError = opts.logError || log;
 
-  // Track subscribers for SSE.
-  /** @type {Set<http.ServerResponse>} */
+  // Resolves with `{ artifactPath, session }` when the reviewer hits Complete
+  // in the UI (POST /api/complete). Rejects if completion fails. Foreground
+  // launchers should `await` this instead of polling the artifact file.
+  let resolveCompleted, rejectCompleted;
+  const completed = new Promise((resolve, reject) => {
+    resolveCompleted = resolve;
+    rejectCompleted = reject;
+  });
   const subscribers = new Set();
   /** Serializes mutation-driven persistence so two concurrent writers don't trample each other. */
   let writeChain = Promise.resolve();
@@ -423,7 +429,9 @@ async function startServer(opts) {
             id: q.id,
             prompt: q.prompt,
             context: q.context,
+            targetAnchor: q.targetAnchor,
             status: q.status,
+
             answer: q.answer,
             author: q.author,
             updatedAt: q.updatedAt,
@@ -450,6 +458,8 @@ async function startServer(opts) {
         subscribers.clear();
 
         writeJson(res, 200, { artifactPath, session: finalSession });
+        resolveCompleted({ artifactPath, session: finalSession });
+
       } catch (e) {
         writeJson(res, e.status || 500, {
           error: e.message,
@@ -507,6 +517,7 @@ async function startServer(opts) {
     port: addr.port,
     address: addr,
     stop,
+    completed,
   };
 }
 

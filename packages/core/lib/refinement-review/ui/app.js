@@ -98,6 +98,54 @@
       ${q.context ? `<div class="rr-context">${escapeHtml(q.context)}</div>` : ''}
       <textarea id="rr-question-answer">${escapeHtml(q.answer || '')}</textarea>
     `;
+    scrollToTarget(q.targetAnchor);
+    highlightTarget(q.targetAnchor);
+  }
+
+  function findSourceElement(line) {
+    if (!line || line < 1) return null;
+    const all = document.querySelectorAll('.rr-document-body [data-source-line]');
+    let best = null;
+    let bestLine = -1;
+    for (const el of all) {
+      const ln = Number(el.dataset.sourceLine);
+      if (!Number.isInteger(ln) || ln > line || ln < bestLine) continue;
+      // On ties (e.g. <ul data-source-line="25"> with inner <li data-source-line="25">),
+      // prefer the later-in-document-order element — the more specific (inner) one.
+      best = el;
+      bestLine = ln;
+    }
+    return best;
+  }
+
+  function clearHighlight() {
+    document.querySelectorAll('.rr-document-body .rr-highlight').forEach((el) => {
+      el.classList.remove('rr-highlight');
+    });
+  }
+
+  function highlightTarget(anchor) {
+    clearHighlight();
+    if (!anchor || !anchor.lineStart) return;
+    const startLine = anchor.lineStart;
+    const endLine = anchor.lineEnd && anchor.lineEnd >= anchor.lineStart
+      ? anchor.lineEnd
+      : startLine;
+    const seen = new Set();
+    for (let line = startLine; line <= endLine; line++) {
+      const el = findSourceElement(line);
+      if (el && !seen.has(el)) {
+        el.classList.add('rr-highlight');
+        seen.add(el);
+      }
+    }
+  }
+
+  function scrollToTarget(anchor) {
+    if (!anchor || !anchor.lineStart) return;
+    const el = findSourceElement(anchor.lineStart);
+    if (!el || typeof el.scrollIntoView !== 'function') return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
   function renderComments() {

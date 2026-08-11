@@ -1,10 +1,21 @@
+---
+document_id: PRD-2026-019
+title: Single-Pane Operator Dashboard
+version: 1.1.0
+status: Draft
+created: 2026-04-21
+last_updated: 2026-08-11
+author: Foreman Product Team
+readiness_score: 3.0
+---
+
 # Product Requirements Document: Single-Pane Operator Dashboard
 
 **Product Name:** Foreman Operator Dashboard  
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Status:** Draft  
 **Created:** 2026-04-21  
-**Last Updated:** 2026-04-21  
+**Last Updated:** 2026-08-11  
 **Author:** Foreman Product Team  
 
 ---
@@ -12,7 +23,7 @@
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [Problem Statement](#problem-stblem)
+2. [Problem Statement](#problem-statement)
 3. [Solution Overview](#solution-overview)
 4. [User Analysis](#user-analysis)
 5. [Goals & Non-Goals](#goals--non-goals)
@@ -290,6 +301,22 @@ Create a single terminal pane that renders a unified operator dashboard with thr
 
 ---
 
+## PRD Health
+
+**Source:** generated 2026-08-11 from `docs/PRD/PRD-2026-019-operator-dashboard.md`
+
+| Metric | Count | Notes |
+|--------|-------|-------|
+| Functional Requirements (FR) | 70 | P0=40, P1=24, P2=6 |
+| Non-Functional Requirements (NFR) | 21 | Performance + Reliability + Compatibility + Accessibility + Security |
+| Acceptance Criteria (AC) | 36 | Across 8 AC sections (AC1–AC8) |
+| Goals (G*) | 10 | P0=5, P1=5 |
+| Non-Goals (NG*) | 6 | Out-of-scope guardrails |
+| Test Scenarios (Gherkin) | 6 | Full E2E coverage (Scenarios 1–6) |
+| Risk flags | 4 | Medium likelihood × Medium impact |
+
+---
+
 ## Functional Requirements
 
 ### FR1: Dashboard Container
@@ -439,7 +466,7 @@ Create a single terminal pane that renders a unified operator dashboard with thr
 |----|-------------|--------|
 | NFR2.1 | Graceful degradation on failure | Show last known state |
 | NFR2.2 | Crash isolation | Dashboard crash doesn't affect foreman runs |
-| NFR2.3 | State consistency | No stale data for >5s |
+| NFR2.3 | State consistency | No stale data for >5s; binding latency target is NFR1.2 (<500ms) |
 | NFR2.4 | Clean shutdown | Proper cleanup on `q` or terminal close |
 
 ### NFR3: Compatibility
@@ -920,8 +947,22 @@ Then Running Tasks view is active
 And run "fmb-001" is selected
 ```
 
----
+#### Scenario 6: Cross-Reference Drill-Down (Board ↔ Run)
 
+```gherkin
+Given Board view is active and shows column "In Review" with run "fmb-042"
+And Running Tasks view shows the same run with phase "QA"
+And Inbox has mail "fmb-042 ready for QA review" from developer
+When operator selects "fmb-042" in Board view and presses Enter
+Then Running Tasks view becomes active
+And run "fmb-042" is selected and expanded
+And its dependent mail in Inbox is highlighted
+When operator presses 'm' on the selected run
+Then Inbox view becomes active
+And the thread for "fmb-042" is selected
+```
+
+---
 ## Dependencies & Risks
 
 ### Dependencies

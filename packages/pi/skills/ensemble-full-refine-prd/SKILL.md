@@ -22,7 +22,68 @@ disable-model-invocation: true
 > - After refining the PRD, stop and wait for user approval before any implementation
 > - DO NOT make any edits to the PRD during the Synthesis step — findings are presented first, edits happen only after the user selects items
 
-## Phase 1: PRD Review
+## Phase 1: Collaborative Review
+
+### Step 1: Session Bootstrap
+
+GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
+step and proceed directly to Phase 2 (PRD Review). Do not bootstrap
+a session, do not start a server, do not block on an artifact.
+All other steps in this phase are likewise skipped because the
+phase contains only this step.
+Bootstrap a refinement-review session for collaborative editing of
+the PRD, then wait for the reviewer to mark it complete in the
+browser. The resulting artifact is the input to Enhancement.
+
+1. Resolve the PRD path from $ARGUMENTS (first non-flag token).
+2. Generate 5–10 refinement questions drawn from the PRD content:
+   - For each `[NEEDS CLARIFICATION]` marker present, add a question
+     whose `context` quotes the marker text verbatim.
+   - Add a "top N gaps" question inferred from the PRD Health
+     summary (MoSCoW coverage, missing ACs, missing REQ IDs).
+3. Pick a session file path under a cache directory returned by
+   `getLogsPath()` or equivalent (gitignored). Load the shared
+   module once via
+   `const { refinementReview } = require('@sunstone-partners/ensemble-core')`
+   and call
+   `refinementReview.session.createSession({ sessionPath, kind: 'prd', sourcePath, questions })`.
+   It returns `{ session, token }` synchronously and writes the
+   session JSON to `sessionPath`.
+4. Resolve the static UI directory by deriving it from the package
+   itself:
+   ```js
+   const pkgRoot = require('path').dirname(
+     require.resolve('@sunstone-partners/ensemble-core/package.json'),
+   );
+   const uiDir = require('path').join(pkgRoot, 'lib/refinement-review/ui');
+   ```
+   Start the local server with
+   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath })`.
+   The server binds 127.0.0.1 with an OS-assigned port.
+5. Print `URL: http://<host>:<port>` and `Token: <token>` to the
+   user. **Run startServer in the foreground and `await` its
+   `completed` promise** (returned alongside `url`, `port`, and
+   `stop`). This promise resolves with `{ artifactPath, session }`
+   when the reviewer hits Complete in the UI — there is no need
+   to poll or watch the artifact file. Do not background or
+   detach the server: the bootstrap script must keep the request
+   alive until the UI session ends so the next workflow step can
+   continue automatically. Wrap the body in `try { ... } finally
+   { await stop(); }` so the HTTP listener is closed even if
+   reading or recap throws — an open listener would keep the
+   foreground Node process alive and block the workflow.
+
+6. Once `completed` resolves, the artifact is already on disk at
+   `artifactPath`. Read it and initialize `SELECTED_ITEMS` to the
+   union of every question with `status === 'answered'` and every
+   comment whose anchor is non-null. Map each comment to a finding
+   against its anchor's section.
+7. Print a session recap: answered count, comment count, artifact
+   path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
+   PRD Review phase below will short-circuit on its Synthesis,
+   Interview, and Feedback Integration steps.
+
+## Phase 2: PRD Review
 
 ### Step 1: Current PRD Analysis
 
@@ -36,8 +97,12 @@ Review existing PRD content and establish baseline metrics
 5. Check if PRD Health summary exists and whether its numbers match actual requirement counts
 6. Note the current version number for version bumping later
 
-### Step 2: Synthesis
+### Step 2: Synthesis (skip when --collab in $ARGUMENTS)
 
+If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
+Collaborative Review phase has already collected the findings and
+populated `SELECTED_ITEMS` from answered questions and comments.
+Otherwise, perform the original synthesis below.
 After reviewing the PRD, generate a numbered list of findings WITHOUT making
 any edits yet. Scan for the following issues:
 
@@ -76,8 +141,11 @@ If the user replies "skip" or selects nothing, exit immediately without
 making any changes. If the user replies "all", set SELECTED_ITEMS to every
 finding number.
 
-### Step 3: Interview
+### Step 3: Interview (skip when --collab in $ARGUMENTS)
 
+If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
+Collaborative Review phase already collected interactive answers.
+Otherwise, run the original interview below.
 REQUIRED: Conduct a targeted user interview covering ONLY the topics
 corresponding to SELECTED_ITEMS. Skip any findings the user did not select.
 
@@ -102,12 +170,17 @@ For each selected finding, ask a focused follow-up question. Examples:
 - For missing risk indicators: ask what risks apply to Medium/High complexity items
 - For dependency gaps: ask which requirements depend on or are blocked by others
 
-### Step 4: Feedback Integration
+### Step 4: Feedback Integration (artifact when --collab in $ARGUMENTS)
+
+If `--collab` is present in $ARGUMENTS, source the answers and comments
+from the artifact written by the Collaborative Review phase
+(path printed by that phase); the Interview step is bypassed.
+Otherwise, perform the original feedback integration below.
 
 Incorporate the answers gathered during the Interview step. Apply changes
 only for SELECTED_ITEMS — do not modify sections the user did not select.
 
-## Phase 2: Enhancement
+## Phase 3: Enhancement
 
 ### Step 1: Content Refinement
 
@@ -130,7 +203,7 @@ Verify structural integrity of all changes made during refinement
 4. Verify Given/When/Then format on all acceptance criteria touched during refinement
 5. Check that no requirements were accidentally removed during editing (compare count with baseline from Step 1.1)
 
-## Phase 3: Readiness Gate Re-Score
+## Phase 4: Readiness Gate Re-Score
 
 ### Step 1: Readiness Assessment
 
@@ -145,7 +218,7 @@ Re-score the PRD after refinement to measure improvement
 6. If the score dropped compared to previous, warn the user and identify which dimensions declined
 7. Update the Readiness Score in the PRD frontmatter
 
-## Phase 4: Output Management
+## Phase 5: Output Management
 
 ### Step 1: PRD Update
 

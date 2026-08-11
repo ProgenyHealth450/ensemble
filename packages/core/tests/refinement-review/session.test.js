@@ -413,4 +413,66 @@ describe('validateSession', () => {
     };
     expect(() => validateSession(session)).toThrow(/duplicate question/);
   });
+
+  test('persists targetAnchor when provided on a question', () => {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'ta.json');
+    const { session } = createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [
+        {
+          id: 'q1',
+          prompt: 'Why?',
+          targetAnchor: { lineStart: 3, lineEnd: 5, highlightText: 'fragment' },
+        },
+        { prompt: 'How?', targetAnchor: { lineStart: 10 } },
+      ],
+    });
+    expect(session.questions[0].targetAnchor).toEqual({
+      lineStart: 3,
+      lineEnd: 5,
+      highlightText: 'fragment',
+    });
+    expect(session.questions[1].targetAnchor).toEqual({ lineStart: 10 });
+  });
+
+  test('default targetAnchor is null when omitted', () => {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'ta-null.json');
+    const { session } = createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [{ prompt: 'Why?' }],
+    });
+    expect(session.questions[0].targetAnchor).toBeNull();
+  });
+
+  test('rejects targetAnchor with non-positive lineStart', () => {
+    const source = writeSource();
+    expect(() =>
+      createSession({
+        sessionPath: path.join(tmp, 'ta-bad1.json'),
+        kind: 'prd',
+        sourcePath: source,
+        questions: [{ prompt: 'p', targetAnchor: { lineStart: 0 } }],
+      })
+    ).toThrow(/lineStart/);
+  });
+
+  test('rejects targetAnchor with lineEnd < lineStart', () => {
+    const source = writeSource();
+    expect(() =>
+      createSession({
+        sessionPath: path.join(tmp, 'ta-bad2.json'),
+        kind: 'prd',
+        sourcePath: source,
+        questions: [
+          { prompt: 'p', targetAnchor: { lineStart: 10, lineEnd: 5 } },
+        ],
+      })
+    ).toThrow(/lineEnd/);
+  });
 });

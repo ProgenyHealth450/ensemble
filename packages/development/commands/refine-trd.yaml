@@ -80,13 +80,22 @@ workflow:
                `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath })`.
                The server binds 127.0.0.1 with an OS-assigned port.
             5. Print `URL: http://<host>:<port>` and `Token: <token>` to the
-               user. Block (do not proceed) until `artifactPath` exists on
-               disk — the server writes it when a reviewer marks the session
-               complete. Use `fs.watch` or a polling loop.
-            6. Once the artifact exists, read it. Initialize `SELECTED_ITEMS`
-               to the union of every question with `status === 'answered'`
-               and every comment whose anchor is non-null. Map each comment
-               to a finding against its anchor's section.
+               user. **Run startServer in the foreground and `await` its
+               `completed` promise** (returned alongside `url`, `port`, and
+               `stop`). This promise resolves with `{ artifactPath, session }`
+               when the reviewer hits Complete in the UI — there is no need
+               to poll or watch the artifact file. Do not background or
+               detach the server: the bootstrap script must keep the request
+               alive until the UI session ends so the next workflow step can
+               continue automatically. Wrap the body in `try { ... } finally
+               { await stop(); }` so the HTTP listener is closed even if
+               reading or recap throws — an open listener would keep the
+               foreground Node process alive and block the workflow.
+            6. Once `completed` resolves, the artifact is already on disk at
+               `artifactPath`. Read it and initialize `SELECTED_ITEMS` to the
+               union of every question with `status === 'answered'` and every
+               comment whose anchor is non-null. Map each comment to a finding
+               against its anchor's section.
             7. Print a session recap: answered count, comment count, artifact
                path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
                TRD Review phase below will short-circuit on its Synthesis,

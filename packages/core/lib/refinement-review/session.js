@@ -127,6 +127,19 @@ function validateSession(session) {
       throw new Error('question.prompt is required');
     if (q.context !== null && typeof q.context !== 'string')
       throw new Error('question.context must be string or null');
+    if (q.targetAnchor !== undefined && q.targetAnchor !== null) {
+      if (typeof q.targetAnchor !== 'object')
+        throw new Error('question.targetAnchor must be object or null');
+      const ta = q.targetAnchor;
+      if (typeof ta.lineStart !== 'number' || !Number.isInteger(ta.lineStart) || ta.lineStart < 1)
+        throw new Error('question.targetAnchor.lineStart must be a positive integer');
+      if (ta.lineEnd !== undefined && ta.lineEnd !== null) {
+        if (typeof ta.lineEnd !== 'number' || !Number.isInteger(ta.lineEnd) || ta.lineEnd < ta.lineStart)
+          throw new Error('question.targetAnchor.lineEnd must be an integer >= lineStart');
+      }
+      if (ta.highlightText !== undefined && ta.highlightText !== null && typeof ta.highlightText !== 'string')
+        throw new Error('question.targetAnchor.highlightText must be string or null');
+    }
     if (!['open', 'answered', 'skipped'].includes(q.status))
       throw new Error(`question.status invalid: ${q.status}`);
     if (q.answer !== null && typeof q.answer !== 'string')
@@ -253,6 +266,7 @@ function createSession({ sessionPath, kind, sourcePath, questions }) {
       id: q.id || newId(),
       prompt: q.prompt,
       context: q.context || null,
+      targetAnchor: q.targetAnchor || null,
       status: 'open',
       answer: null,
       author: null,

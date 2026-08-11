@@ -41,9 +41,11 @@ describe('refinement-review markdown renderer', () => {
     expect(html).toMatch(/<p data-source-line="1">Intro line\.<\/p>/);
     expect(html).toMatch(/<ul data-source-line="3">/);
     expect(html).toMatch(/<li data-source-line="3">one<\/li>/);
-    // List items inherit the parent list's start line so the anchor
-    // covers the whole range — sensible for PRD/TRD review comments.
-    expect(html).toMatch(/<li data-source-line="3">three<\/li>/);
+    // Each list item carries its own actual source line, not the parent's.
+    // This lets `findSourceElement` resolve inner list rows via
+    // greatest-preceding-block lookup, which the old "inherit parent line"
+    // shape could not.
+    expect(html).toMatch(/<li data-source-line="5">three<\/li>/);
     expect(html).toMatch(/<p data-source-line="7">A paragraph\.<\/p>/);
   });
 
@@ -65,7 +67,7 @@ describe('refinement-review markdown renderer', () => {
     expect(html).toMatch(/<hr data-source-line="4" \/>/);
     expect(html).toMatch(/<ol data-source-line="6">/);
     expect(html).toMatch(/<li data-source-line="6">first<\/li>/);
-    expect(html).toMatch(/<li data-source-line="6">second<\/li>/);
+    expect(html).toMatch(/<li data-source-line="7">second<\/li>/);
   });
 
   test('escapes HTML in headings, paragraphs, code spans', () => {

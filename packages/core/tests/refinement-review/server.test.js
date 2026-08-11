@@ -34,7 +34,14 @@ let tmp;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-server-'));
 });
-afterEach(() => {
+afterEach(async () => {
+  // Tear down every server created in this test so Jest can exit cleanly.
+  // Each test calls setupServer() which returns a fresh server; without this
+  // hook the suite leaks a TCP listener per test (Jest warns "did not exit").
+  while (activeServers.length > 0) {
+    const s = activeServers.pop();
+    try { await s.stop(); } catch (_) { /* already closed */ }
+  }
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -51,6 +58,10 @@ function writeUi() {
   fs.writeFileSync(path.join(dir, 'app.js'), 'console.log(1)');
   return dir;
 }
+
+// Module-scoped list of servers awaiting teardown. Populated by setupServer
+// and drained by the global afterEach above.
+const activeServers = [];
 
 async function setupServer(extra = {}) {
   const source = writeSource();
@@ -69,6 +80,7 @@ async function setupServer(extra = {}) {
     log: () => {},
     logError: () => {},
   });
+  activeServers.push(server);
   return { source, sessionPath, token, session, server, uiDir };
 }
 
@@ -274,6 +286,84 @@ describe('POST /api/comments', () => {
     expect(r.status).toBe(201);
     expect(r.json.comments[0].anchor).toBeNull();
   });
+  // Regression: a comment anchored to a range that covers a markdown table
+  // (header through last data row) must validate and persist. The earlier
+  // round of tests only exercised heading-only ranges; the user-facing bug
+  // surfaced when an NFR table review tried to anchor lines 457..469.
+  test('accepts anchor whose lineEnd spans an entire table range', async () => {
+    const TABLE_SOURCE = [
+      '# PRD',                                  // line 1
+      '',                                       // line 2
+      '## NFR Section',                         // line 3
+      '',                                       // line 4
+      'Intro for NFRs.',                        // line 5
+      '',                                       // line 6
+      '| ID | Requirement | Target |',          // line 7  table header
+      '|----|----|----|',                       // line 8  table separator
+      '| NFR1.2 | Update latency | <500ms |',    // line 9
+      '| NFR2.3 | State consistency | <5s |',    // line 10
+      '| NFR3.1 | Audit log retention | 30d |', // line 11
+    ].join('\n');
+
+    const source = writeSource(TABLE_SOURCE);
+    const sessionPath = path.join(tmp, 'session-table.json');
+    const { token } = sessionLib.createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [{ id: 'q-table', prompt: 'Verify NFR table range?' }],
+    });
+    const uiDir = writeUi();
+    const server = await startServer({
+      sessionPath,
+      token,
+      uiDir,
+      log: () => {},
+      logError: () => {},
+    });
+
+    // Anchor across the full 5-row table: lineStart at header, lineEnd at
+    // last row. selectedText stays null because the range is multi-line.
+    let r;
+    try {
+      r = await request(server, 'POST', '/api/comments', {
+        token,
+        body: {
+          revision: 1,
+          body: 'Verify NFR rows highlight together on nav',
+          anchor: {
+            section: '## NFR Section',
+            lineStart: 7,
+            lineEnd: 11,
+            selectedText: null,
+          },
+          author: 'qa',
+        },
+      });
+    } finally {
+      await server.stop();
+    }
+
+    expect(r.status).toBe(201);
+    expect(r.json.revision).toBe(2);
+    expect(r.json.comments).toHaveLength(1);
+    const stored = r.json.comments[0];
+    expect(stored.author).toBe('qa');
+    expect(stored.body).toBe('Verify NFR rows highlight together on nav');
+    expect(stored.anchor.lineStart).toBe(7);
+    expect(stored.anchor.lineEnd).toBe(11);
+    expect(stored.anchor.lineEnd - stored.anchor.lineStart).toBe(4); // inclusive range
+    expect(stored.anchor.selectedText).toBeNull();
+
+    // validateAnchor (the underlying primitive) must accept the same shape
+    // with no error for a table span whose lineEnd lands at the last row.
+    const err = sessionLib.validateAnchor(
+      { section: '## NFR Section', lineStart: 7, lineEnd: 11, selectedText: null },
+      11
+    );
+    expect(err).toBeNull();
+  });
+
 });
 
 describe('PATCH /api/comments/:id', () => {
@@ -336,6 +426,133 @@ describe('POST /api/complete', () => {
       body: { revision: 2, author: 'pm' },
     });
     expect(second.status).toBe(410);
+  });
+});
+
+describe('startServer.completed promise', () => {
+  test('resolves with {artifactPath, session} when /api/complete succeeds', async () => {
+    const { server, token, sessionPath } = await setupServer();
+    // Kick off a race: POST /api/complete and await server.completed.
+    const [completeResp, completed] = await Promise.all([
+      request(server, 'POST', '/api/complete', {
+        token,
+        body: { revision: 1, author: 'pm' },
+      }),
+      Promise.race([
+        server.completed,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('completed promise timed out')), 3000),
+        ),
+      ]),
+    ]);
+    expect(completeResp.status).toBe(200);
+    expect(completed.artifactPath).toBe(completeResp.json.artifactPath);
+    expect(fs.existsSync(completed.artifactPath)).toBe(true);
+    expect(completed.session.schemaVersion).toBe(1);
+    expect(completed.session.completedAt).not.toBeNull();
+    expect(completed.session.completedBy).toBe('pm');
+    expect(completed.session.questions).toHaveLength(2);
+    expect(completed.session.questions[0].id).toBe('q1');
+
+    // Sanity: artifact on disk matches what the promise resolved with.
+    const onDisk = JSON.parse(fs.readFileSync(completed.artifactPath, 'utf8'));
+    expect(onDisk.sessionId).toBe(completed.session.sessionId);
+    expect(path.dirname(completed.artifactPath)).toBe(path.dirname(sessionPath));
+
+    await server.stop();
+  });
+
+  test('completion artifact preserves targetAnchor on each question', async () => {
+    // Build a session with targetAnchor on one question so we can verify it
+    // survives the artifact write (both via server.completed and on disk).
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'ta-session.json');
+    const { session, token } = sessionLib.createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [
+        {
+          id: 'qa',
+          prompt: 'Why?',
+          targetAnchor: { lineStart: 3, lineEnd: 5, highlightText: 'fragment' },
+        },
+        { id: 'qb', prompt: 'How?' }, // no targetAnchor — must default to null
+      ],
+    });
+    expect(session.questions[0].targetAnchor).toEqual({
+      lineStart: 3,
+      lineEnd: 5,
+      highlightText: 'fragment',
+    });
+    expect(session.questions[1].targetAnchor).toBeNull();
+
+    const server = await startServer({
+      sessionPath,
+      token,
+      uiDir: writeUi(),
+      log: () => {},
+      logError: () => {},
+    });
+    try {
+      // Trigger completion; the same request the UI makes.
+      const resp = await request(server, 'POST', '/api/complete', {
+        token,
+        body: { revision: 1, author: 'pm' },
+      });
+      expect(resp.status).toBe(200);
+
+      const completed = await Promise.race([
+        server.completed,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('completed promise timed out')), 3000),
+        ),
+      ]);
+
+      // Resolved via server.completed
+      expect(completed.session.questions[0].targetAnchor).toEqual({
+        lineStart: 3,
+        lineEnd: 5,
+        highlightText: 'fragment',
+      });
+      expect(completed.session.questions[1].targetAnchor).toBeNull();
+
+      // And persisted to disk in the artifact JSON
+      const onDisk = JSON.parse(fs.readFileSync(completed.artifactPath, 'utf8'));
+      expect(onDisk.questions[0].targetAnchor).toEqual({
+        lineStart: 3,
+        lineEnd: 5,
+        highlightText: 'fragment',
+      });
+      expect(onDisk.questions[1].targetAnchor).toBeNull();
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test('remains pending until /api/complete is called, then resolves', async () => {
+    const { server, token } = await setupServer();
+    // After setupServer, completed is still pending (no /api/complete yet).
+    let settled = false;
+    server.completed.then(() => { settled = true; }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
+
+    await request(server, 'POST', '/api/complete', {
+      token,
+      body: { revision: 1, author: 'pm' },
+      headers: { 'x-wait': '50' },
+    }).catch(() => {});
+
+    const result = await Promise.race([
+      server.completed,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('completed promise timed out')), 3000),
+      ),
+    ]);
+    expect(result.artifactPath).toBeDefined();
+    expect(result.session.completedAt).not.toBeNull();
+    await server.stop();
   });
 });
 
