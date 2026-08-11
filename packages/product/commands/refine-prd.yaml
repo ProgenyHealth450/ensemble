@@ -8,17 +8,6 @@ metadata:
   source: sunstone
   model: high
 
-parameters:
-  - name: collab
-    type: boolean
-    default: false
-    description: |
-      Opt into browser-based collaborative refinement (HTML review with sidebar
-      questions and anchor-linked comments). When true, replaces the terminal
-      AskUserQuestion interview with a local web session; the artifact captured
-      during the session feeds the standard Enhancement phase below. When false
-      (the default), the original terminal-based refinement workflow runs unchanged.
-
 constraints:
   - DO NOT implement, build, or execute any work described in the PRD
   - This command ONLY refines the PRD document itself
@@ -33,68 +22,11 @@ mission:
     version history, traceability, and alignment with the create-prd v2.2.0 format
     including PRD Health summaries, MoSCoW priorities, and Implementation Readiness Gate
     scoring.
+
 workflow:
   phases:
-    - name: Collaborative Review
-      order: 1
-      when: $ARGUMENTS contains --collab
-      description: |
-        Browser-based collaborative refinement session. ONLY runs when
-        `--collab` is present in $ARGUMENTS. When false, skip this phase entirely and
-        proceed to PRD Review (Phase 1).
-      steps:
-        - order: 1
-          title: Session Bootstrap
-          description: |
-            GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
-            step and proceed directly to Phase 2 (PRD Review). Do not bootstrap
-            a session, do not start a server, do not block on an artifact.
-            All other steps in this phase are likewise skipped because the
-            phase contains only this step.
-            Bootstrap a refinement-review session for collaborative editing of
-            the PRD, then wait for the reviewer to mark it complete in the
-            browser. The resulting artifact is the input to Enhancement.
-
-            1. Resolve the PRD path from $ARGUMENTS (first non-flag token).
-            2. Generate 5–10 refinement questions drawn from the PRD content:
-               - For each `[NEEDS CLARIFICATION]` marker present, add a question
-                 whose `context` quotes the marker text verbatim.
-               - Add a "top N gaps" question inferred from the PRD Health
-                 summary (MoSCoW coverage, missing ACs, missing REQ IDs).
-            3. Pick a session file path under a cache directory returned by
-               `getLogsPath()` or equivalent (gitignored). Load the shared
-               module once via
-               `const { refinementReview } = require('@sunstone-partners/ensemble-core')`
-               and call
-               `refinementReview.session.createSession({ sessionPath, kind: 'prd', sourcePath, questions })`.
-               It returns `{ session, token }` synchronously and writes the
-               session JSON to `sessionPath`.
-            4. Resolve the static UI directory by deriving it from the package
-               itself:
-               ```js
-               const pkgRoot = require('path').dirname(
-                 require.resolve('@sunstone-partners/ensemble-core/package.json'),
-               );
-               const uiDir = require('path').join(pkgRoot, 'lib/refinement-review/ui');
-               ```
-               Start the local server with
-               `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath })`.
-               The server binds 127.0.0.1 with an OS-assigned port.
-            5. Print `URL: http://<host>:<port>` and `Token: <token>` to the
-               user. Block (do not proceed) until `artifactPath` exists on
-               disk — the server writes it when a reviewer marks the session
-               complete. Use `fs.watch` or a polling loop.
-            6. Once the artifact exists, read it. Initialize `SELECTED_ITEMS`
-               to the union of every question with `status === 'answered'`
-               and every comment whose anchor is non-null. Map each comment
-               to a finding against its anchor's section.
-            7. Print a session recap: answered count, comment count, artifact
-               path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
-               PRD Review phase below will short-circuit on its Synthesis,
-               Interview, and Feedback Integration steps.
-
     - name: PRD Review
-      order: 2
+      order: 1
       steps:
         - order: 1
           title: Current PRD Analysis
@@ -108,12 +40,8 @@ workflow:
             - Note the current version number for version bumping later
 
         - order: 2
-          title: Synthesis (skip when --collab in $ARGUMENTS)
+          title: Synthesis
           description: |
-            If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-            Collaborative Review phase has already collected the findings and
-            populated `SELECTED_ITEMS` from answered questions and comments.
-            Otherwise, perform the original synthesis below.
             After reviewing the PRD, generate a numbered list of findings WITHOUT making
             any edits yet. Scan for the following issues:
 
@@ -153,11 +81,8 @@ workflow:
             finding number.
 
         - order: 3
-          title: Interview (skip when --collab in $ARGUMENTS)
+          title: Interview
           description: |
-            If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-            Collaborative Review phase already collected interactive answers.
-            Otherwise, run the original interview below.
             REQUIRED: Conduct a targeted user interview covering ONLY the topics
             corresponding to SELECTED_ITEMS. Skip any findings the user did not select.
 
@@ -183,18 +108,13 @@ workflow:
             - For dependency gaps: ask which requirements depend on or are blocked by others
 
         - order: 4
-          title: Feedback Integration (artifact when --collab in $ARGUMENTS)
+          title: Feedback Integration
           description: |
-            If `--collab` is present in $ARGUMENTS, source the answers and comments
-            from the artifact written by the Collaborative Review phase
-            (path printed by that phase); the Interview step is bypassed.
-            Otherwise, perform the original feedback integration below.
-
             Incorporate the answers gathered during the Interview step. Apply changes
             only for SELECTED_ITEMS — do not modify sections the user did not select.
 
     - name: Enhancement
-      order: 3
+      order: 2
       steps:
         - order: 1
           title: Content Refinement
@@ -218,7 +138,7 @@ workflow:
             - Check that no requirements were accidentally removed during editing (compare count with baseline from Step 1.1)
 
     - name: Readiness Gate Re-Score
-      order: 4
+      order: 3
       steps:
         - order: 1
           title: Readiness Assessment
@@ -233,7 +153,7 @@ workflow:
             - "Update the Readiness Score in the PRD frontmatter"
 
     - name: Output Management
-      order: 5
+      order: 4
       steps:
         - order: 1
           title: PRD Update

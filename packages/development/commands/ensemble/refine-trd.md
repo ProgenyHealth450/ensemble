@@ -16,59 +16,7 @@ version history, traceability, and Design Readiness scoring.
 
 ## Workflow
 
-### Phase 1: Collaborative Review
-
-**1. Session Bootstrap**
-   GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
-step and proceed directly to Phase 2 (TRD Review). Do not bootstrap
-a session, do not start a server, do not block on an artifact.
-All other steps in this phase are likewise skipped because the
-phase contains only this step.
-Bootstrap a refinement-review session for collaborative editing of
-the TRD, then wait for the reviewer to mark it complete in the
-browser. The resulting artifact is the input to Enhancement.
-
-1. Resolve the TRD path from $ARGUMENTS (first non-flag token).
-2. Generate 5–10 refinement questions drawn from the TRD content:
-   - For each `[NEEDS CLARIFICATION]` marker present, add a question
-     whose `context` quotes the marker text verbatim.
-   - Add a "top N gaps" question inferred from the Design Readiness
-     summary (missing AC traceability, missing [satisfies REQ-NNN],
-     orphan hour estimates, forward dependencies in PR stack, etc.).
-3. Pick a session file path under a cache directory returned by
-   `getLogsPath()` or equivalent (gitignored). Load the shared
-   module once via
-   `const { refinementReview } = require('@sunstone-partners/ensemble-core')`
-   and call
-   `refinementReview.session.createSession({ sessionPath, kind: 'trd', sourcePath, questions })`.
-   It returns `{ session, token }` synchronously and writes the
-   session JSON to `sessionPath`.
-4. Resolve the static UI directory by deriving it from the package
-   itself:
-   ```js
-   const pkgRoot = require('path').dirname(
-     require.resolve('@sunstone-partners/ensemble-core/package.json'),
-   );
-   const uiDir = require('path').join(pkgRoot, 'lib/refinement-review/ui');
-   ```
-   Start the local server with
-   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath })`.
-   The server binds 127.0.0.1 with an OS-assigned port.
-5. Print `URL: http://<host>:<port>` and `Token: <token>` to the
-   user. Block (do not proceed) until `artifactPath` exists on
-   disk — the server writes it when a reviewer marks the session
-   complete. Use `fs.watch` or a polling loop.
-6. Once the artifact exists, read it. Initialize `SELECTED_ITEMS`
-   to the union of every question with `status === 'answered'`
-   and every comment whose anchor is non-null. Map each comment
-   to a finding against its anchor's section.
-7. Print a session recap: answered count, comment count, artifact
-   path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
-   TRD Review phase below will short-circuit on its Synthesis,
-   Interview, and Feedback Integration steps.
-
-
-### Phase 2: TRD Review
+### Phase 1: TRD Review
 
 **1. Current TRD Analysis**
    Review existing TRD content and extract structural metadata
@@ -82,13 +30,8 @@ browser. The resulting artifact is the input to Enhancement.
    - PR format detection: scan TRD for '### PR ' followed by a digit within the '## Master Task List' section (from '## Master Task List' heading to the next '##' heading or EOF). If found: set PR_FORMAT=true and log 'TRD format: PR-stack'. Else: set PR_FORMAT=false and log 'TRD format: legacy phase/sprint'.
    - If PR_FORMAT=true: count PR boundary sections; for each ### PR N: heading check whether a **Shippable State:** line immediately follows it; record MISSING_SHIPPABLE[N] for any that don't; record INFRA_ONLY_SHIPPABLE[N] for any whose Shippable State text contains only infrastructure language (e.g., 'scaffolding', 'setup done', 'infrastructure complete') with no user-observable capability.
 
-**2. Synthesis (skip when --collab in $ARGUMENTS)**
-   If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase has already collected the findings and
-populated `SELECTED_ITEMS` from answered questions and comments.
-Otherwise, perform the original synthesis below.
-
-After reviewing the TRD, generate a numbered list of findings — do NOT make
+**2. Synthesis**
+   After reviewing the TRD, generate a numbered list of findings — do NOT make
 any edits yet.
 
 Scan the TRD for the following categories of issues:
@@ -135,12 +78,8 @@ Store the user's reply as SELECTED_ITEMS.
 - Otherwise, parse the comma-separated numbers to determine which findings are selected.
 
 
-**3. Interview (skip when --collab in $ARGUMENTS)**
-   If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase already collected interactive answers.
-Otherwise, run the original interview below.
-
-Conduct a focused follow-up interview ONLY about the SELECTED_ITEMS from the
+**3. Interview**
+   Conduct a focused follow-up interview ONLY about the SELECTED_ITEMS from the
 Synthesis step. Skip any topic the user did not select.
 
 Use the AskUserQuestion tool to present questions interactively:
@@ -168,14 +107,8 @@ For each selected finding, ask targeted follow-up questions such as:
 - "For legacy format conversion offer (PR_FORMAT=false): 'This TRD uses ### Phase N: headings. Would you like to convert the Master Task List to ### PR N: format with Shippable State annotations? This enables implement-trd-beads PR-stack mode (feature/<slug>-pr-N branches, per-PR git town propose). The ## Sprint Planning section would remain unchanged.'"
 
 
-**4. Feedback Integration (artifact when --collab in $ARGUMENTS)**
-   If `--collab` is present in $ARGUMENTS, source the answers and comments
-from the artifact written by the Collaborative Review phase
-(path printed by that phase); the Interview step is bypassed.
-Otherwise, perform the original feedback integration below.
-
-Incorporate stakeholder feedback collected during the interview into a change plan
-
+**4. Feedback Integration**
+   Incorporate stakeholder feedback collected during the interview into a change plan
 
    - Apply interview answers to the relevant findings in SELECTED_ITEMS only
    - For new tasks added, assign next sequential TRD-NNN ID
@@ -183,7 +116,7 @@ Incorporate stakeholder feedback collected during the interview into a change pl
    - For dependency changes, update the dependency graph and check for new circular deps
    - Compile a change plan summarizing all modifications to be applied
 
-### Phase 3: Enhancement
+### Phase 2: Enhancement
 
 **1. Content Refinement**
    Apply changes ONLY for the SELECTED_ITEMS identified in the Synthesis step.
@@ -223,7 +156,7 @@ Enhancements to apply (scoped to selected findings):
    - If PR_FORMAT=true: verify no task has a [depends: TRD-XXX] where TRD-XXX belongs to a later PR section (no forward dependencies across PR boundaries)
    - If PR_FORMAT=true: verify the Master Task List section contains only ### PR N: headings (no mixed ### Phase N: or ### Sprint N: headings)
 
-### Phase 4: Design Readiness Gate Re-Score
+### Phase 3: Design Readiness Gate Re-Score
 
 **1. Re-Score Readiness Dimensions**
    Re-evaluate the Design Readiness Gate after refinement changes
@@ -250,7 +183,7 @@ Enhancements to apply (scoped to selected findings):
    - If task count changed by >20%, suggest: '/ensemble:configure-team <trd-path> to re-configure the team'
    - Update the readiness score in frontmatter
 
-### Phase 5: Output Management
+### Phase 4: Output Management
 
 **1. TRD Update**
    Write the refined TRD with version history and changelog

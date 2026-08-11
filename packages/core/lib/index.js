@@ -99,12 +99,4 @@ module.exports = {
   getContext7InstallInstructions: context7.getInstallInstructions,
   createLibraryHelper: context7.createLibraryHelper,
   withContext7Fallback: context7.withContext7Fallback,
-
-  // Refinement Review (opt-in browser-driven PRD/TRD collaboration)
-  // Shared by packages/product (refine-prd) and packages/development
-  // (refine-trd). See packages/core/lib/refinement-review/README.md.
-  refinementReview: {
-    session: require('./refinement-review/session'),
-    server: require('./refinement-review/server'),
-  },
 };
