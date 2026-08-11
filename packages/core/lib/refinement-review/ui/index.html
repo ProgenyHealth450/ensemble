@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Refinement Review</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="rr-header">
+    <h1 class="rr-title">Refinement Review</h1>
+    <div class="rr-meta">
+      <span id="rr-document-kind"></span>
+      <span class="rr-sep">·</span>
+      <span id="rr-revision">rev 1</span>
+      <span class="rr-sep">·</span>
+      <span id="rr-status">connecting…</span>
+    </div>
+  </header>
+  <main class="rr-main">
+    <section class="rr-pane rr-document" aria-label="Document">
+      <div id="rr-document" class="rr-document-body" tabindex="0"></div>
+      <aside class="rr-inline-comments" id="rr-inline-comments" aria-label="Inline comments"></aside>
+    </section>
+    <aside class="rr-pane rr-sidebar" aria-label="Review">
+      <section class="rr-section" aria-label="Questions">
+        <header class="rr-section-header">
+          <h2>Refinement questions</h2>
+          <span id="rr-question-progress" class="rr-progress"></span>
+        </header>
+        <div id="rr-question" class="rr-question" aria-live="polite"></div>
+        <div class="rr-controls">
+          <button type="button" id="rr-prev">Previous</button>
+          <button type="button" id="rr-next">Next</button>
+          <button type="button" id="rr-skip">Skip</button>
+          <button type="button" id="rr-save" class="primary">Save answer</button>
+        </div>
+      </section>
+      <section class="rr-section" aria-label="Comments">
+        <header class="rr-section-header">
+          <h2>Comments</h2>
+          <button type="button" id="rr-add-comment" class="primary">+ Add comment</button>
+        </header>
+        <div id="rr-comments" class="rr-comments"></div>
+      </section>
+      <section class="rr-section" aria-label="Submit">
+        <div class="rr-author-row">
+          <label for="rr-author">Your name:</label>
+          <input type="text" id="rr-author" placeholder="pm / dev / reviewer" />
+        </div>
+        <button type="button" id="rr-complete" class="primary">Mark complete</button>
+      </section>
+    </aside>
+  </main>
+  <dialog id="rr-comment-dialog" class="rr-dialog">
+    <form method="dialog" id="rr-comment-form">
+      <h3 id="rr-comment-dialog-title">New comment</h3>
+      <div id="rr-comment-anchor" class="rr-comment-anchor"></div>
+      <label for="rr-comment-body">Comment</label>
+      <textarea id="rr-comment-body" rows="5" required></textarea>
+      <menu>
+        <button type="button" id="rr-comment-cancel">Cancel</button>
+        <button type="submit" id="rr-comment-submit" class="primary">Save</button>
+      </menu>
+    </form>
+  </dialog>
+  <script src="./markdown.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
