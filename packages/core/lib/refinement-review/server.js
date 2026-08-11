@@ -15,9 +15,8 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { URL } = require('url');
-
 const session = require('./session');
-
+const { openUrl } = require('./opener');
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 0; // let the OS assign
 
@@ -97,15 +96,22 @@ function writeJson(res, status, body) {
  * @property {number} [port] - bind port (default 0 = random)
  * @property {string} [uiDir] - static UI directory (served at `/`)
  * @property {string} [artifactPath] - where to write the response snapshot
- *   when the session is completed. Defaults to `<sessionPath>.response.json`.
- * @property {(msg: string) => void} [log] - log sink (NEVER receives the token)
  * @property {(msg: string) => void} [logError]
+ * @property {boolean} [open=false] - attempt to open the share URL
+ *   (`<url>/?token=<token>`) in the user's default browser after binding.
+ *   The opener is invoked fire-and-forget; the returned `openResult`
+ *   Promise resolves with `{ opened, reason?, command? }` so the caller
+ *   can decide whether to log a fallback. NEVER include the token in any
+ *   log sink: the opener is called with the encoded share URL directly
+ *   and the log continues to receive only the bare URL.
+ * @property {object} [openerOpts] - forwarded to `openUrl`; allows tests
+ *   to inject a `platform` and a stub `spawn`.
  */
 
 /**
  * Start the refinement-review server.
  * @param {ServerOptions} opts
- * @returns {Promise<{url: string, port: number, host: string, stop: () => Promise<void>, completed: Promise<{artifactPath: string, session: object}>, address: {address: string, port: number, family: string}}>}
+ * @returns {Promise<{url: string, port: number, host: string, stop: () => Promise<void>, completed: Promise<{artifactPath: string, session: object}>, address: {address: string, port: number, family: string}, reviewUrl: string, openResult: Promise<{opened: boolean, reason?: string, command?: string}> | null}>}
  */
 async function startServer(opts) {
   if (!opts || typeof opts.sessionPath !== 'string')
@@ -497,6 +503,28 @@ async function startServer(opts) {
 
   const url = `http://${addr.address}:${addr.port}`;
 
+  // Compose the share URL the SPA actually wants: bare url is unauthenticated
+  // and the API would 401. The opener (and any caller that wants to give
+  // the user a copy-paste URL) needs `${url}/?token=<encoded token>`. The
+  // `log` sink continues to receive only the bare URL — the token is never
+  // logged.
+  const reviewUrl = `${url}/?token=${encodeURIComponent(opts.token)}`;
+
+  // Fire-and-forget; do not block server startup on the opener. The Promise
+  // is returned to the caller so the bootstrap can decide whether to await
+  // it for UX feedback. Any rejection (which `openUrl` already catches and
+  // converts to a structured result) is also captured here as a final
+  // safety net.
+  let openResult = null;
+  if (opts.open === true) {
+    const openerOpts = opts.openerOpts || {};
+    openResult = openUrl(reviewUrl, openerOpts).catch((e) => ({
+      opened: false,
+      reason: 'exception',
+      error: e && e.message,
+    }));
+  }
+
   function stop() {
     return new Promise((resolve) => {
       for (const sub of subscribers) {
@@ -518,8 +546,11 @@ async function startServer(opts) {
     address: addr,
     stop,
     completed,
+    reviewUrl,
+    openResult,
   };
 }
+
 
 module.exports = {
   startServer,

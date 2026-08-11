@@ -106,5 +106,6 @@ module.exports = {
   refinementReview: {
     session: require('./refinement-review/session'),
     server: require('./refinement-review/server'),
+    opener: require('./refinement-review/opener'),
   },
 };

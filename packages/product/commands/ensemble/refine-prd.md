@@ -1,7 +1,7 @@
 ---
 name: "ensemble:refine-prd"
 description: "Refine and enhance existing PRD with stakeholder feedback and additional detail"
-version: "2.4.0"
+version: "2.6.0"
 category: "planning"
 last-updated: "2026-03-29"
 model: "opus"
@@ -53,17 +53,26 @@ browser. The resulting artifact is the input to Enhancement.
    const uiDir = require('path').join(pkgRoot, 'lib/refinement-review/ui');
    ```
    Start the local server with
-   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath })`.
-   The server binds 127.0.0.1 with an OS-assigned port.
-5. Print `URL: http://<host>:<port>` and `Token: <token>` to the
-   user. **Run startServer in the foreground and `await` its
-   `completed` promise** (returned alongside `url`, `port`, and
-   `stop`). This promise resolves with `{ artifactPath, session }`
-   when the reviewer hits Complete in the UI — there is no need
-   to poll or watch the artifact file. Do not background or
-   detach the server: the bootstrap script must keep the request
-   alive until the UI session ends so the next workflow step can
-   continue automatically. Wrap the body in `try { ... } finally
+   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })`,
+   where `open = !$ARGUMENTS.contains('--no-open') && process.stdout.isTTY && !process.env.CI`.
+   The server binds 127.0.0.1 with an OS-assigned port. The
+   `open` flag opts into auto-launching the reviewer's browser
+   via the per-platform opener (`open` / `xdg-open` /
+   `rundll32 url.dll,FileProtocolHandler`); it auto-suppresses
+   (CI, piped logs) and on `--no-open`.
+5. Print `URL: <reviewUrl>` (i.e. `http://<host>:<port>/?token=<encodeURIComponent(token)>`)
+   and `Token: <token>` to the user for manual fallback. The
+   bootstrap owns these prints — the server's own `log` sink
+   only ever sees the bare token-free URL (per its JSDoc
+   contract). **Run startServer in the foreground and `await`
+   its `completed` promise** (returned alongside `url`, `port`,
+   `reviewUrl`, `openResult`, and `stop`). This promise resolves
+   with `{ artifactPath, session }` when the reviewer hits
+   Complete in the UI — there is no need to poll or watch the
+   artifact file. Do not background or detach the server: the
+   bootstrap script must keep the request alive until the UI
+   session ends so the next workflow step can continue
+   automatically. Wrap the body in `try { ... } finally
    { await stop(); }` so the HTTP listener is closed even if
    reading or recap throws — an open listener would keep the
    foreground Node process alive and block the workflow.

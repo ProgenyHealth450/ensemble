@@ -723,3 +723,146 @@ describe('static UI', () => {
     expect([403, 404]).toContain(r.status);
   });
 });
+
+describe('auto-open share URL', () => {
+  // The opener is module-scoped inside server.js; mock it via jest.mock so
+  // the assertion can capture exactly what `startServer` passes in. A real
+  // platform-opener would attempt to spawn `open`/`xdg-open`/`cmd` which is
+  // not appropriate in CI or unit-test runs.
+  jest.mock('../../lib/refinement-review/opener', () => {
+    const actual = jest.requireActual('../../lib/refinement-review/opener');
+    return {
+      ...actual,
+      openUrl: jest.fn(() => Promise.resolve({ opened: true, command: 'open <url>' })),
+    };
+  });
+
+  // Re-require AFTER the mock is installed so server.js picks up the stub.
+  let openerMock;
+  let startServerFresh;
+  beforeEach(() => {
+    jest.resetModules();
+    jest.doMock('../../lib/refinement-review/opener', () => {
+      const actual = jest.requireActual('../../lib/refinement-review/opener');
+      return {
+        ...actual,
+        openUrl: jest.fn(() => Promise.resolve({ opened: true, command: 'open <url>' })),
+      };
+    });
+    openerMock = require('../../lib/refinement-review/opener');
+    startServerFresh = require('../../lib/refinement-review/server').startServer;
+  });
+
+  test('open:true calls opener with encoded share URL; log sink is token-free', async () => {
+    // Token deliberately includes every character whose encoding differs
+    // between encodeURIComponent and the literal so the assertion catches
+    // a forgotten encodeURIComponent call (a hex token would pass either way).
+    const exoticToken = 'abc/&?token=x';
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'session.json');
+    sessionLib.createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [{ id: 'q1', prompt: 'First?' }],
+    });
+    const uiDir = writeUi();
+
+    const logLines = [];
+    const log = jest.fn((msg) => logLines.push(String(msg)));
+    const logError = jest.fn();
+
+    const server = await startServerFresh({
+      sessionPath,
+      token: exoticToken,
+      uiDir,
+      log,
+      logError,
+      open: true,
+    });
+    activeServers.push(server);
+
+    // reviewUrl composes encodeURIComponent(token), proving the server
+    // does NOT pass the raw token to the opener.
+    const expectedReviewUrl = `${server.url}/?token=${encodeURIComponent(exoticToken)}`;
+    expect(server.reviewUrl).toBe(expectedReviewUrl);
+
+    // The opener was called exactly once with the encoded share URL and no
+    // openerOpts.
+    expect(openerMock.openUrl).toHaveBeenCalledTimes(1);
+    expect(openerMock.openUrl).toHaveBeenCalledWith(expectedReviewUrl, {});
+
+    // Wait for the fire-and-forget openResult to settle so we can inspect it.
+    const openResult = await server.openResult;
+    expect(openResult.opened).toBe(true);
+
+    // Every line that flowed through `log` is token-free. The token, in
+    // any of its forms (raw, partially encoded, fully encoded), must NOT
+    // appear anywhere the log sink sees.
+    expect(log).toHaveBeenCalled();
+    for (const line of logLines) {
+      expect(line).not.toContain(exoticToken);
+      expect(line).not.toContain(encodeURIComponent(exoticToken));
+      // The raw decoded token includes '/', '&', '?'; their presence in
+      // the log line would indicate a leak even if the literal string
+      // is not assembled.
+      expect(line).not.toContain('abc/&?token=x');
+    }
+
+    // And the encoded form was never logged either (would indicate the
+    // server copy-pasted the share URL into log).
+    for (const line of logLines) {
+      expect(line).not.toContain('abc%2F%26%3Ftoken%3Dx');
+    }
+
+    // logError was never called: a token-bearing log would have been
+    // re-routed to logError first; assert no spurious errors.
+    expect(logError).not.toHaveBeenCalled();
+
+    await server.stop();
+  });
+
+  test('open:false (default) still returns reviewUrl for manual fallback but skips opener', async () => {
+    const { server, token } = await setupServer();
+    // Opener was NOT called because `open` was not passed.
+    expect(openerMock.openUrl).not.toHaveBeenCalled();
+    // reviewUrl is ALWAYS composed so the bootstrap can print the share URL
+    // for manual fallback even when auto-open is suppressed (CI / --no-open /
+    // non-TTY). It must equal the encoded share URL.
+    expect(server.reviewUrl).toBe(`${server.url}/?token=${encodeURIComponent(token)}`);
+    // openResult is null because the opener was not invoked.
+    expect(server.openResult).toBeNull();
+  });
+
+  test('opener exception is captured in openResult (does not reject or throw)', async () => {
+    // Swap the mock to throw synchronously from the Promise constructor so
+    // the .catch on the server's openResult wrapper is exercised.
+    openerMock.openUrl.mockImplementationOnce(() =>
+      Promise.reject(new Error('opener blew up')),
+    );
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'session.json');
+    sessionLib.createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [{ id: 'q1', prompt: 'First?' }],
+    });
+    const uiDir = writeUi();
+    const server = await startServerFresh({
+      sessionPath,
+      token: 'hex',
+      uiDir,
+      log: () => {},
+      logError: () => {},
+      open: true,
+    });
+    activeServers.push(server);
+
+    const openResult = await server.openResult;
+    expect(openResult.opened).toBe(false);
+    expect(openResult.reason).toBe('exception');
+    expect(openResult.error).toMatch(/opener blew up/);
+    await server.stop();
+  });
+});
