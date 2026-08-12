@@ -221,6 +221,11 @@ workflow:
             - Flag tasks estimated at 8h+ that should be broken down further
             - "Verify every ### PR N: section in the Master Task List has a **Shippable State:** annotation"
             - "Flag any PR section whose Shippable State is infrastructure-only (e.g., 'scaffolding complete', 'setup done') with no user-observable capability — require a meaningful statement or a boundary split"
+            - "Resolve TRD_CLI to first existing path among: ${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js, packages/development/lib/trd-cli.js. If missing, print error and HALT."
+            - "Write the current draft Master Task List to a scratch file (this session's scratchpad, NOT docs/TRD/ -- this is a disposable self-check copy, not the final save)."
+            - "Run: node \"$TRD_CLI\" parse <scratch-path>. Parse {ok, trd:{tasksById, warnings}}."
+            - "If ok is false, tasksById is missing any task the draft intends, or warnings contains 'No tasks found in the TRD': report it as a Task Coverage issue naming the offending line(s) -- this means a task line is missing its required checkbox prefix. Report before the Design Readiness Gate score is presented."
+            - "If the check finds zero issues: proceed to the gate without blocking."
             - Document at least 2 coverage issues with recommended resolutions
 
         - order: 3
