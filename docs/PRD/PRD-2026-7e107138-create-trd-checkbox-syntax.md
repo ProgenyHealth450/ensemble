@@ -1,0 +1,179 @@
+---
+document_id: PRD-2026-7e107138
+label: prd-create-trd-checkbox-syntax
+version: 1.0.0
+status: Draft
+date: 2026-08-12
+scale_depth: LIGHT
+total_requirements: 2
+readiness_score: 4.75
+---
+
+# PRD-2026-7e107138: Explicit Checkbox Syntax in create-trd's Master Task List Generation
+
+## PRD Health Summary
+
+| Metric | Value |
+|--------|-------|
+| Must requirements | 1 |
+| Should requirements | 1 |
+| Could requirements | 0 |
+| Won't requirements | 0 |
+| AC coverage | 2/2 (100%) |
+| Risk flags | 0 |
+| Cross-requirement dependencies | 1 |
+| [NEEDS CLARIFICATION] markers | 0 |
+
+**Source bead:** `br-ix4` (P1, bug) — found by the ProgenyHealth/ClaimsImport session, 2026-08-12, after 8 TRDs authored via `/ensemble:create-trd` (v6.0.4) all omitted the checkbox and all failed `trd-cli.js parse` identically.
+
+## Product Summary
+
+**Problem:** `create-trd.yaml`'s core, always-executed Master Task List Generation step
+(`packages/development/commands/create-trd.yaml:118-141`) tells the authoring agent to give every
+task a bold `**TRD-NNN**` id, an hour estimate, and a `[satisfies REQ-NNN]` annotation — but never
+says the line must start with a GitHub checkbox (`- [ ] `). An agent following those instructions
+literally produces lines like `- **TRD-001** [3h] Description...`, which satisfies every stated
+requirement but is invisible to `packages/development/lib/trd-parser.js`'s `TASK_LINE_RE`:
+
+```
+/^(\s*)- \[[ xX]\]\s+\*\*(TRD-[A-Za-z0-9-]+)\*\*\s*[-—–:]?\s*(.*)$/
+```
+
+— which hard-requires the `- [ ]`/`- [x]` prefix. Result: `node trd-cli.js parse` returns
+`tasksById: {}` and `warnings: ['No tasks found in the TRD']` for an otherwise well-formed TRD,
+silently defeating `implement-trd-beads`' scaffold phase (zero task beads created).
+
+The only place "checkbox" is mentioned anywhere in the file is as an input parameter
+(`includeCheckboxes`) to the optional `generate_workflow_section` MCP tool, inside the "MCP
+Enhancement (Optional)" phase — which the same instructions explicitly skip when no MCP tool is
+available. That's the default case for a plain Claude Code session, so the one place the
+requirement is expressed lives entirely inside a code path most sessions never execute.
+
+**Verified (this repo, `create-trd.yaml:118-141` and `create-trd.md`, 2026-08-12):** zero matches
+for `- \[ \]` or `- \[x\]` anywhere in the source YAML or its generated markdown counterpart
+(`packages/development/commands/ensemble/create-trd.md`); no worked example shows the checkbox
+either. No existing test in `packages/development/tests/` (`create-trd-command.test.js`,
+`trd-parser.test.js`) asserts on checkbox presence, so the gap has no regression coverage today.
+
+**Solution:** Add an explicit, unconditional instruction to the Master Task List Generation step
+stating the required `- [ ] **TRD-NNN**` prefix, and add a lightweight self-check later in the same
+command (Task Coverage Analysis or Traceability Validation) that runs the parser's own task-line
+pattern over the draft TRD and warns before the TRD is declared complete — so a future drift between
+the prose instructions and the parser regex is caught at authoring time, not at
+`implement-trd-beads` time.
+
+**Value proposition:** Every TRD authored by `/ensemble:create-trd` in a plain session (no MCP)
+becomes machine-parseable by construction, instead of only when the author happens to know an
+implementation detail of a downstream parser.
+
+**Target users:**
+- **TRD authors** — anyone running `/ensemble:create-trd` without an MCP workflow server wired up (the common case). They currently have no way to know their output will silently fail downstream.
+- **`implement-trd-beads` operators** — anyone running the next command in the pipeline. They are the ones who see the empty scaffold, with no indication the TRD itself is the cause.
+
+**Non-goals (v1):**
+- Not changing `TASK_LINE_RE` or any other part of `trd-parser.js` — the parser's contract is correct and stable; the gap is in the *authoring* instructions, not the parser.
+- Not touching the MCP-only `generate_workflow_section` tool or its `includeCheckboxes` parameter — that path already works correctly when MCP is available.
+- Not building a general prose/parser drift-detection framework. The self-check added here is scoped to the one pattern (`TASK_LINE_RE`) this bug is about.
+
+## User Analysis
+
+| Role | Pain today | After |
+|---|---|---|
+| TRD author (no MCP) | Follows every stated instruction correctly and still produces a TRD that parses to zero tasks, with no error until the next command runs. | The instructions state the required prefix directly; a well-formed TRD is parseable by construction. |
+| `implement-trd-beads` operator | Sees `warnings: ['No tasks found in the TRD']` on an apparently well-formed TRD, with no link back to the missing checkbox. | Either the TRD never has the defect, or `create-trd` already warned about it before the TRD was saved. |
+
+**Success metric:** 100% of TRDs generated by `/ensemble:create-trd` (no MCP) produce a non-empty
+`tasksById` when run through `trd-cli.js parse` — i.e., the defect class from the source bead cannot
+recur silently.
+
+**Prior attempts, and why they weren't enough:** None — this is a fresh discovery from the source
+bead. The one related mechanism, `includeCheckboxes` on the optional MCP tool, doesn't address it
+because that phase is skipped in the common (no-MCP) case.
+
+## Goals and Non-Goals
+
+**Goals:**
+- Every unconditional (non-MCP) code path in `create-trd.yaml` that generates task lines states the exact required checkbox prefix.
+- A drift between this prose instruction and `trd-parser.js`'s actual pattern is caught before the TRD is saved, not discovered downstream.
+
+**Non-Goals:** see Product Summary above.
+
+## Requirements by Feature Area
+
+### Master Task List Generation
+
+#### REQ-001: Explicit, unconditional checkbox instruction
+**Priority:** Must · **Complexity:** Low
+
+The Master Task List Generation step (`create-trd.yaml`, "Task Breakdown and Planning" phase)
+states, as an unconditional action — not gated behind MCP availability — that every task line must
+begin with `- [ ] ` (or `- [x] ` for a task already known complete), immediately before the bold
+`**TRD-NNN**` id. State the exact required prefix and note the consequence of omitting it (the task
+becomes invisible to `trd-cli.js`/`implement-trd-beads`), matching the suggested fix wording in the
+source bead.
+
+- AC-001-1: Given the regenerated `create-trd.yaml` and its generated markdown counterpart, when scanned for the Master Task List Generation / Test Task Generation actions, then each contains an explicit `- [ ] **TRD-NNN**` (or equivalent stated prefix) instruction that does not depend on any MCP-gated step.
+- AC-001-2: Given an agent follows only the unconditional instructions (MCP unavailable) to author a TRD with at least one task, when the resulting TRD is run through `trd-cli.js parse`, then `tasksById` is non-empty and no `'No tasks found in the TRD'` warning is produced.
+
+### Adversarial Review and Design Gate
+
+#### REQ-002: Self-check flags non-parseable task lines before save
+**Priority:** Should · **Complexity:** Low
+
+Add an action to an existing review step that already runs before the TRD is saved — Task Coverage
+Analysis (adversarial review) or Traceability Validation (output management) — that checks each
+line under a `### PR N:` heading intended as a task against the same pattern `trd-parser.js`'s
+`TASK_LINE_RE` requires, and flags any task-shaped line missing the checkbox prefix as a coverage/
+traceability issue before the Design Readiness Gate score is presented.
+
+**Rationale:** one check inside the command that already gates its own output is a smaller,
+self-contained change than teaching every author to remember an external parser's regex, and it
+catches a future re-drift between this instruction and the parser without another bug report.
+
+- AC-002-1: Given a draft TRD where an authoring slip reproduces the source bug (a task line missing `- [ ] `), when the adversarial review / traceability step runs, then it reports at least one flagged line before the Design Readiness Gate score is shown.
+- AC-002-2: Given a well-formed TRD where every task line has the checkbox prefix, when the same step runs, then it reports zero flagged lines and does not block the gate.
+
+## Acceptance Criteria Summary
+
+| REQ | Description | Priority | Complexity | ACs |
+|---|---|---|---|---|
+| REQ-001 | Explicit, unconditional checkbox instruction | Must | Low | 2 |
+| REQ-002 | Self-check flags non-parseable task lines before save | Should | Low | 2 |
+
+## Dependency Map
+
+| REQ | Depends on | Notes |
+|---|---|---|
+| REQ-002 | REQ-001 | The self-check's baseline expectation (what "correct" looks like) is defined by REQ-001's instruction; ship REQ-001 first or together. |
+
+No circular dependencies.
+
+## Constraints and Delivery Notes
+
+- Edit the YAML source (`packages/development/commands/create-trd.yaml`), then run `npm run generate` to regenerate `packages/development/commands/ensemble/create-trd.md` — both must change together, matching this repo's generated-artifact convention.
+- Branch off `main`, not `dev` (`dev` is local dogfood aggregation, never a PR head); PR targets `Sunstone-Partners/ensemble` `main`. Separately merge the same branch into `dev` for local dogfooding — that merge never substitutes for the upstream PR.
+- No parser changes and no new dependencies — this is an instruction-text and self-check change inside an existing YAML-driven command.
+
+## Testability Note
+
+The downstream failure ("`implement-trd-beads` creates zero task beads") is not directly observable
+from `create-trd.yaml` alone, since that failure happens in a separate command. Both ACs for REQ-001
+therefore assert against the same proxy the source bead's own repro used: running the TRD text
+through `trd-cli.js parse` and checking `tasksById`/`warnings` directly — verified in the source bead
+to match the real downstream failure exactly (8/8 TRDs that omitted the checkbox failed identically).
+
+## Readiness Scorecard
+
+| Dimension | Score | Notes |
+|---|---|---|
+| Completeness | 5.0 | Covers the one root cause named in the bead (missing unconditional instruction) plus the bead's own suggested follow-on self-check. |
+| Testability | 5.0 | Every AC is a runnable `trd-cli.js parse` or review-step assertion; no subjective language. |
+| Clarity | 4.5 | Exact wording of the new instruction and the flagged-line message format are left to implementation judgment. |
+| Feasibility | 4.5 | A few lines of YAML instruction text plus one review-step action; no parser or architecture change. |
+| **Overall** | **4.75** | **PASS** |
+
+## Next Step
+
+```
+/ensemble:create-trd docs/PRD/PRD-2026-7e107138-create-trd-checkbox-syntax.md
+```
