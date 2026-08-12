@@ -13,4 +13,24 @@ describe('create-trd command document ids', () => {
     expect(text).toContain('Do NOT scan for highest TRD sequence number');
     expect(text).not.toContain('TRD-YYYY-NNN-<slug>.md');
   });
+
+  test('requires the checkbox prefix in Master Task List Generation, unconditionally and outside MCP Enhancement', () => {
+    const text = fs.readFileSync(path.join(__dirname, '../commands/create-trd.yaml'), 'utf8');
+    const distinguishing = 'Every task line MUST begin with a GitHub checkbox';
+    expect(text).toContain(distinguishing);
+
+    // Scoped to the Master Task List Generation step's own action list.
+    const masterTaskListStart = text.indexOf('title: Master Task List Generation');
+    const testTaskGenStart = text.indexOf('title: Test Task Generation');
+    expect(masterTaskListStart).toBeGreaterThan(-1);
+    expect(testTaskGenStart).toBeGreaterThan(masterTaskListStart);
+    expect(text.slice(masterTaskListStart, testTaskGenStart)).toContain(distinguishing);
+
+    // Not merely present inside the optional, MCP-gated phase.
+    const mcpPhaseStart = text.indexOf('name: MCP Enhancement (Optional)');
+    expect(mcpPhaseStart).toBeGreaterThan(-1);
+    const nextPhaseStart = text.indexOf('- name:', mcpPhaseStart + 1);
+    expect(nextPhaseStart).toBeGreaterThan(mcpPhaseStart);
+    expect(text.slice(mcpPhaseStart, nextPhaseStart)).not.toContain(distinguishing);
+  });
 });
