@@ -861,6 +861,34 @@ async function startServer(opts) {
   }
 
   result.setTunnelUrl = setTunnelUrl;
+
+  /**
+   * Mint an additional share URL bound to the current publicUrl. Each call
+   * produces a fresh, independent nonce; the original `result.shareNonce` /
+   * `result.reviewUrl` are not modified. Use this to fan out multiple
+   * reviewer links from a single session (e.g. operator wants N invitees).
+   *
+   * Unlike `setTunnelUrl`, this does not mutate `publicUrl` and does not
+   * re-fire the opener. The returned `shareNonce` is bound to the same
+   * `opts.sessionPath` and shares the same 10-minute TTL (`NONCE_TTL_MS`)
+   * as the original share URL.
+   *
+   * @returns {{ reviewUrl: string, shareNonce: string, publicUrl: string }}
+   */
+  function createShareUrl() {
+    const nonce = mintNonce({
+      sessionPath: opts.sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + NONCE_TTL_MS,
+    });
+    return {
+      reviewUrl: `${result.publicUrl}/api/exchange?nonce=${nonce}`,
+      shareNonce: nonce,
+      publicUrl: result.publicUrl,
+    };
+  }
+
+  result.createShareUrl = createShareUrl;
   return result;
 }
 

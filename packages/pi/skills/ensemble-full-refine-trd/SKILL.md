@@ -142,14 +142,42 @@ browser. The resulting artifact is the input to Enhancement.
    `reviewUrl`/`publicUrl`/`shareNonce` on the server result.
    Then (if `shouldOpen` is truthy) fire
    `refinementReview.opener.openUrl(tunneled.reviewUrl, {})`.
-   Print `Local: <url>`, `Public: <tunneled.publicUrl>`, and
-   `URL: <tunneled.reviewUrl>` to the user. The share URL has
-   the shape `<origin>/api/exchange?nonce=<id>` — the bearer
-   token never appears in the URL.
-   Otherwise (no tunnel), print `URL: <reviewUrl>`. In both
-   cases, the bootstrap owns these prints; the server's own
-   `log` sink only ever sees the bare token-free local URL.
-   **Run startServer in the foreground and `await` its
+   The share URL has the shape
+   `<origin>/api/exchange?nonce=<id>` — the bearer token
+   never appears in the URL. **Do not print the URL
+   here** — step 6 owns the consolidated print so the
+   listing reflects any `--reviewers N` fan-out.
+6. Parse `--reviewers <N>` from $ARGUMENTS: extract `N` as
+   a positive integer in `[1, 50]`. Default to `1` when
+   the flag is absent. Validate strictly: a non-integer,
+   a value `< 1`, or a value `> 50` MUST cause the
+   bootstrap to abort with a clear error message rather
+   than silently truncate to `1`. When `N > 1`, mint
+   `(N - 1)` additional share URLs by calling
+   `server.createShareUrl()` `N - 1` times — each call
+   returns an independent `{ reviewUrl, shareNonce,
+   publicUrl }` triple bound to the current public origin
+   (tunnel origin when `--tunnel=quick`, local origin
+   otherwise). Print the final URL listing to the user:
+   - When `N === 1` (the default): print the original
+     additive flow — `URL: <reviewUrl>` for the no-tunnel
+     case, or `Local: <url>`, `Public: <publicUrl>`,
+     `URL: <reviewUrl>` for the tunnel case. This format
+     is preserved verbatim from the pre-fan-out behavior.
+   - When `N > 1`: print `Local: <url>` and `Public:
+     <publicUrl>` headers (tunnel case only) followed
+     by `URL #1: <original reviewUrl>` through
+     `URL #N: <(N-1)th createShareUrl().reviewUrl>`.
+   Each reviewer redeems their own nonce independently
+   through `/api/exchange`; the server burns the nonce
+   atomically on first use, so a leaked `#k` URL cannot
+   be replayed by a second reviewer, and all reviewers
+   authenticate to the same session (same document, same
+   answer set). The `--reviewers` flag is independent of
+   `--tunnel`; both apply, and the fan-out URLs all share
+   the same `publicUrl` (local origin when no tunnel,
+   tunnel origin when `--tunnel=quick`).
+7. **Run startServer in the foreground and `await` its
    `completed` promise** (returned alongside `url`, `port`,
    `reviewUrl`, `openResult`, and `stop`). This promise resolves
    with `{ artifactPath, session }` when the reviewer hits
@@ -163,12 +191,12 @@ browser. The resulting artifact is the input to Enhancement.
    even if reading or recap throws — an open listener would
    keep the foreground Node process alive and block the
    workflow.
-6. Once `completed` resolves, the artifact is already on disk at
+8. Once `completed` resolves, the artifact is already on disk at
    `artifactPath`. Read it and initialize `SELECTED_ITEMS` to the
    union of every question with `status === 'answered'` and every
    comment whose anchor is non-null. Map each comment to a finding
    against its anchor's section.
-7. Print a session recap: answered count, comment count, artifact
+9. Print a session recap: answered count, comment count, artifact
    path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
    TRD Review phase below will short-circuit on its Synthesis,
    Interview, and Feedback Integration steps.

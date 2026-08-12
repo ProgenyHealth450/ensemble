@@ -90,7 +90,64 @@ The tunnel is torn down automatically when the bootstrap exits
 (`finally { if (tunnel) await tunnel.stop(); }`). The QuickTunnel
 URL is ephemeral — it changes every invocation.
 
-## Iterative refinement loop
+## `--reviewers N`
+
+When more than one stakeholder needs to review the same refinement
+session in parallel (typical: a Product Manager invites 3–5
+reviewers — security, design, ops, legal — to the same session),
+the `--reviewers N` flag fans out a separate share URL per reviewer.
+Each URL authenticates to the same underlying session/document, so
+all reviewers share the same answer set and the same review URL
+they hand off to the next step of the workflow.
+
+```bash
+# Local review, 3 reviewers on the same network
+/ensemble:refine-prd --collab --reviewers 3 docs/PRD/PRD-2026-019.md
+
+# Remote review, 5 reviewers behind a Cloudflare Quick Tunnel
+/ensemble:refine-prd --collab --tunnel=quick --reviewers 5 docs/PRD/PRD-2026-019.md
+```
+
+Each reviewer redeems their own URL through `/api/exchange`. The
+server **mints a fresh exchange nonce per `createShareUrl()` call**
+and **burns it atomically on first use**, so a leaked `#k` URL cannot
+be replayed by a second reviewer. The `1` default reproduces the
+original single-URL behavior: `--reviewers` is strictly additive.
+
+Output format:
+
+```
+# N=1 (default; matches pre-fan-out format)
+URL: http://127.0.0.1:61375/api/exchange?nonce=<id>
+
+# N=1 with --tunnel=quick
+Local: http://127.0.0.1:61375
+Public: https://<random>.trycloudflare.com
+URL: https://<random>.trycloudflare.com/api/exchange?nonce=<id>
+
+# N=3 with --tunnel=quick
+Local: http://127.0.0.1:61375
+Public: https://<random>.trycloudflare.com
+URL #1: https://<random>.trycloudflare.com/api/exchange?nonce=<id-1>
+URL #2: https://<random>.trycloudflare.com/api/exchange?nonce=<id-2>
+URL #3: https://<random>.trycloudflare.com/api/exchange?nonce=<id-3>
+```
+
+Constraints:
+
+- `N` is an integer in `[1, 50]`. Non-integers, values `< 1`, or
+  values `> 50` cause the bootstrap to abort with a clear error
+  message rather than silently truncate to `1`.
+- Each `createShareUrl()` call writes one nonce to `session.json`
+  (bounded by `N`); this is not free, but the cost is per session.
+- `--reviewers` is independent of `--tunnel`; both apply, and the
+  fan-out URLs all share the same `publicUrl` (local origin when
+  no tunnel, tunnel origin when `--tunnel=quick`).
+- All reviewers share the same `bearer` token under the hood —
+  per-reviewer isolation comes from the **nonce** layer, not from
+  per-reviewer tokens. Each reviewer's `review-sid` cookie is
+  independently minted from their own nonce.
+
 
 Sessions are persistent and revision-tracked. Re-launching
 `/ensemble:refine-prd --collab` against the same PRD path will:
@@ -121,8 +178,9 @@ The collaborative review is implemented in
 
 - `refinementReview.session.migrateOrCreate({ sessionPath, kind, sourcePath, questions, reopen })` — load or create+reopen a session, returning `{ session, token }`.
 - `refinementReview.session.reopenSession({ sessionPath, expectedRevision })` — dedicated primitive that clears `completedAt`/`completedBy` and bumps revision while enforcing revision + document-integrity checks.
-- `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })` — start the local HTTP server, returns `{ url, port, reviewUrl, shareNonce, openResult, completed, stop, setTunnelUrl }`.
+- `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })` — start the local HTTP server, returns `{ url, port, reviewUrl, shareNonce, openResult, completed, stop, setTunnelUrl, createShareUrl }`.
 - `refinementReview.server.setTunnelUrl(url)` — re-mint share-nonce against a tunnel origin; returns `{ reviewUrl, shareNonce, publicUrl }`.
+- `refinementReview.server.createShareUrl()` — mint an additional independent share URL bound to the current `publicUrl`; returns `{ reviewUrl, shareNonce, publicUrl }`. Idempotent: each call yields a fresh nonce, so multi-reviewer fan-out never collides.
 - `refinementReview.tunnel.QuickTunnel({ targetUrl })` — Cloudflare QuickTunnel wrapper, returns `{ url, stop }` after `start()`.
 - `refinementReview.opener.openUrl(url, opts)` — platform-native browser launcher.
 

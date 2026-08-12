@@ -12,7 +12,8 @@ const os = require('os');
 const path = require('path');
 
 const sessionLib = require('../../lib/refinement-review/session');
-const { startServer } = require('../../lib/refinement-review/server');
+const serverMod = require('../../lib/refinement-review/server');
+const { startServer, _internal } = serverMod;
 
 const SAMPLE_MD = [
   '# Sample PRD',
@@ -1107,3 +1108,147 @@ describe('setTunnelUrl after start', () => {
     );
   });
 });
+
+describe('createShareUrl', () => {
+  test('mints a fresh share URL bound to the current publicUrl', async () => {
+    const { server } = await setupServer({ open: false });
+
+    const before = {
+      publicUrl: server.publicUrl,
+      reviewUrl: server.reviewUrl,
+      shareNonce: server.shareNonce,
+    };
+
+    const created = server.createShareUrl();
+    expect(created.publicUrl).toBe(before.publicUrl);
+    expect(created.shareNonce).not.toBe(before.shareNonce);
+    expect(created.reviewUrl).toBe(
+      `${before.publicUrl}/api/exchange?nonce=${created.shareNonce}`,
+    );
+    expect(server.reviewUrl).toBe(before.reviewUrl);
+    expect(server.shareNonce).toBe(before.shareNonce);
+    expect(server.publicUrl).toBe(before.publicUrl);
+  });
+
+  test('calling N times yields N independent nonces and N independent URLs', async () => {
+    const { server } = await setupServer({ open: false });
+    const N = 5;
+    const created = [];
+    for (let i = 0; i < N; i++) created.push(server.createShareUrl());
+    const nonces = created.map((c) => c.shareNonce);
+    expect(new Set(nonces).size).toBe(N);
+    created.forEach((c, i) => {
+      expect(c.reviewUrl).toBe(
+        `${server.publicUrl}/api/exchange?nonce=${c.shareNonce}`,
+      );
+      expect(c.reviewUrl).toContain(`nonce=${c.shareNonce}`);
+    });
+  });
+  test('each new share URL redeems independently through /api/exchange', async () => {
+    const { server } = await setupServer();
+    const a = server.createShareUrl();
+    const b = server.createShareUrl();
+    const c = server.createShareUrl();
+
+    // Mint three cookies, one per share URL. Each must independently
+    // reach the session API. All three must authenticate to the SAME
+    // session (same sessionPath), so the envelope body is identical.
+    const sids = [];
+    const docs = [];
+    for (const u of [a, b, c]) {
+      const exchange = await request(server, 'GET', `/api/exchange?nonce=${u.shareNonce}`);
+      expect(exchange.status).toBe(302);
+      const sid = exchange.headers['set-cookie'][0].split(';')[0].split('=')[1];
+      sids.push(sid);
+
+      const r = await request(server, 'GET', '/api/session', {
+        headers: { Cookie: `review-sid=${sid}` },
+      });
+      expect(r.status).toBe(200);
+      docs.push(JSON.stringify(r.json.document));
+    }
+
+    expect(new Set(sids).size).toBe(3); // independent cookies
+    expect(new Set(docs).size).toBe(1); // same document envelope across all cookies
+  });
+
+  test('createShareUrl after setTunnelUrl uses the new publicUrl', async () => {
+    const { server } = await setupServer({ open: false });
+    server.setTunnelUrl('https://abc.trycloudflare.com');
+    const created = server.createShareUrl();
+    expect(created.publicUrl).toBe('https://abc.trycloudflare.com');
+    expect(created.reviewUrl.startsWith('https://abc.trycloudflare.com/')).toBe(true);
+  });
+});
+
+function exchangeOnce(server, url) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request(
+      { hostname: u.hostname, port: u.port, method: 'GET', path: u.pathname + u.search },
+      (res) => {
+        res.resume();
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            setCookie: res.headers['set-cookie'],
+          }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function exchangeAndGetCookie(server, url) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request(
+      { hostname: u.hostname, port: u.port, method: 'GET', path: u.pathname + u.search },
+      (res) => {
+        res.resume();
+        res.on('end', () => {
+          if (res.statusCode !== 302) {
+            return reject(new Error(`expected 302 redirect, got ${res.statusCode}`));
+          }
+          const sc = res.headers['set-cookie'] || [];
+          const joined = Array.isArray(sc) ? sc.join(';') : String(sc);
+          const m = /review-sid=([^;]+)/.exec(joined);
+          if (!m) return reject(new Error('no review-sid cookie in response'));
+          resolve(m[1]);
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function requestWithCookie(server, method, p, sid) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: server.host,
+        port: server.port,
+        method,
+        path: p,
+        headers: { cookie: `review-sid=${sid}` },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString('utf8'),
+          }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
