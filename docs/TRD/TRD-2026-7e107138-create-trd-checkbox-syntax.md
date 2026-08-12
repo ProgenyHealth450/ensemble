@@ -7,6 +7,10 @@ version: 1.0.0
 status: Draft
 date: 2026-08-12
 design_readiness_score: 4.75
+ensemble_implement_trd_beads:
+  branch_name: feature/trd-2026-7e107138-create-trd-checkbox-syntax
+  use_proposed: true
+  stacked_prs: false
 ---
 
 # TRD-2026-7e107138: Explicit Checkbox Syntax in create-trd's Master Task List Generation
