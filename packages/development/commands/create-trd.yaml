@@ -130,6 +130,7 @@ workflow:
           description: Generate paired test tasks for every user-facing implementation task
           actions:
             - For every user-facing TRD-NNN implementation task, generate a TRD-NNN-TEST task
+            - "Every TRD-NNN-TEST line MUST begin with the same checkbox-prefix requirement as implementation tasks -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN-TEST**."
             - "Test tasks include: [verifies TRD-NNN] [satisfies REQ-NNN] [depends: TRD-NNN] annotations"
             - Test task descriptions reference the specific ACs they verify
             - Ensure test tasks cover both happy path and edge case scenarios
