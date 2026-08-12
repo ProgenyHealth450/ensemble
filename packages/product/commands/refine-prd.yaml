@@ -164,7 +164,7 @@ workflow:
                host GUI is fully functional. TTY is not a valid open-gate.
                The right opt-outs are `--no-open` and `CI=true`.
             5. If `tunnel === 'quick'`: instantiate
-               `refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
+               `new refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
                `await tunnel.start()`, then call
                `server.setTunnelUrl(tunnel.url)` which re-mints the share
                nonce against the tunnel origin and rewrites

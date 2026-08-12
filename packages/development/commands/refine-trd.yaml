@@ -170,7 +170,7 @@ workflow:
                `rundll32 url.dll,FileProtocolHandler`); it auto-suppresses
                (CI, piped logs) and on `--no-open`.
             5. If `tunnel === 'quick'`: instantiate
-               `refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
+               `new refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
                `await tunnel.start()`, then call
                `server.setTunnelUrl(tunnel.url)` which re-mints the share
                nonce against the tunnel origin and rewrites
