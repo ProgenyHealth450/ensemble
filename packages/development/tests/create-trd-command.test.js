@@ -33,4 +33,18 @@ describe('create-trd command document ids', () => {
     expect(nextPhaseStart).toBeGreaterThan(mcpPhaseStart);
     expect(text.slice(mcpPhaseStart, nextPhaseStart)).not.toContain(distinguishing);
   });
+
+  test('requires the identical checkbox prefix in Test Task Generation for TRD-NNN-TEST lines', () => {
+    const text = fs.readFileSync(path.join(__dirname, '../commands/create-trd.yaml'), 'utf8');
+    const distinguishing =
+      'Every TRD-NNN-TEST line MUST begin with the same checkbox-prefix requirement as implementation tasks';
+    expect(text).toContain(distinguishing);
+
+    // Scoped to the Test Task Generation step's own action list.
+    const testTaskGenStart = text.indexOf('title: Test Task Generation');
+    const nextStepStart = text.indexOf('title: Dependency Mapping and PR Boundary Design');
+    expect(testTaskGenStart).toBeGreaterThan(-1);
+    expect(nextStepStart).toBeGreaterThan(testTaskGenStart);
+    expect(text.slice(testTaskGenStart, nextStepStart)).toContain(distinguishing);
+  });
 });
