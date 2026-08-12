@@ -52,6 +52,8 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 0; // let the OS assign
 const NONCE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const SESSION_COOKIE_NAME = 'review-sid';
+const MAX_DISPLAY_NAME_LENGTH = 100;
+const PROXY_KEEPALIVE_INTERVAL_MS = 25_000;
 
 // ---------------------------------------------------------------------------
 // In-memory auth state. Both maps are intentionally in-memory; the policy is
@@ -60,6 +62,13 @@ const SESSION_COOKIE_NAME = 'review-sid';
 // ---------------------------------------------------------------------------
 const nonces = new Map();
 const sessions = new Map();
+
+// Multi-use invites (long-lived mode only). The invite is the
+// exchange credential: GET /api/exchange?invite=<id> returns a form,
+// POST /api/identify { name, invite } re-validates it and mints a cookie.
+// Invites are NOT burned on POST (multi-use). They live in-process and
+// are wiped on server restart, like nonces and sessions.
+const invites = new Map();
 
 /**
  * Mint a single-use exchange nonce. Caller stores the returned id in a
@@ -103,12 +112,36 @@ function consumeNonce(id) {
   nonces.delete(id);
   return record;
 }
+/**
+ * Mint a multi-use invite token. Caller stores the returned id in a
+ * share URL as `?invite=<id>`. Unlike a nonce, an invite is NOT burned
+ * on first use; multiple reviewers can independently exchange the same
+ * invite and each get a distinct cookie session.
+ */
+function mintInvite(record) {
+  const id = crypto.randomBytes(24).toString('base64url');
+  invites.set(id, { ...record, createdAt: Date.now() });
+  return id;
+}
+
+/**
+ * Read-only invite lookup. Returns the record or null. Does NOT mutate
+ * the map (invites are multi-use; the same id may be presented by many
+ * distinct reviewers).
+ */
+function validateInvite(id) {
+  if (typeof id !== 'string' || !id) return null;
+  return invites.get(id) || null;
+}
 
 /**
  * Mint a cookie session bound to a session envelope path. Returns the
  * opaque session id; the caller sets the cookie via `buildSessionCookie`.
+ *
+ * `displayName` is optional; when set, the SSE handler uses it to
+ * populate the presence viewers list (long-lived mode only).
  */
-function mintSession({ sessionPath, permissions, expiresAt }) {
+function mintSession({ sessionPath, permissions, expiresAt, displayName }) {
   const sid = crypto.randomBytes(32).toString('base64url');
   const csrfKey = crypto.randomBytes(16).toString('base64url');
   sessions.set(sid, {
@@ -116,6 +149,10 @@ function mintSession({ sessionPath, permissions, expiresAt }) {
     permissions: permissions || 'reviewer',
     csrfKey,
     expiresAt: expiresAt || Date.now() + NONCE_TTL_MS,
+    displayName:
+      typeof displayName === 'string' && displayName
+        ? displayName.slice(0, MAX_DISPLAY_NAME_LENGTH)
+        : null,
   });
   return sid;
 }
@@ -124,7 +161,6 @@ function mintSession({ sessionPath, permissions, expiresAt }) {
  * Validate a cookie session id AND ensure it was minted for this exact
  * `expectedSessionPath`. Returns the record on success, null on
  * missing/expired/bound-to-another-session. Expired records are deleted
- * from the map.
  */
 function validateSession(sid, expectedSessionPath) {
   if (!sid) return null;
@@ -333,6 +369,111 @@ async function startServer(opts) {
     rejectCompleted = reject;
   });
   const subscribers = new Set();
+  /**
+   * Presence map (long-lived mode only). `sid` is the cookie session id
+   * from the request's `review-sid` cookie; a single sid may own several
+   * concurrent EventSource connections (multi-tab reviewers). The
+   * refcount keeps the row visible to other viewers until the LAST
+   * connection closes.
+   */
+  const viewers = new Map();
+
+  /**
+   * TTL timer (long-lived mode only). When `opts.ttlMs` is set, the
+   * server self-stops after that duration. `unref()` so the timer
+   * alone never keeps the loop alive.
+   */
+  let ttlTimer = null;
+
+  /**
+   * Serialise the viewers list for SSE broadcast. Returns an array of
+   * `{ name, connectedAt }` derived from the in-memory map. The sid
+   * (cookie session id) is never broadcast — it is the bearer credential
+   * and must not leak to other clients.
+   */
+  function viewersPayload() {
+    const list = [];
+    for (const v of viewers.values()) {
+      list.push({ name: v.name, connectedAt: v.connectedAt });
+    }
+    return list;
+  }
+
+
+  /**
+   * Broadcast the current viewers list to every SSE subscriber. Same
+   * per-subscriber error handling as `broadcast`.
+   */
+  function broadcastViewers() {
+    const payload = `event: viewers\ndata: ${JSON.stringify(viewersPayload())}\n\n`;
+    for (const res of subscribers) {
+      try {
+        res.write(payload);
+      } catch (e) {
+        logError(`sse write failed: ${e.message}`);
+      }
+    }
+  }
+
+  /**
+   * Record a new SSE connection for a viewer. Returns `true` if this
+   * transition added a NEW viewer (caller should broadcast), `false`
+   * if the sid was already present (caller should NOT broadcast — the
+   * visible set did not change).
+   */
+  function addViewer(sid, displayName) {
+    const existing = viewers.get(sid);
+    if (existing) {
+      existing.count += 1;
+      return false;
+    }
+    viewers.set(sid, {
+      name: displayName || 'anonymous',
+      connectedAt: Date.now(),
+      count: 1,
+    });
+    return true;
+  }
+
+  /**
+   * Remove an SSE connection for a viewer. Returns `true` if this
+   * transition removed the viewer from the map (caller should broadcast),
+   * `false` if there are still other connections owned by the same sid.
+   */
+  function removeViewer(sid) {
+    const existing = viewers.get(sid);
+    if (!existing) return false;
+    existing.count -= 1;
+    if (existing.count > 0) return false;
+    viewers.delete(sid);
+    return true;
+  }
+
+  /**
+   * Start the TTL timer. After `ttlMs` the server calls `stop()` which
+   * closes the listener and any active SSE connections. Idempotent — a
+   * second call replaces the prior timer.
+   */
+  function startTtl(ttlMs) {
+    if (typeof ttlMs !== 'number' || !Number.isFinite(ttlMs) || ttlMs <= 0) return;
+    clearTimeout(ttlTimer);
+    ttlTimer = setTimeout(() => {
+      log(`refinement-review TTL (${ttlMs}ms) reached; stopping`);
+      stop().catch((e) => logError(`stop after TTL failed: ${e.message}`));
+    }, ttlMs);
+    if (typeof ttlTimer.unref === 'function') ttlTimer.unref();
+  }
+
+  /**
+   * Cancel the TTL timer. Called by `stop()` so a TTL expiry never
+   * re-fires after the server has already been torn down.
+   */
+  function clearTtl() {
+    if (ttlTimer) {
+      clearTimeout(ttlTimer);
+      ttlTimer = null;
+    }
+  }
   /** Serializes mutation-driven persistence so two concurrent writers don't trample each other. */
   let writeChain = Promise.resolve();
 
