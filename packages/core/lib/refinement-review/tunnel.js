@@ -165,6 +165,17 @@ class QuickTunnel {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        // Clear stale proc/url state on rejection so a retry from
+        // start() can re-spawn. The early-return at the top of start()
+        // would otherwise resolve the second call with this dead proc's
+        // _handle() instead of spawning. Guarded by identity so a
+        // concurrent start() that has already replaced this.proc is
+        // not clobbered.
+        if (this.proc === proc) {
+          this.proc = null;
+          this.url = null;
+          this.host = null;
+        }
         reject(err);
       };
 

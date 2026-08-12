@@ -211,6 +211,79 @@ describe('QuickTunnel', () => {
     await expect(t.start()).rejects.toThrow(/\(attempted: cloudflared\)/);
   });
 
+  test('start() can retry after async ENOENT failure (clears stale proc state)', async () => {
+    const { QuickTunnel } = require('../../lib/refinement-review/tunnel');
+    const proc1 = new EventEmitter();
+    proc1.stdout = new EventEmitter();
+    proc1.stderr = new EventEmitter();
+    proc1.exitCode = null;
+    proc1.signalCode = null;
+    proc1.kill = () => {};
+    const proc2 = new EventEmitter();
+    proc2.stdout = new EventEmitter();
+    proc2.stderr = new EventEmitter();
+    proc2.exitCode = null;
+    proc2.signalCode = null;
+    proc2.kill = () => {};
+    const spawned = [];
+    const t = new QuickTunnel({
+      targetUrl: 'http://127.0.0.1:1',
+      _spawn: () => {
+        const next = spawned.length === 0 ? proc1 : proc2;
+        spawned.push(next);
+        return next;
+      },
+    });
+    // First start() — async ENOENT, must reject.
+    const p1 = t.start();
+    const err = new Error('spawn cloudflared ENOENT');
+    err.code = 'ENOENT';
+    proc1.emit('error', err);
+    await expect(p1).rejects.toThrow(/brew install cloudflared/);
+    // Second start() — must actually spawn again. If start() failed to clear
+    // this.proc on rejection, the early-return at the top of start() would
+    // silently resolve with the dead proc1's _handle() instead of spawning.
+    const p2 = t.start();
+    proc2.stdout.emit('data', 'https://abc.trycloudflare.com\n');
+    await expect(p2).resolves.toMatchObject({ host: 'abc.trycloudflare.com' });
+    expect(spawned).toEqual([proc1, proc2]);
+  });
+
+  test('start() can retry after async non-ENOENT spawn error (e.g. EACCES)', async () => {
+    const { QuickTunnel } = require('../../lib/refinement-review/tunnel');
+    const proc1 = new EventEmitter();
+    proc1.stdout = new EventEmitter();
+    proc1.stderr = new EventEmitter();
+    proc1.exitCode = null;
+    proc1.signalCode = null;
+    proc1.kill = () => {};
+    const proc2 = new EventEmitter();
+    proc2.stdout = new EventEmitter();
+    proc2.stderr = new EventEmitter();
+    proc2.exitCode = null;
+    proc2.signalCode = null;
+    proc2.kill = () => {};
+    const spawned = [];
+    const t = new QuickTunnel({
+      targetUrl: 'http://127.0.0.1:1',
+      _spawn: () => {
+        const next = spawned.length === 0 ? proc1 : proc2;
+        spawned.push(next);
+        return next;
+      },
+    });
+    const p1 = t.start();
+    const err = new Error('permission denied');
+    err.code = 'EACCES';
+    proc1.emit('error', err);
+    await expect(p1).rejects.toThrow(/cloudflared spawn error/);
+    const p2 = t.start();
+    proc2.stdout.emit('data', 'https://xyz.trycloudflare.com\n');
+    await expect(p2).resolves.toMatchObject({ host: 'xyz.trycloudflare.com' });
+    expect(spawned).toEqual([proc1, proc2]);
+  });
+
+
   test('start() rejects with install hint when child emits async ENOENT (primary missing-binary path)', async () => {
     const { QuickTunnel } = require('../../lib/refinement-review/tunnel');
     const proc = new EventEmitter();
