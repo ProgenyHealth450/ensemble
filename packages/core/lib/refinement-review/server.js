@@ -310,8 +310,15 @@ async function startServer(opts) {
             throw Object.assign(new Error('invalid status'), { status: 400 });
           if (typeof body.author !== 'string' || !body.author)
             throw Object.assign(new Error('author required'), { status: 400 });
+          if (body.selectedOptionId !== undefined && body.selectedOptionId !== null) {
+            if (typeof body.selectedOptionId !== 'string' || !body.selectedOptionId)
+              throw Object.assign(new Error('selectedOptionId must be non-empty string or null'), { status: 400 });
+            if (!Array.isArray(q.options) || !q.options.some((o) => o.id === body.selectedOptionId))
+              throw Object.assign(new Error(`selectedOptionId '${body.selectedOptionId}' does not match any option.id`), { status: 400 });
+          }
           q.status = body.status;
           q.answer = body.answer ?? q.answer;
+          q.selectedOptionId = body.selectedOptionId === undefined ? q.selectedOptionId : body.selectedOptionId;
           q.author = body.author;
           q.updatedAt = new Date().toISOString();
         });
@@ -436,6 +443,9 @@ async function startServer(opts) {
             prompt: q.prompt,
             context: q.context,
             targetAnchor: q.targetAnchor,
+            options: q.options,
+            recommendedOptionId: q.recommendedOptionId,
+            selectedOptionId: q.selectedOptionId,
             status: q.status,
 
             answer: q.answer,

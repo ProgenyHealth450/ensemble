@@ -92,14 +92,56 @@
     $('rr-prev').disabled = state.questionIndex === 0;
     $('rr-next').disabled = state.questionIndex === total - 1;
     const pill = `<span class="rr-status-pill ${q.status}">${q.status}</span>`;
+    const optionsHtml = renderOptionsHtml(q);
     wrap.innerHTML = `
       ${pill}
       <div class="rr-prompt">${escapeHtml(q.prompt)}</div>
       ${q.context ? `<div class="rr-context">${escapeHtml(q.context)}</div>` : ''}
-      <textarea id="rr-question-answer">${escapeHtml(q.answer || '')}</textarea>
+      ${optionsHtml}
+      <textarea id="rr-question-answer" placeholder="${q.options ? 'Optionally add a note or rationale...' : ''}">${escapeHtml(q.answer || '')}</textarea>
     `;
+    bindOptionHandlers(q);
     scrollToTarget(q.targetAnchor);
     highlightTarget(q.targetAnchor);
+  }
+
+  function renderOptionsHtml(q) {
+    if (!Array.isArray(q.options) || q.options.length === 0) return '';
+    const currentSelection = q.selectedOptionId;
+    const groupName = `rr-opt-${q.id}`;
+    const items = q.options.map((opt) => {
+      const isRecommended = opt.id === q.recommendedOptionId;
+      const isSelected = opt.id === currentSelection;
+      return `
+        <label class="rr-option${isRecommended ? ' rr-option-recommended' : ''}${isSelected ? ' rr-option-selected' : ''}" data-option-id="${escapeAttr(opt.id)}">
+          <input type="radio" name="${groupName}" value="${escapeAttr(opt.id)}"${isSelected ? ' checked' : ''}${isRecommended ? ' data-recommended="true"' : ''}>
+          <span class="rr-option-label">${escapeHtml(opt.label)}</span>
+          ${isRecommended ? '<span class="rr-recommended-badge">Recommended</span>' : ''}
+          ${opt.description ? `<div class="rr-option-desc">${escapeHtml(opt.description)}</div>` : ''}
+        </label>
+      `;
+    }).join('');
+    return `<fieldset class="rr-options" data-question-id="${escapeAttr(q.id)}"><legend class="rr-options-legend">Suggested resolutions</legend>${items}</fieldset>`;
+  }
+
+  function bindOptionHandlers(q) {
+    const fieldset = document.querySelector('.rr-options[data-question-id="' + cssEscape(q.id) + '"]');
+    if (!fieldset) return;
+    const labels = fieldset.querySelectorAll('.rr-option');
+    labels.forEach((lbl) => {
+      lbl.addEventListener('click', () => {
+        labels.forEach((l) => l.classList.remove('rr-option-selected'));
+        lbl.classList.add('rr-option-selected');
+        const radio = lbl.querySelector('input[type=radio]');
+        if (radio) radio.checked = true;
+        const optId = lbl.getAttribute('data-option-id');
+        const ta = $('rr-question-answer');
+        const opt = (q.options || []).find((o) => o.id === optId);
+        if (ta && opt && !ta.value.trim()) {
+          ta.value = opt.label;
+        }
+      });
+    });
   }
 
   function findSourceElement(line) {
@@ -216,6 +258,19 @@
       .replace(/'/g, '&#39;');
   }
 
+  function escapeAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;');
+  }
+
+  function cssEscape(s) {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(String(s == null ? '' : s));
+    return String(s == null ? '' : s).replace(/[^a-zA-Z0-9_-]/g, (c) => '\\' + c);
+  }
+
   function formatDate(iso) {
     if (!iso) return '';
     try {
@@ -263,6 +318,10 @@
     if (!q) return;
     const text = ($('rr-question-answer') || {}).value || '';
     const author = state.author.trim();
+    const selectedRadio = document.querySelector(
+      '.rr-options[data-question-id="' + cssEscape(q.id) + '"] input[type=radio]:checked'
+    );
+    const selectedOptionId = selectedRadio ? selectedRadio.value : null;
     if (!author) {
       alert('Please enter your name above before saving.');
       return;
@@ -275,8 +334,9 @@
         headers: authHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify({
           revision: state.session.revision,
-          status: text.trim() ? 'answered' : 'open',
+          status: text.trim() || selectedOptionId ? 'answered' : 'open',
           answer: text,
+          selectedOptionId,
           author,
         }),
       });
@@ -326,6 +386,7 @@
         revision: state.session.revision,
         status: 'skipped',
         answer: q.answer || '',
+        selectedOptionId: q.selectedOptionId || null,
         author,
       }),
     })

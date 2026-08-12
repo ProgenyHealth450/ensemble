@@ -18,6 +18,7 @@ const {
   loadSession,
   createSession,
   mutateSession,
+  migrateOrCreate,
 } = require('../../lib/refinement-review/session');
 
 let tmp;
@@ -474,5 +475,295 @@ describe('validateSession', () => {
         ],
       })
     ).toThrow(/lineEnd/);
+  });
+
+  test('persists options and recommendedOptionId on a question', () => {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'opts.json');
+    const { session } = createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [
+        {
+          id: 'q1',
+          prompt: 'Choose?',
+          options: [
+            { id: 'all', label: 'Address all', description: 'do everything' },
+            { id: 'skip', label: 'Skip', description: 'do nothing' },
+          ],
+          recommendedOptionId: 'all',
+        },
+      ],
+    });
+    expect(session.questions[0].options).toEqual([
+      { id: 'all', label: 'Address all', description: 'do everything' },
+      { id: 'skip', label: 'Skip', description: 'do nothing' },
+    ]);
+    expect(session.questions[0].recommendedOptionId).toBe('all');
+    expect(session.questions[0].selectedOptionId).toBeNull();
+  });
+
+  test('default options / recommendedOptionId / selectedOptionId are null when omitted', () => {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'opts-null.json');
+    const { session } = createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [{ prompt: 'One?' }],
+    });
+    expect(session.questions[0].options).toBeNull();
+    expect(session.questions[0].recommendedOptionId).toBeNull();
+    expect(session.questions[0].selectedOptionId).toBeNull();
+  });
+
+  test('rejects recommendedOptionId that does not match any option.id', () => {
+    const source = writeSource();
+    expect(() =>
+      createSession({
+        sessionPath: path.join(tmp, 'opts-bad1.json'),
+        kind: 'prd',
+        sourcePath: source,
+        questions: [
+          {
+            prompt: 'p',
+            options: [{ id: 'a', label: 'A' }],
+            recommendedOptionId: 'b',
+          },
+        ],
+      }),
+    ).toThrow(/recommendedOptionId/);
+  });
+
+  test('rejects options entry missing id', () => {
+    const source = writeSource();
+    expect(() =>
+      createSession({
+        sessionPath: path.join(tmp, 'opts-bad2.json'),
+        kind: 'prd',
+        sourcePath: source,
+        questions: [
+          { prompt: 'p', options: [{ label: 'no id' }] },
+        ],
+      }),
+    ).toThrow(/options\[\]\.id/);
+  });
+
+  test('rejects duplicate option ids', () => {
+    const source = writeSource();
+    expect(() =>
+      createSession({
+        sessionPath: path.join(tmp, 'opts-bad3.json'),
+        kind: 'prd',
+        sourcePath: source,
+        questions: [
+          {
+            prompt: 'p',
+            options: [
+              { id: 'a', label: 'A' },
+              { id: 'a', label: 'A again' },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/duplicate/);
+  });
+
+  test('selectedOptionId is mutable through mutateSession', () => {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'opts-mut.json');
+    createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [
+        {
+          id: 'q1',
+          prompt: 'Pick',
+          options: [
+            { id: 'a', label: 'A' },
+            { id: 'b', label: 'B' },
+          ],
+          recommendedOptionId: 'a',
+        },
+      ],
+    });
+    const next = mutateSession({
+      sessionPath,
+      expectedRevision: 1,
+      mutate(s) {
+        s.questions[0].selectedOptionId = 'b';
+        s.questions[0].status = 'answered';
+        s.questions[0].answer = 'I chose B';
+      },
+    });
+    expect(next.questions[0].selectedOptionId).toBe('b');
+    expect(next.questions[0].status).toBe('answered');
+    expect(next.questions[0].answer).toBe('I chose B');
+  });
+
+  test('rejects selectedOptionId that does not match any option.id', () => {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, 'opts-bad-sel.json');
+    createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [
+        {
+          id: 'q1',
+          prompt: 'Pick',
+          options: [{ id: 'a', label: 'A' }],
+        },
+      ],
+    });
+    expect(() =>
+      mutateSession({
+        sessionPath,
+        expectedRevision: 1,
+        mutate(s) {
+          s.questions[0].selectedOptionId = 'missing';
+        },
+      }),
+    ).toThrow(/selectedOptionId/);
+  });
+});
+
+describe('migrateOrCreate', () => {
+  function setupSource(extra = '') {
+    const src = path.join(tmp, 'doc.md');
+    fs.writeFileSync(src, SAMPLE_MD + extra);
+    const sessionPath = path.join(tmp, 'session.json');
+    return { src, sessionPath };
+  }
+
+  test('creates a fresh session when none exists', () => {
+    const { src, sessionPath } = setupSource();
+    const questions = [
+      { id: 'q1', prompt: 'first?', targetAnchor: { lineStart: 1, lineEnd: 2 }, options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], recommendedOptionId: 'a' },
+    ];
+    const { session, token } = migrateOrCreate({ sessionPath, kind: 'prd', sourcePath: src, questions });
+    expect(session.questions).toHaveLength(1);
+    expect(session.questions[0].targetAnchor).toEqual({ lineStart: 1, lineEnd: 2 });
+    expect(session.questions[0].options.map((o) => o.id)).toEqual(['a', 'b']);
+    expect(session.questions[0].recommendedOptionId).toBe('a');
+    expect(session.revision).toBe(1);
+    expect(typeof token).toBe('string');
+    expect(token).toHaveLength(64);
+  });
+
+  test('migrates an existing session additively without clobbering user state', () => {
+    const { src, sessionPath } = setupSource();
+
+    // Seed a "prior" session with no options (so selectedOptionId must be
+    // null) and a pre-existing user answer on q1. This matches the real
+    // scenario after a schema bump: prior questions had no options, so
+    // users could only answer via free text.
+    const seeded = createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      questions: [
+        { id: 'q1', prompt: 'first?' },
+        { id: 'q2', prompt: 'second?' },
+      ],
+    });
+    mutateSession({
+      sessionPath,
+      expectedRevision: 1,
+      mutate(s) {
+        const q = s.questions.find((x) => x.id === 'q1');
+        q.status = 'answered';
+        q.answer = 'user said yes';
+        q.author = 'user';
+        q.updatedAt = new Date().toISOString();
+      },
+    });
+
+    const sessionIdBefore = seeded.session.sessionId;
+    const revisionBefore = loadSession(sessionPath).revision;
+
+    const { session, token } = migrateOrCreate({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      migrate(s) {
+        const opts = [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }];
+        for (const q of s.questions) {
+          q.targetAnchor = { lineStart: 1, lineEnd: 2 };
+          q.options = opts;
+          q.recommendedOptionId = 'a';
+        }
+      },
+    });
+
+    expect(session.sessionId).toBe(sessionIdBefore);
+    expect(session.revision).toBe(revisionBefore + 1);
+    expect(token).toHaveLength(64);
+
+    const q1 = session.questions.find((q) => q.id === 'q1');
+    expect(q1.status).toBe('answered');
+    expect(q1.answer).toBe('user said yes');
+    expect(q1.selectedOptionId).toBeNull();
+    expect(q1.author).toBe('user');
+    expect(q1.targetAnchor).toEqual({ lineStart: 1, lineEnd: 2 });
+    expect(q1.options.map((o) => o.id)).toEqual(['a', 'b']);
+    expect(q1.recommendedOptionId).toBe('a');
+
+    const q2 = session.questions.find((q) => q.id === 'q2');
+    expect(q2.status).toBe('open');
+    expect(q2.selectedOptionId).toBeNull();
+    expect(q2.answer).toBeNull();
+    expect(q2.options.map((o) => o.id)).toEqual(['a', 'b']);
+
+    // After migration, selectedOptionId can be set through the normal
+    // mutateSession path because options are now present.
+    const finalSession = mutateSession({
+      sessionPath,
+      expectedRevision: session.revision,
+      mutate(s) {
+        s.questions.find((x) => x.id === 'q2').selectedOptionId = 'a';
+      },
+    });
+  });
+
+  test('returns a fresh token on each call (even without migration)', () => {
+    const { src, sessionPath } = setupSource();
+    const first = migrateOrCreate({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      questions: [{ id: 'q1', prompt: 'first?' }],
+    });
+    const second = migrateOrCreate({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      migrate(s) { /* no-op */ },
+    });
+    expect(first.token).not.toBe(second.token);
+  });
+
+  test('throws SESSION_COMPLETED on a frozen session', () => {
+    const { src, sessionPath } = setupSource();
+    createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      questions: [{ id: 'q1', prompt: 'first?' }],
+    });
+    mutateSession({
+      sessionPath,
+      expectedRevision: 1,
+      mutate(s) {
+        s.completedAt = new Date().toISOString();
+        s.completedBy = 'tester';
+      },
+    });
+
+    expect(() =>
+      migrateOrCreate({ sessionPath, kind: 'prd', sourcePath: src, migrate(s) {} }),
+    ).toThrow(/completed/);
   });
 });

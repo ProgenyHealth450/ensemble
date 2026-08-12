@@ -27,35 +27,89 @@ the PRD, then wait for the reviewer to mark it complete in the
 browser. The resulting artifact is the input to Enhancement.
 
 1. Resolve the PRD path from $ARGUMENTS (first non-flag token).
-2. Generate 5–10 refinement questions drawn from the PRD content:
+2. Generate 5–10 refinement questions drawn from the PRD content.
+   Each question MUST have this shape:
+   ```js
+   {
+     id: 'q-<short-kebab>',
+     prompt: '<multi-line question shown to reviewer>',
+     context: '<why this question matters, cited from PRD>',
+     targetAnchor: { lineStart: <1-based>, lineEnd: <1-based, inclusive> },
+     options: [
+       { id: '<option-kebab>', label: '<short verb phrase>',
+         description: '<one-sentence clarification>' },
+       // 2–5 total, mutually exclusive
+     ],
+     recommendedOptionId: '<one of the option ids>',
+   }
+   ```
    - For each `[NEEDS CLARIFICATION]` marker present, add a question
      whose `context` quotes the marker text verbatim.
    - Add a "top N gaps" question inferred from the PRD Health
      summary (MoSCoW coverage, missing ACs, missing REQ IDs).
+   - `targetAnchor.lineStart`/`lineEnd` MUST point at the smallest
+     line range in the PRD that the reviewer should focus on. For
+     metadata-level questions (frontmatter author, version), use
+     `{lineStart: 1, lineEnd: <first heading> + 1}`.
+   - `options` is REQUIRED for collab. Provide 2–5 mutually
+     exclusive options. Always include an option labeled
+     "Skip — leave as-is" / "No — leave unchanged" as the last
+     choice so the reviewer can opt out per question.
+   - `recommendedOptionId` MUST be the `id` of the option you
+     want to default-select. Always pick the option you would
+     apply if the reviewer hit Save immediately.
 3. Pick a session file path under a cache directory returned by
-   `getLogsPath()` or equivalent (gitignored). Load the shared
-   module once via
-   `const { refinementReview } = require('@sunstone-partners/ensemble-core')`
-   and call
-   `refinementReview.session.createSession({ sessionPath, kind: 'prd', sourcePath, questions })`.
-   It returns `{ session, token }` synchronously and writes the
-   session JSON to `sessionPath`.
-4. Resolve the static UI directory by deriving it from the package
-   itself:
+   `getLogsPath()` or equivalent (gitignored). The bootstrap script
+   is generated outside the PI package's install directory, so plain
+   `require('@sunstone-partners/ensemble-core')` will fail with
+   `Cannot find module` — Node's caller-relative `node_modules`
+   search does not walk back to the PI package's `node_modules`.
+   **Anchor all package imports to the installed PI package's
+   `package.json` via `createRequire`.** The bootstrap script
+   resolves the PI package at runtime from well-known install
+   locations (an explicit `ENSEMBLE_PI_INSTALL_ROOT` env var is
+   honored for the packed-install test; the OMP plugin root and
+   the current working directory are the production fallbacks):
    ```js
-   const pkgRoot = require('path').dirname(
-     require.resolve('@sunstone-partners/ensemble-core/package.json'),
+   const { createRequire } = require('module');
+   const path = require('path');
+   const os = require('os');
+   const PI_PKG_JSON = require.resolve(
+     '@sunstone-partners/ensemble-pi/package.json',
+     {
+       paths: [
+         process.env.ENSEMBLE_PI_INSTALL_ROOT,
+         path.join(os.homedir(), '.omp', 'plugins'),
+         process.cwd(),
+       ].filter(Boolean),
+     },
    );
-   const uiDir = require('path').join(pkgRoot, 'lib/refinement-review/ui');
+   const piRequire = createRequire(PI_PKG_JSON);
+   const { refinementReview } = piRequire('@sunstone-partners/ensemble-core');
+   ```
+   Call
+   `refinementReview.session.migrateOrCreate({ sessionPath, kind: 'prd', sourcePath, questions })`,
+   where `migrateOrCreate` returns `{ session, token }` synchronously.
+   It loads any prior session file at `sessionPath` and uses
+   `mutateSession` to merge in new additive metadata
+   (`options`, `recommendedOptionId`, missing `targetAnchor`)
+   while preserving user-entered `answer`, `comments`,
+   `selectedOptionId`, and revision history; falls back to
+   `createSession` when no prior file is present.
+4. Resolve the static UI directory by deriving it from the PI
+   package's `node_modules` (where core actually resolves):
+   ```js
+   const corePkgJson = piRequire.resolve('@sunstone-partners/ensemble-core/package.json');
+   const uiDir = path.join(path.dirname(corePkgJson), 'lib/refinement-review/ui');
    ```
    Start the local server with
    `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })`,
-   where `open = !$ARGUMENTS.contains('--no-open') && process.stdout.isTTY && !process.env.CI`.
-   The server binds 127.0.0.1 with an OS-assigned port. The
-   `open` flag opts into auto-launching the reviewer's browser
-   via the per-platform opener (`open` / `xdg-open` /
-   `rundll32 url.dll,FileProtocolHandler`); it auto-suppresses
-   (CI, piped logs) and on `--no-open`.
+   where `open = !$ARGUMENTS.contains('--no-open') && process.env.CI !== 'true'`.
+   **DO NOT gate on `process.stdout.isTTY`** — the bootstrap is
+   typically launched from a process supervisor (hub, nohup,
+   background shell) whose captured stdout is not a TTY, but the
+   host GUI is fully functional. TTY is not a valid open-gate.
+   The right opt-outs are `--no-open` and `CI=true`.
 5. Print `URL: <reviewUrl>` (i.e. `http://<host>:<port>/?token=<encodeURIComponent(token)>`)
    and `Token: <token>` to the user for manual fallback. The
    bootstrap owns these prints — the server's own `log` sink

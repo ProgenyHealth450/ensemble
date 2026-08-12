@@ -140,6 +140,36 @@ function validateSession(session) {
       if (ta.highlightText !== undefined && ta.highlightText !== null && typeof ta.highlightText !== 'string')
         throw new Error('question.targetAnchor.highlightText must be string or null');
     }
+    if (q.options !== undefined && q.options !== null) {
+      if (!Array.isArray(q.options))
+        throw new Error('question.options must be array or null');
+      const seenOpt = new Set();
+      for (const opt of q.options) {
+        if (!opt || typeof opt !== 'object')
+          throw new Error('question.options entries must be objects');
+        if (typeof opt.id !== 'string' || !opt.id)
+          throw new Error('question.options[].id is required');
+        if (seenOpt.has(opt.id))
+          throw new Error(`question.options duplicate id: ${opt.id}`);
+        seenOpt.add(opt.id);
+        if (typeof opt.label !== 'string' || !opt.label)
+          throw new Error('question.options[].label is required');
+        if (opt.description !== undefined && opt.description !== null && typeof opt.description !== 'string')
+          throw new Error('question.options[].description must be string or null');
+      }
+    }
+    if (q.recommendedOptionId !== undefined && q.recommendedOptionId !== null) {
+      if (typeof q.recommendedOptionId !== 'string')
+        throw new Error('question.recommendedOptionId must be string or null');
+      if (!Array.isArray(q.options) || !q.options.some((o) => o.id === q.recommendedOptionId))
+        throw new Error(`question.recommendedOptionId '${q.recommendedOptionId}' does not match any option.id`);
+    }
+    if (q.selectedOptionId !== undefined && q.selectedOptionId !== null) {
+      if (typeof q.selectedOptionId !== 'string')
+        throw new Error('question.selectedOptionId must be string or null');
+      if (!Array.isArray(q.options) || !q.options.some((o) => o.id === q.selectedOptionId))
+        throw new Error(`question.selectedOptionId '${q.selectedOptionId}' does not match any option.id`);
+    }
     if (!['open', 'answered', 'skipped'].includes(q.status))
       throw new Error(`question.status invalid: ${q.status}`);
     if (q.answer !== null && typeof q.answer !== 'string')
@@ -235,10 +265,11 @@ function loadSession(sessionPath) {
  * @param {string} args.sessionPath - where the session JSON is persisted
  * @param {"prd"|"trd"} args.kind
  * @param {string} args.sourcePath - source markdown path (absolute)
- * @param {Array<{id?: string, prompt: string, context?: string|null}>} args.questions
+ * @param {Array<{id?: string, prompt: string, context?: string|null, targetAnchor?: object|null, options?: Array<{id: string, label: string, description?: string|null}>|null, recommendedOptionId?: string|null}>} args.questions
  * @returns {{session: object, token: string}}
  */
 function createSession({ sessionPath, kind, sourcePath, questions }) {
+
   if (!['prd', 'trd'].includes(kind))
     throw new Error(`kind must be "prd" or "trd" (got ${kind})`);
   if (typeof sourcePath !== 'string' || !sourcePath)
@@ -267,6 +298,9 @@ function createSession({ sessionPath, kind, sourcePath, questions }) {
       prompt: q.prompt,
       context: q.context || null,
       targetAnchor: q.targetAnchor || null,
+      options: q.options || null,
+      recommendedOptionId: q.recommendedOptionId || null,
+      selectedOptionId: null,
       status: 'open',
       answer: null,
       author: null,
@@ -281,6 +315,7 @@ function createSession({ sessionPath, kind, sourcePath, questions }) {
   };
 
   validateSession(session);
+
   writeJsonAtomic(sessionPath, session);
 
   return { session, token: newToken() };
@@ -346,6 +381,68 @@ function mutateSession({ sessionPath, expectedRevision, mutate, now }) {
   writeJsonAtomic(sessionPath, session);
   return session;
 }
+/**
+ * Migrate an existing session in place when one is present, otherwise create
+ * a new one. Bootstrap-time helper for agents that need to add new additive
+ * question metadata (targetAnchor, options, recommendedOptionId) without
+ * losing user-entered state (answer, status, selectedOptionId, comments,
+ * revision history).
+ *
+ * Rules:
+ * - If sessionPath is missing or empty: calls createSession with `questions`.
+ * - If a valid session is present and not completed: loads it, applies the
+ *   optional `migrate(s)` callback (additive fill-in only), persists via
+ *   mutateSession at the loaded revision, and returns the new revision.
+ *   The migrate callback MUST NOT touch status/answer/selectedOptionId/comments.
+ * - Throws SESSION_COMPLETED (410) if the existing session is frozen.
+ *
+ * Always returns a freshly generated token so browser sessions reset on
+ * restart, matching the existing convention.
+ *
+ * @param {object} args
+ * @param {string} args.sessionPath
+ * @param {'prd'|'trd'} args.kind
+ * @param {string} args.sourcePath
+ * @param {Array<object>} [args.questions] - used only on create
+ * @param {(s: object) => void} [args.migrate] - additive mutator applied on load
+ * @returns {{ session: object, token: string }}
+ */
+function migrateOrCreate({ sessionPath, kind, sourcePath, questions, migrate }) {
+  const exists = fs.existsSync(sessionPath);
+  let readable = false;
+  if (exists) {
+    try {
+      readable = fs.statSync(sessionPath).size > 0;
+    } catch {
+      readable = false;
+    }
+  }
+
+  if (!exists || !readable) {
+    return createSession({ sessionPath, kind, sourcePath, questions });
+  }
+
+  const loaded = loadSession(sessionPath);
+
+  if (loaded.completedAt) {
+    throw Object.assign(
+      new Error('session is completed; choose a fresh sessionPath to restart'),
+      { code: 'SESSION_COMPLETED', status: 410 },
+    );
+  }
+
+  if (typeof migrate === 'function') {
+    mutateSession({
+      sessionPath,
+      expectedRevision: loaded.revision,
+      mutate: migrate,
+    });
+  }
+
+  const finalSession = loadSession(sessionPath);
+  return { session: finalSession, token: newToken() };
+}
+
 
 module.exports = {
   SCHEMA_VERSION,
@@ -360,4 +457,5 @@ module.exports = {
   loadSession,
   createSession,
   mutateSession,
+  migrateOrCreate,
 };
