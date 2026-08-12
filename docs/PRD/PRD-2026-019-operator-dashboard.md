@@ -1,23 +1,22 @@
 ---
 document_id: PRD-2026-019
 title: Single-Pane Operator Dashboard
-version: 1.1.0
+version: 1.1.1
 status: Draft
 created: 2026-04-21
-last_updated: 2026-08-11
-author: Foreman Product Team
-readiness_score: 3.0
+last_updated: 2026-08-12
+author: Sunstone Partners
+readiness_score: 3.75
 ---
 
 # Product Requirements Document: Single-Pane Operator Dashboard
 
 **Product Name:** Foreman Operator Dashboard  
-**Version:** 1.1.0  
+**Version:** 1.1.1
 **Status:** Draft  
 **Created:** 2026-04-21  
-**Last Updated:** 2026-08-11  
-**Author:** Foreman Product Team  
-
+**Last Updated:** 2026-08-12
+**Author:** Sunstone Partners
 ---
 
 ## Table of Contents
@@ -303,17 +302,33 @@ Create a single terminal pane that renders a unified operator dashboard with thr
 
 ## PRD Health
 
-**Source:** generated 2026-08-11 from `docs/PRD/PRD-2026-019-operator-dashboard.md`
+**Source:** refined 2026-08-12 from `docs/PRD/PRD-2026-019-operator-dashboard.md` (v1.1.1)
 
 | Metric | Count | Notes |
 |--------|-------|-------|
 | Functional Requirements (FR) | 70 | P0=40, P1=24, P2=6 |
 | Non-Functional Requirements (NFR) | 21 | Performance + Reliability + Compatibility + Accessibility + Security |
-| Acceptance Criteria (AC) | 36 | Across 8 AC sections (AC1–AC8) |
+| Acceptance Criteria (AC) | 36 | Across 8 AC sections (AC1–AC8); per-requirement coverage NOT COMPUTABLE — AC IDs are section-scoped and one duplicate/misnumber (AC3.3 in AC2 section) breaks parent mapping |
 | Goals (G*) | 10 | P0=5, P1=5 |
 | Non-Goals (NG*) | 6 | Out-of-scope guardrails |
 | Test Scenarios (Gherkin) | 6 | Full E2E coverage (Scenarios 1–6) |
 | Risk flags | 4 | Medium likelihood × Medium impact |
+| Complexity tags (added v1.1.1) | 91 | 39 Low / 31 Medium / 21 High (Low/Medium/High vocabulary only) |
+| Dependencies | 5 | pane-viewer adapters, SQLite store, SQLite mail client, beads state, terminal multiplexer |
+| Source date | 2026-08-12 | Refinement pass v1.1.1 |
+
+
+### Implementation Readiness Gate Scorecard
+
+| Dimension | Score (1–5) | Rationale |
+|-----------|-------------|-----------|
+| Completeness | 4 | 70 FR + 21 NFR + 36 AC + 6 Gherkin scenarios; Goals/Non-Goals enumerated. Lacks: MoSCoW tags, REQ-NNN canonical IDs. Per-requirement complexity tags now present. |
+| Testability | 3 | AC tables dominate but most rows cite "Manual test" or "Visual inspection"; only the 6 Gherkin scenarios are machine-verifiable. |
+| Clarity | 4 | Per-FR/NFR descriptions and event flows are concrete; UI wireframe, color scheme, and component diagram are unambiguous. |
+| Feasibility | 4 | Architecture is reusable (pane-viewer + SQLite + signal files); 4 documented risks with mitigations; no external dependencies outside terminal ecosystem. |
+| **Overall** | **3.75** | Mean of (4 + 3 + 4 + 4) / 4. |
+
+**Status:** Pass with advisories. Primary gap is Testability (3) — addressed by promoting the 6 Gherkin scenarios and authoring any new ACs as Given/When/Then.
 
 ---
 
@@ -324,126 +339,126 @@ Create a single terminal pane that renders a unified operator dashboard with thr
 **Description:** Single-pane container that renders all three views
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR1.1 | Dashboard spawns in terminal via `foreman dashboard` command | P0 |
-| FR1.2 | Single pane renders all three integrated views | P0 |
-| FR1.3 | Each view (tasks/board/inbox) collapsible independently | P0 |
-| FR1.4 | Active view indicated by highlight + title emphasis | P0 |
-| FR1.5 | Badge counts shown on each view header | P0 |
-| FR1.6 | Keyboard hints footer visible | P1 |
-| FR1.7 | Quit via `q` key returns to previous state | P0 |
-| FR1.8 | Configurable pane direction (right/bottom/left/top) | P1 |
-| FR1.9 | Configurable pane size (10-50% of terminal) | P1 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR1.1 | Dashboard spawns in terminal via `foreman dashboard` command | P0 | Medium |
+| FR1.2 | Single pane renders all three integrated views | P0 | Medium |
+| FR1.3 | Each view (tasks/board/inbox) collapsible independently | P0 | Medium |
+| FR1.4 | Active view indicated by highlight + title emphasis | P0 | Low |
+| FR1.5 | Badge counts shown on each view header | P0 | Low |
+| FR1.6 | Keyboard hints footer visible | P1 | Low |
+| FR1.7 | Quit via `q` key returns to previous state | P0 | Low |
+| FR1.8 | Configurable pane direction (right/bottom/left/top) | P1 | Low |
+| FR1.9 | Configurable pane size (10-50% of terminal) | P1 | Low |
 
 ### FR2: Running Tasks View
 
 **Description:** Hierarchical display of active runs with phase timing and progress
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR2.1 | Display all active runs from SQLite store | P0 |
-| FR2.2 | Each run shows: runId, beadId, priority, duration | P0 |
-| FR2.3 | Expandable to show phase hierarchy (Explorer → Developer → ...) | P0 |
-| FR2.4 | Current phase highlighted with arrow indicator (→) | P0 |
-| FR2.5 | Completed phases show checkmark (✓) with elapsed time | P0 |
-| FR2.6 | Failed phases show error icon (✗) with error summary | P0 |
-| FR2.7 | Worktree path shown under each run when expanded | P1 |
-| FR2.8 | Progress bar per run showing completion percentage | P0 |
-| FR2.9 | Sort by: priority (default), duration, status, recency | P1 |
-| FR2.10 | Filter by: status (running/paused/failed), priority | P1 |
-| FR2.11 | Click/Enter on run opens detailed view | P1 |
-| FR2.12 | Cross-reference to related inbox messages | P1 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR2.1 | Display all active runs from SQLite store | P0 | High |
+| FR2.2 | Each run shows: runId, beadId, priority, duration | P0 | High |
+| FR2.3 | Expandable to show phase hierarchy (Explorer → Developer → ...) | P0 | High |
+| FR2.4 | Current phase highlighted with arrow indicator (→) | P0 | Low |
+| FR2.5 | Completed phases show checkmark (✓) with elapsed time | P0 | Low |
+| FR2.6 | Failed phases show error icon (✗) with error summary | P0 | Low |
+| FR2.7 | Worktree path shown under each run when expanded | P1 | Low |
+| FR2.8 | Progress bar per run showing completion percentage | P0 | Low |
+| FR2.9 | Sort by: priority (default), duration, status, recency | P1 | High |
+| FR2.10 | Filter by: status (running/paused/failed), priority | P1 | High |
+| FR2.11 | Click/Enter on run opens detailed view | P1 | High |
+| FR2.12 | Cross-reference to related inbox messages | P1 | High |
 
 ### FR3: Board View
 
 **Description:** Kanban-style visualization of task board states
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR3.1 | Display four columns: Ready, In Progress, Blocked, Done | P0 |
-| FR3.2 | Show task count per column in header | P0 |
-| FR3.3 | Tasks grouped under beadId with title preview | P0 |
-| FR3.4 | Priority color-coding: P0=red, P1=orange, P2=yellow, P3=green, P4=dim | P0 |
-| FR3.5 | Current task (in_progress) highlighted with bold | P0 |
-| FR3.6 | Blocked tasks show blocker count badge | P1 |
-| FR3.7 | Vertical scroll within each column | P0 |
-| FR3.8 | Horizontal column navigation via h/l or arrow keys | P0 |
-| FR3.9 | Dependency arrows between related tasks | P2 |
-| FR3.10 | Click/Enter on task shows full details | P1 |
-| FR3.11 | Cross-reference to related run in Running Tasks | P1 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR3.1 | Display four columns: Ready, In Progress, Blocked, Done | P0 | Medium |
+| FR3.2 | Show task count per column in header | P0 | Low |
+| FR3.3 | Tasks grouped under beadId with title preview | P0 | Medium |
+| FR3.4 | Priority color-coding: P0=red, P1=orange, P2=yellow, P3=green, P4=dim | P0 | Low |
+| FR3.5 | Current task (in_progress) highlighted with bold | P0 | Low |
+| FR3.6 | Blocked tasks show blocker count badge | P1 | Low |
+| FR3.7 | Vertical scroll within each column | P0 | Medium |
+| FR3.8 | Horizontal column navigation via h/l or arrow keys | P0 | Medium |
+| FR3.9 | Dependency arrows between related tasks | P2 | Medium |
+| FR3.10 | Click/Enter on task shows full details | P1 | Medium |
+| FR3.11 | Cross-reference to related run in Running Tasks | P1 | Medium |
 
 ### FR4: Inbox View
 
 **Description:** Agent mail display with unread badges and message preview
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR4.1 | Display agent mail messages from SQLite store | P0 |
-| FR4.2 | Show unread count badge in view header | P0 |
-| FR4.3 | Messages sorted by timestamp (newest first) | P0 |
-| FR4.4 | Each message shows: subject, from, to, preview, timestamp | P0 |
-| FR4.5 | Unread messages bold/highlighted | P0 |
-| FR4.6 | Cursor-focused message shows expanded preview (first 3 lines) | P0 |
-| FR4.7 | Enter on message opens full content | P1 |
-| FR4.8 | Cross-reference to related run/bead | P1 |
-| FR4.9 | Archive/mark-read actions via keyboard shortcuts | P2 |
-| FR4.10 | Filter by: unread, from (agent), to (agent), subject | P1 |
-| FR4.11 | Thread grouping for related messages | P2 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR4.1 | Display agent mail messages from SQLite store | P0 | High |
+| FR4.2 | Show unread count badge in view header | P0 | Low |
+| FR4.3 | Messages sorted by timestamp (newest first) | P0 | Low |
+| FR4.4 | Each message shows: subject, from, to, preview, timestamp | P0 | High |
+| FR4.5 | Unread messages bold/highlighted | P0 | Low |
+| FR4.6 | Cursor-focused message shows expanded preview (first 3 lines) | P0 | High |
+| FR4.7 | Enter on message opens full content | P1 | High |
+| FR4.8 | Cross-reference to related run/bead | P1 | High |
+| FR4.9 | Archive/mark-read actions via keyboard shortcuts | P2 | High |
+| FR4.10 | Filter by: unread, from (agent), to (agent), subject | P1 | High |
+| FR4.11 | Thread grouping for related messages | P2 | High |
 
 ### FR5: Unified Navigation
 
 **Description:** Single keyboard navigation system spanning all views
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR5.1 | `j` / `k` — Move cursor down/up within active view | P0 |
-| FR5.2 | `1` — Switch to Running Tasks view | P0 |
-| FR5.3 | `2` — Switch to Board view | P0 |
-| FR5.4 | `3` — Switch to Inbox view | P0 |
-| FR5.5 | `h` / `l` or `←` / `→` — Navigate between columns (board) or switch view | P0 |
-| FR5.6 | `Enter` — Expand/collapse item or open details | P0 |
-| FR5.7 | `Space` — Toggle expand/collapse for current section | P0 |
-| FR5.8 | `gg` — Jump to first item in view | P0 |
-| FR5.9 | `G` — Jump to last item in view | P0 |
-| FR5.10 | `/` — Global search across all views | P1 |
-| FR5.11 | `n` / `N` — Next/previous search result | P1 |
-| FR5.12 | `r` — Manual refresh | P0 |
-| FR5.13 | `q` — Quit dashboard | P0 |
-| FR5.14 | `?` — Show keyboard shortcuts help | P1 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR5.1 | `j` / `k` — Move cursor down/up within active view | P0 | Medium |
+| FR5.2 | `1` — Switch to Running Tasks view | P0 | Medium |
+| FR5.3 | `2` — Switch to Board view | P0 | Medium |
+| FR5.4 | `3` — Switch to Inbox view | P0 | Medium |
+| FR5.5 | `h` / `l` or `←` / `→` — Navigate between columns (board) or switch view | P0 | Medium |
+| FR5.6 | `Enter` — Expand/collapse item or open details | P0 | Medium |
+| FR5.7 | `Space` — Toggle expand/collapse for current section | P0 | Medium |
+| FR5.8 | `gg` — Jump to first item in view | P0 | Medium |
+| FR5.9 | `G` — Jump to last item in view | P0 | Medium |
+| FR5.10 | `/` — Global search across all views | P1 | Medium |
+| FR5.11 | `n` / `N` — Next/previous search result | P1 | Medium |
+| FR5.12 | `r` — Manual refresh | P0 | Medium |
+| FR5.13 | `q` — Quit dashboard | P0 | Medium |
+| FR5.14 | `?` — Show keyboard shortcuts help | P1 | Medium |
 
 ### FR6: Real-Time Updates
 
 **Description:** Live state synchronization without manual polling
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR6.1 | Use signal files for state change notifications | P0 |
-| FR6.2 | Auto-refresh interval configurable (default: 5s) | P1 |
-| FR6.3 | Update within 500ms of signal | P0 |
-| FR6.4 | Visual indicator when update in progress | P1 |
-| FR6.5 | Debounce rapid successive updates | P1 |
-| FR6.6 | Graceful handling of update failures | P0 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR6.1 | Use signal files for state change notifications | P0 | High |
+| FR6.2 | Auto-refresh interval configurable (default: 5s) | P1 | High |
+| FR6.3 | Update within 500ms of signal | P0 | High |
+| FR6.4 | Visual indicator when update in progress | P1 | High |
+| FR6.5 | Debounce rapid successive updates | P1 | High |
+| FR6.6 | Graceful handling of update failures | P0 | High |
 
 ### FR7: Configuration
 
 **Description:** User-customizable dashboard behavior
 
 **Requirements:**
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR7.1 | Default view preference (tasks/board/inbox) | P1 |
-| FR7.2 | Refresh interval (1-60 seconds) | P1 |
-| FR7.3 | Pane direction (right/bottom/left/top) | P1 |
-| FR7.4 | Pane size percentage (10-50%) | P1 |
-| FR7.5 | Auto-focus on new items | P2 |
-| FR7.6 | Sound notifications for failures (optional) | P2 |
-| FR7.7 | Color theme (light/dark/terminal) | P2 |
+| ID | Requirement | Priority | Complexity |
+|----|-------------|----------|------------|
+| FR7.1 | Default view preference (tasks/board/inbox) | P1 | Low |
+| FR7.2 | Refresh interval (1-60 seconds) | P1 | Low |
+| FR7.3 | Pane direction (right/bottom/left/top) | P1 | Low |
+| FR7.4 | Pane size percentage (10-50%) | P1 | Low |
+| FR7.5 | Auto-focus on new items | P2 | Low |
+| FR7.6 | Sound notifications for failures (optional) | P2 | Low |
+| FR7.7 | Color theme (light/dark/terminal) | P2 | Low |
 
 ---
 
@@ -451,49 +466,49 @@ Create a single terminal pane that renders a unified operator dashboard with thr
 
 ### NFR1: Performance
 
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR1.1 | Initial render time | <1s |
-| NFR1.2 | Update latency | <500ms |
-| NFR1.3 | Memory footprint | <20MB |
-| NFR1.4 | CPU usage (idle) | <2% |
-| NFR1.5 | CPU usage (refresh) | <5% |
-| NFR1.6 | Keyboard input latency | <50ms |
+| ID | Requirement | Target | Complexity |
+|----|-------------|--------|------------|
+| NFR1.1 | Initial render time | <1s | Low |
+| NFR1.2 | Update latency | <500ms | Low |
+| NFR1.3 | Memory footprint | <20MB | Low |
+| NFR1.4 | CPU usage (idle) | <2% | Low |
+| NFR1.5 | CPU usage (refresh) | <5% | Low |
+| NFR1.6 | Keyboard input latency | <50ms | Low |
 
 ### NFR2: Reliability
 
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR2.1 | Graceful degradation on failure | Show last known state |
-| NFR2.2 | Crash isolation | Dashboard crash doesn't affect foreman runs |
-| NFR2.3 | State consistency | No stale data for >5s; binding latency target is NFR1.2 (<500ms) |
-| NFR2.4 | Clean shutdown | Proper cleanup on `q` or terminal close |
+| ID | Requirement | Target | Complexity |
+|----|-------------|--------|------------|
+| NFR2.1 | Graceful degradation on failure | Show last known state | Medium |
+| NFR2.2 | Crash isolation | Dashboard crash doesn't affect foreman runs | Medium |
+| NFR2.3 | State consistency | No stale data for >5s; binding latency target is NFR1.2 (<500ms) | Medium |
+| NFR2.4 | Clean shutdown | Proper cleanup on `q` or terminal close | Medium |
 
 ### NFR3: Compatibility
 
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR3.1 | Terminal multiplexers | WezTerm, Zellij, tmux (use existing pane-viewer) |
-| NFR3.2 | Operating systems | macOS, Linux |
-| NFR3.3 | Terminal encodings | UTF-8 |
-| NFR3.4 | Minimum terminal size | 100x30 characters |
-| NFR3.5 | Color support | 256-color ANSI minimum |
+| ID | Requirement | Target | Complexity |
+|----|-------------|--------|------------|
+| NFR3.1 | Terminal multiplexers | WezTerm, Zellij, tmux (use existing pane-viewer) | Low |
+| NFR3.2 | Operating systems | macOS, Linux | Low |
+| NFR3.3 | Terminal encodings | UTF-8 | Low |
+| NFR3.4 | Minimum terminal size | 100x30 characters | Low |
+| NFR3.5 | Color support | 256-color ANSI minimum | Low |
 
 ### NFR4: Accessibility
 
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR4.1 | Keyboard-only operation | Full functionality via keyboard |
-| NFR4.2 | Color + shape differentiation | Icons + colors for status (not color-only) |
-| NFR4.3 | Screen reader compatible | ASCII-based output |
+| ID | Requirement | Target | Complexity |
+|----|-------------|--------|------------|
+| NFR4.1 | Keyboard-only operation | Full functionality via keyboard | Low |
+| NFR4.2 | Color + shape differentiation | Icons + colors for status (not color-only) | Low |
+| NFR4.3 | Screen reader compatible | ASCII-based output | Low |
 
 ### NFR5: Security
 
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR5.1 | No sensitive data in display | Truncate long values, mask tokens |
-| NFR5.2 | File permissions | 600 for signal files |
-| NFR5.3 | Signal file isolation | User-only access |
+| ID | Requirement | Target | Complexity |
+|----|-------------|--------|------------|
+| NFR5.1 | No sensitive data in display | Truncate long values, mask tokens | Medium |
+| NFR5.2 | File permissions | 600 for signal files | Medium |
+| NFR5.3 | Signal file isolation | User-only access | Medium |
 
 ---
 
@@ -900,8 +915,8 @@ Then Board view becomes active
 And Board header is highlighted
 And cursor is at column "ready"
 
-When operator presses 'h' twice
-Then cursor moves to column "ready" then "done"
+When operator presses 'h' three times
+Then cursor moves to column "in_progress" then "blocked" then "done"
 
 When operator presses '3'
 Then Inbox view becomes active
@@ -1014,10 +1029,34 @@ And the thread for "fmb-042" is selected
 
 ---
 
-**Document Status:** Draft - Awaiting Stakeholder Review
+**Document Status:** Refined - Awaiting Stakeholder Approval (v1.1.1)
 
 **Next Steps:**
-1. Stakeholder review and feedback
-2. Technical feasibility assessment
-3. Create TRD for implementation
-4. Define MVP scope (reduce to core features)
+1. Stakeholder review of v1.1.1 refinements (Complexity column, IRG scorecard, Scenario 2 fix, rebrand)
+2. Resolve q-req-ids deferred question (per-requirement REQ-NNN canonical IDs vs. inline FR.x/NFR.x) — pause: per-row H3 headings would fragment table layout
+3. Technical feasibility assessment (target Architecture Review)
+4. Create TRD for implementation once refinements are approved
+
+---
+
+## Changelog
+
+### v1.1.1 — 2026-08-12
+
+**Refinement pass via `ensemble-full-refine-prd --collab --tunnel=quick`** (1 session, revision 22, 8 questions, 5 with unambiguous selections, **4 applied** below, 1 deferred).
+
+Applied selections:
+- **q-author-attribution** — author rebrand: "Foreman Product Team" → "Sunstone Partners" (frontmatter + body header)
+- **q-complexity-coverage** — added Complexity column to all 12 FR/NFR tables (70 FR rows + 21 NFR rows = 91 total) using vocabulary Low/Medium/High; section-level defaults with per-row overrides for pure-rendering rows
+- **q-readiness-scorecard** — added Implementation Readiness Gate Scorecard section (Completeness=4, Testability=3, Clarity=4, Feasibility=4, Overall=**3.75**); bumped frontmatter `readiness_score` from 3.0 to 3.75
+- **q-scenario-2-fix** — corrected Gherkin Scenario 2 column traversal: "press 'h' twice, cursor moves to 'ready' then 'done'" → "press 'h' three times, cursor moves to 'in_progress' then 'blocked' then 'done'"
+
+**Deferred (internally inconsistent / requires product input):**
+- **q-req-ids** — adding REQ-NNN canonical IDs alongside FR.x/NFR.x: PAUSED. Selecting `add-alongside` would inject per-row H3 headings, fragmenting the 12 in-table layouts. Awaiting product decision on canonical-ID placement (separate column vs. renaming rows vs. append-only).
+
+Skipped (no clear selection / stale):
+- q-ac-format (status=open)
+- q-moscow-coverage (cascade — option `null` with "Address every gap" text propagated from prior q-health-gaps turn)
+- q-health-gaps (stale `updatedAt: 2026-08-12T01:37:12.999Z` from prior session envelope)
+
+Net delta: readiness_score 3.0 → 3.75 (+0.75). 4 dimensions surfaced, 1 question deferred, 3 anomalies triaged.
