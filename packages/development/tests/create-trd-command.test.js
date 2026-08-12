@@ -47,4 +47,22 @@ describe('create-trd command document ids', () => {
     expect(nextStepStart).toBeGreaterThan(testTaskGenStart);
     expect(text.slice(testTaskGenStart, nextStepStart)).toContain(distinguishing);
   });
+
+  test('Task Coverage Analysis self-checks the draft Master Task List via trd-cli.js parse', () => {
+    const text = fs.readFileSync(path.join(__dirname, '../commands/create-trd.yaml'), 'utf8');
+    const trdCliResolution =
+      'Resolve TRD_CLI to first existing path among: ${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js, packages/development/lib/trd-cli.js';
+    // YAML double-quoted scalar escapes embedded quotes as \" in the raw
+    // source text — match the literal bytes on disk, not the unescaped value.
+    const parseInvocation = 'node \\"$TRD_CLI\\" parse';
+
+    // Scoped to the Task Coverage Analysis step's own action list.
+    const taskCoverageStart = text.indexOf('title: Task Coverage Analysis');
+    const nextStepStart = text.indexOf('title: Dependency and Estimate Review');
+    expect(taskCoverageStart).toBeGreaterThan(-1);
+    expect(nextStepStart).toBeGreaterThan(taskCoverageStart);
+    const scoped = text.slice(taskCoverageStart, nextStepStart);
+    expect(scoped).toContain(trdCliResolution);
+    expect(scoped).toContain(parseInvocation);
+  });
 });
