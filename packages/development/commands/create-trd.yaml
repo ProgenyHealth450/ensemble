@@ -119,6 +119,7 @@ workflow:
           description: Generate comprehensive task list with TRD-NNN IDs and traceability annotations
           actions:
             - Generate unique TRD-NNN IDs for every task (sequential numbering)
+            - "Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**. Omitting the checkbox prefix makes the task invisible to trd-cli.js's TASK_LINE_RE parser and to implement-trd-beads, which will then create zero task beads for this TRD."
             - "Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation"
             - Add Validates PRD ACs field listing AC-NNN-M items the task covers
             - Add Implementation AC checklist with Given/When/Then items specific to the implementation
