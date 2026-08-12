@@ -144,37 +144,37 @@ that would still fail `trd-cli.js parse` is flagged and reported to the user bef
 Design Readiness Gate score is shown — instead of silently producing a TRD that scaffolds to zero
 task beads downstream.
 
-- [ ] **TRD-001** Add the unconditional checkbox-prefix instruction to the Master Task List Generation action list (0.25h) `[satisfies REQ-001]`
+- [x] **TRD-001** Add the unconditional checkbox-prefix instruction to the Master Task List Generation action list (0.25h) `[satisfies REQ-001]`
   - Validates PRD ACs: AC-001-1
   - Implementation AC: Given `create-trd.yaml`'s "Master Task List Generation" step, when read, then it contains an action stating every task line must begin with `- [ ] ` (or `- [x] ` for a task already complete) immediately before `**TRD-NNN**`, worded as an unconditional action — not inside the "MCP Enhancement (Optional)" phase.
   - Implementation AC: Given the same action, when read, then it states the consequence of omitting the prefix (invisible to `trd-cli.js`/`implement-trd-beads`, which creates zero task beads).
 
-- [ ] **TRD-002** Add the matching instruction to the Test Task Generation action list for `TRD-NNN-TEST` lines (0.25h) `[satisfies REQ-001] [depends: TRD-001]`
+- [x] **TRD-002** Add the matching instruction to the Test Task Generation action list for `TRD-NNN-TEST` lines (0.25h) `[satisfies REQ-001] [depends: TRD-001]`
   - Validates PRD ACs: AC-001-1
   - Implementation AC: Given `create-trd.yaml`'s "Test Task Generation" step, when read, then its actions state `TRD-NNN-TEST` lines require the identical `- [ ] ` / `- [x] ` prefix as implementation tasks.
 
-- [ ] **TRD-003** Add a self-check action to Task Coverage Analysis that runs the existing `trd-cli.js parse` subcommand against the draft Master Task List before the Design Readiness Gate (0.75h) `[satisfies REQ-002] [depends: TRD-001, TRD-002]`
+- [x] **TRD-003** Add a self-check action to Task Coverage Analysis that runs the existing `trd-cli.js parse` subcommand against the draft Master Task List before the Design Readiness Gate (0.75h) `[satisfies REQ-002] [depends: TRD-001, TRD-002]`
   - Validates PRD ACs: AC-002-1, AC-002-2
   - Implementation AC: Given the "Task Coverage Analysis" step, when read, then its actions include: resolve `TRD_CLI` to the first existing path among `${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js`, `packages/development/lib/trd-cli.js` (same line used in `create-workstream-trd.yaml`); write the current draft Master Task List to a scratch file (not `docs/TRD/`); run `node "$TRD_CLI" parse <scratch-path>`; and if `tasksById` omits a task the draft intends, or `warnings` contains `'No tasks found in the TRD'`, report it as a Task Coverage issue naming the offending line — before the Design Readiness Gate score is presented.
   - Implementation AC: Given a well-formed draft where every task line already carries the checkbox prefix, when the same check runs, then it reports zero issues and does not block the gate.
 
-- [ ] **TRD-004** Regenerate `packages/development/commands/ensemble/create-trd.md` via `npm run generate` (0.25h) `[satisfies INFRA] [depends: TRD-001, TRD-002, TRD-003]`
+- [x] **TRD-004** Regenerate `packages/development/commands/ensemble/create-trd.md` via `npm run generate` (0.25h) `[satisfies INFRA] [depends: TRD-001, TRD-002, TRD-003]`
   - Implementation AC: Given the edited `create-trd.yaml`, when `npm run generate` runs, then `create-trd.md` reflects the three new/edited instructions verbatim.
 
-- [ ] **TRD-001-TEST** Assert the Master Task List Generation instruction is present, unconditional, and outside the MCP-gated phase (0.25h) `[verifies TRD-001] [satisfies REQ-001] [depends: TRD-001]`
+- [x] **TRD-001-TEST** Assert the Master Task List Generation instruction is present, unconditional, and outside the MCP-gated phase (0.25h) `[verifies TRD-001] [satisfies REQ-001] [depends: TRD-001]`
   - Validates PRD ACs: AC-001-1
   - Implementation AC: Given `create-trd.yaml`'s raw text, when scanned, then it contains the literal `- [ ] ` checkbox instruction inside the "Master Task List Generation" step's actions, and that occurrence's surrounding phase is NOT "MCP Enhancement (Optional)".
 
-- [ ] **TRD-002-TEST** Assert the Test Task Generation instruction is present (0.25h) `[verifies TRD-002] [satisfies REQ-001] [depends: TRD-002]`
+- [x] **TRD-002-TEST** Assert the Test Task Generation instruction is present (0.25h) `[verifies TRD-002] [satisfies REQ-001] [depends: TRD-002]`
   - Validates PRD ACs: AC-001-1
   - Implementation AC: Given `create-trd.yaml`'s raw text, when scanned, then the "Test Task Generation" step's actions contain the same checkbox-prefix requirement for `TRD-NNN-TEST` lines.
 
-- [ ] **TRD-003-TEST** Assert the self-check instruction is present, and lock in the parser contract it relies on with a fixture round-trip (0.5h) `[verifies TRD-003] [satisfies REQ-002] [depends: TRD-003]`
+- [x] **TRD-003-TEST** Assert the self-check instruction is present, and lock in the parser contract it relies on with a fixture round-trip (0.5h) `[verifies TRD-003] [satisfies REQ-002] [depends: TRD-003]`
   - Validates PRD ACs: AC-002-1, AC-002-2
   - Implementation AC: Given `create-trd.yaml`'s raw text, when scanned, then the "Task Coverage Analysis" step's actions contain the `TRD_CLI` resolution line and a `node "$TRD_CLI" parse` invocation.
   - Implementation AC: Given two fixture TRD strings — one task line missing `- [ ] `, one with it — when each is passed to `trd-cli.js`'s exported `runParse`, then the first yields an empty `tasksById` with the `'No tasks found in the TRD'` warning, and the second yields a populated `tasksById` with no such warning.
 
-- [ ] **TRD-004-TEST** Verify regeneration is clean and the repo-wide validate gate stays green (0.25h) `[verifies TRD-004] [satisfies INFRA] [depends: TRD-004]`
+- [x] **TRD-004-TEST** Verify regeneration is clean and the repo-wide validate gate stays green (0.25h) `[verifies TRD-004] [satisfies INFRA] [depends: TRD-004]`
   - Implementation AC: Given the PR head, when `npm run generate` is re-run, then `git status` reports no changes to `create-trd.md`.
   - Implementation AC: Given the PR head, when `npm run validate` runs, then it exits zero.
 
