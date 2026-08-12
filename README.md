@@ -144,6 +144,37 @@ Commands are provided by specific plugins:
 - `/fold-prompt` - Project optimization (ensemble-core)
 - `/dashboard` - Metrics dashboard (ensemble-metrics)
 
+### Collaborative Refinement Review
+
+The `ensemble:refine-prd` and `ensemble:refine-trd` commands accept a
+`--collab` flag that replaces the terminal AskUserQuestion interview
+with a browser-based HTML review. Each refinement question renders in
+a sidebar with anchor-linked comments; reviewers can answer the
+question, select an option from a 2–5 item menu, and leave per-line
+comments against the PRD/TRD document. The session produces an
+artifact (`.response.json`) that the Enhancement phase reads directly.
+
+```bash
+# Local-only review (reviewer on same machine)
+/ensemble:refine-prd --collab docs/PRD/PRD-2026-019.md
+
+# Remote review over Cloudflare Quick Tunnel — no account, no DNS, no token
+/ensemble:refine-prd --collab --tunnel=quick docs/PRD/PRD-2026-019.md
+```
+
+`--tunnel=quick` requires the [`cloudflared`](https://github.com/cloudflare/cloudflared)
+binary on `PATH` (or set `CLOUDFLARED_PATH` to its absolute path). It
+launches a `*.trycloudflare.com` QuickTunnel after the local server
+binds, re-mints the share-nonce against the tunnel origin, and tears
+down the tunnel on exit. The share URL has the shape
+`<origin>/api/exchange?nonce=<id>` — the bearer token never appears
+in the URL.
+
+The session is iterative: completed sessions can be re-launched with
+`--collab` against the same PRD path to revisit the prior answers,
+comments, and revision history. To start over, delete the session
+file under `~/.config/ensemble/logs/refinement-review/`.
+
 ### Agent Mesh
 
 Plugins provide 28 specialized agents across domains:

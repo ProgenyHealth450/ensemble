@@ -94,37 +94,58 @@ browser. The resulting artifact is the input to Enhancement.
      },
    );
    const piRequire = createRequire(PI_PKG_JSON);
-   const { refinementReview } = piRequire('@sunstone-partners/ensemble-core');
-   ```
    Call
-   `refinementReview.session.migrateOrCreate({ sessionPath, kind: 'prd', sourcePath, questions })`,
+   `refinementReview.session.migrateOrCreate({ sessionPath, kind: 'prd', sourcePath, questions, reopen: true })`,
    where `migrateOrCreate` returns `{ session, token }` synchronously.
-   It loads any prior session file at `sessionPath` and uses
-   `mutateSession` to merge in new additive metadata
-   (`options`, `recommendedOptionId`, missing `targetAnchor`)
-   while preserving user-entered `answer`, `comments`,
-   `selectedOptionId`, and revision history; falls back to
-   `createSession` when no prior file is present.
+   It loads any prior session file at `sessionPath`; if the prior
+   session was already completed (frozen by a prior `/api/complete`
+   call), `reopen: true` clears `completedAt`/`completedBy` and
+   bumps the revision so the iterative refinement loop can
+   revisit the same sessionPath. User answers, comments, and
+   `selectedOptionId` survive reopen. Without `reopen: true`,
+   completed sessions throw `SESSION_COMPLETED` (preserving the
+   prior guard behavior). It uses `mutateSession` to merge in
+   new additive metadata (`options`, `recommendedOptionId`,
+   missing `targetAnchor`) while preserving user-entered
+   `answer`, `comments`, `selectedOptionId`, and revision
+   history; falls back to `createSession` when no prior file
+   is present.
 4. Resolve the static UI directory by deriving it from the PI
    package's `node_modules` (where core actually resolves):
    ```js
    const corePkgJson = piRequire.resolve('@sunstone-partners/ensemble-core/package.json');
    const uiDir = path.join(path.dirname(corePkgJson), 'lib/refinement-review/ui');
    ```
-   Start the local server with
-   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })`,
-   where `open = !$ARGUMENTS.contains('--no-open') && process.env.CI !== 'true'`.
+   Compute the open intent once as
+   `shouldOpen = !$ARGUMENTS.contains('--no-open') && process.env.CI !== 'true'`,
+   and pass `open = shouldOpen && tunnel !== 'quick'` to
+   `startServer`. Auto-open is deferred when `--tunnel=quick`
+   is set because the opener should fire on the public URL
+   (post-tunnel), not the local URL; the bootstrap fires the
+   opener itself (using `shouldOpen`, not `open`) once
+   `setTunnelUrl` has rewritten the review URL.
    **DO NOT gate on `process.stdout.isTTY`** — the bootstrap is
    typically launched from a process supervisor (hub, nohup,
    background shell) whose captured stdout is not a TTY, but the
    host GUI is fully functional. TTY is not a valid open-gate.
    The right opt-outs are `--no-open` and `CI=true`.
-5. Print `URL: <reviewUrl>` (i.e. `http://<host>:<port>/?token=<encodeURIComponent(token)>`)
-   and `Token: <token>` to the user for manual fallback. The
-   bootstrap owns these prints — the server's own `log` sink
-   only ever sees the bare token-free URL (per its JSDoc
-   contract). **Run startServer in the foreground and `await`
-   its `completed` promise** (returned alongside `url`, `port`,
+5. If `tunnel === 'quick'`: instantiate
+   `refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
+   `await tunnel.start()`, then call
+   `server.setTunnelUrl(tunnel.url)` which re-mints the share
+   nonce against the tunnel origin and rewrites
+   `reviewUrl`/`publicUrl`/`shareNonce` on the server result.
+   Then (if `shouldOpen` is truthy) fire
+   `refinementReview.opener.openUrl(tunneled.reviewUrl, {})`.
+   Print `Local: <url>`, `Public: <tunneled.publicUrl>`, and
+   `URL: <tunneled.reviewUrl>` to the user. The share URL has
+   the shape `<origin>/api/exchange?nonce=<id>` — the bearer
+   token never appears in the URL.
+   Otherwise (no tunnel), print `URL: <reviewUrl>`. In both
+   cases, the bootstrap owns these prints; the server's own
+   `log` sink only ever sees the bare token-free local URL.
+   **Run startServer in the foreground and `await` its
+   `completed` promise** (returned alongside `url`, `port`,
    `reviewUrl`, `openResult`, and `stop`). This promise resolves
    with `{ artifactPath, session }` when the reviewer hits
    Complete in the UI — there is no need to poll or watch the
@@ -132,9 +153,11 @@ browser. The resulting artifact is the input to Enhancement.
    bootstrap script must keep the request alive until the UI
    session ends so the next workflow step can continue
    automatically. Wrap the body in `try { ... } finally
-   { await stop(); }` so the HTTP listener is closed even if
-   reading or recap throws — an open listener would keep the
-   foreground Node process alive and block the workflow.
+   { await server.stop(); if (tunnel) await tunnel.stop(); }`
+   so the HTTP listener and the cloudflared process are closed
+   even if reading or recap throws — an open listener would
+   keep the foreground Node process alive and block the
+   workflow.
 
 6. Once `completed` resolves, the artifact is already on disk at
    `artifactPath`. Read it and initialize `SELECTED_ITEMS` to the

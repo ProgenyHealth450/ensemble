@@ -65,7 +65,7 @@ const activeServers = [];
 
 async function setupServer(extra = {}) {
   const source = writeSource();
-  const sessionPath = path.join(tmp, 'session.json');
+  const sessionPath = extra.sessionPath || path.join(tmp, 'session.json');
   const { session, token } = sessionLib.createSession({
     sessionPath,
     kind: 'prd',
@@ -162,6 +162,187 @@ describe('auth', () => {
     expect(r.status).toBe(200);
   });
 });
+
+describe('auth hardening — Referrer-Policy on every response', () => {
+  test('401 on API surfaces Referrer-Policy: no-referrer', async () => {
+    const { server } = await setupServer();
+    const r = await request(server, 'GET', '/api/session');
+    expect(r.status).toBe(401);
+    expect(r.headers['referrer-policy']).toBe('no-referrer');
+  });
+
+  test('404 on API surfaces Referrer-Policy: no-referrer', async () => {
+    const { server, token } = await setupServer();
+    const r = await request(server, 'GET', '/api/does-not-exist', { token });
+    expect(r.status).toBe(404);
+    expect(r.headers['referrer-policy']).toBe('no-referrer');
+  });
+
+  test('200 JSON surfaces Referrer-Policy: no-referrer', async () => {
+    const { server, token } = await setupServer();
+    const r = await request(server, 'GET', '/api/session', { token });
+    expect(r.status).toBe(200);
+    expect(r.headers['referrer-policy']).toBe('no-referrer');
+  });
+
+  test('static UI surfaces Referrer-Policy: no-referrer', async () => {
+    const { server } = await setupServer();
+    const r = await request(server, 'GET', '/');
+    expect(r.status).toBe(200);
+    expect(r.headers['referrer-policy']).toBe('no-referrer');
+  });
+});
+
+describe('auth hardening — /api/exchange atomic nonce burn', () => {
+  test('valid nonce → 302 to / with review-sid cookie', async () => {
+    const { server, sessionPath } = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    const id = _internal.mintNonce({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 60000,
+    });
+    const r = await request(server, 'GET', `/api/exchange?nonce=${id}`);
+    expect(r.status).toBe(302);
+    expect(r.headers.location).toBe('/');
+    const setCookie = r.headers['set-cookie'] || [];
+    expect(setCookie.length).toBeGreaterThan(0);
+    const cookie = setCookie[0];
+    expect(cookie.startsWith('review-sid=')).toBe(true);
+    expect(cookie).toMatch(/HttpOnly/);
+    expect(cookie).toMatch(/Secure/);
+    expect(cookie).toMatch(/SameSite=Strict/);
+    expect(cookie).toMatch(/Path=\//);
+    expect(cookie).not.toMatch(/Domain=/);
+    expect(cookie).toMatch(/Max-Age=\d+/);
+  });
+
+  test('two concurrent burns: one 302, one 401', async () => {
+    const { server, sessionPath } = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    const id = _internal.mintNonce({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 60000,
+    });
+    const fire = () =>
+      new Promise((resolve, reject) => {
+        const req = http.request(
+          {
+            hostname: server.host,
+            port: server.port,
+            method: 'GET',
+            path: `/api/exchange?nonce=${id}`,
+          },
+          (res) => resolve({ status: res.statusCode, headers: res.headers }),
+        );
+        req.on('error', reject);
+        req.end();
+      });
+    const [a, b] = await Promise.all([fire(), fire()]);
+    const codes = [a.status, b.status].sort();
+    expect(codes).toEqual([302, 401]);
+  });
+
+  test('nonce probe with wrong ID does not mutate the map', async () => {
+    const { server, sessionPath } = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    // Mint a VALID nonce, then probe with a DIFFERENT (wrong) id, then
+    // assert the valid nonce still resolves. peekNonce('does-not-exist')
+    // would be tautological; this checks a real map mutation guard.
+    const goodId = _internal.mintNonce({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 60000,
+    });
+    const r = await request(server, 'GET', '/api/exchange?nonce=does-not-exist');
+    expect(r.status).toBe(401);
+    expect(_internal.peekNonce(goodId)).not.toBeNull();
+    expect(_internal.peekNonce('does-not-exist')).toBeNull();
+    // The good nonce still burns successfully — proving no global mutation
+    // happened on the failed probe.
+    const r2 = await request(server, 'GET', `/api/exchange?nonce=${goodId}`);
+    expect(r2.status).toBe(302);
+  });
+
+});
+
+describe('auth hardening — cookie > bearer > query', () => {
+  test('cookie session ID authenticates independently of bearer token', async () => {
+    const { server, sessionPath } = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    const id = _internal.mintNonce({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 60000,
+    });
+    const exchange = await request(server, 'GET', `/api/exchange?nonce=${id}`);
+    expect(exchange.status).toBe(302);
+    const sid = exchange.headers['set-cookie'][0].split(';')[0].split('=')[1];
+    const r = await request(server, 'GET', '/api/session', {
+      headers: { Cookie: `review-sid=${sid}` },
+    });
+    expect(r.status).toBe(200);
+  });
+
+  test('cookie beats bearer header when both are present', async () => {
+    const { server, sessionPath } = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    const id = _internal.mintNonce({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 60000,
+    });
+    const exchange = await request(server, 'GET', `/api/exchange?nonce=${id}`);
+    const sid = exchange.headers['set-cookie'][0].split(';')[0].split('=')[1];
+    const r = await request(server, 'GET', '/api/session', {
+      token: 'definitely-wrong-token',
+      headers: { Cookie: `review-sid=${sid}` },
+    });
+    expect(r.status).toBe(200);
+  });
+  test('cookie bound to a different sessionPath is rejected', async () => {
+    // Two servers, two distinct session files. The SID minted from server A
+    // must NOT authenticate against server B because validateSession ties
+    // records to opts.sessionPath.
+    const otherTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rr-server-other-'));
+    const otherSessionPath = path.join(otherTmp, 'session.json');
+    const a = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    const id = _internal.mintNonce({
+      sessionPath: a.sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 60000,
+    });
+    const exchange = await request(a.server, 'GET', `/api/exchange?nonce=${id}`);
+    const sid = exchange.headers['set-cookie'][0].split(';')[0].split('=')[1];
+    const other = await setupServer({ sessionPath: otherSessionPath });
+    const r = await request(other.server, 'GET', '/api/session', {
+      headers: { Cookie: `review-sid=${sid}` },
+    });
+    expect(r.status).toBe(401);
+    fs.rmSync(otherTmp, { recursive: true, force: true });
+  });
+
+  test('cookie session expiry is enforced', async () => {
+    const { server, sessionPath } = await setupServer();
+    const { _internal } = require('../../lib/refinement-review/server');
+    const id = _internal.mintNonce({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 100,
+    });
+    const exchange = await request(server, 'GET', `/api/exchange?nonce=${id}`);
+    expect(exchange.status).toBe(302);
+    const sid = exchange.headers['set-cookie'][0].split(';')[0].split('=')[1];
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const r = await request(server, 'GET', '/api/session', {
+      headers: { Cookie: `review-sid=${sid}` },
+    });
+    expect(r.status).toBe(401);
+  });
+});
+
 
 describe('GET /api/session', () => {
   test('returns the envelope', async () => {
@@ -753,7 +934,7 @@ describe('auto-open share URL', () => {
     startServerFresh = require('../../lib/refinement-review/server').startServer;
   });
 
-  test('open:true calls opener with encoded share URL; log sink is token-free', async () => {
+  test('open:true calls opener with nonce-bearing share URL; log sink is token-free', async () => {
     // Token deliberately includes every character whose encoding differs
     // between encodeURIComponent and the literal so the assertion catches
     // a forgotten encodeURIComponent call (a hex token would pass either way).
@@ -782,15 +963,21 @@ describe('auto-open share URL', () => {
     });
     activeServers.push(server);
 
-    // reviewUrl composes encodeURIComponent(token), proving the server
-    // does NOT pass the raw token to the opener.
-    const expectedReviewUrl = `${server.url}/?token=${encodeURIComponent(exoticToken)}`;
-    expect(server.reviewUrl).toBe(expectedReviewUrl);
+    // reviewUrl is the nonce-bearing share URL — `<origin>/api/exchange?nonce=<id>`.
+    // The bearer token is NEVER in the share URL; authentication is delegated
+    // to /api/exchange (which sets a cookie) and to the Authorization header
+    // for API clients. The opener gets a real URL that won't 401.
+    const expectedOrigin = server.url;
+    expect(server.reviewUrl).toMatch(
+      new RegExp(`^${expectedOrigin.replace(/\./g, '\\.')}/api/exchange\\?nonce=`),
+    );
+    expect(server.reviewUrl).not.toContain(exoticToken);
+    expect(server.reviewUrl).not.toContain(encodeURIComponent(exoticToken));
 
-    // The opener was called exactly once with the encoded share URL and no
-    // openerOpts.
+    // The opener was called exactly once with the nonce-bearing share URL
+    // and no openerOpts.
     expect(openerMock.openUrl).toHaveBeenCalledTimes(1);
-    expect(openerMock.openUrl).toHaveBeenCalledWith(expectedReviewUrl, {});
+    expect(openerMock.openUrl).toHaveBeenCalledWith(server.reviewUrl, {});
 
     // Wait for the fire-and-forget openResult to settle so we can inspect it.
     const openResult = await server.openResult;
@@ -828,12 +1015,15 @@ describe('auto-open share URL', () => {
     expect(openerMock.openUrl).not.toHaveBeenCalled();
     // reviewUrl is ALWAYS composed so the bootstrap can print the share URL
     // for manual fallback even when auto-open is suppressed (CI / --no-open /
-    // non-TTY). It must equal the encoded share URL.
-    expect(server.reviewUrl).toBe(`${server.url}/?token=${encodeURIComponent(token)}`);
+    // non-TTY). It is the nonce-bearing share URL — not the bearer URL.
+    expect(server.reviewUrl).toMatch(
+      new RegExp(`^${server.url.replace(/\./g, '\\.')}/api/exchange\\?nonce=`),
+    );
+    // The token must not be in the share URL.
+    expect(server.reviewUrl).not.toContain(token);
     // openResult is null because the opener was not invoked.
     expect(server.openResult).toBeNull();
   });
-
   test('opener exception is captured in openResult (does not reject or throw)', async () => {
     // Swap the mock to throw synchronously from the Promise constructor so
     // the .catch on the server's openResult wrapper is exercised.
@@ -864,5 +1054,56 @@ describe('auto-open share URL', () => {
     expect(openResult.reason).toBe('exception');
     expect(openResult.error).toMatch(/opener blew up/);
     await server.stop();
+  });
+});
+
+describe('setTunnelUrl after start', () => {
+  test('rewrites publicUrl, mints a fresh nonce, and updates reviewUrl', async () => {
+    const { server } = await setupServer({ open: false });
+
+    const before = {
+      publicUrl: server.publicUrl,
+      reviewUrl: server.reviewUrl,
+      shareNonce: server.shareNonce,
+    };
+    expect(before.publicUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+    const updated = server.setTunnelUrl('https://abc.trycloudflare.com/');
+    expect(updated.publicUrl).toBe('https://abc.trycloudflare.com');
+    expect(server.publicUrl).toBe('https://abc.trycloudflare.com');
+    expect(updated.shareNonce).not.toBe(before.shareNonce);
+    expect(server.shareNonce).not.toBe(before.shareNonce);
+    expect(server.reviewUrl).toBe(
+      `https://abc.trycloudflare.com/api/exchange?nonce=${updated.shareNonce}`,
+    );
+    expect(server.reviewUrl.startsWith('https://abc.trycloudflare.com/')).toBe(true);
+  });
+
+  test('calling setTunnelUrl twice mints two distinct nonces', async () => {
+    const { server } = await setupServer({ open: false });
+    const first = server.setTunnelUrl('https://abc.trycloudflare.com');
+    const second = server.setTunnelUrl('https://xyz.trycloudflare.com');
+    expect(first.shareNonce).not.toBe(second.shareNonce);
+    expect(server.publicUrl).toBe('https://xyz.trycloudflare.com');
+    expect(server.reviewUrl).toBe(
+      `https://xyz.trycloudflare.com/api/exchange?nonce=${second.shareNonce}`,
+    );
+  });
+
+  test('rejects empty / non-string tunnelUrl', async () => {
+    const { server } = await setupServer({ open: false });
+    expect(() => server.setTunnelUrl('')).toThrow(TypeError);
+    expect(() => server.setTunnelUrl(null)).toThrow(TypeError);
+    expect(() => server.setTunnelUrl(undefined)).toThrow(TypeError);
+    expect(() => server.setTunnelUrl(42)).toThrow(TypeError);
+  });
+
+  test('stripping trailing slashes on tunnelUrl', async () => {
+    const { server } = await setupServer({ open: false });
+    server.setTunnelUrl('https://abc.trycloudflare.com///');
+    expect(server.publicUrl).toBe('https://abc.trycloudflare.com');
+    expect(server.reviewUrl).toBe(
+      `https://abc.trycloudflare.com/api/exchange?nonce=${server.shareNonce}`,
+    );
   });
 });

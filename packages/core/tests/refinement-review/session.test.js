@@ -18,6 +18,7 @@ const {
   loadSession,
   createSession,
   mutateSession,
+  reopenSession,
   migrateOrCreate,
 } = require('../../lib/refinement-review/session');
 
@@ -764,6 +765,174 @@ describe('migrateOrCreate', () => {
 
     expect(() =>
       migrateOrCreate({ sessionPath, kind: 'prd', sourcePath: src, migrate(s) {} }),
+    ).toThrow(/completed/);
+  });
+});
+
+describe('reopenSession', () => {
+  function setupCompleted() {
+    const src = path.join(tmp, 'doc.md');
+    fs.writeFileSync(src, SAMPLE_MD);
+    const sessionPath = path.join(tmp, 'session.json');
+    createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      questions: [{ id: 'q1', prompt: 'first?' }],
+    });
+    // Seed a user answer + comment so we can prove preservation across reopen.
+    mutateSession({
+      sessionPath,
+      expectedRevision: 1,
+      mutate(s) {
+        const q = s.questions.find((x) => x.id === 'q1');
+        q.status = 'answered';
+        q.answer = 'kept across reopen';
+        q.author = 'tester';
+        q.selectedOptionId = null;
+        q.updatedAt = new Date().toISOString();
+        s.comments.push({
+          id: 'c1',
+          author: 'tester',
+          body: 'preserved comment',
+          anchor: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          resolved: false,
+          resolvedAt: null,
+        });
+      },
+    });
+    // Freeze the session.
+    mutateSession({
+      sessionPath,
+      expectedRevision: 2,
+      mutate(s) {
+        s.completedAt = new Date().toISOString();
+        s.completedBy = 'tester';
+      },
+    });
+    return { src, sessionPath };
+  }
+
+  test('clears completedAt/completedBy and bumps revision', () => {
+    const { sessionPath } = setupCompleted();
+    const before = loadSession(sessionPath);
+    expect(before.completedAt).toBeTruthy();
+    expect(before.completedBy).toBe('tester');
+    const beforeRev = before.revision;
+
+    const opened = reopenSession({ sessionPath, expectedRevision: beforeRev });
+    expect(opened.completedAt).toBeNull();
+    expect(opened.completedBy).toBeNull();
+    expect(opened.revision).toBe(beforeRev + 1);
+
+    const reloaded = loadSession(sessionPath);
+    expect(reloaded.completedAt).toBeNull();
+    expect(reloaded.completedBy).toBeNull();
+    expect(reloaded.revision).toBe(beforeRev + 1);
+  });
+
+  test('preserves user answers, comments, and selectedOptionId', () => {
+    const { sessionPath } = setupCompleted();
+    const before = loadSession(sessionPath);
+
+    const q1Before = before.questions[0];
+    expect(q1Before.answer).toBe('kept across reopen');
+    expect(q1Before.status).toBe('answered');
+    expect(before.comments).toHaveLength(1);
+
+    reopenSession({ sessionPath, expectedRevision: before.revision });
+
+    const reloaded = loadSession(sessionPath);
+    const q1After = reloaded.questions[0];
+    expect(q1After.answer).toBe('kept across reopen');
+    expect(q1After.status).toBe('answered');
+    expect(q1After.author).toBe('tester');
+    expect(reloaded.comments).toHaveLength(1);
+    expect(reloaded.comments[0].body).toBe('preserved comment');
+  });
+
+  test('rejects when expectedRevision is stale', () => {
+    const { sessionPath } = setupCompleted();
+    const before = loadSession(sessionPath);
+    expect(() =>
+      reopenSession({ sessionPath, expectedRevision: before.revision - 1 }),
+    ).toThrow(/revision conflict/);
+  });
+
+  test('rejects when document sha256 has drifted', () => {
+    const { src, sessionPath } = setupCompleted();
+    const before = loadSession(sessionPath);
+    fs.writeFileSync(src, SAMPLE_MD + '\n<!-- mutated -->');
+    expect(() =>
+      reopenSession({ sessionPath, expectedRevision: before.revision }),
+    ).toThrow(/document sha256 changed/);
+  });
+
+  test('after reopen, mutateSession works again (no SESSION_COMPLETED)', () => {
+    const { sessionPath } = setupCompleted();
+    const before = loadSession(sessionPath);
+    reopenSession({ sessionPath, expectedRevision: before.revision });
+    expect(() =>
+      mutateSession({
+        sessionPath,
+        expectedRevision: before.revision + 1,
+        mutate(s) {
+          s.questions.find((x) => x.id === 'q1').status = 'open';
+        },
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('migrateOrCreate reopen:true', () => {
+  function setupCompleted() {
+    const src = path.join(tmp, 'doc.md');
+    fs.writeFileSync(src, SAMPLE_MD);
+    const sessionPath = path.join(tmp, 'session.json');
+    createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      questions: [{ id: 'q1', prompt: 'first?' }],
+    });
+    mutateSession({
+      sessionPath,
+      expectedRevision: 1,
+      mutate(s) {
+        s.completedAt = new Date().toISOString();
+        s.completedBy = 'tester';
+      },
+    });
+    return { src, sessionPath };
+  }
+
+  test('reopen:true clears completion and applies migrate', () => {
+    const { src, sessionPath } = setupCompleted();
+    const before = loadSession(sessionPath);
+    const beforeRev = before.revision;
+    const { session, token } = migrateOrCreate({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: src,
+      reopen: true,
+      migrate(s) {
+        s.questions.find((x) => x.id === 'q1').targetAnchor = { lineStart: 1, lineEnd: 2 };
+      },
+    });
+    expect(session.completedAt).toBeNull();
+    expect(session.completedBy).toBeNull();
+    expect(session.revision).toBe(beforeRev + 2); // +1 for reopen, +1 for migrate
+    expect(session.questions[0].targetAnchor).toEqual({ lineStart: 1, lineEnd: 2 });
+    expect(typeof token).toBe('string');
+    expect(token).toHaveLength(64);
+  });
+
+  test('reopen:false (default) still throws SESSION_COMPLETED', () => {
+    const { src, sessionPath } = setupCompleted();
+    expect(() =>
+      migrateOrCreate({ sessionPath, kind: 'prd', sourcePath: src }),
     ).toThrow(/completed/);
   });
 });

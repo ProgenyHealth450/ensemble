@@ -381,6 +381,57 @@ function mutateSession({ sessionPath, expectedRevision, mutate, now }) {
   writeJsonAtomic(sessionPath, session);
   return session;
 }
+
+/**
+ * Reopen a completed session: clear `completedAt`/`completedBy` so the
+ * session is mutable again, while preserving user answers, comments, and
+ * document integrity. Revision is bumped by 1, expectedRevision is
+ * checked, and document sha256 is re-verified.
+ *
+ * Use this when iterating on a refinement loop where the same session
+ * must be revisitable after the user finishes one round of feedback.
+ * For a fresh session, callers should `createSession` instead — a fresh
+ * sessionPath is the canonical "start over" mechanism.
+ *
+ * @param {object} args
+ * @param {string} args.sessionPath
+ * @param {number} args.expectedRevision
+ * @param {string} [args.now] - override timestamp (for testing)
+ * @returns {object} the persisted session
+ * @throws SESSION_NOT_FOUND, REVISION_CONFLICT, DOCUMENT_CHANGED
+ */
+function reopenSession({ sessionPath, expectedRevision, now }) {
+  const session = loadSession(sessionPath);
+
+  if (typeof expectedRevision !== 'number' || session.revision !== expectedRevision)
+    throw Object.assign(
+      new Error(
+        `revision conflict (expected ${expectedRevision}, current ${session.revision})`,
+      ),
+      { code: 'REVISION_CONFLICT', status: 409, currentRevision: session.revision },
+    );
+
+  // Re-verify document integrity, same as mutateSession.
+  const onDisk = fs.readFileSync(session.document.sourcePath);
+  const onDiskSha = sha256Hex(onDisk);
+  if (onDiskSha !== session.document.sha256)
+    throw Object.assign(new Error('document sha256 changed on disk'), {
+      code: 'DOCUMENT_CHANGED',
+      status: 409,
+      sessionRevision: session.revision,
+    });
+
+  const preRevision = session.revision;
+  session.completedAt = null;
+  session.completedBy = null;
+  session.revision = preRevision + 1;
+  session.updatedAt = now || new Date().toISOString();
+
+  validateSession(session);
+  writeJsonAtomic(sessionPath, session);
+  return session;
+}
+
 /**
  * Migrate an existing session in place when one is present, otherwise create
  * a new one. Bootstrap-time helper for agents that need to add new additive
@@ -401,13 +452,13 @@ function mutateSession({ sessionPath, expectedRevision, mutate, now }) {
  *
  * @param {object} args
  * @param {string} args.sessionPath
- * @param {'prd'|'trd'} args.kind
- * @param {string} args.sourcePath
- * @param {Array<object>} [args.questions] - used only on create
  * @param {(s: object) => void} [args.migrate] - additive mutator applied on load
+ * @param {boolean} [args.reopen] - when true, an existing completed session
+ *   is reopened in place (completedAt/completedBy cleared, revision bumped).
+ *   Defaults to false: completed sessions throw SESSION_COMPLETED.
  * @returns {{ session: object, token: string }}
  */
-function migrateOrCreate({ sessionPath, kind, sourcePath, questions, migrate }) {
+function migrateOrCreate({ sessionPath, kind, sourcePath, questions, migrate, reopen }) {
   const exists = fs.existsSync(sessionPath);
   let readable = false;
   if (exists) {
@@ -425,16 +476,25 @@ function migrateOrCreate({ sessionPath, kind, sourcePath, questions, migrate }) 
   const loaded = loadSession(sessionPath);
 
   if (loaded.completedAt) {
-    throw Object.assign(
-      new Error('session is completed; choose a fresh sessionPath to restart'),
-      { code: 'SESSION_COMPLETED', status: 410 },
-    );
+    if (!reopen) {
+      throw Object.assign(
+        new Error('session is completed; choose a fresh sessionPath to restart'),
+        { code: 'SESSION_COMPLETED', status: 410 },
+      );
+    }
+    // reopen:true: clear completion fields. Use the dedicated primitive
+    // because mutateSession rejects completed sessions.
+    reopenSession({
+      sessionPath,
+      expectedRevision: loaded.revision,
+    });
   }
 
   if (typeof migrate === 'function') {
+    const reloaded = loadSession(sessionPath);
     mutateSession({
       sessionPath,
-      expectedRevision: loaded.revision,
+      expectedRevision: reloaded.revision,
       mutate: migrate,
     });
   }
@@ -457,5 +517,6 @@ module.exports = {
   loadSession,
   createSession,
   mutateSession,
+  reopenSession,
   migrateOrCreate,
 };
