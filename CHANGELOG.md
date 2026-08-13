@@ -7,13 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.9.3] - 2026-08-13
+
 ### Removed
 
 - **development:** resolve shorthand agent names to installed namespaced plugin agents before Task delegation.
 
 ### Fixed
 
-- **development:** include runtime-installed plugin agents (`~/.omp/plugins/node_modules/@*/agents/*.md`) in `AGENT_REGISTRY` and `KNOWN_AGENTS`. `configure-team` Phase 3 Step 1 and `implement-trd-beads` Preflight Order 11 now scan both the source `packages/*/agents/*.yaml` tree and the runtime plugin path, dedupe with the runtime entry winning, and rebuild `KNOWN_AGENTS` / `AGENT_ALIAS_MAP` after every plugin install. Fixes consumer-repo agent discovery gaps (e.g. foreman's local 3-agent registry shadowing the 30-agent OMP install registry).
+- **core:** close SSE subscribers before `server.close()` in `refinement-review` stop()
+  so the server no longer hangs on shutdown when a long-lived session has open
+  EventSource clients. Bumps `ensemble-core` 5.5.0 → 5.5.1.
+- **development:** include runtime-installed plugin agents (`~/.omp/plugins/node_modules/@*/agents/*.md`)
+  in `AGENT_REGISTRY` and `KNOWN_AGENTS`. `configure-team` Phase 3 Step 1 and
+  `implement-trd-beads` Preflight Order 11 now scan both the source
+  `packages/*/agents/*.yaml` tree and the runtime plugin path, dedupe with the
+  runtime entry winning, and rebuild `KNOWN_AGENTS` / `AGENT_ALIAS_MAP` after
+  every plugin install. Fixes consumer-repo agent discovery gaps (e.g. foreman's
+  local 3-agent registry shadowing the 30-agent OMP install registry).
+- **development:** join the `do NOT re-read the file again` line in
+  `configure-team.yaml` so the spec-required literal is grep-able as a single
+  substring (the rendered prompt is unchanged for the LLM).
+- **development:** `applyPhaseFilter` now passes `stacked: prFormat` to
+  `selectNextTasks` so prFormat mode implies phase-strict dispatch instead of
+  silently falling through to non-stacked behavior.
+- **development:** `trd-cli` missing-subcommand error now begins with
+  `Missing subcommand. ` so the smoke test assertion matches without losing
+  the existing Usage hint.
 
 ## [6.9.2] - 2026-06-23
 
