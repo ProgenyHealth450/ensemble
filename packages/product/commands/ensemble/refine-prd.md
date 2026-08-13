@@ -21,51 +21,180 @@ scoring.
 ### Phase 1: Collaborative Review
 
 **1. Session Bootstrap**
-   GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
-step and proceed directly to Phase 2 (PRD Review). Do not bootstrap
-a session, do not start a server, do not block on an artifact.
-All other steps in this phase are likewise skipped because the
-phase contains only this step.
+   GUARD: If BOTH `--collab` and `--long-lived` are absent from
+$ARGUMENTS, skip this entire step and proceed directly to Phase 2
+(PRD Review). Do not bootstrap a session, do not start a server,
+do not block on an artifact. All other steps in this phase are
+likewise skipped because the phase contains only this step.
 Bootstrap a refinement-review session for collaborative editing of
 the PRD, then wait for the reviewer to mark it complete in the
 browser. The resulting artifact is the input to Enhancement.
 
 1. Resolve the PRD path from $ARGUMENTS (first non-flag token).
-2. Generate 5–10 refinement questions drawn from the PRD content:
+2. Generate 5–10 refinement questions drawn from the PRD content.
+   Each question MUST have this shape:
+   ```js
+   {
+     id: 'q-<short-kebab>',
+     prompt: '<multi-line question shown to reviewer>',
+     context: '<why this question matters, cited from PRD>',
+     targetAnchor: { lineStart: <1-based>, lineEnd: <1-based, inclusive> },
+     options: [
+       { id: '<option-kebab>', label: '<short verb phrase>',
+         description: '<one-sentence clarification>' },
+       // 2–5 total, mutually exclusive
+     ],
+     recommendedOptionId: '<one of the option ids>',
+   }
+   ```
    - For each `[NEEDS CLARIFICATION]` marker present, add a question
      whose `context` quotes the marker text verbatim.
    - Add a "top N gaps" question inferred from the PRD Health
      summary (MoSCoW coverage, missing ACs, missing REQ IDs).
+   - `targetAnchor.lineStart`/`lineEnd` MUST point at the smallest
+     line range in the PRD that the reviewer should focus on. For
+     metadata-level questions (frontmatter author, version), use
+     `{lineStart: 1, lineEnd: <first heading> + 1}`.
+   - `options` is REQUIRED for collab. Provide 2–5 mutually
+     exclusive options. Always include an option labeled
+     "Skip — leave as-is" / "No — leave unchanged" as the last
+     choice so the reviewer can opt out per question.
+   - `recommendedOptionId` MUST be the `id` of the option you
+     want to default-select. Always pick the option you would
+     apply if the reviewer hit Save immediately.
 3. Pick a session file path under a cache directory returned by
-   `getLogsPath()` or equivalent (gitignored). Load the shared
-   module once via
-   `const { refinementReview } = require('@sunstone-partners/ensemble-core')`
-   and call
-   `refinementReview.session.createSession({ sessionPath, kind: 'prd', sourcePath, questions })`.
-   It returns `{ session, token }` synchronously and writes the
-   session JSON to `sessionPath`.
-4. Resolve the static UI directory by deriving it from the package
-   itself:
+   `getLogsPath()` or equivalent (gitignored). The bootstrap script
+   is generated outside the PI package's install directory, so plain
+   `require('@sunstone-partners/ensemble-core')` will fail with
+   `Cannot find module` — Node's caller-relative `node_modules`
+   search does not walk back to the PI package's `node_modules`.
+   **Anchor all package imports to the installed PI package's
+   `package.json` via `createRequire`.** The bootstrap script
+   resolves the PI package at runtime from well-known install
+   locations (an explicit `ENSEMBLE_PI_INSTALL_ROOT` env var is
+   honored for the packed-install test; the OMP plugin root and
+   the current working directory are the production fallbacks):
    ```js
-   const pkgRoot = require('path').dirname(
-     require.resolve('@sunstone-partners/ensemble-core/package.json'),
+   const { createRequire } = require('module');
+   const path = require('path');
+   const os = require('os');
+   const PI_PKG_JSON = require.resolve(
+     '@sunstone-partners/ensemble-pi/package.json',
+     {
+       paths: [
+         process.env.ENSEMBLE_PI_INSTALL_ROOT,
+         path.join(os.homedir(), '.omp', 'plugins'),
+         process.cwd(),
+       ].filter(Boolean),
+     },
    );
-   const uiDir = require('path').join(pkgRoot, 'lib/refinement-review/ui');
+   const piRequire = createRequire(PI_PKG_JSON);
+   Call
+   `refinementReview.session.migrateOrCreate({ sessionPath, kind: 'prd', sourcePath, questions, reopen: true })`,
+   where `migrateOrCreate` returns `{ session, token }` synchronously.
+   It loads any prior session file at `sessionPath`; if the prior
+   session was already completed (frozen by a prior `/api/complete`
+   call), `reopen: true` clears `completedAt`/`completedBy` and
+   bumps the revision so the iterative refinement loop can
+   revisit the same sessionPath. User answers, comments, and
+   `selectedOptionId` survive reopen. Without `reopen: true`,
+   completed sessions throw `SESSION_COMPLETED` (preserving the
+   prior guard behavior). It uses `mutateSession` to merge in
+   new additive metadata (`options`, `recommendedOptionId`,
+   missing `targetAnchor`) while preserving user-entered
+   `answer`, `comments`, `selectedOptionId`, and revision
+   history; falls back to `createSession` when no prior file
+   is present.
+4. Resolve the static UI directory by deriving it from the PI
+   package's `node_modules` (where core actually resolves):
+   ```js
+   const corePkgJson = piRequire.resolve('@sunstone-partners/ensemble-core/package.json');
+   const uiDir = path.join(path.dirname(corePkgJson), 'lib/refinement-review/ui');
    ```
-   Start the local server with
-   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })`,
-   where `open = !$ARGUMENTS.contains('--no-open') && process.stdout.isTTY && !process.env.CI`.
-   The server binds 127.0.0.1 with an OS-assigned port. The
-   `open` flag opts into auto-launching the reviewer's browser
-   via the per-platform opener (`open` / `xdg-open` /
-   `rundll32 url.dll,FileProtocolHandler`); it auto-suppresses
-   (CI, piped logs) and on `--no-open`.
-5. Print `URL: <reviewUrl>` (i.e. `http://<host>:<port>/?token=<encodeURIComponent(token)>`)
-   and `Token: <token>` to the user for manual fallback. The
-   bootstrap owns these prints — the server's own `log` sink
-   only ever sees the bare token-free URL (per its JSDoc
-   contract). **Run startServer in the foreground and `await`
-   its `completed` promise** (returned alongside `url`, `port`,
+   Compute the open intent once as
+   `shouldOpen = !$ARGUMENTS.contains('--no-open') && process.env.CI !== 'true'`,
+   and pass `open = shouldOpen && tunnel !== 'quick'` to
+   `startServer`. Auto-open is deferred when `--tunnel=quick`
+   is set because the opener should fire on the public URL
+   (post-tunnel), not the local URL; the bootstrap fires the
+   opener itself (using `shouldOpen`, not `open`) once
+   `setTunnelUrl` has rewritten the review URL.
+   **DO NOT gate on `process.stdout.isTTY`** — the bootstrap is
+   typically launched from a process supervisor (hub, nohup,
+   background shell) whose captured stdout is not a TTY, but the
+   host GUI is fully functional. TTY is not a valid open-gate.
+  The right opt-outs are `--no-open` and `CI=true`.
+  **Long-lived mode (`--long-lived`):** before calling
+  `startServer`, validate that `--reviewers` is NOT also
+  present in $ARGUMENTS — the two modes are mutually
+  exclusive and the bootstrap MUST abort with a clear
+  error if both are supplied. Force `tunnel = 'quick'`
+  regardless of any explicit `--tunnel` value (long-lived
+  implies QuickTunnel). Parse `--ttl <duration>` (default
+  `6h`); reject durations that parse to less than 6h with
+  a clear error. Call `startServer({ sessionPath, token,
+  uiDir, longLived: true, ttlMs: <ms>, port: 0, log,
+  logError, open: false })`. `port: 0` lets the OS pick
+  the actual port (the server result fills in `url`/
+  `port`); `open: false` because the bootstrap fires the
+  opener itself on the tunneled invite URL after step 5.
+5. If `tunnel === 'quick'`: instantiate
+   `new refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
+   `await tunnel.start()`, then call
+   `server.setTunnelUrl(tunnel.url)` which re-mints the share
+   credential against the tunnel origin and rewrites
+   `reviewUrl`/`publicUrl` on the server result. The minted
+   field is `shareInvite` when `opts.longLived === true`
+   and `shareNonce` otherwise; the URL shape is
+   `<origin>/api/exchange?invite=<id>` for long-lived and
+   `<origin>/api/exchange?nonce=<id>` for the default flow.
+   Then (if `shouldOpen` is truthy) fire
+   `refinementReview.opener.openUrl(tunneled.reviewUrl, {})`.
+   The share URL never carries the bearer token. **Do not
+   print the URL here** — step 6 owns the consolidated print
+   so the listing reflects any mode-specific shape.
+6. **If `$ARGUMENTS` contains `--long-lived`:** skip the fan-out
+   logic below entirely. After step 5 (tunnel setup),
+   `server.reviewUrl` already carries the invite URL of the form
+   `<origin>/api/exchange?invite=<id>`. Print the URL listing:
+   `Local: <url>`, `Public: <publicUrl>`, `URL: <reviewUrl>`
+   (same format as the tunnel+single-reviewer case). The invite
+   is multi-use and any reviewer self-identifies through the
+   form at `/api/exchange?invite=<id>`; there is no per-reviewer
+   nonce to mint.
+   Parse `--reviewers <N>` from $ARGUMENTS otherwise: extract
+   `N` as a positive integer in `[1, 50]`.
+   Default to `1` when
+   the flag is absent. Validate strictly: a non-integer,
+   a value `< 1`, or a value `> 50` MUST cause the
+   bootstrap to abort with a clear error message rather
+   than silently truncate to `1`. When `N > 1`, mint
+   `(N - 1)` additional share URLs by calling
+   `server.createShareUrl()` `N - 1` times — each call
+   returns an independent `{ reviewUrl, shareNonce,
+   publicUrl }` triple bound to the current public origin
+   (tunnel origin when `--tunnel=quick`, local origin
+   otherwise). Print the final URL listing to the user:
+   - When `N === 1` (the default): print the original
+     additive flow — `URL: <reviewUrl>` for the no-tunnel
+     case, or `Local: <url>`, `Public: <publicUrl>`,
+     `URL: <reviewUrl>` for the tunnel case. This format
+     is preserved verbatim from the pre-fan-out behavior.
+   - When `N > 1`: print `Local: <url>` and `Public:
+     <publicUrl>` headers (tunnel case only) followed
+     by `URL #1: <original reviewUrl>` through
+     `URL #N: <(N-1)th createShareUrl().reviewUrl>`.
+   Each reviewer redeems their own nonce independently
+   through `/api/exchange`; the server burns the nonce
+   atomically on first use, so a leaked `#k` URL cannot
+   be replayed by a second reviewer, and all reviewers
+   authenticate to the same session (same document, same
+   answer set). The `--reviewers` flag is independent of
+   `--tunnel`; both apply, and the fan-out URLs all share
+   the same `publicUrl` (local origin when no tunnel,
+   tunnel origin when `--tunnel=quick`).
+7. **Run startServer in the foreground and `await` its
+   `completed` promise** (returned alongside `url`, `port`,
    `reviewUrl`, `openResult`, and `stop`). This promise resolves
    with `{ artifactPath, session }` when the reviewer hits
    Complete in the UI — there is no need to poll or watch the
@@ -73,16 +202,17 @@ browser. The resulting artifact is the input to Enhancement.
    bootstrap script must keep the request alive until the UI
    session ends so the next workflow step can continue
    automatically. Wrap the body in `try { ... } finally
-   { await stop(); }` so the HTTP listener is closed even if
-   reading or recap throws — an open listener would keep the
-   foreground Node process alive and block the workflow.
-
-6. Once `completed` resolves, the artifact is already on disk at
+   { await server.stop(); if (tunnel) await tunnel.stop(); }`
+   so the HTTP listener and the cloudflared process are closed
+   even if reading or recap throws — an open listener would
+   keep the foreground Node process alive and block the
+   workflow.
+8. Once `completed` resolves, the artifact is already on disk at
    `artifactPath`. Read it and initialize `SELECTED_ITEMS` to the
    union of every question with `status === 'answered'` and every
    comment whose anchor is non-null. Map each comment to a finding
    against its anchor's section.
-7. Print a session recap: answered count, comment count, artifact
+9. Print a session recap: answered count, comment count, artifact
    path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
    PRD Review phase below will short-circuit on its Synthesis,
    Interview, and Feedback Integration steps.
@@ -100,11 +230,11 @@ browser. The resulting artifact is the input to Enhancement.
    - Check if PRD Health summary exists and whether its numbers match actual requirement counts
    - Note the current version number for version bumping later
 
-**2. Synthesis (skip when --collab in $ARGUMENTS)**
-   If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase has already collected the findings and
-populated `SELECTED_ITEMS` from answered questions and comments.
-Otherwise, perform the original synthesis below.
+**2. Synthesis (skip when --collab or --long-lived in $ARGUMENTS)**
+   If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase has already collected
+the findings and populated `SELECTED_ITEMS` from answered questions
+and comments. Otherwise, perform the original synthesis below.
 After reviewing the PRD, generate a numbered list of findings WITHOUT making
 any edits yet. Scan for the following issues:
 
@@ -144,10 +274,10 @@ making any changes. If the user replies "all", set SELECTED_ITEMS to every
 finding number.
 
 
-**3. Interview (skip when --collab in $ARGUMENTS)**
-   If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase already collected interactive answers.
-Otherwise, run the original interview below.
+**3. Interview (skip when --collab or --long-lived in $ARGUMENTS)**
+   If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase already collected
+interactive answers. Otherwise, run the original interview below.
 REQUIRED: Conduct a targeted user interview covering ONLY the topics
 corresponding to SELECTED_ITEMS. Skip any findings the user did not select.
 
@@ -173,11 +303,11 @@ For each selected finding, ask a focused follow-up question. Examples:
 - For dependency gaps: ask which requirements depend on or are blocked by others
 
 
-**4. Feedback Integration (artifact when --collab in $ARGUMENTS)**
-   If `--collab` is present in $ARGUMENTS, source the answers and comments
-from the artifact written by the Collaborative Review phase
-(path printed by that phase); the Interview step is bypassed.
-Otherwise, perform the original feedback integration below.
+**4. Feedback Integration (artifact when --collab or --long-lived in $ARGUMENTS)**
+   If `--collab` or `--long-lived` is present in $ARGUMENTS, source the
+answers and comments from the artifact written by the Collaborative
+Review phase (path printed by that phase); the Interview step is
+bypassed. Otherwise, perform the original feedback integration below.
 
 Incorporate the answers gathered during the Interview step. Apply changes
 only for SELECTED_ITEMS — do not modify sections the user did not select.
