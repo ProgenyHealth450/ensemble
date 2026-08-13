@@ -148,6 +148,61 @@ Constraints:
   per-reviewer tokens. Each reviewer's `review-sid` cookie is
   independently minted from their own nonce.
 
+## `--long-lived`
+
+The companion mode to `--collab` for sessions that run **all day**
+(or longer) rather than a single 10-minute exchange. A long-lived
+session swaps the **single-use nonce** for a **multi-use invite** and
+adds a **username gate** + **presence tracking** so a team can hand
+the URL around (chat, email, calendar) and anyone who joins sees
+who else is currently inside the doc.
+
+```bash
+# Default TTL is 6h; override with --ttl
+/ensemble:refine-prd --long-lived docs/PRD/PRD-2026-019.md
+/ensemble:refine-prd --long-lived --ttl=8h docs/PRD/PRD-2026-019.md
+/ensemble:refine-prd --long-lived --tunnel=quick docs/PRD/PRD-2026-019.md
+```
+
+### What changes
+
+| Aspect | `--collab` (default) | `--long-lived` |
+|---|---|---|
+| Share credential | single-use `nonce` (10 min, burned on first POST) | multi-use `invite` (TTL-bounded, never burned) |
+| URL shape | `/api/exchange?nonce=<id>` | `/api/exchange?invite=<id>` |
+| Open URL | auto-fires the browser opener post-tunnel if `shouldOpen` is true | same — `open: false` is passed to `startServer` to defer the open past the tunnel, but the bootstrap fires the opener on the tunneled invite URL after step 5 (suppressed by `--no-open` or `CI=true`) |
+| Port | explicit `--port` or `DEFAULT_PORT` | `0` (OS-assigned) for safety |
+| Tunnel | opt-in via `--tunnel=quick` | implicitly `quick` (any `--tunnel` is forced to `quick`) |
+| Auth gate | none beyond the nonce cookie | **username gate** — every reviewer submits a display name before the doc opens |
+| Presence | n/a | server-side `Map<sid, { name, count }>`; broadcasts `viewers` event on every SSE connection; multi-tab refcounted |
+| TTL | `NONCE_TTL_MS` (10 min) | `--ttl` (default `6h`, minimum `6h`) |
+| Mutex | n/a | `--reviewers N` is rejected when `--long-lived` is present |
+
+### Auth flow
+
+1. The bootstrap calls `startServer({ longLived: true, ttlMs, port: 0, open: false })`. The server returns the local URL **plus** a freshly minted invite, defaulting the `shareUrl`/`reviewUrl` to `/api/exchange?invite=<id>`.
+2. The reviewer opens the URL. The server validates the invite (exists, not expired) and returns an HTML form (`renderIdentifyForm`) with a hidden `invite` field and a visible `name` field.
+3. The reviewer submits a display name. The server validates the invite again (multi-use), validates the name (≤ 100 chars, non-empty), mints a `review-sid` cookie with `displayName`, and redirects to `/`.
+4. Every subsequent request must carry the cookie. Bearer tokens are **rejected** in long-lived mode — the cookie IS the credential.
+5. Presence: when the SSE channel opens, the server adds `{ name, connectedAt }` to the `viewers` map (refcounted by `sid` for multi-tab) and broadcasts a `viewers` event. When the last SSE channel for a `sid` closes, the entry is removed and another `viewers` event is broadcast.
+
+### TTL behaviour
+
+The TTL timer starts when `server.listen` resolves. When it fires:
+
+- The server is auto-stopped via `stop()` (idempotent — safe to call manually).
+- The `completed` promise resolves with `{ artifactPath, session: null, stopped: true }` so foreground bootstraps can exit cleanly. A `/api/complete` call that lands before the timer fires wins normally — it sets `completedBy`/`completedAt` and resolves first.
+- Invites that are sitting in the `invites` map past their `sessionExpiresAt` are removed lazily by `validateInvite(id)` — the next exchange attempt returns `null` and the server replies `401`. The TTL timer itself does not iterate the map; expiry is observed on access.
+
+### Mutex
+
+`--long-lived` and `--reviewers N` are mutually exclusive. The
+bootstrap aborts with a clear error if both are present in
+`$ARGUMENTS`. Rationale: the invite URL is already multi-use, so
+fan-out is a non-feature; the presence layer expects a single
+session-bound flow, not per-reviewer keying.
+
+## Session persistence
 
 Sessions are persistent and revision-tracked. Re-launching
 `/ensemble:refine-prd --collab` against the same PRD path will:

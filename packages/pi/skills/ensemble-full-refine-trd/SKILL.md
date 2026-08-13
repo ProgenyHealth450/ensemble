@@ -24,11 +24,11 @@ disable-model-invocation: true
 
 ### Step 1: Session Bootstrap
 
-GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
-step and proceed directly to Phase 2 (TRD Review). Do not bootstrap
-a session, do not start a server, do not block on an artifact.
-All other steps in this phase are likewise skipped because the
-phase contains only this step.
+GUARD: If BOTH `--collab` and `--long-lived` are absent from
+$ARGUMENTS, skip this entire step and proceed directly to Phase 2
+(TRD Review). Do not bootstrap a session, do not start a server,
+do not block on an artifact. All other steps in this phase are
+likewise skipped because the phase contains only this step.
 Bootstrap a refinement-review session for collaborative editing of
 the TRD, then wait for the reviewer to mark it complete in the
 browser. The resulting artifact is the input to Enhancement.
@@ -133,22 +133,49 @@ browser. The resulting artifact is the input to Enhancement.
    `open` flag opts into auto-launching the reviewer's browser
    via the per-platform opener (`open` / `xdg-open` /
    `rundll32 url.dll,FileProtocolHandler`); it auto-suppresses
-   (CI, piped logs) and on `--no-open`.
+  (CI, piped logs) and on `--no-open`.
+  **Long-lived mode (`--long-lived`):** before calling
+  `startServer`, validate that `--reviewers` is NOT also
+  present in $ARGUMENTS — the two modes are mutually
+  exclusive and the bootstrap MUST abort with a clear
+  error if both are supplied. Force `tunnel = 'quick'`
+  regardless of any explicit `--tunnel` value (long-lived
+  implies QuickTunnel). Parse `--ttl <duration>` (default
+  `6h`); reject durations that parse to less than 6h with
+  a clear error. Call `startServer({ sessionPath, token,
+  uiDir, longLived: true, ttlMs: <ms>, port: 0, log,
+  logError, open: false })`. `port: 0` lets the OS pick
+  the actual port (the server result fills in `url`/
+  `port`); `open: false` because the bootstrap fires the
+  opener itself on the tunneled invite URL after step 5.
 5. If `tunnel === 'quick'`: instantiate
    `new refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
    `await tunnel.start()`, then call
    `server.setTunnelUrl(tunnel.url)` which re-mints the share
-   nonce against the tunnel origin and rewrites
-   `reviewUrl`/`publicUrl`/`shareNonce` on the server result.
+   credential against the tunnel origin and rewrites
+   `reviewUrl`/`publicUrl` on the server result. The minted
+   field is `shareInvite` when `opts.longLived === true`
+   and `shareNonce` otherwise; the URL shape is
+   `<origin>/api/exchange?invite=<id>` for long-lived and
+   `<origin>/api/exchange?nonce=<id>` for the default flow.
    Then (if `shouldOpen` is truthy) fire
    `refinementReview.opener.openUrl(tunneled.reviewUrl, {})`.
-   The share URL has the shape
-   `<origin>/api/exchange?nonce=<id>` — the bearer token
-   never appears in the URL. **Do not print the URL
-   here** — step 6 owns the consolidated print so the
-   listing reflects any `--reviewers N` fan-out.
-6. Parse `--reviewers <N>` from $ARGUMENTS: extract `N` as
-   a positive integer in `[1, 50]`. Default to `1` when
+   The share URL never carries the bearer token. **Do not
+   print the URL here** — step 6 owns the consolidated print
+   so the listing reflects any mode-specific shape.
+6. **If `$ARGUMENTS` contains `--long-lived`:** skip the fan-out
+   logic below entirely. After step 5 (tunnel setup),
+   `server.reviewUrl` already carries the invite URL of the form
+   `<origin>/api/exchange?invite=<id>`. Print the URL listing:
+   `Local: <url>`, `Public: <publicUrl>`, `URL: <reviewUrl>`
+   (same format as the tunnel+single-reviewer case). The invite
+   is multi-use and any reviewer self-identifies through the
+   form at `/api/exchange?invite=<id>`; there is no per-reviewer
+   nonce to mint. `server.createShareUrl()` is undefined in this
+   mode and MUST NOT be called.
+   Parse `--reviewers <N>` from $ARGUMENTS otherwise: extract
+   `N` as a positive integer in `[1, 50]`.
+   Default to `1` when
    the flag is absent. Validate strictly: a non-integer,
    a value `< 1`, or a value `> 50` MUST cause the
    bootstrap to abort with a clear error message rather
@@ -217,12 +244,12 @@ Review existing TRD content and extract structural metadata
 7. PR format detection: scan TRD for '### PR ' followed by a digit within the '## Master Task List' section (from '## Master Task List' heading to the next '##' heading or EOF). If found: set PR_FORMAT=true and log 'TRD format: PR-stack'. Else: set PR_FORMAT=false and log 'TRD format: legacy phase/sprint'.
 8. If PR_FORMAT=true: count PR boundary sections; for each ### PR N: heading check whether a **Shippable State:** line immediately follows it; record MISSING_SHIPPABLE[N] for any that don't; record INFRA_ONLY_SHIPPABLE[N] for any whose Shippable State text contains only infrastructure language (e.g., 'scaffolding', 'setup done', 'infrastructure complete') with no user-observable capability.
 
-### Step 2: Synthesis (skip when --collab in $ARGUMENTS)
+### Step 2: Synthesis (skip when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase has already collected the findings and
-populated `SELECTED_ITEMS` from answered questions and comments.
-Otherwise, perform the original synthesis below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase has already collected
+the findings and populated `SELECTED_ITEMS` from answered questions
+and comments. Otherwise, perform the original synthesis below.
 
 After reviewing the TRD, generate a numbered list of findings — do NOT make
 any edits yet.
@@ -270,11 +297,11 @@ Store the user's reply as SELECTED_ITEMS.
 - If the user replies "all", treat every numbered finding as selected.
 - Otherwise, parse the comma-separated numbers to determine which findings are selected.
 
-### Step 3: Interview (skip when --collab in $ARGUMENTS)
+### Step 3: Interview (skip when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase already collected interactive answers.
-Otherwise, run the original interview below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase already collected
+interactive answers. Otherwise, run the original interview below.
 
 Conduct a focused follow-up interview ONLY about the SELECTED_ITEMS from the
 Synthesis step. Skip any topic the user did not select.
@@ -303,12 +330,12 @@ For each selected finding, ask targeted follow-up questions such as:
 - "For forward dependency violations (PR_FORMAT=true): 'TRD-XXX in PR N depends on TRD-YYY in PR N+1. This breaks PR N shippability. Should we move TRD-XXX to PR N+1, or can TRD-YYY be moved to PR N?'"
 - "For legacy format conversion offer (PR_FORMAT=false): 'This TRD uses ### Phase N: headings. Would you like to convert the Master Task List to ### PR N: format with Shippable State annotations? This enables implement-trd-beads PR-stack mode (feature/<slug>-pr-N branches, per-PR git town propose). The ## Sprint Planning section would remain unchanged.'"
 
-### Step 4: Feedback Integration (artifact when --collab in $ARGUMENTS)
+### Step 4: Feedback Integration (artifact when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, source the answers and comments
-from the artifact written by the Collaborative Review phase
-(path printed by that phase); the Interview step is bypassed.
-Otherwise, perform the original feedback integration below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, source the
+answers and comments from the artifact written by the Collaborative
+Review phase (path printed by that phase); the Interview step is
+bypassed. Otherwise, perform the original feedback integration below.
 
 Incorporate stakeholder feedback collected during the interview into a change plan
 
