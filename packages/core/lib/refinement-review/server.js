@@ -131,7 +131,87 @@ function mintInvite(record) {
  */
 function validateInvite(id) {
   if (typeof id !== 'string' || !id) return null;
-  return invites.get(id) || null;
+  const rec = invites.get(id);
+  if (!rec) return null;
+  if (typeof rec.sessionExpiresAt === 'number' && rec.sessionExpiresAt <= Date.now()) {
+    invites.delete(id);
+    return null;
+  }
+  return rec;
+}
+
+/**
+ * Escape a string for safe insertion into an HTML double-quoted attribute.
+ * Unlike encodeURIComponent, this preserves the byte sequence so the form
+ * POST round-trip sees the original token.
+ */
+function escapeHtmlAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * Render the username form HTML returned by GET /api/exchange in
+ * long-lived mode. The invite is passed as a hidden field so the browser
+ * POSTs it back to /api/identify without needing JavaScript.
+ */
+function renderIdentifyForm(inviteId) {
+  const safe = escapeHtmlAttr(inviteId);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Identify</title>
+  <meta name="referrer" content="no-referrer" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 4em auto; padding: 1em; color: #111; }
+    input[type=text], button { font: inherit; padding: 0.5em; width: 100%; box-sizing: border-box; }
+    button { margin-top: 1em; cursor: pointer; background: #1d4ed8; color: #fff; border: 0; border-radius: 4px; }
+    h1 { font-size: 1.2em; margin: 0 0 0.5em; }
+    p { color: #444; }
+  </style>
+</head>
+<body>
+  <h1>Identify yourself</h1>
+  <p>Enter your name to join the review session.</p>
+  <form method="POST" action="/api/identify">
+    <input type="hidden" name="invite" value="${safe}" />
+    <label for="name">Display name</label>
+    <input id="name" name="name" type="text" required maxlength="${MAX_DISPLAY_NAME_LENGTH}" autocomplete="off" />
+    <button type="submit">Join</button>
+  </form>
+</body>
+</html>`;
+}
+
+/**
+ * Parse the body of POST /api/identify. Accepts either JSON or
+ * application/x-www-form-urlencoded so the HTML form (no JS) and any
+ * programmatic client can both submit.
+ */
+function parseIdentifyBody(buf) {
+  const text = buf.toString('utf8').trim();
+  if (!text) return {};
+  if (text[0] === '{' || text[0] === '[') {
+    return JSON.parse(text);
+  }
+  const out = {};
+  for (const pair of text.split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    if (eq < 0) {
+      out[decodeURIComponent(pair)] = '';
+      continue;
+    }
+    const k = decodeURIComponent(pair.slice(0, eq).replace(/\+/g, ' '));
+    const v = decodeURIComponent(pair.slice(eq + 1).replace(/\+/g, ' '));
+    out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -353,13 +433,17 @@ async function startServer(opts) {
     throw new Error('token is required');
 
   const host = opts.host || DEFAULT_HOST;
-  const explicitPort = opts.port || DEFAULT_PORT;
+  const explicitPort = opts.port !== undefined ? opts.port : DEFAULT_PORT;
   const uiDir = opts.uiDir ? path.resolve(opts.uiDir) : null;
   const artifactPath =
     opts.artifactPath || `${opts.sessionPath}.response.json`;
   const log = opts.log || (() => {});
   const logError = opts.logError || log;
-
+  // Long-lived mode: default and validate TTL. The invite and the TTL timer
+  // both consume this normalised value so they agree.
+  const ttlMs = opts.longLived === true
+    ? (Number.isFinite(opts.ttlMs) && opts.ttlMs > 0 ? opts.ttlMs : 6 * 60 * 60 * 1000)
+    : null;
   // Resolves with `{ artifactPath, session }` when the reviewer hits Complete
   // in the UI (POST /api/complete). Rejects if completion fails. Foreground
   // launchers should `await` this instead of polling the artifact file.
@@ -526,7 +610,34 @@ async function startServer(opts) {
     // gate, so that a reviewer following a share URL can land here even if
     // they don't yet have a cookie or bearer.
     // -------------------------------------------------------------------
+    // /api/exchange: two paths, gated by `opts.longLived`.
+    //   - long-lived: validate invite (multi-use), serve HTML form
+    //   - default: validate nonce (single-use), mint cookie + redirect
+    //
+    // /api/identify (long-lived only): POST { name, invite } mints the
+    // cookie session bound to a display name. The invite is the
+    // credential; the bearer gate does not apply.
+    // -------------------------------------------------------------------
     if (method === 'GET' && url.pathname === '/api/exchange') {
+      if (opts.longLived === true) {
+        const inviteId = url.searchParams.get('invite');
+        if (!inviteId) {
+          writeJson(res, 400, { error: 'invite required' });
+          return;
+        }
+        const invite = validateInvite(inviteId);
+        if (!invite) {
+          writeJson(res, 401, { error: 'invalid or expired invite' });
+          return;
+        }
+        const html = renderIdentifyForm(inviteId);
+        res.writeHead(200, securityHeaders({
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+        }));
+        res.end(html);
+        return;
+      }
       const nonceId = url.searchParams.get('nonce');
       if (!nonceId) {
         writeJson(res, 400, { error: 'nonce required' });
@@ -552,10 +663,60 @@ async function startServer(opts) {
       writeRedirect(res, '/', cookie);
       return;
     }
+    if (method === 'POST' && url.pathname === '/api/identify' && opts.longLived === true) {
+      let body;
+      try {
+        body = parseIdentifyBody(await readBody(req));
+      } catch (e) {
+        writeJson(res, 400, { error: 'invalid body' });
+        return;
+      }
+      const inviteId = body && body.invite;
+      if (typeof inviteId !== 'string' || !inviteId) {
+        writeJson(res, 401, { error: 'invite required' });
+        return;
+      }
+      const invite = validateInvite(inviteId);
+      if (!invite) {
+        writeJson(res, 401, { error: 'invalid or expired invite' });
+        return;
+      }
+      const name = body && typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) {
+        writeJson(res, 400, { error: 'name required' });
+        return;
+      }
+      if (name.length > MAX_DISPLAY_NAME_LENGTH) {
+        writeJson(res, 400, { error: 'name too long' });
+        return;
+      }
+      const sid = mintSession({
+        sessionPath: invite.sessionPath,
+        permissions: invite.permissions,
+        expiresAt: invite.sessionExpiresAt,
+        displayName: name,
+      });
+      const sessionRec = sessions.get(sid);
+      const cookie = buildSessionCookie(sid, sessionRec);
+      writeRedirect(res, '/', cookie);
+      return;
+    }
 
-    // Static UI: anything not under /api is served from uiDir.
+    // Static UI: anything not under /api is served from uiDir. In long-lived
+    // mode the document is gated behind identification, so a valid cookie is
+    // required before serving the static branch.
     const isApi = url.pathname.startsWith('/api/');
     if (!isApi) {
+      if (opts.longLived === true) {
+        const cookieCred = tokenFromRequest(req, url);
+        const cookieRec = cookieCred && cookieCred.kind === 'cookie'
+          ? validateSession(cookieCred.value, opts.sessionPath)
+          : null;
+        if (!cookieRec) {
+          writeJson(res, 401, { error: 'unauthorized' });
+          return;
+        }
+      }
       if (!uiDir) {
         res.writeHead(404, securityHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
         res.end('not found');
@@ -596,11 +757,17 @@ async function startServer(opts) {
       });
       return;
     }
-
     // All other API routes require a credential. Cookie is preferred
     // (durable per-device), then bearer, then query (SSE only).
     const cred = tokenFromRequest(req, url);
     if (!cred) {
+      writeJson(res, 401, { error: 'unauthorized' });
+      return;
+    }
+    // Long-lived mode: identification is the only path to API access. Even
+    // the operator bearer token is rejected — only cookie sessions minted by
+    // /api/identify after a valid invite are allowed.
+    if (opts.longLived === true && cred.kind !== 'cookie') {
       writeJson(res, 401, { error: 'unauthorized' });
       return;
     }
@@ -615,12 +782,30 @@ async function startServer(opts) {
       return;
     }
 
-    // SSE: GET /api/events (token via query param)
+    // SSE: GET /api/events (cookie preferred; token via query param for
+    // EventSource clients that cannot set headers). In long-lived mode,
+    // also tracks presence: each connected tab refcounts the cookie sid
+    // in the viewers map and broadcasts `event: viewers` on 0<->1 transitions.
     if (method === 'GET' && url.pathname === '/api/events') {
       const envelope = session.loadSession(opts.sessionPath);
       if (envelope.completedAt) {
         writeJson(res, 410, { error: 'session completed' });
         return;
+      }
+      // Presence (long-lived only): resolve the cookie session sid. The
+      // sid is NEVER broadcast — it is the bearer credential.
+      let viewerSid = null;
+      let viewerName = null;
+      if (opts.longLived === true) {
+        const cookies = parseCookies(req.headers.cookie);
+        const sid = cookies[SESSION_COOKIE_NAME];
+        if (sid) {
+          const rec = validateSession(sid, opts.sessionPath);
+          if (rec) {
+            viewerSid = sid;
+            viewerName = rec.displayName || 'anonymous';
+          }
+        }
       }
       res.writeHead(200, securityHeaders({
         'content-type': 'text/event-stream; charset=utf-8',
@@ -630,6 +815,19 @@ async function startServer(opts) {
       }));
       // Initial snapshot.
       res.write(`event: session\ndata: ${jsonStringify(envelope)}\n\n`);
+      // Track presence BEFORE writing/broadcasting the viewers list, so
+      // this response receives the up-to-date payload (including itself).
+      let viewerAdded = false;
+      if (opts.longLived === true && viewerSid) {
+        viewerAdded = addViewer(viewerSid, viewerName);
+      }
+      subscribers.add(res);
+      if (opts.longLived === true && viewerSid) {
+        res.write(`event: viewers\ndata: ${JSON.stringify(viewersPayload())}\n\n`);
+        if (viewerAdded) {
+          broadcastViewers();
+        }
+      }
       subscribers.add(res);
       const heartbeat = setInterval(() => {
         try {
@@ -637,13 +835,21 @@ async function startServer(opts) {
         } catch (_) {
           /* socket closed */
         }
-      }, 25_000);
+      }, PROXY_KEEPALIVE_INTERVAL_MS);
       // Don't let the heartbeat alone keep the loop alive once everything
       // else has settled (tests, dev tooling).
       if (typeof heartbeat.unref === 'function') heartbeat.unref();
       req.on('close', () => {
         clearInterval(heartbeat);
         subscribers.delete(res);
+        if (opts.longLived === true && viewerSid) {
+          // Cleanup fires on TCP close (the only reliable EventSource
+          // signal). Decrement the per-sid refcount; broadcast only when
+          // the last connection for this sid closes.
+          if (removeViewer(viewerSid)) {
+            broadcastViewers();
+          }
+        }
       });
       return;
     }
@@ -858,6 +1064,12 @@ async function startServer(opts) {
         writeJson(res, 200, { artifactPath, session: finalSession });
         resolveCompleted({ artifactPath, session: finalSession });
 
+        // Long-lived mode: completion terminates the listener so reviewers
+        // don't leave a port bound indefinitely. schedule on next tick so
+        // the 200 response can flush before the socket closes.
+        if (opts.longLived === true) {
+          setImmediate(() => { stop().catch(() => {}); });
+        }
       } catch (e) {
         writeJson(res, e.status || 500, {
           error: e.message,
@@ -887,6 +1099,11 @@ async function startServer(opts) {
     });
   });
 
+  // Long-lived mode: schedule self-termination after the normalised TTL.
+  if (opts.longLived === true && ttlMs !== null) {
+    startTtl(ttlMs);
+  }
+
   const addr = server.address();
   if (!addr || typeof addr === 'string')
     throw new Error('failed to bind server');
@@ -903,15 +1120,28 @@ async function startServer(opts) {
     ? String(opts.tunnelUrl).replace(/\/+$/, '')
     : localUrl;
 
-  // Mint a single-use nonce for the share URL. This is what the opener
-  // (and the bootstrap's manual fallback print) sees — a real URL that
-  // lands on /api/exchange and exchanges the nonce for a cookie session.
-  const shareNonce = mintNonce({
-    sessionPath: opts.sessionPath,
-    permissions: 'reviewer',
-    sessionExpiresAt: Date.now() + NONCE_TTL_MS,
-  });
-  const reviewUrl = `${publicOrigin}/api/exchange?nonce=${shareNonce}`;
+  // Mint the share URL credential. Two modes:
+  //   - long-lived: multi-use invite (no burn on POST /api/identify);
+  //     URL is /api/exchange?invite=<id>.
+  //   - default: single-use nonce (burned on GET /api/exchange).
+  let shareNonce = null;
+  let shareInvite = null;
+  let reviewUrl;
+  if (opts.longLived === true) {
+    shareInvite = mintInvite({
+      sessionPath: opts.sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: ttlMs !== null ? Date.now() + ttlMs : Date.now() + NONCE_TTL_MS,
+    });
+    reviewUrl = `${publicOrigin}/api/exchange?invite=${shareInvite}`;
+  } else {
+    shareNonce = mintNonce({
+      sessionPath: opts.sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + NONCE_TTL_MS,
+    });
+    reviewUrl = `${publicOrigin}/api/exchange?nonce=${shareNonce}`;
+  }
 
   // Fire-and-forget; do not block server startup on the opener. The Promise
   // is returned to the caller so the bootstrap can decide whether to await
@@ -928,17 +1158,27 @@ async function startServer(opts) {
     }));
   }
 
+  let stopped = false;
   function stop() {
     return new Promise((resolve) => {
-      for (const sub of subscribers) {
-        try {
-          sub.end();
-        } catch (_) {
-          /* already closed */
-        }
+      if (stopped) {
+        resolve();
+        return;
       }
-      subscribers.clear();
-      server.close(() => resolve());
+      stopped = true;
+      clearTtl();
+      server.close(() => {
+        // Stop without /api/complete still settles `completed` so foreground
+        // bootstraps can exit cleanly when the TTL timer fires (long-lived
+        // mode) or when the caller tears down manually. /api/complete wins
+        // because it sets completedBy/completedAt and resolves first.
+        if (resolveCompleted) {
+          resolveCompleted({ artifactPath, session: null, stopped: true });
+          resolveCompleted = null;
+          rejectCompleted = null;
+        }
+        resolve();
+      });
     });
   }
 
@@ -956,6 +1196,8 @@ async function startServer(opts) {
     completed,
     reviewUrl,
     shareNonce,
+    shareInvite,
+    longLived: opts.longLived === true,
     openResult,
   };
 
@@ -977,14 +1219,27 @@ async function startServer(opts) {
       throw new TypeError('setTunnelUrl: tunnelUrl must be a non-empty string');
     }
     const newOrigin = String(tunnelUrl).replace(/\/+$/, '');
-    const newNonce = mintNonce({
-      sessionPath: opts.sessionPath,
-      permissions: 'reviewer',
-      sessionExpiresAt: Date.now() + NONCE_TTL_MS,
-    });
-    const newReviewUrl = `${newOrigin}/api/exchange?nonce=${newNonce}`;
+    let newReviewUrl;
+    if (result.longLived === true) {
+      const newInvite = mintInvite({
+        sessionPath: opts.sessionPath,
+        permissions: 'reviewer',
+        sessionExpiresAt: ttlMs !== null ? Date.now() + ttlMs : Date.now() + NONCE_TTL_MS,
+      });
+      result.shareInvite = newInvite;
+      result.shareNonce = null;
+      newReviewUrl = `${newOrigin}/api/exchange?invite=${newInvite}`;
+    } else {
+      const newNonce = mintNonce({
+        sessionPath: opts.sessionPath,
+        permissions: 'reviewer',
+        sessionExpiresAt: Date.now() + NONCE_TTL_MS,
+      });
+      result.shareNonce = newNonce;
+      result.shareInvite = null;
+      newReviewUrl = `${newOrigin}/api/exchange?nonce=${newNonce}`;
+    }
     result.publicUrl = newOrigin;
-    result.shareNonce = newNonce;
     result.reviewUrl = newReviewUrl;
     if (opts.open === true) {
       const openerOpts = opts.openerOpts || {};
@@ -997,6 +1252,7 @@ async function startServer(opts) {
     return {
       reviewUrl: result.reviewUrl,
       shareNonce: result.shareNonce,
+      shareInvite: result.shareInvite,
       publicUrl: result.publicUrl,
     };
   }
@@ -1017,6 +1273,9 @@ async function startServer(opts) {
    * @returns {{ reviewUrl: string, shareNonce: string, publicUrl: string }}
    */
   function createShareUrl() {
+    if (result.longLived === true) {
+      throw new Error('createShareUrl: not available in long-lived mode (use the printed invite URL)');
+    }
     const nonce = mintNonce({
       sessionPath: opts.sessionPath,
       permissions: 'reviewer',
@@ -1054,5 +1313,9 @@ module.exports = {
     mintSession,
     validateSession,
     securityHeaders,
+    mintInvite,
+    validateInvite,
+    renderIdentifyForm,
+    parseIdentifyBody,
   },
 };
