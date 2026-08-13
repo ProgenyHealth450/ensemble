@@ -335,7 +335,7 @@ function applyPhaseFilter(orderedIds, eligibleMap, closedBeads, phaseTaskIds, pr
     readyTaskIds,
     phaseTaskIds,
     closedTaskIds,
-    { prFormat: true, max: readyTaskIds.length }
+    { stacked: prFormat, max: readyTaskIds.length }
   );
   const selectedSet = new Set(selectedTaskIds);
 
