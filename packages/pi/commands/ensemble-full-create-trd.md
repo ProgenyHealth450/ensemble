@@ -112,10 +112,11 @@ Generate comprehensive task list with TRD-NNN IDs and traceability annotations
 
 **Actions:**
 1. Generate unique TRD-NNN IDs for every task (sequential numbering)
-2. Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation
-3. Add Validates PRD ACs field listing AC-NNN-M items the task covers
-4. Add Implementation AC checklist with Given/When/Then items specific to the implementation
-5. Use [satisfies INFRA] or [satisfies ARCH] for infrastructure/architecture tasks without a direct REQ
+2. Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**. Omitting the checkbox prefix makes the task invisible to trd-cli.js's TASK_LINE_RE parser and to implement-trd-beads, which will then create zero task beads for this TRD.
+3. Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation
+4. Add Validates PRD ACs field listing AC-NNN-M items the task covers
+5. Add Implementation AC checklist with Given/When/Then items specific to the implementation
+6. Use [satisfies INFRA] or [satisfies ARCH] for infrastructure/architecture tasks without a direct REQ
 
 ### Step 2: Test Task Generation
 
@@ -123,10 +124,11 @@ Generate paired test tasks for every user-facing implementation task
 
 **Actions:**
 1. For every user-facing TRD-NNN implementation task, generate a TRD-NNN-TEST task
-2. Test tasks include: [verifies TRD-NNN] [satisfies REQ-NNN] [depends: TRD-NNN] annotations
-3. Test task descriptions reference the specific ACs they verify
-4. Ensure test tasks cover both happy path and edge case scenarios
-5. Link test tasks to the PRD acceptance criteria they validate
+2. Every TRD-NNN-TEST line MUST begin with the same checkbox-prefix requirement as implementation tasks -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN-TEST**.
+3. Test tasks include: [verifies TRD-NNN] [satisfies REQ-NNN] [depends: TRD-NNN] annotations
+4. Test task descriptions reference the specific ACs they verify
+5. Ensure test tasks cover both happy path and edge case scenarios
+6. Link test tasks to the PRD acceptance criteria they validate
 
 ### Step 3: Dependency Mapping and PR Boundary Design
 
@@ -188,7 +190,12 @@ Verify PRD requirement coverage, task gaps, and PR shippability
 4. Flag tasks estimated at 8h+ that should be broken down further
 5. Verify every ### PR N: section in the Master Task List has a **Shippable State:** annotation
 6. Flag any PR section whose Shippable State is infrastructure-only (e.g., 'scaffolding complete', 'setup done') with no user-observable capability — require a meaningful statement or a boundary split
-7. Document at least 2 coverage issues with recommended resolutions
+7. Resolve TRD_CLI to first existing path among: ${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js, packages/development/lib/trd-cli.js. If missing, print error and HALT.
+8. Write the current draft Master Task List to a scratch file (this session's scratchpad, NOT docs/TRD/ -- this is a disposable self-check copy, not the final save).
+9. Run: node "$TRD_CLI" parse <scratch-path>. Parse {ok, trd:{tasksById, warnings}}.
+10. If ok is false, tasksById is missing any task the draft intends, or warnings contains 'No tasks found in the TRD': report it as a Task Coverage issue naming the offending line(s) -- this means a task line is missing its required checkbox prefix. Report before the Design Readiness Gate score is presented.
+11. If the check finds zero issues: proceed to the gate without blocking.
+12. Document at least 2 coverage issues with recommended resolutions
 
 ### Step 3: Dependency and Estimate Review
 
