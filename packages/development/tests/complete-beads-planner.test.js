@@ -266,4 +266,26 @@ describe('planDispatch — phase-gate deferred is NOT false-complete', () => {
     const phaseGated = result.deferred.filter((d) => d.deferReason === 'phase-gate');
     expect(phaseGated).toHaveLength(0); // no phase-gate in non-strict mode
   });
+
+  // Scenario: prFormat=true but phaseTaskIds is {} (no phase metadata supplied).
+  // Regression guard: selectNextTasks({stacked:true}, {}) finds no phases, so
+  // currentPhase({}, []) === null, which without the empty-map bypass makes every
+  // ready task defer with reason 'phase-gate' -- turning "no phase metadata" into
+  // "gate everything" instead of the pre-existing "no phase metadata means no gate"
+  // no-op behavior. See PR #20 review discussion.
+  test('pr-format with empty phaseTaskIds: no-op (matches pre-fix behavior), not gate-everything', () => {
+    const result = planDispatch(
+      { quick_ref: { total: 2, picks: [{ id: 't1' }, { id: 't2' }] } },
+      mkPlan([{ track: 0, items: [{ id: 't1' }] }, { track: 1, items: [{ id: 't2' }] }]),
+      [mkBead('t1', 'TRD-001'), mkBead('t2', 'TRD-002')],
+      [mkBead('t1', 'TRD-001'), mkBead('t2', 'TRD-002')],
+      [], [],
+      2,
+      {},
+      { prFormat: true }
+    );
+    const phaseGated = result.deferred.filter((d) => d.deferReason === 'phase-gate');
+    expect(phaseGated).toHaveLength(0);
+    expect(result.selected).toHaveLength(2);
+  });
 });

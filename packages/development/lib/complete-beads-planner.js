@@ -316,6 +316,16 @@ function planDispatch(
 function applyPhaseFilter(orderedIds, eligibleMap, closedBeads, phaseTaskIds, prFormat) {
   if (!prFormat) return { passed: orderedIds, deferred: [] };
 
+  // --pr-format without phase metadata: selectNextTasks({stacked:true}, {}) below would
+  // find no phases (currentPhase({}, []) === null) and treat that as "everything blocked",
+  // deferring the entire ready set with reason 'phase-gate'. That regresses the pre-fix
+  // behavior, where an untranslated `stacked` (undefined) took selectNextTasks' unfiltered
+  // branch and let --pr-format without phase metadata act as a no-op. Bypass the filter
+  // here instead, so "no phase metadata" still means "no gate" rather than "gate everything".
+  if (!phaseTaskIds || Object.keys(phaseTaskIds).length === 0) {
+    return { passed: orderedIds, deferred: [] };
+  }
+
   // Extract task IDs from all closed beads for accurate currentPhase detection
   const closedSet = closedTaskIdSet(closedBeads);
   const closedTaskIds = [...closedSet];
