@@ -1252,3 +1252,294 @@ function requestWithCookie(server, method, p, sid) {
     req.end();
   });
 }
+
+describe('long-lived review session', () => {
+  function setupLongLived(extra = {}) {
+    const source = writeSource();
+    const sessionPath = path.join(tmp, `ll-${Math.random().toString(36).slice(2)}.json`);
+    const { session, token } = sessionLib.createSession({
+      sessionPath,
+      kind: 'prd',
+      sourcePath: source,
+      questions: [{ id: 'q1', prompt: 'Q?' }],
+    });
+    const uiDir = extra.uiDir !== false ? writeUi() : null;
+    return startServer({
+      sessionPath,
+      token,
+      uiDir,
+      longLived: true,
+      port: 0,
+      log: () => {},
+      logError: () => {},
+      ...extra,
+    }).then((server) => {
+      activeServers.push(server);
+      return { source, sessionPath, token, session, server, uiDir };
+    });
+  }
+
+  test('startServer emits shareInvite + longLived and no shareNonce', async () => {
+    const { server } = await setupLongLived();
+    expect(server.longLived).toBe(true);
+    expect(typeof server.shareInvite).toBe('string');
+    expect(server.shareInvite.length).toBeGreaterThan(0);
+    expect(server.shareNonce).toBeNull();
+    expect(server.reviewUrl).toContain(`/api/exchange?invite=${server.shareInvite}`);
+  });
+
+  test('GET /api/exchange?invite=<id> returns the identify form (200, HTML)', async () => {
+    const { server } = await setupLongLived();
+    const r = await request(server, 'GET', `/api/exchange?invite=${server.shareInvite}`);
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toMatch(/text\/html/);
+    expect(r.text).toContain('Identify yourself');
+    expect(r.text).toContain(`value="${server.shareInvite}"`);
+    expect(r.text).toMatch(/<form[^>]+action="\/api\/identify"/);
+  });
+
+  test('GET /api/exchange without an invite returns 400', async () => {
+    const { server } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/exchange');
+    expect(r.status).toBe(400);
+  });
+
+  test('GET /api/exchange with an unknown invite returns 401', async () => {
+    const { server } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/exchange?invite=nope-not-real');
+    expect(r.status).toBe(401);
+  });
+
+  test('the same invite can be exchanged by many distinct reviewers', async () => {
+    const { server } = await setupLongLived();
+    const invite = server.shareInvite;
+    const ids = [];
+    for (let i = 0; i < 3; i += 1) {
+      const r = await request(server, 'GET', `/api/exchange?invite=${invite}`);
+      expect(r.status).toBe(200);
+      // First exchange returns the form; subsequent exchanges also return the
+      // form because the invite is not burned. (The cookie is only minted
+      // after POST /api/identify.)
+    }
+    // Spot-check the helper layer: validateInvite returns the record.
+    const rec = _internal.validateInvite(invite);
+    expect(rec).toBeTruthy();
+    expect(rec.permissions).toBe('reviewer');
+  });
+
+  test('POST /api/identify with valid invite + name mints a cookie + redirects', async () => {
+    const { server } = await setupLongLived();
+    const r = await request(server, 'POST', '/api/identify', {
+      body: { invite: server.shareInvite, name: 'Alice' },
+    });
+    expect(r.status).toBe(302);
+    const sc = (r.headers['set-cookie'] || []).join(';');
+    expect(sc).toMatch(/review-sid=[^;]+/);
+    expect(r.headers.location).toBe('/');
+  });
+
+  test('POST /api/identify with missing/invalid invite returns 401', async () => {
+    const { server } = await setupLongLived();
+    const r1 = await request(server, 'POST', '/api/identify', {
+      body: { invite: 'nope', name: 'Bob' },
+    });
+    expect(r1.status).toBe(401);
+    const r2 = await request(server, 'POST', '/api/identify', {
+      body: { name: 'Bob' },
+    });
+    expect(r2.status).toBe(401);
+  });
+
+  test('POST /api/identify rejects oversized names with 400', async () => {
+    const { server } = await setupLongLived();
+    const huge = 'x'.repeat(_internal.MAX_DISPLAY_NAME_LENGTH + 1);
+    const r = await request(server, 'POST', '/api/identify', {
+      body: { invite: server.shareInvite, name: huge },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test('static UI requires a cookie in long-lived mode', async () => {
+    const { server } = await setupLongLived();
+    const r1 = await request(server, 'GET', '/');
+    expect(r1.status).toBe(401);
+    const r2 = await request(server, 'GET', '/index.html');
+    expect(r2.status).toBe(401);
+  });
+
+  test('bearer token cannot bypass the cookie gate in long-lived mode', async () => {
+    const { server, token } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/session', { token });
+    expect(r.status).toBe(401);
+  });
+
+  test('createShareUrl throws in long-lived mode', async () => {
+    const { server } = await setupLongLived();
+    expect(() => server.createShareUrl()).toThrow(/long-lived/);
+  });
+
+  test('validateInvite rejects an expired invite and removes it from the map', async () => {
+    const { server } = await setupLongLived({ ttlMs: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const rec = _internal.validateInvite(server.shareInvite);
+    expect(rec).toBeNull();
+    // A second call confirms it was deleted (still null, no side-effects).
+    expect(_internal.validateInvite(server.shareInvite)).toBeNull();
+  });
+
+  test('mintInvite + validateInvite round-trip a record with createdAt + expiry', async () => {
+    const sessionPath = path.join(tmp, 'roundtrip.json');
+    const id = _internal.mintInvite({
+      sessionPath,
+      permissions: 'reviewer',
+      sessionExpiresAt: Date.now() + 1000,
+    });
+    expect(typeof id).toBe('string');
+    const rec = _internal.validateInvite(id);
+    expect(rec).toBeTruthy();
+    expect(rec.sessionPath).toBe(sessionPath);
+    expect(rec.createdAt).toBeGreaterThan(0);
+    expect(rec.sessionExpiresAt).toBeGreaterThan(Date.now());
+  });
+
+  test('renderIdentifyForm produces valid HTML with the invite as a hidden field', () => {
+    const html = _internal.renderIdentifyForm('abcd-1234');
+    expect(html).toMatch(/<!doctype html>/i);
+    expect(html).toContain('value="abcd-1234"');
+    expect(html).toContain('<form method="POST" action="/api/identify"');
+    // The hidden invite MUST round-trip unmodified (no URL encoding).
+    expect(html).not.toContain('value="abcd%2D1234"');
+  });
+
+  test('parseIdentifyBody handles JSON and url-encoded bodies', () => {
+    expect(_internal.parseIdentifyBody(Buffer.from('{"invite":"abc","name":"Eve"}')))
+      .toEqual({ invite: 'abc', name: 'Eve' });
+    expect(_internal.parseIdentifyBody(Buffer.from('invite=abc&name=Eve+Smith')))
+      .toEqual({ invite: 'abc', name: 'Eve Smith' });
+    expect(_internal.parseIdentifyBody(Buffer.from(''))).toEqual({});
+  });
+
+  test('TTL timer auto-stops the server in long-lived mode', async () => {
+    const { server } = await setupLongLived({ ttlMs: 50 });
+    const completed = await server.completed;
+    expect(completed.stopped).toBe(true);
+    expect(server.url).toBeDefined();
+  });
+
+  test('TTL timer closes active SSE subscribers and still completes', async () => {
+    // Regression: stop() must close SSE subscribers BEFORE server.close()
+    // so the close callback can fire. Without this, an open EventSource
+    // keeps the connection alive, server.close() hangs, and `completed`
+    // never resolves — the foreground bootstrap would hang forever.
+    const { server } = await setupLongLived({ ttlMs: 500 });
+
+    // Long-lived mode requires cookie auth on every API route, including
+    // /api/events. Mint a cookie via /api/identify first.
+    const identified = await request(server, 'POST', '/api/identify', {
+      body: { invite: server.shareInvite, name: 'Watcher' },
+    });
+    expect(identified.status).toBe(302);
+    const sc = identified.headers['set-cookie'] || [];
+    const sidMatch = sc.join(';').match(/review-sid=([^;]+)/);
+    expect(sidMatch).not.toBeNull();
+    const cookie = `review-sid=${sidMatch[1]}`;
+
+    // Open SSE; resolve sseConnected only after the server has accepted
+    // the response (status 200) so the assertion is observed before the
+    // TTL race begins. Drain the body so response buffers don't grow.
+    let resolveSseConnected;
+    let rejectSseConnected;
+    const sseConnected = new Promise((res, rej) => {
+      resolveSseConnected = res;
+      rejectSseConnected = rej;
+    });
+    const sseReq = http.request(
+      {
+        hostname: server.host,
+        port: server.port,
+        method: 'GET',
+        path: '/api/events',
+        headers: { accept: 'text/event-stream', cookie },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          rejectSseConnected(new Error(`expected 200 from /api/events, got ${res.statusCode}`));
+          return;
+        }
+        resolveSseConnected();
+        res.on('data', () => {});
+      },
+    );
+    sseReq.on('error', (e) => {
+      // Tolerate the socket close that stop() will trigger; surface only
+      // genuine connection failures that arrived before sseConnected
+      // resolved.
+      rejectSseConnected(e);
+    });
+    sseReq.end();
+
+    // Wait for the server to have actually accepted the SSE connection
+    // (i.e. added the subscriber) before starting the TTL race. Without
+    // this, the race could resolve before the subscriber ever existed.
+    await sseConnected;
+
+    // Race completed against a hard timeout. If stop() leaves SSE
+    // subscribers open, completed will never settle and the timeout
+    // branch fires. The timeout is cleared when completed wins so the
+    // timer does not leak across the suite.
+    let timeoutHandle;
+    try {
+      const completed = await Promise.race([
+        server.completed,
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(
+            () => reject(new Error('completed did not settle within 2s of TTL')),
+            2000,
+          );
+        }),
+      ]);
+      expect(completed.stopped).toBe(true);
+    } finally {
+      clearTimeout(timeoutHandle);
+      // Drop the client handle so Jest can exit cleanly. A successful
+      // shutdown will have already closed the socket; destroy() is a
+      // no-op on an already-closed request.
+      sseReq.destroy();
+    }
+  });
+
+  test('stop() is idempotent', async () => {
+    const { server } = await setupLongLived();
+    await server.stop();
+    await expect(server.stop()).resolves.toBeUndefined();
+  });
+
+  test('GET /api/me with cookie returns the viewer name and connectedAt', async () => {
+    const { server } = await setupLongLived();
+    const identified = await request(server, 'POST', '/api/identify', {
+      body: { invite: server.shareInvite, name: 'Mira' },
+    });
+    expect(identified.status).toBe(302);
+    const sc = identified.headers['set-cookie'] || [];
+    const sidMatch = sc.join(';').match(/review-sid=([^;]+)/);
+    expect(sidMatch).not.toBeNull();
+    const cookie = `review-sid=${sidMatch[1]}`;
+    const r = await request(server, 'GET', '/api/me', { headers: { cookie } });
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual(expect.objectContaining({ name: 'Mira' }));
+    expect(typeof r.json.connectedAt).toBe('number');
+    expect(r.json.connectedAt).toBeGreaterThan(0);
+  });
+
+  test('GET /api/me without a cookie returns 401', async () => {
+    const { server } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/me');
+    expect(r.status).toBe(401);
+  });
+
+  test('GET /api/me rejects bearer token in long-lived mode', async () => {
+    const { server, token } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/me', { token });
+    expect(r.status).toBe(401);
+  });
+});

@@ -26,11 +26,11 @@ disable-model-invocation: true
 
 ### Step 1: Session Bootstrap
 
-GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
-step and proceed directly to Phase 2 (PRD Review). Do not bootstrap
-a session, do not start a server, do not block on an artifact.
-All other steps in this phase are likewise skipped because the
-phase contains only this step.
+GUARD: If BOTH `--collab` and `--long-lived` are absent from
+$ARGUMENTS, skip this entire step and proceed directly to Phase 2
+(PRD Review). Do not bootstrap a session, do not start a server,
+do not block on an artifact. All other steps in this phase are
+likewise skipped because the phase contains only this step.
 Bootstrap a refinement-review session for collaborative editing of
 the PRD, then wait for the reviewer to mark it complete in the
 browser. The resulting artifact is the input to Enhancement.
@@ -128,22 +128,48 @@ browser. The resulting artifact is the input to Enhancement.
    typically launched from a process supervisor (hub, nohup,
    background shell) whose captured stdout is not a TTY, but the
    host GUI is fully functional. TTY is not a valid open-gate.
-   The right opt-outs are `--no-open` and `CI=true`.
+  The right opt-outs are `--no-open` and `CI=true`.
+  **Long-lived mode (`--long-lived`):** before calling
+  `startServer`, validate that `--reviewers` is NOT also
+  present in $ARGUMENTS — the two modes are mutually
+  exclusive and the bootstrap MUST abort with a clear
+  error if both are supplied. Force `tunnel = 'quick'`
+  regardless of any explicit `--tunnel` value (long-lived
+  implies QuickTunnel). Parse `--ttl <duration>` (default
+  `6h`); reject durations that parse to less than 6h with
+  a clear error. Call `startServer({ sessionPath, token,
+  uiDir, longLived: true, ttlMs: <ms>, port: 0, log,
+  logError, open: false })`. `port: 0` lets the OS pick
+  the actual port (the server result fills in `url`/
+  `port`); `open: false` because the bootstrap fires the
+  opener itself on the tunneled invite URL after step 5.
 5. If `tunnel === 'quick'`: instantiate
    `new refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
    `await tunnel.start()`, then call
    `server.setTunnelUrl(tunnel.url)` which re-mints the share
-   nonce against the tunnel origin and rewrites
-   `reviewUrl`/`publicUrl`/`shareNonce` on the server result.
+   credential against the tunnel origin and rewrites
+   `reviewUrl`/`publicUrl` on the server result. The minted
+   field is `shareInvite` when `opts.longLived === true`
+   and `shareNonce` otherwise; the URL shape is
+   `<origin>/api/exchange?invite=<id>` for long-lived and
+   `<origin>/api/exchange?nonce=<id>` for the default flow.
    Then (if `shouldOpen` is truthy) fire
    `refinementReview.opener.openUrl(tunneled.reviewUrl, {})`.
-   The share URL has the shape
-   `<origin>/api/exchange?nonce=<id>` — the bearer token
-   never appears in the URL. **Do not print the URL
-   here** — step 6 owns the consolidated print so the
-   listing reflects any `--reviewers N` fan-out.
-6. Parse `--reviewers <N>` from $ARGUMENTS: extract `N` as
-   a positive integer in `[1, 50]`. Default to `1` when
+   The share URL never carries the bearer token. **Do not
+   print the URL here** — step 6 owns the consolidated print
+   so the listing reflects any mode-specific shape.
+6. **If `$ARGUMENTS` contains `--long-lived`:** skip the fan-out
+   logic below entirely. After step 5 (tunnel setup),
+   `server.reviewUrl` already carries the invite URL of the form
+   `<origin>/api/exchange?invite=<id>`. Print the URL listing:
+   `Local: <url>`, `Public: <publicUrl>`, `URL: <reviewUrl>`
+   (same format as the tunnel+single-reviewer case). The invite
+   is multi-use and any reviewer self-identifies through the
+   form at `/api/exchange?invite=<id>`; there is no per-reviewer
+   nonce to mint.
+   Parse `--reviewers <N>` from $ARGUMENTS otherwise: extract
+   `N` as a positive integer in `[1, 50]`.
+   Default to `1` when
    the flag is absent. Validate strictly: a non-integer,
    a value `< 1`, or a value `> 50` MUST cause the
    bootstrap to abort with a clear error message rather
@@ -210,12 +236,12 @@ Review existing PRD content and establish baseline metrics
 5. Check if PRD Health summary exists and whether its numbers match actual requirement counts
 6. Note the current version number for version bumping later
 
-### Step 2: Synthesis (skip when --collab in $ARGUMENTS)
+### Step 2: Synthesis (skip when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase has already collected the findings and
-populated `SELECTED_ITEMS` from answered questions and comments.
-Otherwise, perform the original synthesis below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase has already collected
+the findings and populated `SELECTED_ITEMS` from answered questions
+and comments. Otherwise, perform the original synthesis below.
 After reviewing the PRD, generate a numbered list of findings WITHOUT making
 any edits yet. Scan for the following issues:
 
@@ -254,11 +280,11 @@ If the user replies "skip" or selects nothing, exit immediately without
 making any changes. If the user replies "all", set SELECTED_ITEMS to every
 finding number.
 
-### Step 3: Interview (skip when --collab in $ARGUMENTS)
+### Step 3: Interview (skip when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase already collected interactive answers.
-Otherwise, run the original interview below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase already collected
+interactive answers. Otherwise, run the original interview below.
 REQUIRED: Conduct a targeted user interview covering ONLY the topics
 corresponding to SELECTED_ITEMS. Skip any findings the user did not select.
 
@@ -283,12 +309,12 @@ For each selected finding, ask a focused follow-up question. Examples:
 - For missing risk indicators: ask what risks apply to Medium/High complexity items
 - For dependency gaps: ask which requirements depend on or are blocked by others
 
-### Step 4: Feedback Integration (artifact when --collab in $ARGUMENTS)
+### Step 4: Feedback Integration (artifact when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, source the answers and comments
-from the artifact written by the Collaborative Review phase
-(path printed by that phase); the Interview step is bypassed.
-Otherwise, perform the original feedback integration below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, source the
+answers and comments from the artifact written by the Collaborative
+Review phase (path printed by that phase); the Interview step is
+bypassed. Otherwise, perform the original feedback integration below.
 
 Incorporate the answers gathered during the Interview step. Apply changes
 only for SELECTED_ITEMS — do not modify sections the user did not select.

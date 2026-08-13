@@ -273,3 +273,27 @@ button.primary:disabled { background: #93b4f9; border-color: #93b4f9; }
   margin-bottom: 10px;
   font-size: 13px;
 }
+.rr-presence {
+  font-size: 12px;
+  color: #4b5563;
+  background: #f3f4f6;
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
+.rr-done-banner {
+  background: #ecfdf5;
+  color: #065f46;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rr-done-banner button {
+  margin-left: auto;
+}
