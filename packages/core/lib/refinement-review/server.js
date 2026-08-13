@@ -484,6 +484,27 @@ async function startServer(opts) {
     return list;
   }
 
+/**
+ * Close every active SSE subscriber and clear in-process state. Called
+ * before `server.close()` (from `stop()`) so the close callback can
+ * fire without waiting for long-lived EventSource connections to drain
+ * — without this, the TTL path would hang waiting for SSE sockets and
+ * `completed` would never settle. Also called from POST /api/complete
+ * for the same reason. The presence map is cleared so a restart cannot
+ * inherit stale viewer rows.
+ */
+function tearDownSseSubscribers() {
+  for (const sub of subscribers) {
+    try {
+      sub.end();
+    } catch (_) {
+      /* already closed */
+    }
+  }
+  subscribers.clear();
+  viewers.clear();
+}
+
 
   /**
    * Broadcast the current viewers list to every SSE subscriber. Same
@@ -1068,15 +1089,9 @@ async function startServer(opts) {
         };
         session.writeJsonAtomic(artifactPath, artifact);
 
-        // Close all SSE clients; the session is gone.
-        for (const sub of subscribers) {
-          try {
-            sub.end();
-          } catch (_) {
-            /* already closed */
-          }
-        }
-        subscribers.clear();
+        // Close all SSE clients; the session is gone. Reusing the
+        // helper so /api/complete and stop() behave identically.
+        tearDownSseSubscribers();
 
         writeJson(res, 200, { artifactPath, session: finalSession });
         resolveCompleted({ artifactPath, session: finalSession });
@@ -1184,6 +1199,11 @@ async function startServer(opts) {
       }
       stopped = true;
       clearTtl();
+      // Close any active SSE subscribers BEFORE server.close() so the
+      // close callback can fire without waiting for long-lived
+      // EventSource connections to drain. Without this, the TTL path
+      // hangs waiting for SSE sockets and `completed` never settles.
+      tearDownSseSubscribers();
       server.close(() => {
         // Stop without /api/complete still settles `completed` so foreground
         // bootstraps can exit cleanly when the TTL timer fires (long-lived

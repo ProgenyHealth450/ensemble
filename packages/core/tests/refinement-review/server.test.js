@@ -1426,6 +1426,88 @@ describe('long-lived review session', () => {
     expect(server.url).toBeDefined();
   });
 
+  test('TTL timer closes active SSE subscribers and still completes', async () => {
+    // Regression: stop() must close SSE subscribers BEFORE server.close()
+    // so the close callback can fire. Without this, an open EventSource
+    // keeps the connection alive, server.close() hangs, and `completed`
+    // never resolves — the foreground bootstrap would hang forever.
+    const { server } = await setupLongLived({ ttlMs: 500 });
+
+    // Long-lived mode requires cookie auth on every API route, including
+    // /api/events. Mint a cookie via /api/identify first.
+    const identified = await request(server, 'POST', '/api/identify', {
+      body: { invite: server.shareInvite, name: 'Watcher' },
+    });
+    expect(identified.status).toBe(302);
+    const sc = identified.headers['set-cookie'] || [];
+    const sidMatch = sc.join(';').match(/review-sid=([^;]+)/);
+    expect(sidMatch).not.toBeNull();
+    const cookie = `review-sid=${sidMatch[1]}`;
+
+    // Open SSE; resolve sseConnected only after the server has accepted
+    // the response (status 200) so the assertion is observed before the
+    // TTL race begins. Drain the body so response buffers don't grow.
+    let resolveSseConnected;
+    let rejectSseConnected;
+    const sseConnected = new Promise((res, rej) => {
+      resolveSseConnected = res;
+      rejectSseConnected = rej;
+    });
+    const sseReq = http.request(
+      {
+        hostname: server.host,
+        port: server.port,
+        method: 'GET',
+        path: '/api/events',
+        headers: { accept: 'text/event-stream', cookie },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          rejectSseConnected(new Error(`expected 200 from /api/events, got ${res.statusCode}`));
+          return;
+        }
+        resolveSseConnected();
+        res.on('data', () => {});
+      },
+    );
+    sseReq.on('error', (e) => {
+      // Tolerate the socket close that stop() will trigger; surface only
+      // genuine connection failures that arrived before sseConnected
+      // resolved.
+      rejectSseConnected(e);
+    });
+    sseReq.end();
+
+    // Wait for the server to have actually accepted the SSE connection
+    // (i.e. added the subscriber) before starting the TTL race. Without
+    // this, the race could resolve before the subscriber ever existed.
+    await sseConnected;
+
+    // Race completed against a hard timeout. If stop() leaves SSE
+    // subscribers open, completed will never settle and the timeout
+    // branch fires. The timeout is cleared when completed wins so the
+    // timer does not leak across the suite.
+    let timeoutHandle;
+    try {
+      const completed = await Promise.race([
+        server.completed,
+        new Promise((_, reject) => {
+          timeoutHandle = setTimeout(
+            () => reject(new Error('completed did not settle within 2s of TTL')),
+            2000,
+          );
+        }),
+      ]);
+      expect(completed.stopped).toBe(true);
+    } finally {
+      clearTimeout(timeoutHandle);
+      // Drop the client handle so Jest can exit cleanly. A successful
+      // shutdown will have already closed the socket; destroy() is a
+      // no-op on an already-closed request.
+      sseReq.destroy();
+    }
+  });
+
   test('stop() is idempotent', async () => {
     const { server } = await setupLongLived();
     await server.stop();
