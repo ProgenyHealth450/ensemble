@@ -38,7 +38,7 @@
   "plugins": [
     {
       "name": "ensemble-core",
-      "version": "5.3.1",
+      "version": "5.5.0",
       "source": "./packages/core",
       "description": "Core utilities including framework detection and XDG-compliant configuration",
       "category": "core",
@@ -450,7 +450,7 @@
     },
     {
       "name": "ensemble-pi",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "source": "./packages/pi",
       "description": "Pi runtime support — translates ensemble artifacts for Pi coding agent",
       "category": "core",

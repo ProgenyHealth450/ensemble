@@ -107,9 +107,9 @@ trd_progress() {
 
    - which br || { echo 'ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust'; exit 1; }
    - br list --status=open > /dev/null 2>&1 || { echo 'ERROR: br not functional'; exit 1; }
-   - which bv && BV_AVAILABLE=true || { echo 'WARNING: bv (beads_viewer) not installed. Graph-aware triage will be unavailable. Install from https://github.com/Dicklesworthstone/beads_viewer'; BV_AVAILABLE=false; }
+   - which bv >/dev/null 2>&1 && BV_AVAILABLE=true || { echo 'ERROR: bv (beads_viewer) is required (contract: bv is required, line 122 of this skill; installation is a precondition, no graceful-degradation path). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.'; exit 1; }
    - Resolve TRD_CLI: set TRD_CLI to the first path that exists among: "${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js", "packages/development/lib/trd-cli.js". If neither exists OR 'which node' fails: print 'ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required for deterministic TRD parsing. Ensure Node.js is installed and the ensemble-development plugin is present.' and exit 1. Smoke-check: node "$TRD_CLI" parse "<any TRD path once known>" is used later; for now just confirm the file exists and node runs.
-   - If EXECUTE_ONLY=true AND BV_AVAILABLE=false: print 'ERROR: --execute requires bv (beads_viewer) for graph-aware task scheduling.' then print 'Install bv from https://github.com/Dicklesworthstone/beads_viewer then retry.' then print 'For plan-only mode (scaffold without execution): use --plan instead.' and HALT
+   - If BV_AVAILABLE=false: print 'ERROR: bv (beads_viewer) is required for graph-aware task scheduling in all modes (--plan, --execute, full). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.' and exit 1
 
 **4. Git-Town and Working Directory Verification**
    Verify git-town installed and working directory is clean
@@ -331,13 +331,13 @@ Skipped if TRD has no [satisfies] annotations (legacy TRD without traceability).
    -   Run: PLAN_OUTPUT=$(bv --robot-plan --format toon) — capture parallel execution tracks
    -   Parse PLAN_OUTPUT to extract parallel tracks (track numbers, task lists per track)
    -   Store PARALLEL_TRACKS for use in wheel instructions
-   -   On bv failure: echo 'WARNING: bv --robot-plan failed. Falling back to sequential execution.'; BV_AVAILABLE=false
+   -   On bv failure (non-zero exit OR malformed TOON output): print 'ERROR: bv --robot-plan failed' with captured diagnostics and HALT — bv is the required scheduler, there is no sequential-fallback path (contract: bv is required, line 122 of this skill; install bv from https://github.com/Dicklesworthstone/beads_viewer).
    -   Run: INSIGHTS_OUTPUT=$(bv --robot-insights --format toon) — capture graph health. Parse INSIGHTS_OUTPUT with explicit text patterns: cycles if /cycle|cycles/i and not /cycles:\s*none/i; unexpected blockers if /unexpected blocker|stale blocker|blocked by closed|missing blocker/i; priority/order mismatches if /priority.*mismatch|order.*mismatch|contradict|inversion/i. If cycles are detected: print the matching lines and HALT before execution until the user fixes dependencies or reruns refine-beads. If only unexpected blockers or priority/order mismatches are detected: print matching lines and ask user to continue, run /ensemble:refine-beads, or abort; continue only on explicit user approval. Never invoke bare bv; only --robot-* flags.
    -   Run: TRIAGE_OUTPUT=$(bv --robot-triage --format toon) — capture triage analysis
    -   Parse TRIAGE_OUTPUT to extract: quick_ref, recommendations (ranked list with scores), quick_wins, blockers_to_clear
    -   Store TRIAGE_RECOMMENDATIONS for use in wheel instructions
    -   On bv failure: echo 'WARNING: bv --robot-triage failed.'; continue without triage data
-   - If BV_AVAILABLE == false: skip bv calls, use br-only sequential execution order
+   - If BV_AVAILABLE == false: print 'ERROR: bv (beads_viewer) is required (contract: bv is required, line 122 of this skill). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.' and HALT — the no-fallback contract forbids br-only sequential execution order.
 
 **9. Scaffold Summary and BV Analysis**
    Print scaffolding summary with BV analysis output
@@ -352,7 +352,7 @@ Skipped if TRD has no [satisfies] annotations (legacy TRD without traceability).
    -   Print TRIAGE RECOMMENDATIONS with top recommendations from TRIAGE_OUTPUT
    -   Print QUICK WINS from TRIAGE_OUTPUT quick_wins section
    -   Print BLOCKERS TO CLEAR from TRIAGE_OUTPUT blockers_to_clear section
-   - If BV_AVAILABLE == false: print 'BV analysis unavailable. Using br-only execution order.'
+   - If BV_AVAILABLE == false: print 'BV analysis unavailable. Install bv from https://github.com/Dicklesworthstone/beads_viewer — the no-fallback contract (bv is required, line 122) forbids br-only execution order.'
 
 **10. Wheel Instructions Output**
    Print execution instructions for multi-agent parallel implementation. AC: FR-WI-1, FR-WI-2, FR-WI-3, FR-WI-4, AC-WI-1, AC-WI-2
