@@ -233,6 +233,7 @@ function mintSession({ sessionPath, permissions, expiresAt, displayName }) {
       typeof displayName === 'string' && displayName
         ? displayName.slice(0, MAX_DISPLAY_NAME_LENGTH)
         : null,
+    connectedAt: Date.now(),
   });
   return sid;
 }
@@ -860,6 +861,22 @@ async function startServer(opts) {
       writeJson(res, 200, envelope);
       return;
     }
+    // GET /api/me (long-lived only): returns the cookie session's
+    // display name so the SPA can auto-populate the author field
+    // without forcing the reviewer to retype. Keeps the envelope
+    // shape unchanged and adds nothing to the persisted session.
+    if (method === 'GET' && url.pathname === '/api/me' && opts.longLived === true) {
+      const cookies = parseCookies(req.headers.cookie);
+      const sid = cookies[SESSION_COOKIE_NAME];
+      const rec = sid ? validateSession(sid, opts.sessionPath) : null;
+      if (!rec) {
+        writeJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      writeJson(res, 200, { name: rec.displayName || 'anonymous', connectedAt: rec.connectedAt || null });
+      return;
+    }
+
 
     // GET /api/document
     if (method === 'GET' && url.pathname === '/api/document') {

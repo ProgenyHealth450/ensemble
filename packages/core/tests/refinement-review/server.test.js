@@ -1431,4 +1431,33 @@ describe('long-lived review session', () => {
     await server.stop();
     await expect(server.stop()).resolves.toBeUndefined();
   });
+
+  test('GET /api/me with cookie returns the viewer name and connectedAt', async () => {
+    const { server } = await setupLongLived();
+    const identified = await request(server, 'POST', '/api/identify', {
+      body: { invite: server.shareInvite, name: 'Mira' },
+    });
+    expect(identified.status).toBe(302);
+    const sc = identified.headers['set-cookie'] || [];
+    const sidMatch = sc.join(';').match(/review-sid=([^;]+)/);
+    expect(sidMatch).not.toBeNull();
+    const cookie = `review-sid=${sidMatch[1]}`;
+    const r = await request(server, 'GET', '/api/me', { headers: { cookie } });
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual(expect.objectContaining({ name: 'Mira' }));
+    expect(typeof r.json.connectedAt).toBe('number');
+    expect(r.json.connectedAt).toBeGreaterThan(0);
+  });
+
+  test('GET /api/me without a cookie returns 401', async () => {
+    const { server } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/me');
+    expect(r.status).toBe(401);
+  });
+
+  test('GET /api/me rejects bearer token in long-lived mode', async () => {
+    const { server, token } = await setupLongLived();
+    const r = await request(server, 'GET', '/api/me', { token });
+    expect(r.status).toBe(401);
+  });
 });
