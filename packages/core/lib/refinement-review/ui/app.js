@@ -68,6 +68,68 @@
     $('rr-status').textContent = state.session.completedAt ? 'completed' : 'live';
     document.title = `Refinement Review (${state.session.document.kind.toUpperCase()})`;
   }
+  /**
+   * Render the live presence list (long-lived mode). The server
+   * broadcasts `{ name, connectedAt }[]` via SSE `event: viewers`
+   * whenever the set changes; the SPA mirrors it into the
+   * `#rr-presence` widget in the header.
+   */
+  function renderPresence(viewers) {
+    const host = $('rr-presence');
+    if (!host) return;
+    const list = Array.isArray(viewers) ? viewers : [];
+    if (list.length === 0) {
+      host.textContent = '';
+      host.removeAttribute('data-count');
+      return;
+    }
+    const initials = list
+      .map((v) => {
+        const n = (v && v.name ? String(v.name) : '?').trim();
+        return n ? n.charAt(0).toUpperCase() : '?';
+      })
+      .join('');
+    host.setAttribute('data-count', String(list.length));
+    host.setAttribute('title', list.map((v) => v.name || 'anonymous').join(', '));
+    const label = list.length === 1
+      ? `1 reviewer: ${list[0].name || 'anonymous'}`
+      : `${list.length} reviewers (${initials})`;
+    // textContent treats the value as plain text; do NOT pre-escape
+    // (escapeHtml would render entities literally, e.g. "A&amp;B").
+    host.textContent = label;
+  }
+
+  /**
+   * Returns true when every question has been resolved
+   * (answered OR skipped) — i.e. nothing is `open`.
+   */
+  function allQuestionsResolved() {
+    if (!state.session || !Array.isArray(state.session.questions)) return false;
+    return state.session.questions.every((q) => q && q.status !== 'open');
+  }
+
+  /**
+   * Show a banner in the sidebar prompting the reviewer to mark
+   * the session complete once all questions are resolved.
+   */
+  function renderDoneBanner() {
+    const sidebar = document.querySelector('.rr-sidebar');
+    if (!sidebar) return;
+    const existing = $('rr-done-banner');
+    if (existing) existing.remove();
+    if (!allQuestionsResolved()) return;
+    const banner = document.createElement('div');
+    banner.id = 'rr-done-banner';
+    banner.className = 'rr-done-banner';
+    banner.innerHTML =
+      '<strong>All refinements saved.</strong> ' +
+      '<span>Mark this review complete?</span> ' +
+      '<button type="button" id="rr-done-mark" class="primary">Mark complete</button>';
+    sidebar.insertBefore(banner, sidebar.firstChild);
+    const btn = $('rr-done-mark');
+    if (btn) btn.addEventListener('click', () => $('rr-complete') && $('rr-complete').click());
+  }
+
 
   function renderDocument() {
     const body = $('rr-document');
@@ -248,7 +310,6 @@
         target.insertAdjacentElement('afterend', div);
       });
   }
-
   function escapeHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;')
@@ -299,6 +360,32 @@
     const envelope = await res.json();
     setSession(envelope, { bumpQuestionIndex: true });
   }
+  /**
+   * Fetch /api/me (long-lived mode only) and use the response to
+   * auto-populate the reviewer's display name. The identify form
+   * already collected the name server-side; the SPA receives it via
+   * this lightweight endpoint so the user never has to retype.
+   * Falls back silently when the endpoint is absent (single-use
+   * nonce mode) — the existing localStorage path remains authoritative.
+   */
+  async function loadMe() {
+    try {
+      const res = await fetch('/api/me', { headers: authHeaders() });
+      if (!res.ok) return;
+      const me = await res.json();
+      if (!me || typeof me.name !== 'string' || !me.name) return;
+      // The cookie session's displayName is the authoritative identity
+      // (minted by /api/identify). Overwrite any prior localStorage
+      // value so the reviewer is correctly attributed on the first
+      // save — even if a previous tab typed a different name.
+      state.author = me.name;
+      const input = $('rr-author');
+      if (input) input.value = me.name;
+    } catch (_) {
+      /* /api/me is optional; tolerate absence (single-use nonce mode) */
+    }
+  }
+
 
   function showStale(currentRevision) {
     state.lastError = `Your view was stale (server is at rev ${currentRevision}). Refreshed automatically — please re-apply your last edit.`;
@@ -353,6 +440,7 @@
         state.questionIndex++;
       }
       renderQuestions();
+      renderDoneBanner();
     } catch (e) {
       alert('Save failed: ' + e.message);
     } finally {
@@ -402,6 +490,7 @@
             state.questionIndex++;
           }
           renderQuestions();
+          renderDoneBanner();
         });
       })
       .catch((e) => alert('Skip failed: ' + e.message))
@@ -672,7 +761,15 @@
   function subscribe() {
     if (typeof EventSource === 'undefined') return;
     const es = new EventSource('/api/events?token=' + encodeURIComponent(token()));
-    es.addEventListener('session', (ev) => {
+    es.addEventListener('viewers', (ev) => {
+      try {
+        const list = JSON.parse(ev.data);
+        renderPresence(list);
+      } catch (_) {
+        /* ignore malformed viewer payloads */
+      }
+    });
+     es.addEventListener('session', (ev) => {
       try {
         const env = JSON.parse(ev.data);
         setSession(env, { bumpQuestionIndex: true });
@@ -690,8 +787,10 @@
     await loadSession();
     await loadDocument();
     renderInlineComments();
+    await loadMe();
     subscribe();
   }
+
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', main);

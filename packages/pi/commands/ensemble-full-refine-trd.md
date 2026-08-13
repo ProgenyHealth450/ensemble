@@ -17,11 +17,11 @@
 
 ### Step 1: Session Bootstrap
 
-GUARD: If `--collab` is NOT present in $ARGUMENTS, skip this entire
-step and proceed directly to Phase 2 (TRD Review). Do not bootstrap
-a session, do not start a server, do not block on an artifact.
-All other steps in this phase are likewise skipped because the
-phase contains only this step.
+GUARD: If BOTH `--collab` and `--long-lived` are absent from
+$ARGUMENTS, skip this entire step and proceed directly to Phase 2
+(TRD Review). Do not bootstrap a session, do not start a server,
+do not block on an artifact. All other steps in this phase are
+likewise skipped because the phase contains only this step.
 Bootstrap a refinement-review session for collaborative editing of
 the TRD, then wait for the reviewer to mark it complete in the
 browser. The resulting artifact is the input to Enhancement.
@@ -89,23 +89,35 @@ browser. The resulting artifact is the input to Enhancement.
    const { refinementReview } = piRequire('@sunstone-partners/ensemble-core');
    ```
    Call
-   `refinementReview.session.migrateOrCreate({ sessionPath, kind: 'trd', sourcePath, questions })`,
+   `refinementReview.session.migrateOrCreate({ sessionPath, kind: 'trd', sourcePath, questions, reopen: true })`,
    where `migrateOrCreate` returns `{ session, token }` synchronously.
-   It loads any prior session file at `sessionPath` and uses
-   `mutateSession` to merge in new additive metadata
-   (`options`, `recommendedOptionId`, missing `targetAnchor`)
-   while preserving user-entered `answer`, `comments`,
-   `selectedOptionId`, and revision history; falls back to
-   `createSession` when no prior file is present.
+   It loads any prior session file at `sessionPath`; if the prior
+   session was already completed (frozen by a prior `/api/complete`
+   call), `reopen: true` clears `completedAt`/`completedBy` and
+   bumps the revision so the iterative refinement loop can
+   revisit the same sessionPath. User answers, comments, and
+   `selectedOptionId` survive reopen. Without `reopen: true`,
+   completed sessions throw `SESSION_COMPLETED` (preserving the
+   prior guard behavior). It uses `mutateSession` to merge in
+   new additive metadata (`options`, `recommendedOptionId`,
+   missing `targetAnchor`) while preserving user-entered
+   `answer`, `comments`, `selectedOptionId`, and revision
+   history; falls back to `createSession` when no prior file
+   is present.
 4. Resolve the static UI directory by deriving it from the PI
    package's `node_modules` (where core actually resolves):
    ```js
    const corePkgJson = piRequire.resolve('@sunstone-partners/ensemble-core/package.json');
    const uiDir = path.join(path.dirname(corePkgJson), 'lib/refinement-review/ui');
    ```
-   Start the local server with
-   `refinementReview.server.startServer({ sessionPath, token, uiDir, artifactPath, open })`,
-   where `open = !$ARGUMENTS.contains('--no-open') && process.env.CI !== 'true'`.
+   Compute the open intent once as
+   `shouldOpen = !$ARGUMENTS.contains('--no-open') && process.env.CI !== 'true'`,
+   and pass `open = shouldOpen && tunnel !== 'quick'` to
+   `startServer`. Auto-open is deferred when `--tunnel=quick`
+   is set because the opener should fire on the public URL
+   (post-tunnel), not the local URL; the bootstrap fires the
+   opener itself (using `shouldOpen`, not `open`) once
+   `setTunnelUrl` has rewritten the review URL.
    **DO NOT gate on `process.stdout.isTTY`** — the bootstrap is
    typically launched from a process supervisor (hub, nohup,
    background shell) whose captured stdout is not a TTY, but the
@@ -114,13 +126,79 @@ browser. The resulting artifact is the input to Enhancement.
    `open` flag opts into auto-launching the reviewer's browser
    via the per-platform opener (`open` / `xdg-open` /
    `rundll32 url.dll,FileProtocolHandler`); it auto-suppresses
-   (CI, piped logs) and on `--no-open`.
-5. Print `URL: <reviewUrl>` (i.e. `http://<host>:<port>/?token=<encodeURIComponent(token)>`)
-   and `Token: <token>` to the user for manual fallback. The
-   bootstrap owns these prints — the server's own `log` sink
-   only ever sees the bare token-free URL (per its JSDoc
-   contract). **Run startServer in the foreground and `await`
-   its `completed` promise** (returned alongside `url`, `port`,
+  (CI, piped logs) and on `--no-open`.
+  **Long-lived mode (`--long-lived`):** before calling
+  `startServer`, validate that `--reviewers` is NOT also
+  present in $ARGUMENTS — the two modes are mutually
+  exclusive and the bootstrap MUST abort with a clear
+  error if both are supplied. Force `tunnel = 'quick'`
+  regardless of any explicit `--tunnel` value (long-lived
+  implies QuickTunnel). Parse `--ttl <duration>` (default
+  `6h`); reject durations that parse to less than 6h with
+  a clear error. Call `startServer({ sessionPath, token,
+  uiDir, longLived: true, ttlMs: <ms>, port: 0, log,
+  logError, open: false })`. `port: 0` lets the OS pick
+  the actual port (the server result fills in `url`/
+  `port`); `open: false` because the bootstrap fires the
+  opener itself on the tunneled invite URL after step 5.
+5. If `tunnel === 'quick'`: instantiate
+   `new refinementReview.tunnel.QuickTunnel({ targetUrl: server.url })`,
+   `await tunnel.start()`, then call
+   `server.setTunnelUrl(tunnel.url)` which re-mints the share
+   credential against the tunnel origin and rewrites
+   `reviewUrl`/`publicUrl` on the server result. The minted
+   field is `shareInvite` when `opts.longLived === true`
+   and `shareNonce` otherwise; the URL shape is
+   `<origin>/api/exchange?invite=<id>` for long-lived and
+   `<origin>/api/exchange?nonce=<id>` for the default flow.
+   Then (if `shouldOpen` is truthy) fire
+   `refinementReview.opener.openUrl(tunneled.reviewUrl, {})`.
+   The share URL never carries the bearer token. **Do not
+   print the URL here** — step 6 owns the consolidated print
+   so the listing reflects any mode-specific shape.
+6. **If `$ARGUMENTS` contains `--long-lived`:** skip the fan-out
+   logic below entirely. After step 5 (tunnel setup),
+   `server.reviewUrl` already carries the invite URL of the form
+   `<origin>/api/exchange?invite=<id>`. Print the URL listing:
+   `Local: <url>`, `Public: <publicUrl>`, `URL: <reviewUrl>`
+   (same format as the tunnel+single-reviewer case). The invite
+   is multi-use and any reviewer self-identifies through the
+   form at `/api/exchange?invite=<id>`; there is no per-reviewer
+   nonce to mint. `server.createShareUrl()` is undefined in this
+   mode and MUST NOT be called.
+   Parse `--reviewers <N>` from $ARGUMENTS otherwise: extract
+   `N` as a positive integer in `[1, 50]`.
+   Default to `1` when
+   the flag is absent. Validate strictly: a non-integer,
+   a value `< 1`, or a value `> 50` MUST cause the
+   bootstrap to abort with a clear error message rather
+   than silently truncate to `1`. When `N > 1`, mint
+   `(N - 1)` additional share URLs by calling
+   `server.createShareUrl()` `N - 1` times — each call
+   returns an independent `{ reviewUrl, shareNonce,
+   publicUrl }` triple bound to the current public origin
+   (tunnel origin when `--tunnel=quick`, local origin
+   otherwise). Print the final URL listing to the user:
+   - When `N === 1` (the default): print the original
+     additive flow — `URL: <reviewUrl>` for the no-tunnel
+     case, or `Local: <url>`, `Public: <publicUrl>`,
+     `URL: <reviewUrl>` for the tunnel case. This format
+     is preserved verbatim from the pre-fan-out behavior.
+   - When `N > 1`: print `Local: <url>` and `Public:
+     <publicUrl>` headers (tunnel case only) followed
+     by `URL #1: <original reviewUrl>` through
+     `URL #N: <(N-1)th createShareUrl().reviewUrl>`.
+   Each reviewer redeems their own nonce independently
+   through `/api/exchange`; the server burns the nonce
+   atomically on first use, so a leaked `#k` URL cannot
+   be replayed by a second reviewer, and all reviewers
+   authenticate to the same session (same document, same
+   answer set). The `--reviewers` flag is independent of
+   `--tunnel`; both apply, and the fan-out URLs all share
+   the same `publicUrl` (local origin when no tunnel,
+   tunnel origin when `--tunnel=quick`).
+7. **Run startServer in the foreground and `await` its
+   `completed` promise** (returned alongside `url`, `port`,
    `reviewUrl`, `openResult`, and `stop`). This promise resolves
    with `{ artifactPath, session }` when the reviewer hits
    Complete in the UI — there is no need to poll or watch the
@@ -128,15 +206,17 @@ browser. The resulting artifact is the input to Enhancement.
    bootstrap script must keep the request alive until the UI
    session ends so the next workflow step can continue
    automatically. Wrap the body in `try { ... } finally
-   { await stop(); }` so the HTTP listener is closed even if
-   reading or recap throws — an open listener would keep the
-   foreground Node process alive and block the workflow.
-6. Once `completed` resolves, the artifact is already on disk at
+   { await server.stop(); if (tunnel) await tunnel.stop(); }`
+   so the HTTP listener and the cloudflared process are closed
+   even if reading or recap throws — an open listener would
+   keep the foreground Node process alive and block the
+   workflow.
+8. Once `completed` resolves, the artifact is already on disk at
    `artifactPath`. Read it and initialize `SELECTED_ITEMS` to the
    union of every question with `status === 'answered'` and every
    comment whose anchor is non-null. Map each comment to a finding
    against its anchor's section.
-7. Print a session recap: answered count, comment count, artifact
+9. Print a session recap: answered count, comment count, artifact
    path. Carry `SELECTED_ITEMS` into the Enhancement phase. The
    TRD Review phase below will short-circuit on its Synthesis,
    Interview, and Feedback Integration steps.
@@ -157,12 +237,12 @@ Review existing TRD content and extract structural metadata
 7. PR format detection: scan TRD for '### PR ' followed by a digit within the '## Master Task List' section (from '## Master Task List' heading to the next '##' heading or EOF). If found: set PR_FORMAT=true and log 'TRD format: PR-stack'. Else: set PR_FORMAT=false and log 'TRD format: legacy phase/sprint'.
 8. If PR_FORMAT=true: count PR boundary sections; for each ### PR N: heading check whether a **Shippable State:** line immediately follows it; record MISSING_SHIPPABLE[N] for any that don't; record INFRA_ONLY_SHIPPABLE[N] for any whose Shippable State text contains only infrastructure language (e.g., 'scaffolding', 'setup done', 'infrastructure complete') with no user-observable capability.
 
-### Step 2: Synthesis (skip when --collab in $ARGUMENTS)
+### Step 2: Synthesis (skip when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase has already collected the findings and
-populated `SELECTED_ITEMS` from answered questions and comments.
-Otherwise, perform the original synthesis below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase has already collected
+the findings and populated `SELECTED_ITEMS` from answered questions
+and comments. Otherwise, perform the original synthesis below.
 
 After reviewing the TRD, generate a numbered list of findings — do NOT make
 any edits yet.
@@ -210,11 +290,11 @@ Store the user's reply as SELECTED_ITEMS.
 - If the user replies "all", treat every numbered finding as selected.
 - Otherwise, parse the comma-separated numbers to determine which findings are selected.
 
-### Step 3: Interview (skip when --collab in $ARGUMENTS)
+### Step 3: Interview (skip when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, SKIP this step entirely — the
-Collaborative Review phase already collected interactive answers.
-Otherwise, run the original interview below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, SKIP this
+step entirely — the Collaborative Review phase already collected
+interactive answers. Otherwise, run the original interview below.
 
 Conduct a focused follow-up interview ONLY about the SELECTED_ITEMS from the
 Synthesis step. Skip any topic the user did not select.
@@ -243,12 +323,12 @@ For each selected finding, ask targeted follow-up questions such as:
 - "For forward dependency violations (PR_FORMAT=true): 'TRD-XXX in PR N depends on TRD-YYY in PR N+1. This breaks PR N shippability. Should we move TRD-XXX to PR N+1, or can TRD-YYY be moved to PR N?'"
 - "For legacy format conversion offer (PR_FORMAT=false): 'This TRD uses ### Phase N: headings. Would you like to convert the Master Task List to ### PR N: format with Shippable State annotations? This enables implement-trd-beads PR-stack mode (feature/<slug>-pr-N branches, per-PR git town propose). The ## Sprint Planning section would remain unchanged.'"
 
-### Step 4: Feedback Integration (artifact when --collab in $ARGUMENTS)
+### Step 4: Feedback Integration (artifact when --collab or --long-lived in $ARGUMENTS)
 
-If `--collab` is present in $ARGUMENTS, source the answers and comments
-from the artifact written by the Collaborative Review phase
-(path printed by that phase); the Interview step is bypassed.
-Otherwise, perform the original feedback integration below.
+If `--collab` or `--long-lived` is present in $ARGUMENTS, source the
+answers and comments from the artifact written by the Collaborative
+Review phase (path printed by that phase); the Interview step is
+bypassed. Otherwise, perform the original feedback integration below.
 
 Incorporate stakeholder feedback collected during the interview into a change plan
 
