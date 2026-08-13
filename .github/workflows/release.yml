@@ -1,9 +1,11 @@
 name: Release Plugin
-
 on:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   release:
