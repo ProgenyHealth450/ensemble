@@ -1,26 +1,6 @@
 # Ensemble Plugins - Claude Code Configuration
 
-> Modular plugin ecosystem for Claude Code (v5.1.0) | 23 packages | 28 agents | 4-tier architecture
-
-## In-Flight: Interactive Playwright Test-Authoring Command
-
-*(Remove this section once the work below ships and merges to `main`.)*
-
-Building `/ensemble:author-playwright-tests` — an interactive, `create-trd`-style
-session where a QA engineer and an agent walk a story's PRD ACs one at a time
-**after** `implement-trd-beads` has shipped a PR boundary, grounding each proposed
-Playwright test in the real implementing code (not just PRD prose), running it
-against the target app's QA environment, and syncing confirmed tests' steps to an
-Azure DevOps Test Case/Suite as plain-English steps. Originally scoped from a
-consuming company's own needs (a QA engineer) but the command itself is generic
-ensemble tooling.
-
-- **PRD**: `docs/PRD/PRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.0.2)
-- **TRD**: `docs/TRD/TRD-2026-da72aa86-interactive-playwright-test-authoring.md` (v1.9.0, Design Readiness 4.43 — PASS)
-- **Branch**: `feature/trd-2026-da72aa86-interactive-playwright-test-authoring` (PR #10 open against `Sunstone-Partners/ensemble` main, PR #9's now-superseded stub-generator approach closed)
-- **Architecture**: Option B — a thin orchestrator command (`packages/e2e-testing/commands/author-playwright-tests.yaml`) delegates each AC to the existing `@playwright-tester` agent in two stages (Proposal, then Run — TRD-040), rather than a monolithic command or an extension of the (buggy, unmerged) `generate-playwright-tests` scaffolder.
-- **Note**: this repo itself has no ADO work item for the effort (no ADO tracking here — TRD id mirrors the PRD's micro-UUID), but the ADO Test Plan sync *feature being built* targets whichever ADO project the consuming repo uses.
-- **Status**: PR 1-13 (TRD-001 through TRD-042-TEST, 66 tasks) implemented and tested (451/451) on this branch, PR #10 open against `Sunstone-Partners/ensemble` main. PR 5 wired the orchestrator to the `lib/*.js` modules PR 2-4 had built but never chained together; PR 6-11 are bug/gap fixes found live-dogfooding the feature against real consuming-repo PRs; PR 12-13 are direct user-requested enhancements (a pre-run plain-English test preview; coverage-gap kind labeling) — see the TRD's v1.1.0 through v1.9.0 amendment notes for each. Ready to merge; installable in any consuming repo once PR #10 lands.
+> Modular plugin ecosystem for Claude Code (v5.1.0) | 28 packages | 32 agents | 4-tier architecture
 
 ## Quick Reference
 
@@ -50,8 +30,8 @@ npm run test:coverage       # Coverage reports
 ```
 
 ### Key Paths
-- **Plugins**: `packages/*/` (24 packages)
-- **Agents**: `packages/*/agents/*.yaml` (28 agents)
+- **Plugins**: `packages/*/` (28 packages)
+- **Agents**: `packages/*/agents/*.yaml` (32 agents)
 - **Commands**: `packages/*/commands/`
 - **Skills**: `packages/*/skills/`
 - **Schemas**: `schemas/{plugin,marketplace}-schema.json`
@@ -125,17 +105,23 @@ packages/<name>/
 
 ### Agent YAML Format
 ```yaml
----
-name: agent-name
-description: Clear mission statement
-tools: [Read, Write, Edit, Bash, Grep, Glob, Task]
----
-## Mission
-Specific expertise area
-
-## Behavior
-- Key behaviors and protocols
-- Handoff procedures
+metadata:
+  name: agent-name
+  description: Clear mission statement
+  version: 1.0.0
+  category: specialist        # orchestrator | developer | specialist | utility
+  model: medium                # low | medium | high -- routes to model tier, not a specific model ID
+  tools:
+    - Read
+    - Write
+    - Edit
+    - Bash
+mission:
+  summary: Specific expertise area
+responsibilities:
+  - priority: high
+    title: Key behavior
+    description: What this agent does in this area
 ```
 
 ## Agent Mesh (28 Specialized Agents)
