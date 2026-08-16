@@ -5,7 +5,7 @@ version: "2.20.1"
 category: "implementation"
 last-updated: "2026-08-04"
 allowed-tools: "Read, Write, Edit, Bash, Grep, Glob, Task"
-argument-hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [max parallel N]"
+argument-hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N]"
 model: "sonnet"
 ---
 <!-- DO NOT EDIT - Generated from implement-trd-beads.yaml -->
@@ -105,18 +105,19 @@ trd_progress() {
    - which br || { echo 'ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust'; exit 1; }
    - br list --status=open > /dev/null 2>&1 || { echo 'ERROR: br not functional'; exit 1; }
    - which bv >/dev/null 2>&1 && BV_AVAILABLE=true || { echo 'ERROR: bv (beads_viewer) is required (contract: bv is required, line 122 of this skill; installation is a precondition, no graceful-degradation path). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.'; exit 1; }
-   - Resolve TRD_CLI: set TRD_CLI to the first path that exists among: "${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js", "packages/development/lib/trd-cli.js". If neither exists OR 'which node' fails: print 'ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required for deterministic TRD parsing. Ensure Node.js is installed and the ensemble-development plugin is present.' and exit 1. Smoke-check: node "$TRD_CLI" parse "<any TRD path once known>" is used later; for now just confirm the file exists and node runs.
+   - Resolve TRD_CLI: first try the canonical monorepo root via \`git rev-parse --show-toplevel 2>/dev/null\` + \`/packages/development/lib/trd-cli.js\`; if that fails, fall back to the legacy CWD-relative \`packages/development/lib/trd-cli.js\` for backward compatibility; finally check \`${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js\`. If none exist OR 'which node' fails: print 'ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required for deterministic TRD parsing. Ensure Node.js is installed and the ensemble-development plugin is present.' and exit 1. Smoke-check: node "$TRD_CLI" parse "<any TRD path once known>" is used later; for now just confirm the file exists and node runs.
    - If BV_AVAILABLE=false: print 'ERROR: bv (beads_viewer) is required for graph-aware task scheduling in all modes (--plan, --execute, full). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.' and exit 1
 
 **4. Git-Town and Working Directory Verification**
    Verify git-town installed and working directory is clean
 
-   - Run: bash packages/git/skills/git-town/scripts/validate-git-town.sh — handle exit codes 0 (ok), 1 (not installed), 2 (not configured), 3 (version mismatch), 4 (not git repo)
+   - Run: bash "$(git rev-parse --show-toplevel 2>/dev/null)/packages/git/skills/git-town/scripts/validate-git-town.sh" — handle exit codes 0 (ok), 1 (not installed), 2 (not configured), 3 (version mismatch), 4 (not git repo)
    - Run: git status --porcelain — HALT if output non-empty (dirty working directory)
 
 **5. TRD Selection and Validation**
    Locate, validate, and detect format of the target TRD file
 
+   - If $ARGUMENTS contains '--list': run node "$TRD_CLI" list --type trd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of TRDs (columns: ID/Name, Status, Score, Last Modified). Then call AskUserQuestion with id='trd_select', question='Select a TRD to implement:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected TRD_SLUG. Then derive TRD_FILE_PATH as docs/TRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <TRD_SLUG>' and HALT.
    - Priority: $ARGUMENTS .md path(s) -> $ARGUMENTS name search in docs/TRD/ -> single in-progress TRD in docs/TRD/ -> prompt user
    - If COMBINED_WORKSTREAM_MODE=true: run node "$TRD_CLI" validate-workstream <SOURCE_TRD_PATHS...> and parse {ok,trds,errors}. This is the all-or-nothing preflight. It validates every TRD for readability, parseability, PRD reference, Master Task List, PR sections, Shippable State lines, design_readiness_score >= 4.0, and non-blocked status before any br, branch, or scaffold side effect. If ok is false, the process exits non-zero, or JSON is malformed: print every failing TRD with reason (or the raw CLI error) and HALT. No release train bead, root epic bead, story bead, task bead, dependency edge, or branch may be created.
    - Validate: file exists, contains Master Task List section, contains at least one '- [ ] **TRD-' entry
@@ -144,13 +145,11 @@ trd_progress() {
 
 **8. TRD Staleness Gate**
    Check TRD freshness before committing to a feature branch. Skip on resume.
-Algorithm defined in packages/development/skills/staleness-gate/SKILL.md.
+Algorithm defined in the staleness-gate skill, located at "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/staleness-gate/SKILL.md".
 
 
    - If resume was detected in Preflight step 6 (ROOT_EPIC_ID is set / IS_RESUME=true): skip this step — staleness check does not apply to resuming an existing scaffold. Print 'Staleness check: skipped (resume detected)' and continue to Preflight step 8 (Strategy Detection).
-   - If first invocation (IS_RESUME=false / no ROOT_EPIC_ID found in step 6): execute the TRD Staleness Gate per packages/development/skills/staleness-gate/SKILL.md using TRD_PATH from Preflight step 4 and IS_RESUME=false.
-   - On HALT from skill: do not proceed. Implementation stops.
-   - On RETURN from skill (TRD fresh or successfully refined): continue to Preflight step 8 (Strategy Detection).
+   - If first invocation (IS_RESUME=false / no ROOT_EPIC_ID found in step 6): execute the TRD Staleness Gate using the staleness-gate skill (invoke its skill.md via the skill system), passing TRD_PATH from Preflight step 5 and IS_RESUME=false.
 
 **9. Strategy Detection**
    Determine implementation strategy from arguments, TRD content, or auto-detection
@@ -397,7 +396,7 @@ Skipped if TRD has no [satisfies] annotations (legacy TRD without traceability).
    - Determine BUILDER_AGENT: if --builder was passed as an argument, use that value; else if the TRD frontmatter sets builder_agent, use that value; else default to 'tech-lead-orchestrator'.
    - Verify prerequisites are ready: TASK_TRACEABILITY is non-empty (built during Scaffold) and ROOT_EPIC_ID is set; if either is missing, HALT with 'ERROR: Cannot delegate to beads-build — <field> missing. Re-run from Scaffold phase or pass --trd explicitly.'
    - Run the delegated command via the agent harness: invoke /ensemble:beads-build with arguments: <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --builder <BUILDER_AGENT> --label <TRD_LABEL>
-   -   Equivalent CLI shape (for environments without slash-command dispatch): node packages/development/bin/implement.js beads-build --epic <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --builder <BUILDER_AGENT> --label <TRD_LABEL>
+   -   Equivalent CLI shape (for environments without slash-command dispatch): node "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/bin/implement.js" beads-build --epic <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --builder <BUILDER_AGENT> --label <TRD_LABEL>
    - If the delegated invocation returns non-zero exit code: capture stderr/stdout, surface as Debug Loop entry per TRD-019, then HALT.
    - If the delegated invocation returns zero: read its stdout for the final completion summary (bead counts, branch state, last task closed). Persist TASK_CLOSED_IDS from the summary into this command's state so Quality Gate and Completion phases can reuse it.
    - Note: bv --robot-triage may still be run separately for project-wide graph insight, but its counts are GLOBAL across all epics/TRDs and must never be presented as this TRD's progress.
@@ -488,5 +487,5 @@ Skipped if TRD has no [satisfies] annotations (legacy TRD without traceability).
 ## Usage
 
 ```
-/ensemble:implement-trd-beads [trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [max parallel N]
+/ensemble:implement-trd-beads [trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N]
 ```
