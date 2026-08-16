@@ -1,26 +1,6 @@
-# Technical Requirements Document: Rename pane-viewer to agent-progress-pane
-
-**Project Name:** Ensemble Agent Progress Pane (Rename)
-**Version:** 1.0.0
-**Status:** Ready for Implementation
-**Created:** 2025-12-16
-**Last Updated:** 2025-12-16
-**Author:** Ensemble Engineering Team
-**PRD Reference:** [agent-progress-pane-rename.md](../PRD/agent-progress-pane-rename.md)
-
 ---
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Master Task List](#master-task-list)
-3. [System Architecture](#system-architecture)
-4. [Sprint Planning](#sprint-planning)
-5. [Technical Specifications](#technical-specifications)
-6. [Acceptance Criteria](#acceptance-criteria)
-7. [Quality Requirements](#quality-requirements)
-8. [Implementation Details](#implementation-details)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## Overview

@@ -1,29 +1,13 @@
-# Technical Requirements Document: Pane Configuration Consistency & Autoclose Feature
-
-**Document Version:** 1.1
-**Created:** 2025-12-17
-**PRD Reference:** [docs/PRD/pane-config-consistency-and-autoclose.md](../PRD/pane-config-consistency-and-autoclose.md)
-**Status:** Draft - Pending Approval
-
 ---
-
-## 1. Executive Summary
-
-This TRD defines the technical implementation for two related features:
+This TRD defines the technical implementation for two related features: 
 1. **Help Output Consistency**: Standardize command documentation format across both pane config commands
 2. **Autoclose Enhancement**: Add environment variable support and ensure autoclose functionality works correctly
-
-### Key Technical Finding
-
-The `autoCloseTimeout` configuration option **already exists** in both plugins:
-- `packages/agent-progress-pane/lib/config-loader.js:13` - `autoCloseTimeout: 0`
-- `packages/task-progress-pane/lib/config-loader.js:16` - `autoCloseTimeout: 0`
-
-The primary implementation work is:
-1. Documentation updates (Markdown files)
-2. Environment variable support (code changes)
-3. Verification that autoclose triggers correctly on task completion
-
+The `autoCloseTimeout` configuration option **already exists** in both plugins: 
+- `packages/agent-progress-pane/lib/config-loader.js: 13` - `autoCloseTimeout: 0`
+- `packages/task-progress-pane/lib/config-loader.js: 16` - `autoCloseTimeout: 0`
+The primary implementation work is: 
+status: Draft
+design_readiness_score: 
 ---
 
 ## 2. System Architecture

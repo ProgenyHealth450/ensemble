@@ -1,12 +1,12 @@
-# TRD-2026-022: Remove Beads Fallback — Native Tasks Only
-
 ---
-**Document ID:** TRD-2026-022
-**Version:** 1.0.0
-**Status:** Draft
-**Date:** 2026-06-06
-**PRD Reference:** N/A (refactoring task)
-**Design Readiness Score:** TBD
+**Document ID: ** TRD-2026-022
+**Version: ** 1.0.0
+**Status: ** Draft
+**Date: ** 2026-06-06
+**PRD Reference: ** N/A (refactoring task)
+**Design Readiness Score: ** TBD
+status: Draft
+design_readiness_score: 
 ---
 
 ## Executive Summary

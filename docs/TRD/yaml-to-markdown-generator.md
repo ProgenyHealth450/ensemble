@@ -1,27 +1,5 @@
-# Technical Requirements Document: YAML-to-Markdown Command Generator
-
-| Field | Value |
-|-------|-------|
-| **TRD ID** | TRD-CORE-003 |
-| **Feature** | YAML-to-Markdown Command Generator |
-| **Plugin** | ensemble-core |
-| **Version Target** | 5.1.0 |
-| **Status** | Ready for Development |
-| **Created** | 2025-12-19 |
-| **Last Updated** | 2025-12-19 |
-| **Author** | Sunstone Partners |
-| **Version** | 1.1 |
-| **PRD Reference** | PRD-CORE-003 v1.1 |
-
 ---
-
-## 1. Executive Summary
-
-### 1.1 Technical Approach Overview
-
-This TRD defines the technical implementation for an automated YAML-to-Markdown generator that transforms structured YAML files (commands and agents) into Claude Code-compatible Markdown files. The system will use a modular architecture with separate concerns for parsing, validation, transformation, and file I/O.
-
-**Core Technical Decisions:**
+**Core Technical Decisions: **
 - **Language**: Node.js (>=20.0.0) to align with existing ensemble tooling
 - **YAML Parser**: js-yaml (already in dependencies)
 - **Schema Validation**: ajv with ajv-formats (already in dependencies)
@@ -29,28 +7,13 @@ This TRD defines the technical implementation for an automated YAML-to-Markdown 
 - **CLI Framework**: Commander.js for argument parsing
 - **File Watching**: chokidar for watch mode
 - **Testing**: Jest (already in ecosystem)
-
-### 1.2 Key Architectural Decisions
-
-| Decision Area | Choice | Rationale |
-|---------------|--------|-----------|
-| **File Discovery** | Plugin manifest-based (plugin.json) | Respects plugin architecture, processes only active files |
-| **Schema Validation** | JSON Schema with ajv | Reuses existing validation infrastructure |
-| **Error Strategy** | Collect-all-errors (default) with --fail-fast option | Better DX by default; CI can use --fail-fast |
-| **Transformation** | Separate transformers per type | Maintainable, testable, follows SRP |
-| **Output Strategy** | In-place generation with "DO NOT EDIT" header | Simple, predictable, clear attribution |
-| **Cleanup Strategy** | Automatic orphan removal with safety check | Only removes files with "DO NOT EDIT" header |
-
-### 1.3 Technology Stack
-
-```
-Runtime:       Node.js >=20.0.0
-Dependencies:  js-yaml ^4.1.0, ajv ^8.12.0, ajv-formats ^3.0.1, commander ^11.0.0, chokidar ^3.5.3
+Runtime: Node.js >=20.0.0
+Dependencies: js-yaml ^4.1.0, ajv ^8.12.0, ajv-formats ^3.0.1, commander ^11.0.0, chokidar ^3.5.3
 DevDependencies: jest ^29.7.0
-Testing:       Jest with >90% coverage target
-CI/CD:         GitHub Actions integration
-```
-
+Testing: Jest with >90% coverage target
+CI/CD: GitHub Actions integration
+status: Draft
+design_readiness_score: 
 ---
 
 ## 2. System Architecture

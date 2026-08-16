@@ -7,7 +7,7 @@ metadata:
   output_path: ensemble/implement-trd-beads.md
   source: sunstone
   model: medium
-  argument_hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [max parallel N]"
+  argument_hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N]"
   allowed_tools:
     - Read
     - Write
@@ -310,6 +310,7 @@ workflow:
           title: TRD Selection and Validation
           description: Locate, validate, and detect format of the target TRD file
           actions:
+            - "If $ARGUMENTS contains '--list': run node \"$TRD_CLI\" list --type trd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of TRDs (columns: ID/Name, Status, Score, Last Modified). Then call AskUserQuestion with id='trd_select', question='Select a TRD to implement:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected TRD_SLUG. Then derive TRD_FILE_PATH as docs/TRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <TRD_SLUG>' and HALT."
             - "Priority: $ARGUMENTS .md path(s) -> $ARGUMENTS name search in docs/TRD/ -> single in-progress TRD in docs/TRD/ -> prompt user"
             - "If COMBINED_WORKSTREAM_MODE=true: run node \"$TRD_CLI\" validate-workstream <SOURCE_TRD_PATHS...> and parse {ok,trds,errors}. This is the all-or-nothing preflight. It validates every TRD for readability, parseability, PRD reference, Master Task List, PR sections, Shippable State lines, design_readiness_score >= 4.0, and non-blocked status before any br, branch, or scaffold side effect. If ok is false, the process exits non-zero, or JSON is malformed: print every failing TRD with reason (or the raw CLI error) and HALT. No release train bead, root epic bead, story bead, task bead, dependency edge, or branch may be created."
             - "Validate: file exists, contains Master Task List section, contains at least one '- [ ] **TRD-' entry"

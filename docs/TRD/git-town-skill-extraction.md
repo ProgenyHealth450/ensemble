@@ -1,280 +1,38 @@
-# Technical Requirements Document: Git-Town Workflow Skill
-
-**Version**: 1.1.0
-**Created**: 2025-12-29
-**Last Updated**: 2025-12-29
-**PRD Reference**: `docs/PRD/git-town-skill-extraction.md` (v1.1.0)
-**Status**: Ready for Implementation
-**Owner**: Technical Lead
-**Estimated Duration**: 6-8 weeks
-
-## Version History
-
-| Version | Date | Changes | Author |
-|---------|------|---------|--------|
-| 1.0.0 | 2025-12-29 | Initial TRD creation | Technical Lead |
-| 1.1.0 | 2025-12-29 | Added exit code mapping (3.4), skill file format spec (3.5), agent skill reference syntax examples (2.2), error recovery state machine (3.6), new tasks GT-038 through GT-041, new AC-11 through AC-14 | Technical Lead |
-
 ---
-
-## 1. Master Task List
-
-### Phase 1: Core Infrastructure (Week 1-2)
-
-**GT-001** Create skill directory structure
 - **Path**: `packages/git/skills/git-town/`
 - **Subdirs**: `scripts/`, `templates/`, `guides/`
-- **Dependencies**: None
-- **Estimate**: 1h
-
-**GT-002** Implement cross-platform validation script
-- **File**: `scripts/validate-git-town.sh`
-- **Requirements**: POSIX-compliant, exit codes 0/1, version check
-- **Platforms**: macOS (Bash 3.2+), Linux (Bash 4.0+), Windows Git Bash (4.4+)
-- **Dependencies**: GT-001
-- **Estimate**: 4h
-
-**GT-003** Create SKILL.md with skill loading mechanism
-- **Sections**: Mission (100 words), Quick Start (200 words), Skill Loading (300 words), Common Patterns (300 words)
-- **Requirements**: Document XDG-compliant skill search paths, loading performance targets (<100ms)
-- **Dependencies**: GT-001
-- **Estimate**: 6h
-
-**GT-004** Create REFERENCE.md for basic commands
-- **Commands**: hack, sync, propose, ship (each with 3+ examples)
-- **Structure**: Command syntax, CLI flags, success example, 2 error examples per command
-- **Dependencies**: GT-001
-- **Estimate**: 12h
-
-**GT-005** Create ERROR_HANDLING.md
-- **Sections**: Merge conflicts, network errors, config errors, branch state errors, auth errors, version errors
-- **Format**: Scenario → Detection → Resolution → Agent Decision Logic
-- **Dependencies**: GT-001
-- **Estimate**: 8h
-
-**GT-006** Unit test validation script
-- **Tests**: Git-town missing, unconfigured repo, version mismatch, platform detection
-- **Framework**: Bash test framework (bats or shunit2)
-- **Dependencies**: GT-002
-- **Estimate**: 4h
-
-**GT-007** Integration test: Skill loading performance
-- **Requirements**: Load skill in agent context, measure overhead (<100ms), test cache behavior
-- **Dependencies**: GT-003
-- **Estimate**: 3h
-
-**GT-038** Create git-town exit code reference
-- **File**: `REFERENCE.md` (new section)
-- **Requirements**: Document all exit codes (0-10), map to error categories, define agent handling logic
-- **Dependencies**: GT-002, GT-004
-- **Estimate**: 3h
-
-**GT-039** Create SKILL.md template/schema
-- **File**: `templates/SKILL_TEMPLATE.md`
-- **Requirements**: Formalize structure with required sections, metadata format, validation criteria
-- **Dependencies**: GT-003
-- **Estimate**: 2h
-
-**GT-040** Create agent skill reference examples
-- **File**: `guides/agent-skill-integration.md`
-- **Requirements**: YAML frontmatter examples, mission statement patterns, query syntax, performance notes
-- **Dependencies**: GT-003
-- **Estimate**: 3h
-
-**GT-041** Create error recovery state machine diagram
-- **File**: `ERROR_HANDLING.md` (new section)
-- **Requirements**: Formal state definitions, transition conditions, Mermaid diagram, timeout handling
-- **Dependencies**: GT-005
-- **Estimate**: 4h
-
-### Phase 2: Interview Templates & Decision Trees (Week 3)
-
-**GT-008** Create branch creation interview template
-- **File**: `templates/interview-branch-creation.md`
-- **Fields**: branch name (required, format validation), base branch (default: main), prototype flag (boolean)
-- **Validation**: Branch name regex, base branch existence check
-- **Dependencies**: GT-001
-- **Estimate**: 4h
-
-**GT-009** Create PR creation interview template
-- **File**: `templates/interview-pr-creation.md`
-- **Fields**: title (required), body (optional, file path support), draft status (boolean)
-- **Dependencies**: GT-001
-- **Estimate**: 3h
-
-**GT-010** Create completion interview template
-- **File**: `templates/interview-completion.md`
-- **Fields**: commit message (squash merge), confirmation prompt (yes/no)
-- **Dependencies**: GT-001
-- **Estimate**: 3h
-
-**GT-011** Create branching strategy decision tree
-- **File**: `REFERENCE.md` (append new section)
-- **Format**: Mermaid flowchart showing when to use hack/append/prepend
-- **Dependencies**: GT-004
-- **Estimate**: 3h
-
-**GT-012** Create sync scope decision tree
-- **File**: `REFERENCE.md` (append)
-- **Format**: Decision matrix for current/all/stack sync options
-- **Dependencies**: GT-004
-- **Estimate**: 2h
-
-**GT-013** Create completion strategy decision tree
-- **File**: `REFERENCE.md` (append)
-- **Format**: Flowchart for ship vs. merge vs. manual completion
-- **Dependencies**: GT-004
-- **Estimate**: 2h
-
-**GT-014** Create error recovery decision trees
-- **File**: `ERROR_HANDLING.md` (append)
-- **Format**: Flowcharts for retry vs. escalate decisions for each error type
-- **Dependencies**: GT-005
-- **Estimate**: 4h
-
-### Phase 3: Agent Integration (Week 4)
-
-**GT-015** Update git-workflow.yaml to reference skill
-- **Changes**: Replace embedded git-town instructions with skill reference, add skill loading documentation to mission
-- **Validation**: Agent prompt length reduced by 30%, no functional regression
-- **Dependencies**: GT-003, GT-004
-- **Estimate**: 4h
-
-**GT-016** Update implement-trd.yaml to use interview templates
-- **Changes**: Reference templates for branch creation, use skill-based command patterns
-- **Dependencies**: GT-008, GT-015
-- **Estimate**: 3h
-
-**GT-017** Audit and remove duplicate git-town instructions
-- **Agents**: ensemble-orchestrator.yaml, tech-lead-orchestrator.yaml, git-workflow.yaml
-- **Target**: >80% reduction in embedded git-town content
-- **Dependencies**: GT-015, GT-016
-- **Estimate**: 4h
-
-**GT-018** Integration test: Agent executes git-town workflow via skill
-- **Scenario**: Agent creates feature branch using skill reference
-- **Validation**: No interactive prompts, correct CLI flags used, skill loaded successfully
-- **Dependencies**: GT-015
-- **Estimate**: 3h
-
-**GT-019** Integration test: Agent handles merge conflict error
-- **Scenario**: Simulate merge conflict during sync, verify agent uses ERROR_HANDLING.md decision tree
-- **Dependencies**: GT-015, GT-005
-- **Estimate**: 3h
-
-### Phase 4: Advanced Commands (Week 5)
-
-**GT-020** Document advanced branching commands in REFERENCE.md
-- **Commands**: append, prepend, detach, swap
-- **Format**: Each with 3+ examples (success + 2 error scenarios)
-- **Dependencies**: GT-004
-- **Estimate**: 6h
-
-**GT-021** Document error recovery commands in REFERENCE.md
-- **Commands**: continue, skip, undo, status
-- **Format**: Examples showing recovery from common failures
-- **Dependencies**: GT-004, GT-005
-- **Estimate**: 4h
-
-**GT-022** Document offline mode in REFERENCE.md
-- **Command**: `git-town offline`
-- **Use Cases**: Air-gapped development, network failures
-- **Dependencies**: GT-004
-- **Estimate**: 2h
-
-**GT-023** Document configuration commands in REFERENCE.md
-- **Commands**: `git-town config`, config file format
-- **Templates**: GitHub, GitLab, Gitea configurations
-- **Dependencies**: GT-004
-- **Estimate**: 4h
-
-### Phase 5: Onboarding & Migration Guides (Week 6)
-
-**GT-024** Create onboarding guide
-- **File**: `guides/onboarding.md`
-- **Sections**: Installation checklist, first feature walkthrough, common mistakes, team config templates
-- **Dependencies**: GT-001
-- **Estimate**: 6h
-
-**GT-025** Create git-flow migration guide
-- **File**: `guides/migration-git-flow.md`
-- **Sections**: Comparison table, branch conversion, release workflow, incremental adoption
-- **Dependencies**: GT-001
-- **Estimate**: 5h
-
-**GT-026** Create GitHub Flow migration guide
-- **File**: `guides/migration-github-flow.md`
-- **Sections**: Workflow mapping, PR creation differences, branch cleanup automation
-- **Dependencies**: GT-001
-- **Estimate**: 3h
-
-**GT-027** Create trunk-based migration guide
-- **File**: `guides/migration-trunk-based.md`
-- **Sections**: Short-lived branch mapping, CI/CD adjustments, feature flags
-- **Dependencies**: GT-001
-- **Estimate**: 3h
-
-### Phase 6: Monorepo & CI/CD (Week 7)
-
-**GT-028** Create monorepo guide
-- **File**: `guides/monorepo.md`
-- **Sections**: Package-scoped branching, Nx/Turborepo/Lerna integration, changed-files detection, multi-package examples
-- **Dependencies**: GT-001
-- **Estimate**: 6h
-
-**GT-029** Create CI/CD integration guide
-- **File**: `guides/ci-cd-integration.md`
-- **Sections**: GitHub Actions examples, GitLab CI examples, CircleCI examples, branch protection rules, env vars
-- **Dependencies**: GT-001
-- **Estimate**: 8h
-
-**GT-030** Create example GitHub Actions workflow
-- **File**: `guides/examples/github-actions-auto-sync.yml`
-- **Features**: Scheduled sync, auto-ship on approval
-- **Dependencies**: GT-029
-- **Estimate**: 3h
-
-**GT-031** Create example GitLab CI pipeline
-- **File**: `guides/examples/gitlab-ci-stacked-branches.yml`
-- **Features**: Test execution on stacked branches
-- **Dependencies**: GT-029
-- **Estimate**: 3h
-
-### Phase 7: Quality Assurance (Week 8)
-
-**GT-032** Cross-platform validation
-- **Tests**: Run validation script on macOS, Linux, Windows Git Bash
-- **Requirements**: 100% pass rate on all platforms
-- **Dependencies**: GT-002, GT-006
-- **Estimate**: 4h
-
-**GT-033** Documentation quality review
-- **Checklist**: All commands have 3+ examples, all flags documented, all templates have validation
-- **Dependencies**: GT-004, GT-020, GT-021
-- **Estimate**: 4h
-
-**GT-034** Agent integration regression testing
-- **Tests**: Existing agent test suites pass, no new interactive prompts, prompt length reduction verified
-- **Dependencies**: GT-015, GT-016, GT-017
-- **Estimate**: 4h
-
-**GT-035** Performance benchmarking
-- **Metrics**: Skill loading <100ms, validation script <500ms
-- **Dependencies**: GT-007
-- **Estimate**: 2h
-
-**GT-036** User acceptance testing
-- **Scenarios**: New developer onboarding, git-flow migration, monorepo workflow
-- **Success Criteria**: 80% task completion without external docs
-- **Dependencies**: GT-024, GT-025, GT-028
-- **Estimate**: 6h
-
-**GT-037** Update plugin documentation
-- **Files**: `packages/git/README.md`, `CHANGELOG.md`
-- **Content**: Skill usage instructions, migration notes for users with embedded git-town patterns
 - **Dependencies**: All tasks
 - **Estimate**: 3h
-
+- **File**: `guides/examples/gitlab-ci-stacked-branches.yml`
+- **Requirements**: 100% pass rate on all platforms
+- **Platforms**: macOS (Bash 3.2+), Linux (Bash 4.0+), Windows Git Bash (4.4+)
+- **Sections**: GitHub Actions examples, GitLab CI examples, CircleCI examples, branch protection rules, env vars
+- **Commands**: `git-town config`, config file format
+- **Structure**: Command syntax, CLI flags, success example, 2 error examples per command
+- **Format**: Examples showing recovery from common failures
+- **Tests**: Existing agent test suites pass, no new interactive prompts, prompt length reduction verified
+- **Framework**: Bash test framework (bats or shunit2)
+**GT-007** Integration test: Skill loading performance
+- **Fields**: commit message (squash merge), confirmation prompt (yes/no)
+- **Validation**: No interactive prompts, correct CLI flags used, skill loaded successfully
+- **Changes**: Reference templates for branch creation, use skill-based command patterns
+- **Agents**: ensemble-orchestrator.yaml, tech-lead-orchestrator.yaml, git-workflow.yaml
+- **Target**: >80% reduction in embedded git-town content
+**GT-018** Integration test: Agent executes git-town workflow via skill
+- **Scenario**: Simulate merge conflict during sync, verify agent uses ERROR_HANDLING.md decision tree
+**GT-019** Integration test: Agent handles merge conflict error
+- **Command**: `git-town offline`
+- **Use Cases**: Air-gapped development, network failures
+- **Templates**: GitHub, GitLab, Gitea configurations
+- **Features**: Test execution on stacked branches
+- **Checklist**: All commands have 3+ examples, all flags documented, all templates have validation
+- **Metrics**: Skill loading <100ms, validation script <500ms
+- **Scenarios**: New developer onboarding, git-flow migration, monorepo workflow
+- **Success Criteria**: 80% task completion without external docs
+- **Files**: `packages/git/README.md`, `CHANGELOG.md`
+- **Content**: Skill usage instructions, migration notes for users with embedded git-town patterns
+status: Draft
+design_readiness_score: 
 ---
 
 ## 2. Architecture Overview

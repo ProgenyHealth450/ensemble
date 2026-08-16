@@ -1,31 +1,6 @@
-# Technical Requirements Document: Intelligent Model Selection Strategy
-
-> **Document ID:** TRD-MODEL-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-02-16
-> **Last Updated:** 2026-02-16
-> **PRD Reference:** [/docs/PRD/issue-31.md](../PRD/issue-31.md)
-> **Issue:** #31
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#document-overview)
-2. [Master Task List](#master-task-list)
-3. [System Architecture](#system-architecture)
-4. [Component Specifications](#component-specifications)
-5. [Technical Implementation Details](#technical-implementation-details)
-6. [Sprint Planning](#sprint-planning)
-7. [Acceptance Criteria Mapping](#acceptance-criteria-mapping)
-8. [Quality Requirements](#quality-requirements)
-9. [Risk Mitigation](#risk-mitigation)
-10. [Testing Strategy](#testing-strategy)
-11. [Deliverables Checklist](#deliverables-checklist)
-12. [Revision History](#revision-history)
-13. [Appendices](#appendices)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview

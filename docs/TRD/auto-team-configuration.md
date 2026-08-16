@@ -1,31 +1,6 @@
-# Technical Requirements Document: Automatic Team Configuration for TRD Implementation
-
-> **Document ID:** TRD-AUTOTEAM-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-03-15
-> **Last Updated:** 2026-03-15
-> **PRD Reference:** [/docs/PRD/auto-team-configuration.md](../PRD/auto-team-configuration.md)
-> **Author:** tech-lead-orchestrator
-> **Target Command Versions:** create-trd v2.1.0 (from v2.0.0), implement-trd-beads v2.4.0 (from v2.3.0)
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#1-document-overview)
-2. [Master Task List](#2-master-task-list)
-3. [System Architecture](#3-system-architecture)
-4. [Component Specifications](#4-component-specifications)
-5. [Data Flow](#5-data-flow)
-6. [Sprint Planning](#6-sprint-planning)
-7. [File Inventory](#7-file-inventory)
-8. [Key Technical Decisions](#8-key-technical-decisions)
-9. [Quality Requirements](#9-quality-requirements)
-10. [Acceptance Criteria Traceability](#10-acceptance-criteria-traceability)
-11. [Risk Register](#11-risk-register)
-12. [Appendices](#12-appendices)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview

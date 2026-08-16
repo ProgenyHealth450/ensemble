@@ -1,31 +1,6 @@
-# Technical Requirements Document: Permitter
-
-> **Document ID:** TRD-PERM-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-01-03
-> **Last Updated:** 2026-01-03
-> **PRD Reference:** [/docs/PRD/permitter.md](../PRD/permitter.md)
-> **Design Reference:** [Smart Permission Expander Hook Design](~/.claude/plans/dreamy-tumbling-teapot.md)
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#document-overview)
-2. [Master Task List](#master-task-list)
-3. [System Architecture](#system-architecture)
-4. [Component Specifications](#component-specifications)
-5. [Technical Implementation Details](#technical-implementation-details)
-6. [Sprint Planning](#sprint-planning)
-7. [Acceptance Criteria Mapping](#acceptance-criteria-mapping)
-8. [Quality Requirements](#quality-requirements)
-9. [Risk Mitigation](#risk-mitigation)
-10. [Security Test Plan](#security-test-plan)
-11. [Deliverables Checklist](#deliverables-checklist)
-12. [Revision History](#revision-history)
-13. [Appendices](#appendices)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview

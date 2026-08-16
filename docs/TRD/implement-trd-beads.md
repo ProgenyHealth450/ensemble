@@ -1,31 +1,6 @@
-# Technical Requirements Document: implement-trd-beads Command
-
-> **Document ID:** TRD-BEADS-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-03-07
-> **Last Updated:** 2026-03-07
-> **PRD Reference:** [/docs/PRD/implement-trd-beads.md](../PRD/implement-trd-beads.md)
-> **Author:** tech-lead-orchestrator
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#1-document-overview)
-2. [Master Task List](#2-master-task-list)
-3. [System Architecture](#3-system-architecture)
-4. [Data Flow and Mapping Algorithm](#4-data-flow-and-mapping-algorithm)
-5. [Component Specifications](#5-component-specifications)
-6. [Sprint Planning](#6-sprint-planning)
-7. [File Inventory](#7-file-inventory)
-8. [Error Handling Reference](#8-error-handling-reference)
-9. [Resume and Idempotency Logic](#9-resume-and-idempotency-logic)
-10. [Quality Requirements](#10-quality-requirements)
-11. [Acceptance Criteria Traceability](#11-acceptance-criteria-traceability)
-12. [Risk Register](#12-risk-register)
-13. [Appendices](#13-appendices)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview

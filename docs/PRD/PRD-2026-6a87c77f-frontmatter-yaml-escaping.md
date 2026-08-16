@@ -3,10 +3,11 @@ document_id: PRD-2026-6a87c77f
 label: prd-frontmatter-yaml-escaping
 version: 1.0.2
 status: Draft
-date: 2026-08-07
+date: Thu Aug 06 2026 19:00:00 GMT-0500 (Central Daylight Time)
 scale_depth: LIGHT
 total_requirements: 10
 readiness_score: 4.94
+design_readiness_score: null
 ---
 
 # PRD-2026-6a87c77f: YAML-Safe Frontmatter Emission in the Markdown Generator

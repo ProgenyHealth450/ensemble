@@ -3,10 +3,11 @@ document_id: PRD-2026-b6939c7c
 label: prd-config-driven-tools
 version: 1.0.1
 status: Draft
-date: 2026-08-14
+date: Thu Aug 13 2026 19:00:00 GMT-0500 (Central Daylight Time)
 scale_depth: STANDARD
 total_requirements: 22
-readiness_score: 5.0
+readiness_score: 5
+design_readiness_score: null
 ---
 
 # PRD-2026-b6939c7c: Configuration-Driven Tools for Ensemble Plugins

@@ -7,7 +7,7 @@ metadata:
   output_path: ensemble/create-trd.md
   source: sunstone
   model: high
-  argument_hint: "[prd-path] [--team] [--foundational]"
+  argument_hint: "[prd-path] [--team] [--foundational] [--list]"
 
 constraints:
   - DO NOT implement, build, or execute any technical work described in the requirements
@@ -26,8 +26,14 @@ mission:
 workflow:
   phases:
     - name: PRD Ingestion and Validation
-      order: 1
       steps:
+        - order: 0
+          title: List Available PRDs
+          description: If --list is passed, show available PRDs and exit
+          actions:
+            - "If $ARGUMENTS contains '--list': Resolve PRD_CLI (same resolution logic as implement-trd-beads): set PRD_CLI to the first path that exists among: \"${CLAUDE_PLUGIN_ROOT}/lib/prd-cli.js\", \"packages/development/lib/prd-cli.js\", \"${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js\", \"packages/development/lib/trd-cli.js\". If none exists, print 'ERROR: Neither prd-cli.js nor trd-cli.js found — cannot list PRDs.' and HALT."
+            - "If $ARGUMENTS contains '--list': run node \"$PRD_CLI\" list --type prd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of PRDs (columns: ID/Name, Status, Score, Version, Last Modified). Then call AskUserQuestion with id='prd_select', question='Select a PRD to use as the basis for TRD creation:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected PRD_SLUG. Then derive PRD_FILE_PATH as docs/PRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <PRD_SLUG>' and HALT. Set the derived path as the $ARGUMENTS prd-path and continue."
+
         - order: 1
           title: PRD Ingestion
           description: Parse and analyze existing PRD document from $ARGUMENTS path

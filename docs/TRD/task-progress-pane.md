@@ -1,27 +1,6 @@
-# Technical Requirements Document: Task Progress Pane
-
-**Document ID:** TRD-TPP-001
-**Version:** 1.1.0
-**Status:** Ready for Implementation
-**Created:** 2025-12-12
-**Last Updated:** 2025-12-12
-**PRD Reference:** [PRD-task-progress-pane v1.1.0](../PRD/task-progress-pane.md)
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#document-overview)
-2. [Master Task List](#master-task-list)
-3. [System Architecture](#system-architecture)
-4. [Component Specifications](#component-specifications)
-5. [Implementation Details](#implementation-details)
-6. [Sprint Planning](#sprint-planning)
-7. [Acceptance Test Plan](#acceptance-test-plan)
-8. [Quality Requirements](#quality-requirements)
-9. [Risk Mitigation](#risk-mitigation)
-10. [Revision History](#revision-history)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## Document Overview

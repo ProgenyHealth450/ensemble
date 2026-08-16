@@ -1,28 +1,6 @@
-# Technical Requirements Document: ensemble:feature Command
-
-> **Document ID:** TRD-FEATURE-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-03-15
-> **Last Updated:** 2026-03-15
-> **Based on PRD:** [docs/PRD/PRD-2026-017-ensemble-feature-command.md](../PRD/PRD-2026-017-ensemble-feature-command.md)
-> **Author:** tech-lead-orchestrator
-> **Target Command Version:** feature v1.0.0
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#1-document-overview)
-2. [Master Task List](#2-master-task-list)
-3. [System Architecture](#3-system-architecture)
-4. [Sprint Planning](#4-sprint-planning)
-5. [File Inventory](#5-file-inventory)
-6. [Acceptance Criteria Traceability](#6-acceptance-criteria-traceability)
-7. [Open Questions Resolution](#7-open-questions-resolution)
-8. [Quality Requirements](#8-quality-requirements)
-9. [Risk Register](#9-risk-register)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview

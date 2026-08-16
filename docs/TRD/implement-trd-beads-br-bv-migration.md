@@ -1,74 +1,18 @@
-# TRD: Migrate implement-trd-beads from bd to br/bv
-
-**Source PRD:** `docs/PRD/implement-trd-beads-br-bv-migration.md`
-**Date:** 2026-03-13
-**Status:** In Progress
-**Version:** 1.1.0
-**Command:** `ensemble:implement-trd-beads`
-**Target File:** `packages/development/commands/implement-trd-beads.yaml`
-**Branch:** `feature/implement-trd-beads`
-
 ---
-
-## System Architecture
-
-```
-TRD File (.md)
-    |
-    v
-[TRD Parser] -- Extract tasks, phases, dependencies, priorities
-    |
-    v
-[br create] -- Create epic -> story -> task bead hierarchy
-    |              Uses title-prefix idempotency: [trd:SLUG:task:XXX]
-    v
-[br dep add] -- Wire explicit TRD dependencies + inter-phase gates
-    |
-    v
-[br sync --flush-only] -- Export beads DB to .beads/beads.jsonl
-    |
-    v
-[bv --robot-plan --format toon] -- Generate parallel execution tracks
-    |
-    v
-[bv --robot-triage --format toon] -- Score and rank tasks by impact
-    |
-    v
-[Wheel Instructions Output] -- Print NTM spawn commands,
-    |                           agent self-selection loop,
-    |                           mail coordination examples,
-    |                           progress monitoring commands
-    v
-[Execute Loop] -- bv --robot-next -> br update -> implement -> br close -> br sync -> repeat
-    |
-    v
-[Quality Gates] -- Per-phase test execution, coverage checks, gate recording
-    |
-    v
-[Completion] -- Epic closure, TRD checkbox sync, completion report
-```
-
-### Data Flow
-
-1. **Input:** TRD markdown file with `- [x] **TRD-XXX**: Description [Depends: TRD-YYY] [Priority: PN]` entries
-2. **Scaffold:** TRD tasks become br beads with structured title prefixes for idempotency
-3. **Sync:** `br sync --flush-only` exports to `.beads/beads.jsonl` after every mutation batch
-4. **Plan:** `bv --robot-plan` reads JSONL and produces parallel execution tracks
-5. **Triage:** `bv --robot-triage` scores tasks by graph centrality and downstream impact
-6. **Execute:** `bv --robot-next` drives task selection; `br update/close` tracks state
-7. **Output:** Wheel instructions printed for multi-agent flywheel initiation
-
-### Key Architectural Decisions
-
-- **Idempotency via title prefix** instead of `--external-ref` (br does not support external-ref)
-- **Parent-child via `br dep add`** instead of `--parent` flag (br does not support --parent)
-- **`bv --robot-triage`** replaces `bd swarm status` for progress overview
-- **`bv --robot-next`** replaces `bd ready --parent` for execution ordering
-- **Graceful degradation:** bv-dependent features skipped if bv unavailable; br required
-- **JSON output throughout:** `br` supports `--json` on all commands; use JSON parsing for idempotency cache and bead ID extraction (not text grep)
-- **Comments via `br comment add`:** br supports comments natively; use for quality gate results and error logging
-- **NTM naming convention:** `<TRD_SLUG>-track-N` (e.g., `migrate-beads-track-1`) for TRD-specific session names
-
+|              Uses title-prefix idempotency: [trd:SLUG:task:XXX]
+1. **Input: ** TRD markdown file with `- [x] **TRD-XXX**: Description [Depends: TRD-YYY] [Priority: PN]` entries
+2. **Scaffold: ** TRD tasks become br beads with structured title prefixes for idempotency
+3. **Sync: ** `br sync --flush-only` exports to `.beads/beads.jsonl` after every mutation batch
+4. **Plan: ** `bv --robot-plan` reads JSONL and produces parallel execution tracks
+5. **Triage: ** `bv --robot-triage` scores tasks by graph centrality and downstream impact
+6. **Execute: ** `bv --robot-next` drives task selection; `br update/close` tracks state
+7. **Output: ** Wheel instructions printed for multi-agent flywheel initiation
+- **Graceful degradation: ** bv-dependent features skipped if bv unavailable; br required
+- **JSON output throughout: ** `br` supports `--json` on all commands; use JSON parsing for idempotency cache and bead ID extraction (not text grep)
+- **Comments via `br comment add`: ** br supports comments natively; use for quality gate results and error logging
+- **NTM naming convention: ** `<TRD_SLUG>-track-N` (e.g., `migrate-beads-track-1`) for TRD-specific session names
+status: Draft
+design_readiness_score: 
 ---
 
 ## Master Task List

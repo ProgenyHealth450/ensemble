@@ -1,31 +1,6 @@
-# Technical Requirements Document: Team-based Execution Model for implement-trd-beads
-
-> **Document ID:** TRD-TEAM-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-03-15
-> **Last Updated:** 2026-03-15
-> **PRD Reference:** [/docs/PRD/team-based-execution-model.md](../PRD/team-based-execution-model.md)
-> **Author:** tech-lead-orchestrator
-> **Target Command Version:** 2.2.0 (from 2.1.0)
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#1-document-overview)
-2. [Master Task List](#2-master-task-list)
-3. [System Architecture](#3-system-architecture)
-4. [Component Specifications](#4-component-specifications)
-5. [Data Flow and State Machine](#5-data-flow-and-state-machine)
-6. [Sprint Planning](#6-sprint-planning)
-7. [File Inventory](#7-file-inventory)
-8. [Key Technical Decisions](#8-key-technical-decisions)
-9. [Quality Requirements](#9-quality-requirements)
-10. [Acceptance Criteria Traceability](#10-acceptance-criteria-traceability)
-11. [Risk Register](#11-risk-register)
-12. [Appendices](#12-appendices)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview

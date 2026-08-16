@@ -1,13 +1,13 @@
-# TRD-2026-018: Ensemble Pi Runtime
-
 ---
-**Document ID:** TRD-2026-018
-**PRD Reference:** PRD-2026-018-ensemble-pi-runtime.md
-**Version:** 1.1.0
-**Status:** Draft
-**Date:** 2026-03-29
-**Architecture Option:** B — Standalone `packages/pi` (mirrors OpenCode)
-**Design Readiness Score:** 4.5 / 5.0 (PASS)
+**Document ID: ** TRD-2026-018
+**PRD Reference: ** PRD-2026-018-ensemble-pi-runtime.md
+**Version: ** 1.1.0
+**Status: ** Draft
+**Date: ** 2026-03-29
+**Architecture Option: ** B — Standalone `packages/pi` (mirrors OpenCode)
+**Design Readiness Score: ** 4.5 / 5.0 (PASS)
+status: Draft
+design_readiness_score: 
 ---
 
 ## Architecture Decision

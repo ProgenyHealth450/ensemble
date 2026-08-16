@@ -1,13 +1,13 @@
-# TRD-2026-020: Ensemble PRD Annotator
-
 ---
-**Document ID:** TRD-2026-020
-**PRD Reference:** PRD-2026-020-prd-annotator.md
-**Version:** 1.0.0
-**Status:** Draft
-**Date:** 2026-04-22
-**Architecture Option:** B — Fastify + Vite + React
-**Design Readiness Score:** 4.0 / 5.0 (PASS)
+**Document ID: ** TRD-2026-020
+**PRD Reference: ** PRD-2026-020-prd-annotator.md
+**Version: ** 1.0.0
+**Status: ** Draft
+**Date: ** 2026-04-22
+**Architecture Option: ** B — Fastify + Vite + React
+**Design Readiness Score: ** 4.0 / 5.0 (PASS)
+status: Draft
+design_readiness_score: 
 ---
 
 ## Architecture Decision

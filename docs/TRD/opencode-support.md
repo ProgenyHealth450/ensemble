@@ -1,31 +1,6 @@
-# Technical Requirements Document: OpenCode Runtime Support
-
-> **Document ID:** TRD-OC-001
-> **Version:** 1.0.0
-> **Status:** Draft
-> **Created:** 2026-02-26
-> **Last Updated:** 2026-02-26
-> **PRD Reference:** [/docs/PRD/opencode-support.md](../PRD/opencode-support.md)
-> **Research Reference:** [/docs/research/opencode-research.md](../research/opencode-research.md)
-
 ---
-
-## Table of Contents
-
-1. [Document Overview](#1-document-overview)
-2. [Master Task List](#2-master-task-list)
-3. [System Architecture](#3-system-architecture)
-4. [Component Specifications](#4-component-specifications)
-5. [Technical Implementation Details](#5-technical-implementation-details)
-6. [Sprint Planning](#6-sprint-planning)
-7. [Acceptance Criteria Mapping](#7-acceptance-criteria-mapping)
-8. [Quality Requirements](#8-quality-requirements)
-9. [Risk Mitigation](#9-risk-mitigation)
-10. [Testing Strategy](#10-testing-strategy)
-11. [Deliverables Checklist](#11-deliverables-checklist)
-12. [Revision History](#12-revision-history)
-13. [Appendices](#13-appendices)
-
+status: Draft
+design_readiness_score: null
 ---
 
 ## 1. Document Overview
