@@ -15,8 +15,17 @@ disable-model-invocation: true
 
 > **Mission:** This command implements a complete Technical Requirements Document (TRD) using modern git-town feature branch workflow. It creates a feature branch and delegates to ensemble-orchestrator which routes to tech-lead-orchestrator for structured TDD-based development including planning, implementation, testing, and quality gates.
 
-## Phase 1: Prerequisites & Feature Branch Setup
+> **Foreman Mode (`--foreman`):** When `$ARGUMENTS` contains `--foreman`, the skill commits and pushes all changes after the skill completes, then prints the branch name and final commit SHA for Foreman to use when creating the PR. The skill does NOT run `git town propose` in `--foreman` mode — PR creation is Foreman's responsibility.
 
+## Phase 0: Foreman Mode Detection
+
+### Step 1: Detect --foreman Flag
+
+**Actions:**
+1. Check if `$ARGUMENTS` contains the token `--foreman`.
+2. Set `FOREMAN_MODE=true` if found, otherwise `FOREMAN_MODE=false`.
+
+## Phase 1: Prerequisites & Feature Branch Setup
 ### Step 1: Git Town Verification
 
 Check git-town installation and configuration using validation script
@@ -112,13 +121,15 @@ Code review, security scanning, DoD enforcement
 
 Mark completed tasks and validate objectives
 
-### Step 6: Sprint PR Stacking
+### Step 6: Foreman Checkpoint / Sprint PR
 
-After quality gate passes, create a stacked PR for the current sprint and advance to the next sprint branch
+After quality gate passes, handle PR creation or Foreman checkpoint.
 
 **Actions:**
 1. Pre-PR test gate (runs before ANY PR creation, both modes): run 'npm run test --workspaces --if-present'. If exit code != 0: print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run the sprint review to retry.' and HALT. If exit code == 0: print 'Pre-PR test gate: PASSED.'
-2. If STACKED_PRS=true: run git town propose --title "feat(<trd-slug>){{colon}} Sprint <CURRENT_SPRINT> implementation" --body "Sprint <CURRENT_SPRINT> of TRD complete. Stacked PR targeting <base_branch>."; record PR URL as SPRINT_PR_MAP[CURRENT_SPRINT]
-3. If STACKED_PRS=true AND more sprints remain: set NEXT_SPRINT=CURRENT_SPRINT+1; ensure currently on feature/<trd-slug>-sprint-<CURRENT_SPRINT> (git switch if needed); run git town append feature/<trd-slug>-sprint-<NEXT_SPRINT> (fallback - git switch -c feature/<trd-slug>-sprint-<NEXT_SPRINT>); set CURRENT_BRANCH=feature/<trd-slug>-sprint-<NEXT_SPRINT>; set CURRENT_SPRINT=NEXT_SPRINT; continue to next sprint
-4. If STACKED_PRS=true AND no more sprints: print stacked PR summary with all SPRINT_PR_MAP entries; implementation complete
-5. If STACKED_PRS=false: do NOT propose a PR or create a new branch per sprint. Stay on CURRENT_BRANCH=feature/<trd-slug> and continue to the next sprint's tasks. When NO more sprints remain: run git town propose --title "feat(<trd-slug>){{colon}} <trd-title>" --body "Implements TRD <trd-slug>. All sprints complete."; print 'Single PR created: <PR_URL>'; implementation complete
+2. If `FOREMAN_MODE=true` AND more sprints remain: do nothing — advance to next sprint without checkpoint. Foreman manages per-sprint checkpoints through separate skill invocations.
+3. If `FOREMAN_MODE=true` AND no more sprints: run 'git add -A && git commit -m "feat(<trd-slug>): final checkpoint"' (if there are changes); run 'git push origin <CURRENT_BRANCH>'; print "FOREMAN_BRANCH=<CURRENT_BRANCH>"; print "FOREMAN_SHA=$(git rev-parse HEAD)"; implementation complete.
+4. If `FOREMAN_MODE=false` AND `STACKED_PRS=true`: run git town propose --title "feat(<trd-slug>){{colon}} Sprint <CURRENT_SPRINT> implementation" --body "Sprint <CURRENT_SPRINT> of TRD complete. Stacked PR targeting <base_branch>."; record PR URL as SPRINT_PR_MAP[CURRENT_SPRINT]
+5. If `FOREMAN_MODE=false` AND `STACKED_PRS=true` AND more sprints remain: set NEXT_SPRINT=CURRENT_SPRINT+1; ensure currently on feature/<trd-slug>-sprint-<CURRENT_SPRINT> (git switch if needed); run git town append feature/<trd-slug>-sprint-<NEXT_SPRINT> (fallback - git switch -c feature/<trd-slug>-sprint-<NEXT_SPRINT>); set CURRENT_BRANCH=feature/<trd-slug>-sprint-<NEXT_SPRINT>; set CURRENT_SPRINT=NEXT_SPRINT; continue to next sprint
+6. If `FOREMAN_MODE=false` AND `STACKED_PRS=true` AND no more sprints: print stacked PR summary with all SPRINT_PR_MAP entries; implementation complete
+7. If `STACKED_PRS=false`: do NOT propose a PR or create a new branch per sprint. Stay on CURRENT_BRANCH=feature/<trd-slug> and continue to the next sprint's tasks. When NO more sprints remain AND `FOREMAN_MODE=false`: run git town propose --title "feat(<trd-slug>){{colon}} <trd-title>" --body "Implements TRD <trd-slug>. All sprints complete."; print 'Single PR created: <PR_URL>'; implementation complete
