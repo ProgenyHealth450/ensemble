@@ -105,6 +105,7 @@ output with traceability matrices. Team configuration is handled separately by
    Generate comprehensive task list with TRD-NNN IDs and traceability annotations
 
    - Generate unique TRD-NNN IDs for every task (sequential numbering)
+   - Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**. Omitting the checkbox prefix makes the task invisible to trd-cli.js's TASK_LINE_RE parser and to implement-trd-beads, which will then create zero task beads for this TRD.
    - Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation
    - Add Validates PRD ACs field listing AC-NNN-M items the task covers
    - Add Implementation AC checklist with Given/When/Then items specific to the implementation
@@ -114,6 +115,7 @@ output with traceability matrices. Team configuration is handled separately by
    Generate paired test tasks for every user-facing implementation task
 
    - For every user-facing TRD-NNN implementation task, generate a TRD-NNN-TEST task
+   - Every TRD-NNN-TEST line MUST begin with the same checkbox-prefix requirement as implementation tasks -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN-TEST**.
    - Test tasks include: [verifies TRD-NNN] [satisfies REQ-NNN] [depends: TRD-NNN] annotations
    - Test task descriptions reference the specific ACs they verify
    - Ensure test tasks cover both happy path and edge case scenarios
@@ -192,6 +194,11 @@ output with traceability matrices. Team configuration is handled separately by
    - Flag tasks estimated at 8h+ that should be broken down further
    - Verify every ### PR N: section in the Master Task List has a **Shippable State:** annotation
    - Flag any PR section whose Shippable State is infrastructure-only (e.g., 'scaffolding complete', 'setup done') with no user-observable capability — require a meaningful statement or a boundary split
+   - Resolve TRD_CLI to first existing path among: ${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js, packages/development/lib/trd-cli.js. If missing, print error and HALT.
+   - Write the current draft Master Task List to a scratch file (this session's scratchpad, NOT docs/TRD/ -- this is a disposable self-check copy, not the final save).
+   - Run: node "$TRD_CLI" parse <scratch-path>. Parse {ok, trd:{tasksById, warnings}}.
+   - If ok is false, tasksById is missing any task the draft intends, or warnings contains 'No tasks found in the TRD': report it as a Task Coverage issue naming the offending line(s) -- this means a task line is missing its required checkbox prefix. Report before the Design Readiness Gate score is presented.
+   - If the check finds zero issues: proceed to the gate without blocking.
    - Document at least 2 coverage issues with recommended resolutions
 
 **3. Dependency and Estimate Review**

@@ -8,6 +8,8 @@
  * path emits valid JSON and exits 0.
  */
 
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
@@ -97,6 +99,42 @@ describe('runParse', () => {
     expect(out.trd).toHaveProperty('slug');
     expect(Array.isArray(out.trd.phases)).toBe(true);
     expect(out.trd.phases).toHaveLength(1);
+  });
+});
+
+describe('runParse: TRD-003 self-check fixture round-trip', () => {
+  // Locks in the exact contract create-trd.yaml's Task Coverage Analysis
+  // self-check (TRD-003) relies on: a task line missing the `- [ ] `
+  // checkbox prefix is invisible to the parser, while one carrying it is
+  // picked up correctly.
+  function writeFixture(name, taskLine) {
+    const tmp = path.join(os.tmpdir(), `trd-cli-checkbox-${name}-${Date.now()}.md`);
+    fs.writeFileSync(tmp, `## Master Task List\n\n${taskLine}\n`);
+    return tmp;
+  }
+
+  test('task line missing the checkbox prefix yields empty tasksById and the "no tasks" warning', () => {
+    const tmp = writeFixture('missing', '**TRD-001** Some task (1h)');
+    try {
+      const out = runParse([tmp]);
+      expect(out.ok).toBe(true);
+      expect(out.trd.tasksById).toEqual({});
+      expect(out.trd.warnings).toContain('No tasks found in the TRD');
+    } finally {
+      fs.unlinkSync(tmp);
+    }
+  });
+
+  test('task line with the checkbox prefix yields a populated tasksById and no such warning', () => {
+    const tmp = writeFixture('present', '- [ ] **TRD-001** Some task (1h)');
+    try {
+      const out = runParse([tmp]);
+      expect(out.ok).toBe(true);
+      expect(Object.keys(out.trd.tasksById)).toEqual(['TRD-001']);
+      expect(out.trd.warnings).not.toContain('No tasks found in the TRD');
+    } finally {
+      fs.unlinkSync(tmp);
+    }
   });
 });
 
