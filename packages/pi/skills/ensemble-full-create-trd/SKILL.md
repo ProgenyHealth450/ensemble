@@ -24,7 +24,15 @@ disable-model-invocation: true
 
 ## Phase 1: PRD Ingestion and Validation
 
-### Step 1: PRD Ingestion
+### Step 1: List Available PRDs
+
+If --list is passed, show available PRDs and exit
+
+**Actions:**
+1. If $ARGUMENTS contains '--list': Resolve PRD_CLI (same resolution logic as implement-trd-beads): set PRD_CLI to the first path that exists among: "${CLAUDE_PLUGIN_ROOT}/lib/prd-cli.js", "packages/development/lib/prd-cli.js", "${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js", "packages/development/lib/trd-cli.js". If none exists, print 'ERROR: Neither prd-cli.js nor trd-cli.js found — cannot list PRDs.' and HALT.
+2. If $ARGUMENTS contains '--list': run node "$PRD_CLI" list --type prd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of PRDs (columns: ID/Name, Status, Score, Version, Last Modified). Then call ask_user with id='prd_select', question='Select a PRD to use as the basis for TRD creation:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected PRD_SLUG. Then derive PRD_FILE_PATH as docs/PRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <PRD_SLUG>' and HALT. Set the derived path as the $ARGUMENTS prd-path and continue.
+
+### Step 2: PRD Ingestion
 
 Parse and analyze existing PRD document from $ARGUMENTS path
 
@@ -33,7 +41,7 @@ Parse and analyze existing PRD document from $ARGUMENTS path
 2. If --foundational and no full PRD exists: accept a short capability brief instead (the shared work to build), skip PRD-structure validation for this run, and build a capability registry from the brief's named capabilities / scope / target files instead of REQ-NNN IDs
 3. If a full PRD is provided: validate document structure (required sections present), extract key requirements with REQ-NNN IDs, and build requirements registry for traceability tracking
 
-### Step 2: Requirements Validation
+### Step 3: Requirements Validation
 
 Ensure completeness of functional and non-functional requirements
 
@@ -44,7 +52,7 @@ Ensure completeness of functional and non-functional requirements
 4. Otherwise verify REQ-NNN format numbering is consistent and sequential
 5. Otherwise verify constraints and non-goals are documented
 
-### Step 3: Acceptance Criteria Review
+### Step 4: Acceptance Criteria Review
 
 Validate testable acceptance criteria from the PRD before TRD generation
 
@@ -55,7 +63,7 @@ Validate testable acceptance criteria from the PRD before TRD generation
 4. Otherwise check that every Must requirement has at least 2 ACs (happy path + edge case)
 5. Do NOT validate TRD traceability here -- the TRD has not been generated yet
 
-### Step 4: Implementation Readiness Gate Check
+### Step 5: Implementation Readiness Gate Check
 
 Check if the PRD passed its own readiness gate before proceeding
 

@@ -348,7 +348,15 @@ Incorporate stakeholder feedback collected during the interview into a change pl
 
 ## Phase 3: Enhancement
 
-### Step 1: Content Refinement
+### Step 1: List Available TRDs
+
+If --list is passed, show available TRDs and exit
+
+**Actions:**
+1. If $ARGUMENTS contains '--list': Resolve TRD_CLI (same resolution as implement-trd-beads): set TRD_CLI to the first path that exists among: "${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js", "packages/development/lib/trd-cli.js". If none exists, print 'ERROR: trd-cli.js not found — cannot list TRDs.' and HALT.
+2. If $ARGUMENTS contains '--list': run node "$TRD_CLI" list --type trd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of TRDs (columns: ID/Name, Status, Score, Last Modified). Then call ask_user with id='trd_select', question='Select a TRD to refine:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected TRD_SLUG. Then derive TRD_FILE_PATH as docs/TRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <TRD_SLUG>' and HALT. Set the derived path as the $ARGUMENTS positional and continue.
+
+### Step 2: Content Refinement
 
 Apply changes ONLY for the SELECTED_ITEMS identified in the Synthesis step.
 Do not alter sections that were not selected by the user.
@@ -373,7 +381,7 @@ Enhancements to apply (scoped to selected findings):
 - "(PR_FORMAT=true) When inserting new tasks, place them inside the correct ### PR N: section based on their dependencies — do not add tasks between PR sections or above the first ### PR N: heading"
 - "(PR_FORMAT=false, user confirmed conversion) Convert ### Phase N: / ### Sprint N: headings in the Master Task List to ### PR N: format; add a **Shippable State:** line for each (gathered via interview); leave ## Sprint Planning section unchanged — it uses H2 headings and is informational only"
 
-### Step 2: Validation
+### Step 3: Validation
 
 Verify structural integrity of the refined TRD before writing
 
