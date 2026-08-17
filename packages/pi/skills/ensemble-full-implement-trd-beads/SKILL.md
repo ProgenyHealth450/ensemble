@@ -474,16 +474,35 @@ Record quality gate outcome as br comment and close story on pass
 
 ## Phase 5: Completion
 
-### Step 1: Epic Closure
+### Step 1: Completion Verification
+
+Independently re-verify completion before any epic closure or completion
+messaging. Invokes the completion-verification skill, located at
+"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/completion-verification/SKILL.md",
+with TRACKING_MODE='beads'. This closes the self-reported-state trust gap
+that let a TRD be declared "complete" while large swaths of functionality
+were actually missing: bead status, checkbox ticks, and req-verified
+comment tokens are all written by the same task-closing agent and are
+never independently re-checked against the live bead graph, the PRD, or a
+fresh full test-suite run without this step.
+
+**Actions:**
+1. Invoke the completion-verification skill (via the skill system) with TRD_FILE_PATH=<TRD_FILE_PATH>, TRD_SLUG=<TRD_SLUG>, TRACKING_MODE='beads', ROOT_EPIC_ID=<ROOT_EPIC_ID>, TRD_TO_BEAD_MAP=<TRD_TO_BEAD_MAP>.
+2. Parse the skill's return value {verdict, gapCount, reportPath}. Store as COMPLETION_VERDICT, COMPLETION_GAP_COUNT, COMPLETION_REPORT_PATH for use by the next two steps and the Completion Report step.
+3. If COMPLETION_VERDICT == 'INCOMPLETE': print 'COMPLETION VERIFICATION FAILED: <COMPLETION_GAP_COUNT> gap(s) found. Report: <COMPLETION_REPORT_PATH>'. If ask_user is available: ask 'Completion verification found <COMPLETION_GAP_COUNT> gap(s) (see <COMPLETION_REPORT_PATH>). Proceed with epic closure anyway?' with options 'Proceed anyway (override)' / 'Stop — fix gaps first'. If the user does not explicitly choose 'Proceed anyway', HALT before Epic Closure — do not close <ROOT_EPIC_ID>, do not sync TRD checkboxes as 'complete', do not print completion messaging. If ask_user is unavailable (non-interactive): HALT with the same message and require the operator to re-run with an explicit override once gaps are addressed. Set COMPLETION_OVERRIDDEN=true only if the user explicitly chose to proceed anyway.
+4. If COMPLETION_VERDICT == 'COMPLETE': print 'Completion verification: PASSED (0 gaps). Report: <COMPLETION_REPORT_PATH>' and continue to Epic Closure.
+
+### Step 2: Epic Closure
 
 Close the root epic when all children are done
 
 **Actions:**
-1. Verify: run br list --status=open --json filtered by [trd:<TRD_SLUG>:task:] prefix to catch open task beads; also run br list --status=open --json filtered by [trd:<TRD_SLUG>:story:] prefix to catch open story beads (excluding <ROOT_EPIC_ID> itself which is intentionally still open); if any task or story beads remain open, do not close the epic — investigate and resolve first (open beads at this stage indicate incomplete work or a missed Quality Gate). Only <ROOT_EPIC_ID> may remain open.
-2. Run: br close <ROOT_EPIC_ID> --reason='TRD implementation complete'
-3. Run: br sync --flush-only
+1. Precondition: only proceed with epic closure if COMPLETION_VERDICT == 'COMPLETE', or COMPLETION_VERDICT == 'INCOMPLETE' AND COMPLETION_OVERRIDDEN == true (explicit user override recorded in the Completion Verification step). Otherwise this step must not run.
+2. Verify: run br list --status=open --json filtered by [trd:<TRD_SLUG>:task:] prefix to catch open task beads; also run br list --status=open --json filtered by [trd:<TRD_SLUG>:story:] prefix to catch open story beads (excluding <ROOT_EPIC_ID> itself which is intentionally still open); if any task or story beads remain open, do not close the epic — investigate and resolve first (open beads at this stage indicate incomplete work or a missed Quality Gate). Only <ROOT_EPIC_ID> may remain open.
+3. Run: br close <ROOT_EPIC_ID> --reason='TRD implementation complete'
+4. Run: br sync --flush-only
 
-### Step 2: TRD Checkbox Sync
+### Step 3: TRD Checkbox Sync
 
 Update TRD file checkboxes to reflect bead closure state
 
@@ -491,30 +510,31 @@ Update TRD file checkboxes to reflect bead closure state
 1. For each task in TRD Master Task List: if TRD_TO_BEAD_MAP[task.id] exists and bead status == 'closed' -> replace '- [ ] **<task.id>**' with '- [x] **<task.id>**'
 2. git commit -m 'docs(TRD): sync checkboxes to bead closure state'
 
-### Step 3: Completion Report
+### Step 4: Completion Report
 
 Print final summary with stacked PR map and next steps
 
 **Actions:**
 1. Print completion report: TRD file, branch, strategy, epic ID, task counts, coverage summary
-2. Requirement Satisfaction Table: scan ROOT_EPIC_ID comments for req-verified: tokens
-3. Run: br comment list <ROOT_EPIC_ID>
-4. If br comment list fails or returns non-JSON: print 'WARNING: Could not read root epic comments — req-verified data unavailable. Run /ensemble:requirement-status <TRD_SLUG> to generate the report manually.' Continue with empty VERIFIED_REQS.
-5. Parse each comment for tokens: req-verified:REQ-NNN, by:TRD-NNN-TEST, reviewer:<agent>, ac-proven:AC-NNN-M,...
-6. Build VERIFIED_REQS map: REQ-NNN -> {test_task, reviewer_agent, acs_proven}
-7. If TRD has PRD reference: also load PRD REQ-NNN list for cross-reference (unverified reqs show as NOT VERIFIED)
-8. Print table:
-9. === REQUIREMENT SATISFACTION REPORT ===
-10. REQ-001: SATISFIED (TRD-001-TEST) — ACs: AC-001-1, AC-001-2
-11. REQ-002: NOT VERIFIED (TRD-002-TEST still open)
-12. REQ-003: SATISFIED (TRD-007-TEST) — ACs: AC-003-1, AC-003-2, AC-003-3
-13. TOTAL: <N> satisfied / <M> total requirements
-14. ========================================
-15. Run: br sync --flush-only
-16. Call trd_progress() (Preflight step 1) with TRD_SLUG for the final TRD-scoped progress summary (expect <TOTAL>/<TOTAL> complete, 100%)
-17. Let COMPLETION_ACTION = the PR_ACTIONS entry with kind=='completion' (from the pr-plan call in Feature Branch Creation). If COMPLETION_ACTION.createPr == true (single-PR mode, summaryKind=='single'): create the single PR for the whole TRD now using COMPLETION_ACTION.proposeTitle and COMPLETION_ACTION.branch. Pre-PR test gate — run 'npm run test --workspaces --if-present'; if exit != 0 print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run.' and HALT. Then run git town propose --title '<COMPLETION_ACTION.proposeTitle>' --body 'Implements TRD <TRD_SLUG>. Strategy: <strategy>. <phase_count> phases, <task_count> tasks — all complete. Bead: <ROOT_EPIC_ID>.'; record the URL as SINGLE_PR_URL; print '=== PR SUMMARY ===' then 'PR: <SINGLE_PR_URL> (branch: <COMPLETION_ACTION.branch> -> main)' then '=================='; remind the user to review and merge it. Then SKIP the stacked PR summary.
-18. If STACKED_PRS=true: Print stacked PR summary: '=== STACKED PR SUMMARY ===' followed by one line per entry in PHASE_PR_MAP: use label='PR' if PR_FORMAT=true else 'Phase'; print '<label> <N>: <PHASE_PR_MAP[N]> (branch: <PHASE_BRANCH_MAP[N]> -> parent)'; if PR_FORMAT=true AND PHASE_SHIPPABLE_STATE[N] exists, print '  Shippable: <PHASE_SHIPPABLE_STATE[N]>' on the next line; end with '========================'
-19. If STACKED_PRS=true: Remind user: PRs were created per-<label> via git town propose. Merge <label> 1 PR first (it targets main). After each merges, git-town automatically retargets the next PR against main.
-20. Remind user: after all PRs merge, run: mv <trd_file> docs/TRD/completed/
-21. Remind user: br sync --flush-only && git add .beads/ && git commit -m 'chore: final beads sync'
-22. TIP: The execution engine used here is also available standalone as /ensemble:beads-build <epic-id>. Use it to drive any bead hierarchy (not just TRD-generated ones) through the same build pipeline.
+2. Print 'Completion verification report (authoritative): <COMPLETION_REPORT_PATH>' — the Requirement Satisfaction Table below is informational/supplementary; the completion-verification skill's report is the authoritative record of gaps.
+3. Requirement Satisfaction Table: scan ROOT_EPIC_ID comments for req-verified: tokens
+4. Run: br comment list <ROOT_EPIC_ID>
+5. If br comment list fails or returns non-JSON: print 'WARNING: Could not read root epic comments — req-verified data unavailable. Run /ensemble:requirement-status <TRD_SLUG> to generate the report manually.' Continue with empty VERIFIED_REQS.
+6. Parse each comment for tokens: req-verified:REQ-NNN, by:TRD-NNN-TEST, reviewer:<agent>, ac-proven:AC-NNN-M,...
+7. Build VERIFIED_REQS map: REQ-NNN -> {test_task, reviewer_agent, acs_proven}
+8. If TRD has PRD reference: also load PRD REQ-NNN list for cross-reference (unverified reqs show as NOT VERIFIED)
+9. Print table:
+10. === REQUIREMENT SATISFACTION REPORT ===
+11. REQ-001: SATISFIED (TRD-001-TEST) — ACs: AC-001-1, AC-001-2
+12. REQ-002: NOT VERIFIED (TRD-002-TEST still open)
+13. REQ-003: SATISFIED (TRD-007-TEST) — ACs: AC-003-1, AC-003-2, AC-003-3
+14. TOTAL: <N> satisfied / <M> total requirements
+15. ========================================
+16. Run: br sync --flush-only
+17. Call trd_progress() (Preflight step 1) with TRD_SLUG for the final TRD-scoped progress summary (expect <TOTAL>/<TOTAL> complete, 100%)
+18. Let COMPLETION_ACTION = the PR_ACTIONS entry with kind=='completion' (from the pr-plan call in Feature Branch Creation). If COMPLETION_ACTION.createPr == true (single-PR mode, summaryKind=='single'): create the single PR for the whole TRD now using COMPLETION_ACTION.proposeTitle and COMPLETION_ACTION.branch. Pre-PR test gate — run 'npm run test --workspaces --if-present'; if exit != 0 print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run.' and HALT. Then run git town propose --title '<COMPLETION_ACTION.proposeTitle>' --body 'Implements TRD <TRD_SLUG>. Strategy: <strategy>. <phase_count> phases, <task_count> tasks — all complete. Bead: <ROOT_EPIC_ID>.'; record the URL as SINGLE_PR_URL; print '=== PR SUMMARY ===' then 'PR: <SINGLE_PR_URL> (branch: <COMPLETION_ACTION.branch> -> main)' then '=================='; remind the user to review and merge it. Then SKIP the stacked PR summary.
+19. If STACKED_PRS=true: Print stacked PR summary: '=== STACKED PR SUMMARY ===' followed by one line per entry in PHASE_PR_MAP: use label='PR' if PR_FORMAT=true else 'Phase'; print '<label> <N>: <PHASE_PR_MAP[N]> (branch: <PHASE_BRANCH_MAP[N]> -> parent)'; if PR_FORMAT=true AND PHASE_SHIPPABLE_STATE[N] exists, print '  Shippable: <PHASE_SHIPPABLE_STATE[N]>' on the next line; end with '========================'
+20. If STACKED_PRS=true: Remind user: PRs were created per-<label> via git town propose. Merge <label> 1 PR first (it targets main). After each merges, git-town automatically retargets the next PR against main.
+21. Remind user: after all PRs merge, run: mv <trd_file> docs/TRD/completed/
+22. Remind user: br sync --flush-only && git add .beads/ && git commit -m 'chore: final beads sync'
+23. TIP: The execution engine used here is also available standalone as /ensemble:beads-build <epic-id>. Use it to drive any bead hierarchy (not just TRD-generated ones) through the same build pipeline.

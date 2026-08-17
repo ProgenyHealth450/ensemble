@@ -1,6 +1,6 @@
 'use strict';
 
-const { extractPrdContext } = require('../lib/prd-parser');
+const { extractPrdContext, extractReqPriorities } = require('../lib/prd-parser');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -112,5 +112,61 @@ describe('extractPrdContext', () => {
     // Lowercase variants are not stored
     expect(ctx.requirements['req-001']).toBeUndefined();
     expect(ctx.acs['ac-001-1']).toBeUndefined();
+  });
+});
+
+describe('extractReqPriorities', () => {
+  const REAL_WORLD_PRD = `
+### REQ-011: Dependency Source Priority
+
+**Priority:** Must | **Complexity:** Medium | [RISK: existing Beads graph may diverge]
+
+#### REQ-012: Something Should-priority
+
+**Priority:** Should | **Complexity:** Low
+
+#### REQ-013: No priority line at all
+
+Just prose, no Priority line here.
+
+### REQ-014: Won't-priority variant
+
+**Priority:** Won't | **Complexity:** Low
+`.trim();
+
+  test('returns empty array for empty/null input', () => {
+    expect(extractReqPriorities('')).toEqual([]);
+    expect(extractReqPriorities(null)).toEqual([]);
+    expect(extractReqPriorities(undefined)).toEqual([]);
+  });
+
+  test('matches H3/H4 "### REQ-NNN:" heading style with colon separator', () => {
+    const reqs = extractReqPriorities(REAL_WORLD_PRD);
+    const ids = reqs.map((r) => r.id);
+    expect(ids).toEqual(['REQ-011', 'REQ-012', 'REQ-013', 'REQ-014']);
+  });
+
+  test('reads Must/Should priority from a dedicated **Priority:** line', () => {
+    const reqs = extractReqPriorities(REAL_WORLD_PRD);
+    const byId = Object.fromEntries(reqs.map((r) => [r.id, r.priority]));
+    expect(byId['REQ-011']).toBe('Must');
+    expect(byId['REQ-012']).toBe('Should');
+  });
+
+  test('a REQ with no Priority line resolves to null', () => {
+    const reqs = extractReqPriorities(REAL_WORLD_PRD);
+    const byId = Object.fromEntries(reqs.map((r) => [r.id, r.priority]));
+    expect(byId['REQ-013']).toBeNull();
+  });
+
+  test("normalizes Won't/Wont variants to \"Won't\"", () => {
+    const reqs = extractReqPriorities(REAL_WORLD_PRD);
+    const byId = Object.fromEntries(reqs.map((r) => [r.id, r.priority]));
+    expect(byId['REQ-014']).toBe("Won't");
+  });
+
+  test('does not match the legacy "# REQ-NNN — Title" em-dash heading style', () => {
+    const reqs = extractReqPriorities(MINIMAL_PRD);
+    expect(reqs).toEqual([]);
   });
 });

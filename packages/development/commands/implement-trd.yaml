@@ -123,14 +123,32 @@ workflow:
           description: Mark completed tasks and validate objectives
 
         - order: 6
+          title: Completion Verification
+          description: |
+            Independently re-verify completion before the final "no more sprints
+            remain" branch of Sprint PR Stacking is allowed to declare the TRD done.
+            Invokes the completion-verification skill, located at
+            "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/completion-verification/SKILL.md",
+            with TRACKING_MODE='checkbox' (this command has no bead system — TRD
+            file checkboxes are the only tracked completion state). This command
+            previously had NO requirement/AC verification logic at all; this step
+            closes that gap so implement-trd cannot silently declare "implementation
+            complete" while checkboxes were ticked without the underlying work,
+            tests, or requirement coverage actually being verified.
+          actions:
+            - "Invoke the completion-verification skill (via the skill system) with TRD_FILE_PATH=<TRD_PATH>, TRD_SLUG=<TRD_SLUG>, TRACKING_MODE='checkbox'."
+            - "Parse the skill's return value {verdict, gapCount, reportPath}. Store as COMPLETION_VERDICT, COMPLETION_GAP_COUNT, COMPLETION_REPORT_PATH for use by Sprint PR Stacking's final-sprint branch."
+            - "Always print 'Completion verification report: <COMPLETION_REPORT_PATH>' regardless of verdict, then continue to Sprint PR Stacking."
+
+        - order: 7
           title: Sprint PR Stacking
           description: After quality gate passes, create a stacked PR for the current sprint and advance to the next sprint branch
           actions:
             - "Pre-PR test gate (runs before ANY PR creation, both modes): run 'npm run test --workspaces --if-present'. If exit code != 0: print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run the sprint review to retry.' and HALT. If exit code == 0: print 'Pre-PR test gate: PASSED.'"
             - "If STACKED_PRS=true: run git town propose --title \"feat(<trd-slug>){{colon}} Sprint <CURRENT_SPRINT> implementation\" --body \"Sprint <CURRENT_SPRINT> of TRD complete. Stacked PR targeting <base_branch>.\"; record PR URL as SPRINT_PR_MAP[CURRENT_SPRINT]"
             - "If STACKED_PRS=true AND more sprints remain: set NEXT_SPRINT=CURRENT_SPRINT+1; ensure currently on feature/<trd-slug>-sprint-<CURRENT_SPRINT> (git switch if needed); run git town append feature/<trd-slug>-sprint-<NEXT_SPRINT> (fallback - git switch -c feature/<trd-slug>-sprint-<NEXT_SPRINT>); set CURRENT_BRANCH=feature/<trd-slug>-sprint-<NEXT_SPRINT>; set CURRENT_SPRINT=NEXT_SPRINT; continue to next sprint"
-            - "If STACKED_PRS=true AND no more sprints: print stacked PR summary with all SPRINT_PR_MAP entries; implementation complete"
-            - "If STACKED_PRS=false: do NOT propose a PR or create a new branch per sprint. Stay on CURRENT_BRANCH=feature/<trd-slug> and continue to the next sprint's tasks. When NO more sprints remain: run git town propose --title \"feat(<trd-slug>){{colon}} <trd-title>\" --body \"Implements TRD <trd-slug>. All sprints complete.\"; print 'Single PR created: <PR_URL>'; implementation complete"
+            - "If STACKED_PRS=true AND no more sprints remain: gate on Completion Verification (Progressive Implementation step 6). Only proceed to the completion PR / 'implementation complete' declaration if COMPLETION_VERDICT == 'COMPLETE', or the user explicitly overrides an 'INCOMPLETE' verdict. If COMPLETION_VERDICT == 'INCOMPLETE': print 'COMPLETION VERIFICATION FAILED: <COMPLETION_GAP_COUNT> gap(s) found. Report: <COMPLETION_REPORT_PATH>'. If AskUserQuestion is available: ask 'Completion verification found <COMPLETION_GAP_COUNT> gap(s) (see <COMPLETION_REPORT_PATH>). Proceed with the stacked PR summary and declare complete anyway?' with options 'Proceed anyway (override)' / 'Stop — fix gaps first'. If the user does not explicitly choose 'Proceed anyway' (or AskUserQuestion is unavailable/non-interactive): pause here — do not print the stacked PR summary and do not declare implementation complete. If the user overrides, or COMPLETION_VERDICT == 'COMPLETE': print stacked PR summary with all SPRINT_PR_MAP entries and the completion verification report path; implementation complete"
+            - "If STACKED_PRS=false: do NOT propose a PR or create a new branch per sprint. Stay on CURRENT_BRANCH=feature/<trd-slug> and continue to the next sprint's tasks. When NO more sprints remain: gate on Completion Verification (Progressive Implementation step 6) using the same rule as above — only proceed if COMPLETION_VERDICT == 'COMPLETE' or the user explicitly overrides an 'INCOMPLETE' verdict; otherwise print the gap count and report path and pause. Once cleared: run git town propose --title \"feat(<trd-slug>){{colon}} <trd-title>\" --body \"Implements TRD <trd-slug>. All sprints complete.\"; print 'Single PR created: <PR_URL>' and 'Completion verification report: <COMPLETION_REPORT_PATH>'; implementation complete"
 
 expectedInput:
   format: Technical Requirements Document (TRD)
