@@ -16,6 +16,8 @@ disable-model-invocation: true
 
 > **Mission:** Create a comprehensive Product Requirements Document (PRD) through structured elicitation, contextual research, and adversarial self-review. Adapts depth to project scale (solo dev through enterprise). Uses clarifying interviews and creative elicitation techniques to surface hidden requirements before writing. Every PRD passes an Implementation Readiness Gate before being saved to ensure handoff quality.
 
+> **Foreman Mode (`--foreman`):** When `$ARGUMENTS` contains `--foreman`, the skill sets `FOREMAN_MODE=true`. After saving the PRD file, the skill commits, pushes, and prints `FOREMAN_BRANCH`, `FOREMAN_SHA`, and `FOREMAN_COMPLETE=true` so Foreman can create the PR.
+
 > **Constraints:**
 > - DO NOT implement, build, or execute any work described in the product description
 > - This command creates ONLY a PRD document
@@ -24,6 +26,14 @@ disable-model-invocation: true
 > - DO NOT skip the elicitation phase -- always ask clarifying questions before generating requirements
 > - DO NOT save the PRD until it passes the Implementation Readiness Gate
 > - Mark every unresolved ambiguity inline with [NEEDS CLARIFICATION: <specific question>] rather than making a best-guess assumption — these markers drive the refine-prd interview
+
+## Phase 0: Foreman Mode Detection
+
+### Step 1: Detect --foreman Flag
+
+**Actions:**
+1. Check if `$ARGUMENTS` contains the token `--foreman`.
+2. Set `FOREMAN_MODE=true` if found, otherwise `FOREMAN_MODE=false`.
 
 ## Phase 1: Structured Elicitation
 
@@ -252,3 +262,10 @@ Save to docs/PRD/ directory and confirm
 1. Create docs/PRD/ directory if it doesn't exist
 2. Save the PRD to docs/PRD/PRD-YYYY-<micro_uuid>-<slug>.md
 3. Print: file path, requirement count, readiness score, and suggested next step (e.g., '/ensemble:create-trd docs/PRD/PRD-YYYY-<micro_uuid>-<slug>.md')
+
+### Step 3: Foreman Handoff
+
+Commit and push the PRD, then print Foreman handoff variables.
+
+**Actions:**
+1. If `FOREMAN_MODE=true`: run 'git add -A && git commit -m "docs(PRD): <prd-label>"' (if there are uncommitted changes); run 'git push origin HEAD' (pushes the current branch); print "FOREMAN_BRANCH=$(git branch --show-current)"; print "FOREMAN_SHA=$(git rev-parse HEAD)"; print "FOREMAN_COMPLETE=true"
