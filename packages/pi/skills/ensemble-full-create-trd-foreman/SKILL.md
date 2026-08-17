@@ -16,22 +16,12 @@ disable-model-invocation: true
 
 > **Mission:** Create a Foreman-native Technical Requirements Document (TRD) from a Product Requirements Document (PRD). The resulting TRD must be machine-consumable by Foreman's existing `parseTrd()` parser and suitable for immediate native task creation via `foreman sling prd`. Perform PRD validation, architecture design with alternatives, and a structured task breakdown with deterministic markdown tables. All outputs are saved to docs/TRD/.
 
-> **Foreman Mode (`--foreman`):** When `$ARGUMENTS` contains `--foreman`, the skill sets `FOREMAN_MODE=true`. After saving the TRD file, the skill commits, pushes, and prints `FOREMAN_BRANCH`, `FOREMAN_SHA`, and `FOREMAN_COMPLETE=true` so Foreman can create the PR.
-
 > **Constraints:**
 > - DO NOT implement, build, or execute any technical work described in the requirements
 > - This command creates ONLY a TRD document
 > - The arguments describe what should be documented, not what should be built
 > - After creating the Foreman-native TRD, stop and wait for user approval before any implementation
 > - All task Status cells in output tables must be `[ ]` — never use `[x]` or `done` markers
-
-## Phase 0: Foreman Mode Detection
-
-### Step 1: Detect --foreman Flag
-
-**Actions:**
-1. Check if `$ARGUMENTS` contains the token `--foreman`.
-2. Set `FOREMAN_MODE=true` if found, otherwise `FOREMAN_MODE=false`.
 
 ## Phase 1: PRD Ingestion and Validation
 
@@ -236,10 +226,3 @@ Save TRD and suggest follow-up commands
 2. Save TRD to docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md
 3. Print: file path, task count, design readiness score, source PRD correlation id (TRD_MICRO_UUID), and explicit next step `foreman sling prd <original-prd-path>`
 4. Do not suggest beads-specific implementation commands
-
-### Step 5: Foreman Handoff
-
-Commit and push the TRD, then print Foreman handoff variables.
-
-**Actions:**
-1. If `FOREMAN_MODE=true`: run 'git add -A && git commit -m "docs(TRD): <trd-label>"' (if there are uncommitted changes); run 'git push origin HEAD' (pushes the current branch); print "FOREMAN_BRANCH=$(git branch --show-current)"; print "FOREMAN_SHA=$(git rev-parse HEAD)"; print "FOREMAN_COMPLETE=true"
