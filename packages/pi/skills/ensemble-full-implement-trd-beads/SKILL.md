@@ -27,10 +27,19 @@ disable-model-invocation: true
 ---
 <!-- Command: ensemble:implement-trd-beads | Version: 2.20.1 -->
 <!-- Description: Implement TRD with beads project management — persistent bead hierarchy, dependency-aware execution via br/bv, and cross-session resumability -->
-
 # ensemble:implement-trd-beads
 
 > **Mission:** Parse a TRD and create a beads hierarchy (epic -> stories -> tasks) before any implementation begins. Drive execution order through bv --robot-plan (the only scheduler) rather than TRD re-parsing. bv --robot-plan partitions the TRD-scoped bead subgraph into parallel tracks (up to max_parallel) and the build pipeline dispatches each track concurrently. Record all state transitions in br beads so the implementation is resumable across sessions without access to local state files. This command wraps the implement-trd-enhanced execution model with a full beads project management layer powered by br (beads_rust) and bv (beads_viewer). It transforms TRD-structured work into a persistent, queryable beads hierarchy and drives execution order through bv --robot-plan — enabling cross-session resumability, graph-aware triage, and parallel execution planning. Key behaviors: - Scaffold: epic -> stories -> tasks created in br before first line of code - Idempotency: existing scaffolds detected via title-prefix matching; partial scaffolds resumed safely - Execution: bv --robot-plan is the only scheduler; tracks partitioned and dispatched concurrently (max N parallel); br sync --flush-only before every bv call; barrier-and-replan between waves - Quality gates: phase completion triggers test delegation; results recorded as br comments - Sync: br sync --flush-only exports JSONL before every bv call - Hard requirement: bv is required. There is no graceful-degradation path — if bv is missing, installation is a precondition. br ready is never a fallback dispatcher; bv --robot-plan is the only scheduler.
+
+> **Foreman Mode (`--foreman`):** When `$ARGUMENTS` contains `--foreman`, the skill commits and pushes all changes after the skill completes, then prints the branch name and final commit SHA for Foreman to use when creating the PR. The skill does NOT run `git town propose` in `--foreman` mode — PR creation is Foreman's responsibility.
+
+## Phase 0: Foreman Mode Detection
+
+### Step 1: Detect --foreman Flag
+
+**Actions:**
+1. Check if `$ARGUMENTS` contains the token `--foreman`.
+2. Set `FOREMAN_MODE=true` if found, otherwise `FOREMAN_MODE=false`.
 
 ## Phase 1: Preflight
 
@@ -512,9 +521,10 @@ Print final summary with stacked PR map and next steps
 14. ========================================
 15. Run: br sync --flush-only
 16. Call trd_progress() (Preflight step 1) with TRD_SLUG for the final TRD-scoped progress summary (expect <TOTAL>/<TOTAL> complete, 100%)
-17. Let COMPLETION_ACTION = the PR_ACTIONS entry with kind=='completion' (from the pr-plan call in Feature Branch Creation). If COMPLETION_ACTION.createPr == true (single-PR mode, summaryKind=='single'): create the single PR for the whole TRD now using COMPLETION_ACTION.proposeTitle and COMPLETION_ACTION.branch. Pre-PR test gate — run 'npm run test --workspaces --if-present'; if exit != 0 print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run.' and HALT. Then run git town propose --title '<COMPLETION_ACTION.proposeTitle>' --body 'Implements TRD <TRD_SLUG>. Strategy: <strategy>. <phase_count> phases, <task_count> tasks — all complete. Bead: <ROOT_EPIC_ID>.'; record the URL as SINGLE_PR_URL; print '=== PR SUMMARY ===' then 'PR: <SINGLE_PR_URL> (branch: <COMPLETION_ACTION.branch> -> main)' then '=================='; remind the user to review and merge it. Then SKIP the stacked PR summary.
-18. If STACKED_PRS=true: Print stacked PR summary: '=== STACKED PR SUMMARY ===' followed by one line per entry in PHASE_PR_MAP: use label='PR' if PR_FORMAT=true else 'Phase'; print '<label> <N>: <PHASE_PR_MAP[N]> (branch: <PHASE_BRANCH_MAP[N]> -> parent)'; if PR_FORMAT=true AND PHASE_SHIPPABLE_STATE[N] exists, print '  Shippable: <PHASE_SHIPPABLE_STATE[N]>' on the next line; end with '========================'
-19. If STACKED_PRS=true: Remind user: PRs were created per-<label> via git town propose. Merge <label> 1 PR first (it targets main). After each merges, git-town automatically retargets the next PR against main.
-20. Remind user: after all PRs merge, run: mv <trd_file> docs/TRD/completed/
-21. Remind user: br sync --flush-only && git add .beads/ && git commit -m 'chore: final beads sync'
-22. TIP: The execution engine used here is also available standalone as /ensemble:beads-build <epic-id>. Use it to drive any bead hierarchy (not just TRD-generated ones) through the same build pipeline.
+17. Let COMPLETION_ACTION = the PR_ACTIONS entry with kind=='completion' (from the pr-plan call in Feature Branch Creation). If COMPLETION_ACTION.createPr == true (single-PR mode, summaryKind=='single'): Pre-PR test gate — run 'npm run test --workspaces --if-present'; if exit != 0 print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run.' and HALT. Then:
+    - If `FOREMAN_MODE=true`: run 'git add -A && git commit -m "feat(<TRD_SLUG>): final checkpoint"' (if there are uncommitted changes); run 'git push origin <COMPLETION_ACTION.branch>'; print "FOREMAN_BRANCH=<COMPLETION_ACTION.branch>"; print "FOREMAN_SHA=$(git rev-parse HEAD)"; print "FOREMAN_COMPLETE=true"
+    - If `FOREMAN_MODE=false`: run git town propose --title '<COMPLETION_ACTION.proposeTitle>' --body 'Implements TRD <TRD_SLUG>. Strategy: <strategy>. <phase_count> phases, <task_count> tasks — all complete. Bead: <ROOT_EPIC_ID>.'; record the URL as SINGLE_PR_URL; print '=== PR SUMMARY ===' then 'PR: <SINGLE_PR_URL>'
+18. If `FOREMAN_MODE=false` AND STACKED_PRS=true: Print stacked PR summary: '=== STACKED PR SUMMARY ===' followed by one line per entry in PHASE_PR_MAP: use label='PR' if PR_FORMAT=true else 'Phase'; print '<label> <N>: <PHASE_PR_MAP[N]> (branch: <PHASE_BRANCH_MAP[N]> -> parent)'; if PR_FORMAT=true AND PHASE_SHIPPABLE_STATE[N] exists, print '  Shippable: <PHASE_SHIPPABLE_STATE[N]>' on the next line; end with '========================'
+19. If `FOREMAN_MODE=false` AND STACKED_PRS=true: Remind user: PRs were created per-<label> via git town propose. Merge <label> 1 PR first (it targets main). After each merges, git-town automatically retargets the next PR against main.
+20. If `FOREMAN_MODE=false`: Remind user: after all PRs merge, run: mv <trd_file> docs/TRD/completed/
+21. If `FOREMAN_MODE=false`: Remind user: br sync --flush-only && git add .beads/ && git commit -m 'chore: final beads sync'
