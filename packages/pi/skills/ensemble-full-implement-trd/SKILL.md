@@ -15,7 +15,7 @@ disable-model-invocation: true
 
 > **Mission:** This command implements a complete Technical Requirements Document (TRD) using modern git-town feature branch workflow. It creates a feature branch and delegates to ensemble-orchestrator which routes to tech-lead-orchestrator for structured TDD-based development including planning, implementation, testing, and quality gates.
 
-> **Foreman Mode (`--foreman`):** When `$ARGUMENTS` contains `--foreman`, the skill commits and pushes all changes after the skill completes, then prints the branch name and final commit SHA for Foreman to use when creating the PR. The skill does NOT run `git town propose` in `--foreman` mode — PR creation is Foreman's responsibility.
+> **Foreman Mode (`--foreman`):** When `$ARGUMENTS` contains `--foreman`, the skill sets `FOREMAN_MODE=true`. In this mode the skill skips the final `git town propose` call at completion and instead commits, pushes, and prints `FOREMAN_BRANCH`, `FOREMAN_SHA`, and `FOREMAN_COMPLETE=true` so Foreman can create the PR. Mid-sprint PR sequencing (steps 132-135) is unchanged — foreman mode only affects the final completion handoff.
 
 ## Phase 0: Foreman Mode Detection
 
