@@ -1,5 +1,11 @@
 # Agent Instructions
 
+## Wiki
+
+The ensemble repo has a GitHub wiki at `https://github.com/Sunstone-Partners/ensemble.wiki.git` (separate repo, branch `master`). Verify with `gh repo view Sunstone-Partners/ensemble --json hasWikiEnabled` before assuming the wiki does or does not exist — do not infer from the absence of a wiki remote on the main repo.
+
+- **Drafts** are staged at `.wiki-staging/` at the repo root (gitignored via `.git/info/exclude`; local-only).
+- **Publish** via `scripts/wiki-publish.sh`. Handles add/update/sidebar cases with diff gates, idempotent, replays as no-op when wiki is already in the desired state. Run with `--yes` for non-interactive. See header comments in the script for the full contract.
 
 ## Beads Workflow Integration
 
