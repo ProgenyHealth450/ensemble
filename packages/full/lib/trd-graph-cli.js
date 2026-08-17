@@ -1,0 +1,1 @@
+../../development/lib/trd-graph-cli.js

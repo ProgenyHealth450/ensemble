@@ -27,6 +27,7 @@ const TARGET_COMMANDS: Record<string, string> = {
   'ensemble-full-implement-trd': 'ensemble-full-implement-trd',
   'ensemble-full-implement-trd-beads': 'ensemble-full-implement-trd-beads',
   'ensemble-full-create-trd-foreman': 'ensemble-full-create-trd-foreman',
+  'ensemble-full-beads-build': 'ensemble-full-beads-build',
 };
 
 /**

@@ -21,6 +21,10 @@ jest.mock('../src/transformers/skill-copier', () => ({
   copySkills: jest.fn().mockResolvedValue([]),
 }));
 
+jest.mock('../src/transformers/lib-bundler', () => ({
+  bundleLibs: jest.fn().mockResolvedValue([]),
+}));
+
 jest.mock('../src/transformers/agent-transformer', () => ({
   buildAgentResult: jest.fn(),
 }));

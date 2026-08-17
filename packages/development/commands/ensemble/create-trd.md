@@ -4,7 +4,7 @@ description: "Create Technical Requirements Document from PRD with architecture 
 version: "3.1.0"
 category: "planning"
 last-updated: "2026-05-30"
-argument-hint: "[prd-path] [--team] [--foundational]"
+argument-hint: "[prd-path] [--team] [--foundational] [--list]"
 model: "opus"
 ---
 <!-- DO NOT EDIT - Generated from create-trd.yaml -->
@@ -21,14 +21,20 @@ output with traceability matrices. Team configuration is handled separately by
 
 ### Phase 1: PRD Ingestion and Validation
 
-**1. PRD Ingestion**
+**1. List Available PRDs**
+   If --list is passed, show available PRDs and exit
+
+   - If $ARGUMENTS contains '--list': Resolve PRD_CLI (same resolution logic as implement-trd-beads): set PRD_CLI to the first path that exists among, in order: (1) "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/lib/prd-cli.js" (canonical monorepo root); (2) "${CLAUDE_PLUGIN_ROOT}/lib/prd-cli.js"; (3) "packages/development/lib/prd-cli.js" (legacy CWD-relative); (4) the Pi/OMP vendor bundle path — resolve the ensemble-pi package's own declared install location via node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}" and join the directory of that output with "/vendor/lib/prd-cli.js". If none of these exist, fall back to the same four tiers for trd-cli.js in the same order: (5) "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/lib/trd-cli.js"; (6) "${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js"; (7) "packages/development/lib/trd-cli.js"; (8) the Pi/OMP vendor bundle path (same node require.resolve technique) joined with "/vendor/lib/trd-cli.js". If none exists, print 'ERROR: Neither prd-cli.js nor trd-cli.js found — cannot list PRDs.' and HALT.
+   - If $ARGUMENTS contains '--list': run node "$PRD_CLI" list --type prd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of PRDs (columns: ID/Name, Status, Score, Version, Last Modified). Then call AskUserQuestion with id='prd_select', question='Select a PRD to use as the basis for TRD creation:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected PRD_SLUG. Then derive PRD_FILE_PATH as docs/PRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <PRD_SLUG>' and HALT. Set the derived path as the $ARGUMENTS prd-path and continue.
+
+**2. PRD Ingestion**
    Parse and analyze existing PRD document from $ARGUMENTS path
 
    - Read PRD file from specified path
    - If --foundational and no full PRD exists: accept a short capability brief instead (the shared work to build), skip PRD-structure validation for this run, and build a capability registry from the brief's named capabilities / scope / target files instead of REQ-NNN IDs
    - If a full PRD is provided: validate document structure (required sections present), extract key requirements with REQ-NNN IDs, and build requirements registry for traceability tracking
 
-**2. Requirements Validation**
+**3. Requirements Validation**
    Ensure completeness of functional and non-functional requirements
 
    - If --foundational with a short capability brief: skip this PRD-specific validation step
@@ -37,7 +43,7 @@ output with traceability matrices. Team configuration is handled separately by
    - Otherwise verify REQ-NNN format numbering is consistent and sequential
    - Otherwise verify constraints and non-goals are documented
 
-**3. Acceptance Criteria Review**
+**4. Acceptance Criteria Review**
    Validate testable acceptance criteria from the PRD before TRD generation
 
    - If --foundational with a short capability brief: skip this PRD-specific acceptance criteria review
@@ -46,7 +52,7 @@ output with traceability matrices. Team configuration is handled separately by
    - Otherwise check that every Must requirement has at least 2 ACs (happy path + edge case)
    - Do NOT validate TRD traceability here -- the TRD has not been generated yet
 
-**4. Implementation Readiness Gate Check**
+**5. Implementation Readiness Gate Check**
    Check if the PRD passed its own readiness gate before proceeding
 
    - If --foundational with a short capability brief: skip the PRD readiness score gate
@@ -70,7 +76,7 @@ output with traceability matrices. Team configuration is handled separately by
 **2. Capability Reuse Check**
    Reuse existing foundational work instead of duplicating it (dedup-by-reference)
 
-   - Resolve TRD_GRAPH_CLI to first existing path among: ${CLAUDE_PLUGIN_ROOT}/lib/trd-graph-cli.js, packages/development/lib/trd-graph-cli.js. If missing, print error and HALT.
+   - Resolve TRD_GRAPH_CLI to first existing path among, in order: (1) "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/lib/trd-graph-cli.js" (canonical monorepo root); (2) ${CLAUDE_PLUGIN_ROOT}/lib/trd-graph-cli.js; (3) packages/development/lib/trd-graph-cli.js (legacy CWD-relative); (4) the Pi/OMP vendor bundle path — resolve the ensemble-pi package's own declared install location via node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}" and join the directory of that output with /vendor/lib/trd-graph-cli.js. If missing, print error and HALT.
    - Run: node "$TRD_GRAPH_CLI" capabilities docs/TRD --json to list capabilities already provided by foundational TRDs; if docs/TRD does not exist yet, treat the registry as empty and continue
    - For each technical capability this PRD needs (from Domain Analysis), check the registry: an EXPLICIT match is one of the listed capability tokens; otherwise judge an IMPLICIT match by comparing the needed work to existing foundational TRD labels/titles and their target files (also consult: node "$TRD_GRAPH_CLI" overlap docs/TRD)
    - If a foundational TRD already provides the capability: DO NOT generate duplicate tasks for it. Instead add a cross-TRD dependency [depends: <foundational-slug>#TRD-NNN] (or #PR-N) on the task that needs it, and record it under a '## Reused Capabilities' section (capability -> foundational TRD label + document id)
@@ -279,5 +285,5 @@ output with traceability matrices. Team configuration is handled separately by
 ## Usage
 
 ```
-/ensemble:create-trd [prd-path] [--team] [--foundational]
+/ensemble:create-trd [prd-path] [--team] [--foundational] [--list]
 ```

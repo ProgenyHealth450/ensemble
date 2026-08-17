@@ -16,6 +16,7 @@ import { GeneratorOptions, TransformResult, CommandYaml } from './types';
 import { transformCommand } from './transformers/command-transformer';
 import { buildAgentResult } from './transformers/agent-transformer';
 import { copySkills } from './transformers/skill-copier';
+import { bundleLibs } from './transformers/lib-bundler';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as yaml from 'js-yaml';
@@ -496,6 +497,14 @@ export async function generate(options: GeneratorOptions): Promise<void> {
   results.push(...skillResults);
 
   // ------------------------------------------------------------------
+  // 3b. Vendored lib/script files (trd-cli.js, trd-graph-cli.js, prd-cli.js,
+  //     validate-git-town.sh) for Pi runtime consumption when only the
+  //     published ensemble-pi package is installed.
+  // ------------------------------------------------------------------
+  const libResults = await bundleLibs(sourceRoot, outputRoot, { dryRun, verbose });
+  results.push(...libResults);
+
+  // ------------------------------------------------------------------
   // 4. AGENTS.md generation (TRD-009)
   // ------------------------------------------------------------------
   const agentsMdResult = generateAgentsMd(sourceRoot, outputRoot, { dryRun, verbose });
@@ -508,8 +517,8 @@ export async function generate(options: GeneratorOptions): Promise<void> {
   // ------------------------------------------------------------------
   if (!dryRun) {
     for (const result of results) {
-      // agents-md and skill files are already written by their respective transformers
-      if (result.type !== 'agents-md' && result.type !== 'skill') {
+      // agents-md, skill, and lib files are already written by their respective transformers
+      if (result.type !== 'agents-md' && result.type !== 'skill' && result.type !== 'lib') {
         writeResult(result);
       }
     }

@@ -1,0 +1,1 @@
+../../development/lib/complete-beads-planner.js
