@@ -164,3 +164,48 @@ describe('implement-trd PR-backend branching logic (TRD-019)', () => {
     expect(finalClause).toContain("'manual' always prints manual push+PR instructions");
   });
 });
+
+describe('implement-trd always-on team roster (team8)', () => {
+  const yamlPath = path.join(__dirname, '../commands/implement-trd.yaml');
+
+  test('Preflight contains Team Configuration Detection with default 8-role roster log', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    expect(text).toMatch(/title: Team Configuration Detection/);
+    expect(text).toMatch(/always-on default 8-role roster/);
+    expect(text).toMatch(/Team mode \(default roster\): lead=<lead>, architect=<architect>, builders=<n>, reviewer=<reviewer>, qa=<qa>, advisor=<advisor>, pm=<pm>, documentation=<documentation>/);
+  });
+});
+
+describe('implement-trd PR-boundary doc hook contract', () => {
+  const yamlPath = path.join(__dirname, '../commands/implement-trd.yaml');
+
+  test('Sprint PR Stacking runs doc-maintenance before PR creation and branch append', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const stepStart = text.indexOf('title: Sprint PR Stacking');
+    const stepEnd = text.indexOf('expectedInput:');
+    expect(stepStart).toBeGreaterThan(-1);
+    expect(stepEnd).toBeGreaterThan(stepStart);
+    const stepBlock = text.slice(stepStart, stepEnd);
+
+    expect(stepBlock).toMatch(/packages\/development\/lib\/doc-maintenance\.js/);
+    expect(stepBlock).toMatch(/README\.md, AGENTS\.md, and docs\/UserGuide\.md/);
+    expect(stepBlock).toMatch(/BEFORE git town propose \/ gh pr create \/ git town append \/ git checkout -b/);
+  });
+});
+
+describe('implement-trd PM clarification guard contract', () => {
+  const yamlPath = path.join(__dirname, '../commands/implement-trd.yaml');
+
+  test('Task Loop documents a 3-round PM clarification cap', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const loopStart = text.indexOf('title: Task Loop');
+    const loopEnd = text.indexOf('title: Quality Gates');
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(loopEnd).toBeGreaterThan(loopStart);
+    const loopBlock = text.slice(loopStart, loopEnd);
+
+    expect(loopBlock).toMatch(/PM clarification loop guard/);
+    expect(loopBlock).toMatch(/Maximum 3 PM clarification rounds per task/);
+    expect(loopBlock).toMatch(/On the 4th request, HALT and escalate to the lead/);
+  });
+});

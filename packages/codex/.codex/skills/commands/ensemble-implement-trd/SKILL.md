@@ -74,6 +74,17 @@ Algorithm defined in packages/development/skills/staleness-gate/SKILL.md.
 **6. Resource Assessment**
    Identify required specialist agents and tools
 
+**7. Team Configuration Detection**
+   Parse the TRD's explicit `team:` block when present; otherwise resolve the
+always-on default 8-role roster via packages/development/lib/team-defaults.js.
+Single-agent mode is removed — team mode is the execution model.
+
+
+   - Read the TRD file frontmatter / body for an explicit `team:` block. If present: parse it with the shared team parser contract (lead, builder, architect, reviewer, qa, advisor, pm, documentation). Store the normalized object as TEAM_ROLES.
+   - If no explicit `team:` block exists: call resolveDefaultTeamRoles using the same domain/complexity heuristics that configure-team.yaml computes. Store the returned normalized 8-role roster as TEAM_ROLES.
+   - Log exactly one line: Team mode (default roster): lead=<lead>, architect=<architect>, builders=<n>, reviewer=<reviewer>, qa=<qa>, advisor=<advisor>, pm=<pm>, documentation=<documentation> when defaults are used.
+   - Log exactly one line: Team mode (TRD roster): lead=<lead>, architect=<architect>, builders=<n>, reviewer=<reviewer>, qa=<qa>, advisor=<advisor>, pm=<pm>, documentation=<documentation> when an explicit TRD team block is used.
+
 ### Phase 2: Ensemble Orchestrator Delegation
 
 **1. Strategic Request Analysis**
@@ -123,6 +134,7 @@ task and loop immediately to Step 1 for the next one.
    - Step 4 (close): on APPROVED (or skip-eligible per Step 3): update the TRD file's checkbox for this task from '- [ ]' to '- [x]'; add the task id to CLOSED_TASK_IDS; git commit -m 'feat(<trd-slug>): <task.id> — <short description>'. Print 'Task <task.id> complete (<N>/<TOTAL> this sprint).' Then return immediately to Step 1 for the next task — do NOT pause, do NOT summarize progress beyond that one line, do NOT ask for acknowledgement.
    - Step 5 (automated remediation before pause): if 2 review rounds are exhausted in Step 3 and the task is still REJECTED: delegate to @deep-debugger with the review feedback, failing tests, and changed files (same automated-remediation pattern as implement-trd-beads.yaml's Debug Loop, TRD-019). If deep-debugger produces a fix: re-run Step 3 (review) once more. If still REJECTED after that single extra attempt: print 'Task <task.id> could not be automatically resolved after 2 review rounds + 1 debug attempt. Reviewer feedback: <feedback>.'; PAUSE for user: fix/skip/abort. This is the ONLY task-level pause in the loop — a single rejection never pauses on its own.
    - Context budget monitoring (informational only, mirrors implement-trd-beads.yaml's Execute phase Step 8): after every 5 tasks closed, print a one-line checkpoint noting task count and suggesting /compact if quality is degrading. Do not halt or pause execution based on this signal.
+   - PM clarification loop guard: when a task re-enters clarification, count prior PM rounds for that task from the commit-trailer history. Maximum 3 PM clarification rounds per task. On the 4th request, HALT and escalate to the lead with the accumulated clarification history instead of looping again.
 
 **3. Quality Gates**
    Full-suite test and coverage check once every task in CURRENT_SPRINT is individually approved and closed by the Task Loop.
@@ -168,6 +180,7 @@ attempts automation. The next-sprint branch creation (previously git town append
 config-driven on BRANCHING_STRATEGY, matching TRD-018's line-55 pattern.
 
 
+   - Before ANY PR creation or next-sprint branch append, run PR-boundary documentation maintenance using packages/development/lib/doc-maintenance.js. The hook fires once when the last task under the current PR boundary closes (or once at final TRD close for non-PR TRDs), may only touch README.md, AGENTS.md, and docs/UserGuide.md, and must complete BEFORE git town propose / gh pr create / git town append / git checkout -b for the next sprint.
    - Pre-PR test gate (runs before ANY PR creation, both modes): run 'npm run test --workspaces --if-present'. If exit code != 0: print 'ERROR: Local tests failed — PR creation blocked. Fix failing tests and re-run the sprint review to retry.' and HALT. If exit code == 0: print 'Pre-PR test gate: PASSED.'
    - If STACKED_PRS=true: SPRINT_TITLE="feat(<trd-slug>){{colon}} Sprint <CURRENT_SPRINT> implementation"; SPRINT_BODY="Sprint <CURRENT_SPRINT> of TRD complete. Stacked PR targeting <base_branch>.". Branch on PR_BACKEND:
    -   PR_BACKEND=='gh' AND BRANCHING_STRATEGY=='git-town' [UNCHANGED]: run git town propose --title "<SPRINT_TITLE>" --body "<SPRINT_BODY>"; record PR URL as SPRINT_PR_MAP[CURRENT_SPRINT].

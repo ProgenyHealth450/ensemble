@@ -196,7 +196,18 @@ Algorithm defined in the staleness-gate skill. Resolve its path in this order: (
    - If USE_PROPOSED=false: Run: git branch --list <branch_name>. If exists: git switch <branch_name>. If not exists: print 'ERROR: Branch <branch_name> does not exist. Switch to an existing branch before running, or choose 'Use proposed branch' to create a new one.' and HALT.
    - Normalize choices for persist: USE_PROPOSED_NORM=<USE_PROPOSED ? 'true' : 'false'>, STACKED_PRS_NORM=<STACKED_PRS ? 'true' : 'false'>, BRANCH_NAME_NORM=<USE_PROPOSED ? branchFirst : branch_name>. Run: node "$TRD_CLI" choices-write "<TRD_FILE_PATH>" --branch-name <BRANCH_NAME_NORM>$( [ "<USE_PROPOSED_NORM>" = 'true' ] && echo ' --use-proposed' )$( [ "<STACKED_PRS_NORM>" = 'true' ] && echo ' --stacked-prs' ). If exit code != 0: print warning 'Failed to persist branch choice to TRD frontmatter — continuing without persisting' (non-fatal).
 
-**11. Marketplace Preflight Check**
+**11. Team Configuration Detection**
+   Parse the TRD's explicit `team:` block when present; otherwise resolve the
+always-on default 8-role roster via packages/development/lib/team-defaults.js.
+Single-agent mode is removed — team mode is the execution model.
+
+
+   - Read the TRD file frontmatter / body for an explicit `team:` block. If present: parse it with the shared team parser contract (lead, builder, architect, reviewer, qa, advisor, pm, documentation). Store the normalized object as TEAM_ROLES.
+   - If no explicit `team:` block exists: call resolveDefaultTeamRoles using the same domain/complexity heuristics that configure-team.yaml computes. Store the returned normalized 8-role roster as TEAM_ROLES.
+   - Log exactly one line: Team mode (default roster): lead=<lead>, architect=<architect>, builders=<n>, reviewer=<reviewer>, qa=<qa>, advisor=<advisor>, pm=<pm>, documentation=<documentation> when defaults are used.
+   - Log exactly one line: Team mode (TRD roster): lead=<lead>, architect=<architect>, builders=<n>, reviewer=<reviewer>, qa=<qa>, advisor=<advisor>, pm=<pm>, documentation=<documentation> when an explicit TRD team block is used.
+
+**12. Marketplace Preflight Check**
    Before execution begins, check for marketplace capability gaps that may affect
 agent availability. Presents suggestions for missing agents/skills and installs approved
 plugins. Builds KNOWN_AGENTS and AGENT_ALIAS_MAP from BOTH source packages/*/agents/*.yaml
@@ -231,7 +242,7 @@ AC-8.1 through AC-8.6, AC-TD-2, FR-5.6
    -   Log: 'Newly installed agents now available in registry: <agent names>'
    - Step 9 — If user declines all suggestions: proceed with existing KNOWN_AGENTS / AGENT_ALIAS_MAP from Step 3
 
-**12. Traceability Validation Gate**
+**13. Traceability Validation Gate**
    Run validate-requirements as an automatic preflight gate before scaffolding begins.
 Checks that PRD requirements have TRD task coverage, that [satisfies] annotations
 reference real REQ-NNN IDs, and that every user-facing task has a paired -TEST task.
@@ -410,10 +421,10 @@ Skipped if TRD has no [satisfies] annotations (legacy TRD without traceability).
    - Print: '  Root epic: <ROOT_EPIC_ID>'
    - Print: '  Max parallel: <max_parallel>'
    - Determine MAX_PARALLEL: if --max-parallel was passed as an argument, use that value; else if the TRD frontmatter sets max_parallel, use that value; else default to 3.
-   - Determine BUILDER_AGENT: if --builder was passed as an argument, use that value; else if the TRD frontmatter sets builder_agent, use that value; else default to 'tech-lead-orchestrator'.
+   - Determine TEAM_ROLES_JSON: if a parsed/default teamRoles object is already in scope from Team Configuration Detection, serialize that object as compact JSON and use it; else if --builder was passed as an argument or the TRD frontmatter sets builder_agent, synthesize a DEPRECATED compatibility roster {lead:{agents:['tech-lead-orchestrator'],owns:['planning','escalation']},builder:{agents:[<builder-override-or-frontmatter>],owns:['implementation']},architect:{agents:['architect'],owns:['task-design']},documentation:{agents:['documentation-specialist'],owns:['pr-boundary-doc-maintenance']}} and serialize it; else synthesize the same compatibility roster with builder=['tech-lead-orchestrator']. This deprecated synthesis path remains for one minor version only.
    - Verify prerequisites are ready: TASK_TRACEABILITY is non-empty (built during Scaffold) and ROOT_EPIC_ID is set; if either is missing, HALT with 'ERROR: Cannot delegate to beads-build — <field> missing. Re-run from Scaffold phase or pass --trd explicitly.'
-   - Run the delegated command via the agent harness: invoke /ensemble:beads-build with arguments: <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --builder <BUILDER_AGENT> --label <TRD_LABEL>
-   -   Equivalent shape for environments without native slash-command dispatch (e.g. Pi/OMP): invoke the ensemble-full-beads-build skill directly (it is Pi-wrapped) with the same arguments: --epic <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --builder <BUILDER_AGENT> --label <TRD_LABEL>. There is no standalone packages/development/bin/implement.js CLI binary — do not reference one; it has never existed in this repo.
+   - Run the delegated command via the agent harness: invoke /ensemble:beads-build with arguments: <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --team-roles '<TEAM_ROLES_JSON>' --label <TRD_LABEL>
+   -   Equivalent shape for environments without native slash-command dispatch (e.g. Pi/OMP): invoke the ensemble-full-beads-build skill directly (it is Pi-wrapped) with the same arguments: --epic <ROOT_EPIC_ID> --trd <TRD_FILE_PATH> --max-parallel <MAX_PARALLEL> --team-roles '<TEAM_ROLES_JSON>' --label <TRD_LABEL>. Keep --builder as a deprecated fallback accepted by beads-build for one minor version; there is no standalone packages/development/bin/implement.js CLI binary — do not reference one; it has never existed in this repo.
    - If the delegated invocation returns non-zero exit code: capture stderr/stdout, surface as Debug Loop entry per TRD-019, then HALT.
    - If the delegated invocation returns zero: read its stdout for the final completion summary (bead counts, branch state, last task closed). Persist TASK_CLOSED_IDS from the summary into this command's state so Quality Gate and Completion phases can reuse it.
    - Note: bv --robot-triage may still be run separately for project-wide graph insight, but its counts are GLOBAL across all epics/TRDs and must never be presented as this TRD's progress.

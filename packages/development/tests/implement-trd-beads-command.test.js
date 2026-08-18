@@ -613,3 +613,27 @@ describe('implement-trd-beads resume-path config freshness (TRD-011)', () => {
     expect(noticeClause).toContain('no branch or PR created in a prior session is rewritten, re-targeted, or otherwise touched');
   });
 });
+
+describe('implement-trd-beads always-on team roster (team8)', () => {
+  const yamlPath = path.join(__dirname, '../commands/implement-trd-beads.yaml');
+
+  test('Preflight contains Team Configuration Detection with default 8-role roster log', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    expect(text).toMatch(/title: Team Configuration Detection/);
+    expect(text).toMatch(/always-on default 8-role roster/);
+    expect(text).toMatch(/Team mode \(default roster\): lead=<lead>, architect=<architect>, builders=<n>, reviewer=<reviewer>, qa=<qa>, advisor=<advisor>, pm=<pm>, documentation=<documentation>/);
+  });
+
+  test('Execute delegation passes --team-roles instead of only --builder', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const stepStart = text.indexOf('title: Delegate to beads-build');
+    const stepEnd = text.indexOf('- name: Quality Gate');
+    expect(stepStart).toBeGreaterThan(-1);
+    expect(stepEnd).toBeGreaterThan(stepStart);
+    const stepBlock = text.slice(stepStart, stepEnd);
+
+    expect(stepBlock).toMatch(/TEAM_ROLES_JSON/);
+    expect(stepBlock).toMatch(/--team-roles '<TEAM_ROLES_JSON>'/);
+    expect(stepBlock).toMatch(/deprecated fallback accepted by beads-build/);
+  });
+});

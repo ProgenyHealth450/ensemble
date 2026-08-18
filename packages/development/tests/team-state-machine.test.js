@@ -22,12 +22,16 @@ const {
 
 describe('State Machine (validateTransition)', () => {
   // -------------------------------------------------------------------------
-  // Valid transitions (8 total)
+  // Valid transitions (17 total)
   // -------------------------------------------------------------------------
 
   describe('valid transitions', () => {
     test('open -> in_progress is valid (builder claims task)', () => {
       expect(validateTransition('open', 'in_progress')).toBe(true);
+    });
+
+    test('in_progress -> in_design is valid (builder escalates: needs-design)', () => {
+      expect(validateTransition('in_progress', 'in_design')).toBe(true);
     });
 
     test('in_progress -> in_review is valid (builder submits for review)', () => {
@@ -42,12 +46,32 @@ describe('State Machine (validateTransition)', () => {
       expect(validateTransition('in_progress', 'closed')).toBe(true);
     });
 
-    test('in_review -> in_qa is valid (reviewer approves)', () => {
-      expect(validateTransition('in_review', 'in_qa')).toBe(true);
+    test('in_progress -> in_clarification is valid (any role needs clarification)', () => {
+      expect(validateTransition('in_progress', 'in_clarification')).toBe(true);
+    });
+
+    test('in_design -> in_progress is valid (architect returns design)', () => {
+      expect(validateTransition('in_design', 'in_progress')).toBe(true);
     });
 
     test('in_review -> in_progress is valid (reviewer rejects, send back)', () => {
       expect(validateTransition('in_review', 'in_progress')).toBe(true);
+    });
+
+    test('in_review -> in_advisory is valid (reviewer approves; advisor must review)', () => {
+      expect(validateTransition('in_review', 'in_advisory')).toBe(true);
+    });
+
+    test('in_review -> in_clarification is valid (reviewer escalates to pm)', () => {
+      expect(validateTransition('in_review', 'in_clarification')).toBe(true);
+    });
+
+    test('in_advisory -> in_qa is valid (advisor approves)', () => {
+      expect(validateTransition('in_advisory', 'in_qa')).toBe(true);
+    });
+
+    test('in_advisory -> in_progress is valid (advisor vetoes)', () => {
+      expect(validateTransition('in_advisory', 'in_progress')).toBe(true);
     });
 
     test('in_qa -> closed is valid (QA passes)', () => {
@@ -56,6 +80,18 @@ describe('State Machine (validateTransition)', () => {
 
     test('in_qa -> in_progress is valid (QA rejects, send back)', () => {
       expect(validateTransition('in_qa', 'in_progress')).toBe(true);
+    });
+
+    test('in_qa -> in_clarification is valid (QA escalates to pm)', () => {
+      expect(validateTransition('in_qa', 'in_clarification')).toBe(true);
+    });
+
+    test('in_clarification -> in_progress is valid (PM returns clarification)', () => {
+      expect(validateTransition('in_clarification', 'in_progress')).toBe(true);
+    });
+
+    test('closed -> in_advisory is valid (advisor can re-open a closed task)', () => {
+      expect(validateTransition('closed', 'in_advisory')).toBe(true);
     });
   });
 
@@ -76,7 +112,11 @@ describe('State Machine (validateTransition)', () => {
       expect(validateTransition('open', 'in_review')).toBe(false);
     });
 
-    test('closed -> in_progress is invalid (closed is terminal)', () => {
+    test('open -> in_design is invalid', () => {
+      expect(validateTransition('open', 'in_design')).toBe(false);
+    });
+
+    test('closed -> in_progress is invalid (closed may only re-open to advisory)', () => {
       expect(validateTransition('closed', 'in_progress')).toBe(false);
     });
 
@@ -96,7 +136,7 @@ describe('State Machine (validateTransition)', () => {
       expect(validateTransition('in_review', 'open')).toBe(false);
     });
 
-    test('in_review -> closed is invalid (must go through QA first)', () => {
+    test('in_review -> closed is invalid (must go through advisory/qa)', () => {
       expect(validateTransition('in_review', 'closed')).toBe(false);
     });
 
@@ -110,6 +150,18 @@ describe('State Machine (validateTransition)', () => {
 
     test('in_progress -> open is invalid', () => {
       expect(validateTransition('in_progress', 'open')).toBe(false);
+    });
+
+    test('in_design -> in_qa is invalid', () => {
+      expect(validateTransition('in_design', 'in_qa')).toBe(false);
+    });
+
+    test('in_advisory -> closed is invalid (advisor must hand to qa or builder)', () => {
+      expect(validateTransition('in_advisory', 'closed')).toBe(false);
+    });
+
+    test('in_clarification -> in_review is invalid (PM returns to work, not directly to review)', () => {
+      expect(validateTransition('in_clarification', 'in_review')).toBe(false);
     });
 
     test('unknown state -> in_progress is invalid', () => {
@@ -138,12 +190,24 @@ describe('State Machine (validateTransition)', () => {
       expect(validateTransition('in_progress', 'in_progress')).toBe(false);
     });
 
+    test('in_design -> in_design is invalid', () => {
+      expect(validateTransition('in_design', 'in_design')).toBe(false);
+    });
+
     test('in_review -> in_review is invalid', () => {
       expect(validateTransition('in_review', 'in_review')).toBe(false);
     });
 
+    test('in_advisory -> in_advisory is invalid', () => {
+      expect(validateTransition('in_advisory', 'in_advisory')).toBe(false);
+    });
+
     test('in_qa -> in_qa is invalid', () => {
       expect(validateTransition('in_qa', 'in_qa')).toBe(false);
+    });
+
+    test('in_clarification -> in_clarification is invalid', () => {
+      expect(validateTransition('in_clarification', 'in_clarification')).toBe(false);
     });
 
     test('closed -> closed is invalid', () => {
@@ -307,8 +371,6 @@ describe('Escalation threshold (requiresEscalation)', () => {
     });
 
     test('after lead escalation, rejection count resets via lead-reset:true', () => {
-      // Full history including pre-reset rejections and post-reset fresh segment.
-      // The lead-reset:true marker tells countRejections to only count after it.
       const fullHistory = [
         'status:in_progress assigned:backend-developer',
         'status:in_review builder:backend-developer files:src/auth.ts',
@@ -320,7 +382,6 @@ describe('Escalation threshold (requiresEscalation)', () => {
         'status:in_review builder:backend-developer files:src/auth.ts',
       ].join('\n');
 
-      // Only counts rejections after the lead-reset:true line (0 in fresh segment)
       expect(countRejections(fullHistory)).toBe(0);
       expect(requiresEscalation(0)).toBe(false);
     });
@@ -352,38 +413,54 @@ describe('Skip paths', () => {
 // ---------------------------------------------------------------------------
 
 describe('VALID_TRANSITIONS table', () => {
-  test('defines transitions for all non-terminal states', () => {
+  test('defines transitions for all states with outgoing transitions', () => {
     expect(VALID_TRANSITIONS).toHaveProperty('open');
     expect(VALID_TRANSITIONS).toHaveProperty('in_progress');
+    expect(VALID_TRANSITIONS).toHaveProperty('in_design');
     expect(VALID_TRANSITIONS).toHaveProperty('in_review');
+    expect(VALID_TRANSITIONS).toHaveProperty('in_advisory');
     expect(VALID_TRANSITIONS).toHaveProperty('in_qa');
+    expect(VALID_TRANSITIONS).toHaveProperty('in_clarification');
+    expect(VALID_TRANSITIONS).toHaveProperty('closed');
   });
 
-  test('closed state has no outgoing transitions (terminal)', () => {
-    expect(VALID_TRANSITIONS).not.toHaveProperty('closed');
-  });
-
-  test('total valid transition count is 8', () => {
+  test('total valid transition count is 17', () => {
     const total = Object.values(VALID_TRANSITIONS).reduce(
       (sum, targets) => sum + targets.length,
       0
     );
-    expect(total).toBe(8);
+    expect(total).toBe(17);
   });
 
   test('open state has exactly 1 valid target', () => {
     expect(VALID_TRANSITIONS.open).toHaveLength(1);
   });
 
-  test('in_progress state has exactly 3 valid targets', () => {
-    expect(VALID_TRANSITIONS.in_progress).toHaveLength(3);
+  test('in_progress state has exactly 5 valid targets', () => {
+    expect(VALID_TRANSITIONS.in_progress).toHaveLength(5);
   });
 
-  test('in_review state has exactly 2 valid targets', () => {
-    expect(VALID_TRANSITIONS.in_review).toHaveLength(2);
+  test('in_design state has exactly 1 valid target', () => {
+    expect(VALID_TRANSITIONS.in_design).toHaveLength(1);
   });
 
-  test('in_qa state has exactly 2 valid targets', () => {
-    expect(VALID_TRANSITIONS.in_qa).toHaveLength(2);
+  test('in_review state has exactly 3 valid targets', () => {
+    expect(VALID_TRANSITIONS.in_review).toHaveLength(3);
+  });
+
+  test('in_advisory state has exactly 2 valid targets', () => {
+    expect(VALID_TRANSITIONS.in_advisory).toHaveLength(2);
+  });
+
+  test('in_qa state has exactly 3 valid targets', () => {
+    expect(VALID_TRANSITIONS.in_qa).toHaveLength(3);
+  });
+
+  test('in_clarification state has exactly 1 valid target', () => {
+    expect(VALID_TRANSITIONS.in_clarification).toHaveLength(1);
+  });
+
+  test('closed state has exactly 1 valid target (re-open to advisory)', () => {
+    expect(VALID_TRANSITIONS.closed).toHaveLength(1);
   });
 });
