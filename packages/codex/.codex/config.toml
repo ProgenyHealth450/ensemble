@@ -32,9 +32,17 @@ config_file = "agents/file-creator.toml"
 description = "Research and analysis specialist for complex investigations, multi-domain analysis, and ambiguous scope tasks."
 config_file = "agents/general-purpose.toml"
 
+[agents."advisor"]
+description = "Monitor active implementation to detect shortcuts, ensure the best solution is implemented rather than the fastest path, and intervene when an agent is silently bypassing requirements."
+config_file = "agents/advisor.toml"
+
 [agents."api-documentation-specialist"]
 description = "OpenAPI/Swagger documentation and API design"
 config_file = "agents/api-documentation-specialist.toml"
+
+[agents."architect"]
+description = "Design the technical approach for an implementation task; produce / validate the design before the builder starts; flag architectural drift during execution."
+config_file = "agents/architect.toml"
 
 [agents."backend-developer"]
 description = "Implement server-side logic across languages/stacks; enforce clean architecture and boundaries"
@@ -51,6 +59,10 @@ config_file = "agents/documentation-specialist.toml"
 [agents."frontend-developer"]
 description = "Framework-agnostic front-end implementation (JS/TS, React, Vue, Angular, Svelte) with accessibility and performance optimization"
 config_file = "agents/frontend-developer.toml"
+
+[agents."pm"]
+description = "Answer requirements questions raised during implementation; clarify ambiguous acceptance criteria; resolve scope disputes between agents."
+config_file = "agents/pm.toml"
 
 [agents."tech-lead-orchestrator"]
 description = "Orchestrate traditional development methodology - plan, architect, task breakdown, develop, code-review, test loop until completion with intelligent delegation and quality loops"

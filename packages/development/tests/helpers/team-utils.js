@@ -6,68 +6,9 @@
  */
 
 'use strict';
+const { parseSubState } = require('../../lib/parse-sub-state');
 
-// ---------------------------------------------------------------------------
-// parseSubState - Comment status parser
-// ---------------------------------------------------------------------------
 
-/**
- * Parses the output of `br comment list <bead_id>` to find the latest
- * status: comment.
- *
- * Format: status:<state> <key>:<value> [<key>:<value>...]
- *
- * Valid states: in_progress, in_review, in_qa, closed, skip-review, skip-qa
- * Valid keys:   assigned, builder, reviewer, qa, verdict, reason, files, lead
- *
- * reason: values use %20 for spaces; hyphens are preserved literally.
- *
- * @param {string} commentListOutput - Raw stdout from `br comment list`
- * @returns {{ state: string, metadata: Object } | null}
- */
-function parseSubState(commentListOutput) {
-  if (!commentListOutput || typeof commentListOutput !== 'string') {
-    return null;
-  }
-
-  const lines = commentListOutput.split('\n');
-
-  // Scan in reverse so the latest comment wins
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    const statusIdx = line.indexOf('status:');
-    if (statusIdx === -1) continue;
-
-    const statusPart = line.substring(statusIdx);
-    if (!statusPart.startsWith('status:')) continue;
-
-    const tokens = statusPart.split(/\s+/);
-    const state = tokens[0].replace('status:', '');
-
-    if (!state) continue;
-
-    const metadata = {};
-    for (let j = 1; j < tokens.length; j++) {
-      const colonIdx = tokens[j].indexOf(':');
-      if (colonIdx === -1) continue;
-      const key = tokens[j].substring(0, colonIdx);
-      const rawValue = tokens[j].substring(colonIdx + 1);
-      if (!key || rawValue === undefined) continue;
-
-      if (key === 'reason') {
-        metadata[key] = decodeURIComponent(rawValue);
-      } else {
-        metadata[key] = rawValue;
-      }
-    }
-
-    return { state, metadata };
-  }
-
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // parseTeamConfig - Team YAML parser
@@ -77,9 +18,22 @@ function parseSubState(commentListOutput) {
  * Parses the `team:` section of a command YAML (already loaded as a JS object)
  * and returns a normalized team configuration.
  *
+ * The 8-role schema accepts the following role names:
+ *   - lead         (REQUIRED)  - tech-lead-orchestrator
+ *   - builder      (REQUIRED)  - backend/frontend/infra/etc. developers
+ *   - architect    (REQUIRED)  - per-task design (architect agent)
+ *   - reviewer     (optional)  - code-reviewer
+ *   - qa           (optional)  - qa-orchestrator
+ *   - advisor      (optional)  - cross-cutting solution quality review
+ *   - pm           (optional)  - in-pipeline requirement clarification
+ *   - documentation (REQUIRED) - documentation-specialist (PR-boundary doc hook)
+ *
+ * Required roles: lead, builder, architect, documentation.
+ * Optional roles: reviewer, qa, advisor, pm.
+ *
  * @param {Object|undefined|null} yamlTeamSection - The `team:` object from parsed YAML
- * @returns {{ teamMode: boolean, teamRoles: Object, reviewerEnabled: boolean, qaEnabled: boolean }}
- * @throws {Error} if required roles (lead, builder) are missing
+ * @returns {{ teamMode: boolean, teamRoles: Object, reviewerEnabled: boolean, qaEnabled: boolean, advisorEnabled: boolean, pmEnabled: boolean }}
+ * @throws {Error} if required roles (lead, builder, architect, documentation) are missing
  */
 function parseTeamConfig(yamlTeamSection) {
   if (!yamlTeamSection) {
@@ -88,6 +42,8 @@ function parseTeamConfig(yamlTeamSection) {
       teamRoles: {},
       reviewerEnabled: false,
       qaEnabled: false,
+      advisorEnabled: false,
+      pmEnabled: false,
     };
   }
 
@@ -111,36 +67,52 @@ function parseTeamConfig(yamlTeamSection) {
   if (!teamRoles.builder) {
     throw new Error("team.roles must include a 'builder' role");
   }
+  if (!teamRoles.architect) {
+    throw new Error("team.roles must include an 'architect' role");
+  }
+  if (!teamRoles.documentation) {
+    throw new Error("team.roles must include a 'documentation' role");
+  }
 
   return {
     teamMode: true,
     teamRoles,
     reviewerEnabled: !!teamRoles.reviewer,
     qaEnabled: !!teamRoles.qa,
+    advisorEnabled: !!teamRoles.advisor,
+    pmEnabled: !!teamRoles.pm,
   };
 }
-
-// ---------------------------------------------------------------------------
-// VALID_TRANSITIONS - State machine transition table
-// ---------------------------------------------------------------------------
-
 /**
  * Valid state transitions for the bead sub-state machine.
  *
- * open         -> in_progress   (builder claims task)
- * in_progress  -> in_review     (builder submits for review)
- * in_progress  -> in_qa         (lead skips review via skip-review)
- * in_progress  -> closed        (lead skips all stages)
- * in_review    -> in_qa         (reviewer approves)
- * in_review    -> in_progress   (reviewer rejects)
- * in_qa        -> closed        (QA passes)
- * in_qa        -> in_progress   (QA rejects)
+ * open               -> in_progress       (builder claims task)
+ * in_progress        -> in_design         (builder escalates: needs-design)
+ * in_progress        -> in_review         (builder submits for review)
+ * in_progress        -> in_qa             (lead skips review via skip-review)
+ * in_progress        -> closed            (lead skips all stages)
+ * in_progress        -> in_clarification  (any role needs clarification)
+ * in_design          -> in_progress       (architect returns design)
+ * in_review          -> in_progress       (reviewer rejects)
+ * in_review          -> in_advisory       (reviewer approves; advisor must review)
+ * in_review          -> in_clarification  (reviewer escalates to pm)
+ * in_advisory        -> in_qa             (advisor approves)
+ * in_advisory        -> in_progress       (advisor vetoes)
+ * in_qa              -> closed            (QA passes)
+ * in_qa              -> in_progress       (QA rejects)
+ * in_qa              -> in_clarification  (QA escalates to pm)
+ * in_clarification   -> in_progress       (PM returns clarification)
+ * closed             -> in_advisory       (advisor can re-open a closed task)
  */
 const VALID_TRANSITIONS = {
   open: ['in_progress'],
-  in_progress: ['in_review', 'in_qa', 'closed'],
-  in_review: ['in_qa', 'in_progress'],
-  in_qa: ['closed', 'in_progress'],
+  in_progress: ['in_design', 'in_review', 'in_qa', 'closed', 'in_clarification'],
+  in_design: ['in_progress'],
+  in_review: ['in_progress', 'in_advisory', 'in_clarification'],
+  in_advisory: ['in_qa', 'in_progress'],
+  in_qa: ['closed', 'in_progress', 'in_clarification'],
+  in_clarification: ['in_progress'],
+  closed: ['in_advisory'],
 };
 
 // ---------------------------------------------------------------------------

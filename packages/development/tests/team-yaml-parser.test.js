@@ -14,7 +14,7 @@ const { parseTeamConfig } = require('./helpers/team-utils');
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-/** Full team config: lead + builder + reviewer + qa */
+/** Full team config: all 8 roles (lead + builder + reviewer + qa + architect + advisor + pm + documentation) */
 const FULL_TEAM_CONFIG = {
   roles: [
     {
@@ -37,10 +37,30 @@ const FULL_TEAM_CONFIG = {
       agent: 'qa-orchestrator',
       owns: ['quality-assurance'],
     },
+    {
+      name: 'architect',
+      agent: 'architect',
+      owns: ['task-design', 'architecture-drift-detection'],
+    },
+    {
+      name: 'advisor',
+      agent: 'advisor',
+      owns: ['shortcut-detection', 'solution-quality', 'requirement-traceability'],
+    },
+    {
+      name: 'pm',
+      agent: 'pm',
+      owns: ['requirement-clarification', 'scope-decisions', 'ambiguity-resolution'],
+    },
+    {
+      name: 'documentation',
+      agent: 'documentation-specialist',
+      owns: ['pr-boundary-doc-maintenance'],
+    },
   ],
 };
 
-/** Minimal team config: lead + builder only (no reviewer, no qa) */
+/** Minimal team config: required roles only (lead + builder + architect + documentation) */
 const MINIMAL_TEAM_CONFIG = {
   roles: [
     {
@@ -51,9 +71,16 @@ const MINIMAL_TEAM_CONFIG = {
       name: 'builder',
       agent: 'backend-developer',
     },
+    {
+      name: 'architect',
+      agent: 'architect',
+    },
+    {
+      name: 'documentation',
+      agent: 'documentation-specialist',
+    },
   ],
 };
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -63,7 +90,7 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
   // Full configuration
   // -------------------------------------------------------------------------
 
-  describe('full config (lead + builder + reviewer + qa)', () => {
+  describe('full config (all 8 roles)', () => {
     let result;
 
     beforeEach(() => {
@@ -80,6 +107,14 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
 
     test('sets qaEnabled to true', () => {
       expect(result.qaEnabled).toBe(true);
+    });
+
+    test('sets advisorEnabled to true', () => {
+      expect(result.advisorEnabled).toBe(true);
+    });
+
+    test('sets pmEnabled to true', () => {
+      expect(result.pmEnabled).toBe(true);
     });
 
     test('parses lead role with single agent and owns list', () => {
@@ -109,16 +144,35 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
       expect(result.teamRoles.qa.agents).toEqual(['qa-orchestrator']);
     });
 
-    test('returns exactly 4 roles', () => {
-      expect(Object.keys(result.teamRoles)).toHaveLength(4);
+    test('parses architect role', () => {
+      expect(result.teamRoles.architect).toBeDefined();
+      expect(result.teamRoles.architect.agents).toEqual(['architect']);
+    });
+
+    test('parses advisor role', () => {
+      expect(result.teamRoles.advisor).toBeDefined();
+      expect(result.teamRoles.advisor.agents).toEqual(['advisor']);
+    });
+
+    test('parses pm role', () => {
+      expect(result.teamRoles.pm).toBeDefined();
+      expect(result.teamRoles.pm.agents).toEqual(['pm']);
+    });
+
+    test('parses documentation role', () => {
+      expect(result.teamRoles.documentation).toBeDefined();
+      expect(result.teamRoles.documentation.agents).toEqual(['documentation-specialist']);
+    });
+
+    test('returns exactly 8 roles', () => {
+      expect(Object.keys(result.teamRoles)).toHaveLength(8);
     });
   });
 
   // -------------------------------------------------------------------------
   // Minimal configuration
   // -------------------------------------------------------------------------
-
-  describe('minimal config (lead + builder only)', () => {
+  describe('minimal config (required roles only)', () => {
     let result;
 
     beforeEach(() => {
@@ -137,6 +191,14 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
       expect(result.qaEnabled).toBe(false);
     });
 
+    test('sets advisorEnabled to false', () => {
+      expect(result.advisorEnabled).toBe(false);
+    });
+
+    test('sets pmEnabled to false', () => {
+      expect(result.pmEnabled).toBe(false);
+    });
+
     test('does not include reviewer role', () => {
       expect(result.teamRoles.reviewer).toBeUndefined();
     });
@@ -145,8 +207,16 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
       expect(result.teamRoles.qa).toBeUndefined();
     });
 
-    test('returns exactly 2 roles', () => {
-      expect(Object.keys(result.teamRoles)).toHaveLength(2);
+    test('does not include advisor role', () => {
+      expect(result.teamRoles.advisor).toBeUndefined();
+    });
+
+    test('does not include pm role', () => {
+      expect(result.teamRoles.pm).toBeUndefined();
+    });
+
+    test('returns exactly 4 roles', () => {
+      expect(Object.keys(result.teamRoles)).toHaveLength(4);
     });
   });
 
@@ -190,6 +260,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
       const config = {
         roles: [
           { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
           { name: 'reviewer', agent: 'code-reviewer' },
         ],
       };
@@ -202,11 +274,41 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
       const config = {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
           { name: 'reviewer', agent: 'code-reviewer' },
         ],
       };
       expect(() => parseTeamConfig(config)).toThrow(
         "team.roles must include a 'builder' role"
+      );
+    });
+
+    test('throws error when architect role is missing', () => {
+      const config = {
+        roles: [
+          { name: 'lead', agent: 'tech-lead-orchestrator' },
+          { name: 'builder', agent: 'backend-developer' },
+          { name: 'documentation', agent: 'documentation-specialist' },
+          { name: 'reviewer', agent: 'code-reviewer' },
+        ],
+      };
+      expect(() => parseTeamConfig(config)).toThrow(
+        "team.roles must include an 'architect' role"
+      );
+    });
+
+    test('throws error when documentation role is missing', () => {
+      const config = {
+        roles: [
+          { name: 'lead', agent: 'tech-lead-orchestrator' },
+          { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'reviewer', agent: 'code-reviewer' },
+        ],
+      };
+      expect(() => parseTeamConfig(config)).toThrow(
+        "team.roles must include a 'documentation' role"
       );
     });
 
@@ -235,6 +337,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       };
       const result = parseTeamConfig(config);
@@ -250,6 +354,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
             name: 'builder',
             agents: ['backend-developer', 'frontend-developer'],
           },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       };
       const result = parseTeamConfig(config);
@@ -264,6 +370,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
           { name: 'reviewer', agent: 'code-reviewer' },
         ],
       };
@@ -279,6 +387,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
             name: 'builder',
             agents: ['backend-developer', 'frontend-developer', 'infrastructure-developer'],
           },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       };
       const result = parseTeamConfig(config);
@@ -290,6 +400,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder' }, // no agent or agents key
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       };
       const result = parseTeamConfig(config);
@@ -311,6 +423,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
             owns: ['planning', 'escalation'],
           },
           { name: 'builder', agent: 'backend-developer', owns: ['implementation'] },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       };
       const result = parseTeamConfig(config);
@@ -323,6 +437,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       };
       const result = parseTeamConfig(config);
@@ -336,30 +452,68 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
   // -------------------------------------------------------------------------
 
   describe('optional role presence', () => {
-    test('reviewer only (no qa) sets reviewerEnabled=true, qaEnabled=false', () => {
+    test('reviewer only (no qa/advisor/pm) sets reviewerEnabled=true, qaEnabled=false', () => {
       const config = {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
           { name: 'reviewer', agent: 'code-reviewer' },
         ],
       };
       const result = parseTeamConfig(config);
       expect(result.reviewerEnabled).toBe(true);
       expect(result.qaEnabled).toBe(false);
+      expect(result.advisorEnabled).toBe(false);
+      expect(result.pmEnabled).toBe(false);
     });
 
-    test('qa only (no reviewer) sets reviewerEnabled=false, qaEnabled=true', () => {
+    test('qa only (no reviewer/advisor/pm) sets reviewerEnabled=false, qaEnabled=true', () => {
       const config = {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
           { name: 'qa', agent: 'qa-orchestrator' },
         ],
       };
       const result = parseTeamConfig(config);
       expect(result.reviewerEnabled).toBe(false);
       expect(result.qaEnabled).toBe(true);
+      expect(result.advisorEnabled).toBe(false);
+      expect(result.pmEnabled).toBe(false);
+    });
+
+    test('advisor only sets advisorEnabled=true', () => {
+      const config = {
+        roles: [
+          { name: 'lead', agent: 'tech-lead-orchestrator' },
+          { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
+          { name: 'advisor', agent: 'advisor' },
+        ],
+      };
+      const result = parseTeamConfig(config);
+      expect(result.advisorEnabled).toBe(true);
+      expect(result.pmEnabled).toBe(false);
+    });
+
+    test('pm only sets pmEnabled=true', () => {
+      const config = {
+        roles: [
+          { name: 'lead', agent: 'tech-lead-orchestrator' },
+          { name: 'builder', agent: 'backend-developer' },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
+          { name: 'pm', agent: 'pm' },
+        ],
+      };
+      const result = parseTeamConfig(config);
+      expect(result.advisorEnabled).toBe(false);
+      expect(result.pmEnabled).toBe(true);
     });
   });
 
@@ -373,6 +527,8 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
         roles: [
           { name: 'lead', agent: 'tech-lead-orchestrator' },
           { name: 'builder', agent: 'backend-developer', agents: ['backend-developer', 'frontend-developer'] },
+          { name: 'architect', agent: 'architect' },
+          { name: 'documentation', agent: 'documentation-specialist' },
         ],
       });
       expect(config.teamRoles.builder.agents).toEqual(['backend-developer', 'frontend-developer']);

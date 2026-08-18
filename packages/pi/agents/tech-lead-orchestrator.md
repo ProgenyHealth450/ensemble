@@ -99,10 +99,16 @@ falls back to the standard Approval-First Workflow.
 
 **Quality Loop Execution**
 
-Executes quality loops after each task based on task type and strategy. For develop tasks: implement→test→debug→review.
-For test tasks: write→verify→coverage-check. For refactor tasks: pre-test→refactor→post-test. Quality loops are
-strategy-aware: characterization skips debug on test failure, flexible makes loops advisory-only. Max 2 debug
-retries before escalation. Delegates to test-runner, deep-debugger, and code-reviewer as needed.
+Executes quality loops after each task based on task type and strategy. For develop tasks the
+non-beads loop is: in_progress → review → advisory → qa → closed, with side-routes
+in_progress → in_design (architect), in_progress/in_review/in_qa → in_clarification (pm),
+and closed → in_advisory (advisor can re-open post-hoc). For test tasks: write→verify→coverage-check.
+For refactor tasks: pre-test→refactor→post-test. Quality loops are strategy-aware: characterization
+skips debug on test failure, flexible makes loops advisory-only. Architect handles per-task design
+before builder implementation, advisor reviews reviewer-approved work before QA, PM resolves ambiguous
+requirements with a hard cap of 3 clarification rounds per task before lead escalation. Max 2 debug
+retries before escalation. Delegates to architect, code-reviewer, advisor, qa-orchestrator,
+product-management-orchestrator/pm, test-runner, and deep-debugger as needed.
 
 ## Responsibilities
 

@@ -163,3 +163,70 @@ describe('beads-build backend-aware completion reminder (TRD-015)', () => {
     expect(manualIdx).toBeGreaterThan(adoIdx);
   });
 });
+
+describe('beads-build team-roles delegation contract', () => {
+  const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
+
+  test('Argument Parsing accepts --team-roles and keeps deprecated --builder fallback', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const stepStart = text.indexOf('title: Argument Parsing');
+    const stepEnd = text.indexOf('title: Tool Availability Check');
+    expect(stepStart).toBeGreaterThan(-1);
+    expect(stepEnd).toBeGreaterThan(stepStart);
+    const stepBlock = text.slice(stepStart, stepEnd);
+
+    expect(stepBlock).toMatch(/--team-roles/);
+    expect(stepBlock).toMatch(/deprecated --builder/);
+    expect(stepBlock).toMatch(/TEAM_ROLES=\{/);
+  });
+
+  test('track payload includes team_roles roster', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const executeStart = text.indexOf('title: Track Orchestrator');
+    const executeEnd = text.indexOf('title: Debug Loop');
+    expect(executeStart).toBeGreaterThan(-1);
+    expect(executeEnd).toBeGreaterThan(executeStart);
+    const executeBlock = text.slice(executeStart, executeEnd);
+
+    expect(executeBlock).toMatch(/team_roles:/);
+    expect(executeBlock).toMatch(/parsed from --team-roles or synthesized from deprecated --builder/);
+    expect(executeBlock).toMatch(/reviewer approves routes through advisor before QA/);
+    expect(executeBlock).toMatch(/Architect is invoked on in_design, PM on in_clarification/);
+  });
+});
+
+describe('beads-build PR-boundary doc hook contract', () => {
+  const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
+
+  test('Phase Completion Detection runs doc-maintenance before PR/reporting follow-up', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const stepStart = text.indexOf('title: Phase Completion Detection');
+    const stepEnd = text.indexOf('title: Test Execution');
+    expect(stepStart).toBeGreaterThan(-1);
+    expect(stepEnd).toBeGreaterThan(stepStart);
+    const stepBlock = text.slice(stepStart, stepEnd);
+
+    expect(stepBlock).toMatch(/packages\/development\/lib\/doc-maintenance\.js/);
+    expect(stepBlock).toMatch(/Fire once per PR boundary/);
+    expect(stepBlock).toMatch(/README\.md, AGENTS\.md, and docs\/UserGuide\.md/);
+    expect(stepBlock).toMatch(/ENSEMBLE_SKIP_DOC_HOOK=1/);
+    expect(stepBlock).toMatch(/documentation-specialist is missing/);
+  });
+});
+
+describe('beads-build PM clarification guard contract', () => {
+  const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
+
+  test('track payload documents a 3-round PM clarification cap', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    const executeStart = text.indexOf('title: Track Orchestrator');
+    const executeEnd = text.indexOf('title: Debug Loop');
+    expect(executeStart).toBeGreaterThan(-1);
+    expect(executeEnd).toBeGreaterThan(executeStart);
+    const executeBlock = text.slice(executeStart, executeEnd);
+
+    expect(executeBlock).toMatch(/pm_clarification_guard/);
+    expect(executeBlock).toMatch(/Maximum 3 per task/);
+    expect(executeBlock).toMatch(/On the 4th request, HALT/);
+  });
+});
