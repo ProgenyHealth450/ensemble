@@ -2,16 +2,22 @@
  * Tests for lib-bundler transformer
  *
  * Covers:
- * 1. Copies the four vendored source files into outputRoot/vendor/
+ * 1. Copies entry-point files AND their full transitive require closure
  * 2. Result shape: type === 'lib', sourcePath, outputPath, content
  * 3. Dry-run mode: returns results but writes no files
  * 4. Executable bit preserved on the copied .sh file
  * 5. Missing source file: warns and skips rather than throwing
+ * 6. Integration: the real vendored entry points actually execute (this is
+ *    the regression test for the bug this closure-walking rewrite fixes —
+ *    a prior hardcoded-file-list version vendored trd-graph-cli.js but not
+ *    the './trd-graph' sibling it requires, so it threw MODULE_NOT_FOUND
+ *    the first time anyone actually ran it from the vendor bundle)
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { bundleLibs } from '../src/transformers/lib-bundler';
 
 // ---------------------------------------------------------------------------
@@ -27,15 +33,31 @@ function rmrf(dir: string): void {
 }
 
 /**
- * Build a minimal fake monorepo under `root` containing the four files
- * lib-bundler.ts expects to vendor.
+ * Build a minimal fake monorepo under `root`. trd-cli.js requires a sibling
+ * that itself requires a second sibling, so tests can verify the bundler
+ * walks the require graph recursively rather than only vendoring the three
+ * named entry points. prd-cli.js has no requires, matching the real file.
  */
 function buildFakeMonorepo(root: string): void {
   const devLib = path.join(root, 'packages', 'development', 'lib');
   fs.mkdirSync(devLib, { recursive: true });
-  fs.writeFileSync(path.join(devLib, 'trd-cli.js'), '#!/usr/bin/env node\nconsole.log("trd-cli");\n', 'utf-8');
-  fs.writeFileSync(path.join(devLib, 'trd-graph-cli.js'), '#!/usr/bin/env node\nconsole.log("trd-graph-cli");\n', 'utf-8');
+  fs.writeFileSync(
+    path.join(devLib, 'trd-cli.js'),
+    "#!/usr/bin/env node\nrequire('./sibling-a');\nconsole.log(\"trd-cli\");\n",
+    'utf-8'
+  );
+  fs.writeFileSync(
+    path.join(devLib, 'trd-graph-cli.js'),
+    '#!/usr/bin/env node\nconsole.log("trd-graph-cli");\n',
+    'utf-8'
+  );
   fs.writeFileSync(path.join(devLib, 'prd-cli.js'), '#!/usr/bin/env node\nconsole.log("prd-cli");\n', 'utf-8');
+  fs.writeFileSync(
+    path.join(devLib, 'sibling-a.js'),
+    "require('./sibling-b');\nmodule.exports = {};\n",
+    'utf-8'
+  );
+  fs.writeFileSync(path.join(devLib, 'sibling-b.js'), 'module.exports = {};\n', 'utf-8');
 
   const gitScripts = path.join(root, 'packages', 'git', 'skills', 'git-town', 'scripts');
   fs.mkdirSync(gitScripts, { recursive: true });
@@ -63,9 +85,17 @@ describe('bundleLibs', () => {
     rmrf(outputRoot);
   });
 
-  it('copies all four vendored files', async () => {
+  it('copies entry points plus their full transitive require closure', async () => {
     const results = await bundleLibs(sourceRoot, outputRoot, {});
-    expect(results.length).toBe(4);
+    // trd-cli, trd-graph-cli, prd-cli (entries) + sibling-a, sibling-b (closure) + validate-git-town.sh
+    expect(results.length).toBe(6);
+  });
+
+  it('vendors transitively-required sibling modules, not just the named entry points', async () => {
+    const results = await bundleLibs(sourceRoot, outputRoot, {});
+    const vendoredNames = results.map((r) => path.basename(r.outputPath));
+    expect(vendoredNames).toContain('sibling-a.js');
+    expect(vendoredNames).toContain('sibling-b.js');
   });
 
   it('writes files under outputRoot/vendor/', async () => {
@@ -92,7 +122,7 @@ describe('bundleLibs', () => {
     const jsResults = results.filter((r) => r.outputPath.endsWith('.js'));
     const shResults = results.filter((r) => r.outputPath.endsWith('.sh'));
 
-    expect(jsResults.length).toBe(3);
+    expect(jsResults.length).toBe(5);
     expect(shResults.length).toBe(1);
 
     for (const result of jsResults) {
@@ -135,7 +165,7 @@ describe('bundleLibs', () => {
   it('returns results without writing files when dryRun is true', async () => {
     const results = await bundleLibs(sourceRoot, outputRoot, { dryRun: true });
 
-    expect(results.length).toBe(4);
+    expect(results.length).toBe(6);
 
     const vendorOutputDir = path.join(outputRoot, 'vendor');
     expect(fs.existsSync(vendorOutputDir)).toBe(false);
@@ -148,8 +178,8 @@ describe('bundleLibs', () => {
     const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       const results = await bundleLibs(sourceRoot, outputRoot, {});
-      // Only 3 of the 4 files should have been copied
-      expect(results.length).toBe(3);
+      // Only 5 of the 6 files should have been copied
+      expect(results.length).toBe(5);
       expect(results.some((r) => r.outputPath.endsWith('prd-cli.js'))).toBe(false);
       expect(stderrSpy).toHaveBeenCalled();
     } finally {
@@ -174,15 +204,70 @@ describe('bundleLibs against real packages directory', () => {
     rmrf(outputRoot);
   });
 
-  it('bundles all four real vendored files', async () => {
+  it('bundles the real entry points plus their full require closure', async () => {
     const results = await bundleLibs(repoRoot, outputRoot, { dryRun: true });
-    expect(results.length).toBe(4);
+    // 3 entry points + trd-parser, prd-parser, phase-tracker, scaffold-planner,
+    // workstream-planner, cross-trd-deps, workstream-status, workstream-trd,
+    // pr-strategy, trd-graph (closure) + validate-git-town.sh
+    expect(results.length).toBe(14);
   });
 
   it('all results have type === "lib"', async () => {
     const results = await bundleLibs(repoRoot, outputRoot, { dryRun: true });
     for (const result of results) {
       expect(result.type).toBe('lib');
+    }
+  });
+
+  it('vendors every real sibling module trd-cli.js requires', async () => {
+    const results = await bundleLibs(repoRoot, outputRoot, { dryRun: true });
+    const vendoredNames = results.map((r) => path.basename(r.outputPath));
+    for (const expected of [
+      'prd-parser.js',
+      'trd-parser.js',
+      'phase-tracker.js',
+      'scaffold-planner.js',
+      'workstream-planner.js',
+      'cross-trd-deps.js',
+      'workstream-status.js',
+      'workstream-trd.js',
+      'pr-strategy.js',
+    ]) {
+      expect(vendoredNames).toContain(expected);
+    }
+  });
+
+  it('vendors trd-graph.js, the sibling trd-graph-cli.js requires', async () => {
+    const results = await bundleLibs(repoRoot, outputRoot, { dryRun: true });
+    const vendoredNames = results.map((r) => path.basename(r.outputPath));
+    expect(vendoredNames).toContain('trd-graph.js');
+  });
+
+  it('every vendored entry point actually executes from the vendor location without MODULE_NOT_FOUND', async () => {
+    // Regression test: a prior hardcoded-file-list version of this bundler
+    // vendored trd-graph-cli.js but not its './trd-graph' require, so it
+    // threw MODULE_NOT_FOUND the first time it was actually run (not just
+    // checked for existence) from a real vendor install. Running each real
+    // entry point here — not a fixture — is the only way to catch that.
+    await bundleLibs(repoRoot, outputRoot, {});
+
+    for (const entry of ['trd-cli.js', 'trd-graph-cli.js', 'prd-cli.js']) {
+      const entryPath = path.join(outputRoot, 'vendor', 'lib', entry);
+      expect(fs.existsSync(entryPath)).toBe(true);
+
+      // No args: each CLI prints a "missing subcommand" usage error and exits
+      // non-zero, but only AFTER its top-level requires resolve successfully.
+      // A MODULE_NOT_FOUND would throw before that point, with a distinct
+      // stack trace — that's what this test actually guards against.
+      let output = '';
+      try {
+        output = execFileSync('node', [entryPath], { encoding: 'utf-8', stdio: 'pipe' });
+      } catch (err) {
+        const execErr = err as { stdout?: string; stderr?: string };
+        output = (execErr.stdout ?? '') + (execErr.stderr ?? '');
+      }
+      expect(output).not.toMatch(/MODULE_NOT_FOUND/);
+      expect(output).not.toMatch(/Cannot find module/);
     }
   });
 });
