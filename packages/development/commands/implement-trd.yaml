@@ -102,37 +102,56 @@ workflow:
       order: 3
       steps:
         - order: 1
-          title: Planning & Architecture Validation
-          description: Validate TRD architecture against current system
-        
-        - order: 2
-          title: Task Status Assessment
-          description: Review completed work before proceeding
+          title: Deterministic Task Parsing
+          description: |
+            Parse the TRD via trd-cli.js to build an authoritative task list —
+            mirrors implement-trd-beads.yaml's Preflight parse step, adapted for
+            this command's checkbox-only tracking model (no bead system).
           actions:
-            - Check which tasks are already completed
-            - Identify blockers and dependencies
-            - Prioritize next tasks
-        
-        - order: 3
-          title: Test-Driven Implementation
-          description: Follow TDD Red-Green-Refactor cycle for all code
-          actions:
-            - RED - Write failing tests first
-            - GREEN - Implement minimal code to pass
-            - REFACTOR - Improve code quality
-        
-        - order: 4
-          title: Quality Gates
-          description: Code review, security scanning, DoD enforcement
-          delegation:
-            agent: code-reviewer
-            context: Completed implementation requiring quality validation
-        
-        - order: 5
-          title: Sprint Review
-          description: Mark completed tasks and validate objectives
+            - "Run: node \"$TRD_CLI\" parse \"<TRD_FILE_PATH>\" and parse the JSON from stdout. This is the AUTHORITATIVE parse — do NOT hand-parse the TRD. From trd: set TRD_TASKS=trd.tasksById (each task provides id, isTest, satisfies, dependsOn, targetFiles, actions, implementationAc, testAc), SPRINTS=trd.phases (this command's sprints — each {n,title,taskIds}). If ok is false, warnings contains anything matching /no tasks found/i, or the process exits non-zero: print the error and HALT — a TRD that doesn't deterministically parse cannot be safely looped over."
+            - "Build CLOSED_TASK_IDS from the TRD file's own checkbox state: for each task id in TRD_TASKS, scan the TRD file's Master Task List for its line; if the checkbox is '- [x]', add the id to CLOSED_TASK_IDS. This is the sole source of completion truth for this command — re-derived fresh on every invocation, including resume, directly from the TRD file on disk (never cached across sessions)."
+            - "Set CURRENT_SPRINT to the lowest-numbered entry in SPRINTS that has any task id NOT in CLOSED_TASK_IDS. If every task in every sprint is already in CLOSED_TASK_IDS: skip directly to Completion Verification (step 5) — there is no remaining implementation work."
 
-        - order: 6
+        - order: 2
+          title: Task Loop
+          description: |
+            TASK LOOP — repeat until every task in CURRENT_SPRINT is closed or no
+            further task in CURRENT_SPRINT can be dispatched (all remaining tasks
+            blocked on an open dependency). This loop is the single execution
+            engine for this command; nothing else in this file marks a task
+            complete or advances CURRENT_SPRINT. Do NOT stop, pause, ask for
+            acknowledgement, or present routine progress between tasks — apply
+            the same non-interactive philosophy as implement-trd-beads.yaml's
+            Non-Interactive Progress Policy. A real user decision is required
+            only when (a) a genuine blocked state is hit (Step 1 below), or (b)
+            Step 5's automated remediation is exhausted. Otherwise, close the
+            task and loop immediately to Step 1 for the next one.
+          actions:
+            - "Step 1 (select next task): from SPRINTS[CURRENT_SPRINT].taskIds, filter out any id already in CLOSED_TASK_IDS. From what remains, select the first task whose dependsOn are ALL in CLOSED_TASK_IDS (dependency-ready). If none are ready but unclosed tasks remain: HALT with 'EXECUTION BLOCKED: sprint <CURRENT_SPRINT> has unclosed tasks with unmet dependencies: <list of blocked task ids and their unmet deps>. Resolve the TRD's dependency graph, or manually mark the blocking task's checkbox and re-run.' If zero tasks remain unclosed for CURRENT_SPRINT: the sprint is complete — exit the TASK LOOP and proceed to Quality Gates (step 3)."
+            - "Step 2 (implement): resolve the appropriate specialist for the task from its targetFiles (backend-developer/frontend-developer/infrastructure-developer/etc. — same alias-resolution convention as implement-trd-beads.yaml's Agent Alias Resolution: never pass a bare name to Task()). Delegate via Task(agent_type=<resolved_specialist>, prompt=<task context>) following RED (write failing test per task.testAc) -> GREEN (minimal implementation per task.implementationAc) -> REFACTOR. Pass the task's full context (id, description, actions, target files, dependencies, implementationAc, testAc) as the delegation prompt — do not summarize away detail the specialist needs to actually do the work."
+            - "Step 3 (review): delegate to @code-reviewer with the diff for this task. Parse verdict (APPROVED/REJECTED). On REJECTED with fixable issues: delegate back to the original specialist with the reviewer's feedback (max 2 review rounds total, mirroring implement-trd-beads.yaml's quality_loop contract). Skip review only when the TRD's declared strategy is characterization/flexible, or the task is docs/documentation-only."
+            - "Step 4 (close): on APPROVED (or skip-eligible per Step 3): update the TRD file's checkbox for this task from '- [ ]' to '- [x]'; add the task id to CLOSED_TASK_IDS; git commit -m 'feat(<trd-slug>): <task.id> — <short description>'. Print 'Task <task.id> complete (<N>/<TOTAL> this sprint).' Then return immediately to Step 1 for the next task — do NOT pause, do NOT summarize progress beyond that one line, do NOT ask for acknowledgement."
+            - "Step 5 (automated remediation before pause): if 2 review rounds are exhausted in Step 3 and the task is still REJECTED: delegate to @deep-debugger with the review feedback, failing tests, and changed files (same automated-remediation pattern as implement-trd-beads.yaml's Debug Loop, TRD-019). If deep-debugger produces a fix: re-run Step 3 (review) once more. If still REJECTED after that single extra attempt: print 'Task <task.id> could not be automatically resolved after 2 review rounds + 1 debug attempt. Reviewer feedback: <feedback>.'; PAUSE for user: fix/skip/abort. This is the ONLY task-level pause in the loop — a single rejection never pauses on its own."
+            - "Context budget monitoring (informational only, mirrors implement-trd-beads.yaml's Execute phase Step 8): after every 5 tasks closed, print a one-line checkpoint noting task count and suggesting /compact if quality is degrading. Do not halt or pause execution based on this signal."
+
+        - order: 3
+          title: Quality Gates
+          description: Full-suite test and coverage check once every task in CURRENT_SPRINT is individually approved and closed by the Task Loop.
+          actions:
+            - "Delegate to @test-runner: run full test suite (unit + integration) for files modified in CURRENT_SPRINT; report pass/fail, unit coverage %, integration coverage %, failures with file:line."
+            - "gate_passed = tests_pass AND unit_cov >= target AND int_cov >= target. Exception: TRD's declared strategy is characterization or flexible -> gate_passed = true (informational only)."
+            - "If NOT gate_passed: delegate to @deep-debugger with the specific failing tests/coverage gaps and files modified in CURRENT_SPRINT; attempt a fix; re-run this step's test delegation. Repeat up to 2 retries total — the same automated-remediation-before-pause pattern as the Task Loop's Step 5. Only after 2 retries are exhausted: print gate failure details (failing tests, coverage gaps, attempted fixes); PAUSE for user: fix/skip/abort."
+            - "If gate_passed: git commit -m 'chore(sprint <CURRENT_SPRINT>): checkpoint (tests pass; unit <X%>, int <Y%>)'."
+
+        - order: 4
+          title: Sprint Review
+          description: Confirm the sprint's tasks are all closed and determine whether another sprint remains.
+          actions:
+            - "Verify every task id in SPRINTS[CURRENT_SPRINT].taskIds is present in CLOSED_TASK_IDS. This should always be true after the Task Loop exits cleanly (step 2's Step 1 only exits the loop when zero unclosed tasks remain) — treat a mismatch as a bug (print the discrepancy) and HALT rather than silently proceeding."
+            - "Print 'Sprint <CURRENT_SPRINT> complete: <N>/<N> tasks closed.'"
+            - "Determine NEXT_SPRINT: the lowest-numbered entry in SPRINTS with any task id not in CLOSED_TASK_IDS. If none exists: no more sprints remain — proceed to Completion Verification (step 5). If found: set CURRENT_SPRINT=NEXT_SPRINT and proceed to Sprint PR Stacking (step 6) for this sprint boundary's PR handling, then loop back to the Task Loop (step 2) for the new CURRENT_SPRINT — do not stop, do not return control to the user between sprints."
+
+        - order: 5
           title: Completion Verification
           description: |
             Independently re-verify completion before the final "no more sprints
@@ -150,7 +169,7 @@ workflow:
             - "Parse the skill's return value {verdict, gapCount, reportPath}. Store as COMPLETION_VERDICT, COMPLETION_GAP_COUNT, COMPLETION_REPORT_PATH for use by Sprint PR Stacking's final-sprint branch."
             - "Always print 'Completion verification report: <COMPLETION_REPORT_PATH>' regardless of verdict, then continue to Sprint PR Stacking."
 
-        - order: 7
+        - order: 6
           title: Sprint PR Stacking
           description: |
             After quality gate passes, create a stacked PR for the current sprint and advance to
@@ -169,9 +188,9 @@ workflow:
             - "  PR_BACKEND=='gh' AND BRANCHING_STRATEGY=='plain-git': run git push -u origin <CURRENT_BRANCH>, then run gh pr create --title \"<SPRINT_TITLE>\" --base <base_branch> --body \"<SPRINT_BODY>\" (a standalone gh call, not routed through any git town command); record PR URL as SPRINT_PR_MAP[CURRENT_SPRINT]."
             - "  PR_BACKEND=='ado': run git push -u origin <CURRENT_BRANCH>; scan available tool names for any name starting with 'mcp__azure-devops' (the same 'scan available tool names' technique create-trd.yaml's MCP Enhancement phase uses for the 'mcp__' prefix). If found: call its repo_create_pull_request tool with title=\"<SPRINT_TITLE>\", source branch=<CURRENT_BRANCH>, target branch=<base_branch>, description=\"<SPRINT_BODY>\"; record the returned PR URL as SPRINT_PR_MAP[CURRENT_SPRINT]. If NOT found: print 'Azure DevOps MCP tool not connected — create this PR manually:' then 'az repos pr create --source-branch <CURRENT_BRANCH> --target-branch <base_branch> --title \"<SPRINT_TITLE>\"' then 'Or via the portal: Repos > Pull Requests > New Pull Request, source=<CURRENT_BRANCH>, target=<base_branch>'; do NOT HALT, do NOT attempt any other shell-out; SPRINT_PR_MAP[CURRENT_SPRINT] remains unset."
             - "  PR_BACKEND=='manual': print 'PR backend is manual — create this PR yourself:' then 'git push -u origin <CURRENT_BRANCH>' then 'gh pr create --title \"<SPRINT_TITLE>\" --base <base_branch>' (or the ADO CLI/portal equivalent if the remote is Azure DevOps); do NOT push or create the PR automatically; SPRINT_PR_MAP[CURRENT_SPRINT] remains unset. This prints at EVERY sprint boundary, not only the final one."
-            - "If STACKED_PRS=true AND more sprints remain: set NEXT_SPRINT=CURRENT_SPRINT+1; ensure currently on feature/<trd-slug>-sprint-<CURRENT_SPRINT> (git switch if needed); if BRANCHING_STRATEGY=='git-town': run git town append feature/<trd-slug>-sprint-<NEXT_SPRINT> [UNCHANGED]; if BRANCHING_STRATEGY=='plain-git': run git checkout -b feature/<trd-slug>-sprint-<NEXT_SPRINT> unconditionally (stacked directly off the currently-checked-out sprint branch — zero git town commands issued); set CURRENT_BRANCH=feature/<trd-slug>-sprint-<NEXT_SPRINT>; set CURRENT_SPRINT=NEXT_SPRINT; continue to next sprint"
-            - "If STACKED_PRS=true AND no more sprints remain: gate on Completion Verification (Progressive Implementation step 6). Only proceed to print the stacked PR summary / declare complete if COMPLETION_VERDICT == 'COMPLETE', or the user explicitly overrides an 'INCOMPLETE' verdict. If COMPLETION_VERDICT == 'INCOMPLETE': print 'COMPLETION VERIFICATION FAILED: <COMPLETION_GAP_COUNT> gap(s) found. Report: <COMPLETION_REPORT_PATH>'. If AskUserQuestion is available: ask 'Completion verification found <COMPLETION_GAP_COUNT> gap(s) (see <COMPLETION_REPORT_PATH>). Proceed with the stacked PR summary and declare complete anyway?' with options 'Proceed anyway (override)' / 'Stop — fix gaps first'. If the user does not explicitly choose 'Proceed anyway' (or AskUserQuestion is unavailable/non-interactive): pause here — do not print the stacked PR summary and do not declare implementation complete. Once cleared (COMPLETION_VERDICT == 'COMPLETE', or the user overrode): print stacked PR summary with all SPRINT_PR_MAP entries (any sprint with no entry — PR_BACKEND=='manual', or 'ado' with the MCP tool absent that sprint — prints 'not auto-created — see manual instructions printed at that sprint boundary' instead of a URL) and the completion verification report path; implementation complete"
-            - "If STACKED_PRS=false: do NOT propose a PR or create a new branch per sprint. Stay on CURRENT_BRANCH=feature/<trd-slug> and continue to the next sprint's tasks. When NO more sprints remain: gate on Completion Verification (Progressive Implementation step 6) using the same rule as above — only proceed if COMPLETION_VERDICT == 'COMPLETE' or the user explicitly overrides an 'INCOMPLETE' verdict; otherwise print the gap count and report path and pause. Once cleared: FINAL_TITLE=\"feat(<trd-slug>){{colon}} <trd-title>\"; FINAL_BODY=\"Implements TRD <trd-slug>. All sprints complete.\". Branch on PR_BACKEND (same four cases as above, target branch is <base_branch> / main, source branch is CURRENT_BRANCH): 'gh'+git-town runs git town propose [UNCHANGED]; 'gh'+plain-git runs git push -u origin <CURRENT_BRANCH> then gh pr create (standalone); 'ado' pushes then prefers the azure-devops MCP tool's repo_create_pull_request, else prints manual az repos pr create/portal steps and continues; 'manual' always prints manual push+PR instructions. When a URL is obtained: print 'Single PR created: <PR_URL>' and 'Completion verification report: <COMPLETION_REPORT_PATH>'. When none is obtained (manual, or ado with the MCP tool absent): print 'Single PR not auto-created — see manual instructions above' and 'Completion verification report: <COMPLETION_REPORT_PATH>'. implementation complete"
+            - "If STACKED_PRS=true AND more sprints remain: set NEXT_SPRINT=CURRENT_SPRINT+1; ensure currently on feature/<trd-slug>-sprint-<CURRENT_SPRINT> (git switch if needed); if BRANCHING_STRATEGY=='git-town': run git town append feature/<trd-slug>-sprint-<NEXT_SPRINT> [UNCHANGED]; if BRANCHING_STRATEGY=='plain-git': run git checkout -b feature/<trd-slug>-sprint-<NEXT_SPRINT> unconditionally (stacked directly off the currently-checked-out sprint branch — zero git town commands issued); set CURRENT_BRANCH=feature/<trd-slug>-sprint-<NEXT_SPRINT>; set CURRENT_SPRINT=NEXT_SPRINT; continue to next sprint. Loop back to the Task Loop (Progressive Implementation step 2) for the new CURRENT_SPRINT immediately — do not stop, do not return control to the user, do not summarize progress beyond what step 2's own per-task/per-checkpoint prints already produce."
+            - "If STACKED_PRS=true AND no more sprints remain: gate on Completion Verification (Progressive Implementation step 5). Only proceed to print the stacked PR summary / declare complete if COMPLETION_VERDICT == 'COMPLETE', or the user explicitly overrides an 'INCOMPLETE' verdict. If COMPLETION_VERDICT == 'INCOMPLETE': print 'COMPLETION VERIFICATION FAILED: <COMPLETION_GAP_COUNT> gap(s) found. Report: <COMPLETION_REPORT_PATH>'. If AskUserQuestion is available: ask 'Completion verification found <COMPLETION_GAP_COUNT> gap(s) (see <COMPLETION_REPORT_PATH>). Proceed with the stacked PR summary and declare complete anyway?' with options 'Proceed anyway (override)' / 'Stop — fix gaps first'. If the user does not explicitly choose 'Proceed anyway' (or AskUserQuestion is unavailable/non-interactive): pause here — do not print the stacked PR summary and do not declare implementation complete. Once cleared (COMPLETION_VERDICT == 'COMPLETE', or the user overrode): print stacked PR summary with all SPRINT_PR_MAP entries (any sprint with no entry — PR_BACKEND=='manual', or 'ado' with the MCP tool absent that sprint — prints 'not auto-created — see manual instructions printed at that sprint boundary' instead of a URL) and the completion verification report path; implementation complete"
+            - "If STACKED_PRS=false: do NOT propose a PR or create a new branch per sprint. Stay on CURRENT_BRANCH=feature/<trd-slug> and loop back to the Task Loop (Progressive Implementation step 2) for the next sprint's tasks immediately — do not stop, do not return control to the user, do not summarize progress beyond what step 2's own per-task/per-checkpoint prints already produce. When NO more sprints remain: gate on Completion Verification (Progressive Implementation step 5) using the same rule as above — only proceed if COMPLETION_VERDICT == 'COMPLETE' or the user explicitly overrides an 'INCOMPLETE' verdict; otherwise print the gap count and report path and pause. Once cleared: FINAL_TITLE=\"feat(<trd-slug>){{colon}} <trd-title>\"; FINAL_BODY=\"Implements TRD <trd-slug>. All sprints complete.\". Branch on PR_BACKEND (same four cases as above, target branch is <base_branch> / main, source branch is CURRENT_BRANCH): 'gh'+git-town runs git town propose [UNCHANGED]; 'gh'+plain-git runs git push -u origin <CURRENT_BRANCH> then gh pr create (standalone); 'ado' pushes then prefers the azure-devops MCP tool's repo_create_pull_request, else prints manual az repos pr create/portal steps and continues; 'manual' always prints manual push+PR instructions. When a URL is obtained: print 'Single PR created: <PR_URL>' and 'Completion verification report: <COMPLETION_REPORT_PATH>'. When none is obtained (manual, or ado with the MCP tool absent): print 'Single PR not auto-created — see manual instructions above' and 'Completion verification report: <COMPLETION_REPORT_PATH>'. implementation complete"
 
 expectedInput:
   format: Technical Requirements Document (TRD)
