@@ -63,5 +63,5 @@ export interface TransformResult {
   sourcePath: string;
   outputPath: string;
   content: string;
-  type: 'command' | 'agent' | 'skill' | 'agents-md';
+  type: 'command' | 'agent' | 'skill' | 'agents-md' | 'lib';
 }

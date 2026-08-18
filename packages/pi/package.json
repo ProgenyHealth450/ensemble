@@ -8,6 +8,7 @@
     "skills/",
     "commands/",
     "agents/",
+    "vendor/",
     ".claude-plugin/",
     "README.md",
     "CHANGELOG.md"

@@ -22,7 +22,7 @@ development including planning, implementation, testing, and quality gates.
 **1. Git Town Verification**
    Check git-town installation and configuration using validation script
 
-   - Execute validation script - bash packages/git/skills/git-town/scripts/validate-git-town.sh
+   - Resolve VALIDATE_GIT_TOWN_SH in this order: (1) $(git rev-parse --show-toplevel 2>/dev/null)/packages/git/skills/git-town/scripts/validate-git-town.sh (canonical monorepo root); (2) legacy CWD-relative packages/git/skills/git-town/scripts/validate-git-town.sh; (3) Claude Code plugin root ${CLAUDE_PLUGIN_ROOT}/skills/git/git-town/scripts/validate-git-town.sh (note: nested under skills/git/git-town/..., not skills/git-town/..., because git is a whole-directory symlink); (4) Pi/OMP vendor bundle — resolve the ensemble-pi package's own declared install location via: node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}", then join the directory of that output with /vendor/scripts/validate-git-town.sh. If none resolve, HALT with an error. Otherwise run: bash "$VALIDATE_GIT_TOWN_SH"
    - Handle exit codes - 0 (success), 1 (not installed), 2 (not configured), 3 (version mismatch), 4 (not git repo)
    - If validation fails, escalate with specific error message
    - Ensure clean working directory (git status)
@@ -35,7 +35,7 @@ Algorithm defined in packages/development/skills/staleness-gate/SKILL.md.
    - Derive TRD_PATH from $ARGUMENTS (the .md path argument).
    - Derive TRD_SLUG from TRD_PATH filename (lowercase, replace non-alphanumeric with hyphens).
    - Resume detection: run 'git branch --list feature/<TRD_SLUG>-sprint-1'. If this returns a branch name: IS_RESUME=true. If empty: IS_RESUME=false.
-   - Execute the TRD Staleness Gate per packages/development/skills/staleness-gate/SKILL.md using TRD_PATH and IS_RESUME.
+   - Execute the TRD Staleness Gate per the staleness-gate skill. Resolve its path in this order: (1) $(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/staleness-gate/SKILL.md (canonical monorepo root); (2) legacy CWD-relative packages/development/skills/staleness-gate/SKILL.md; (3) Claude Code plugin root ${CLAUDE_PLUGIN_ROOT}/skills/staleness-gate/SKILL.md; (4) Pi/OMP vendor bundle — resolve the ensemble-pi package's own declared install location via: node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}", then join the directory of that output with /skills/staleness-gate/SKILL.md. Using TRD_PATH and IS_RESUME.
    - On HALT from skill: do not proceed. Implementation stops.
    - On RETURN from skill: continue to step 3 (Feature Branch Creation).
 

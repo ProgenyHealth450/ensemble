@@ -36,7 +36,7 @@ sequence numbers, to avoid collisions across large teams.
 
    - Extract all .md paths from $ARGUMENTS in the order provided. Require at least two TRD paths.
    - If fewer than two paths are supplied: print 'ERROR: create-workstream-trd requires two or more TRD paths.' and HALT.
-   - Resolve TRD_CLI to first existing path among: ${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js, packages/development/lib/trd-cli.js. If missing, print error and HALT.
+   - Resolve TRD_CLI to first existing path among, in order: (1) "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/lib/trd-cli.js" (canonical monorepo root); (2) ${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js; (3) packages/development/lib/trd-cli.js (legacy CWD-relative); (4) the Pi/OMP vendor bundle path — resolve the ensemble-pi package's own declared install location via node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}" and join the directory of that output with /vendor/lib/trd-cli.js. If missing, print error and HALT.
 
 **2. Generate**
    Create normalized executable workstream TRD

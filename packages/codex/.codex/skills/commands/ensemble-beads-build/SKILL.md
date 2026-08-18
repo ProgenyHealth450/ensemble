@@ -58,7 +58,7 @@ Key behaviors:
 **3. Git-Town and Working Directory Verification**
    Verify git-town is installed and the working directory is clean
 
-   - Run: bash packages/git/skills/git-town/scripts/validate-git-town.sh — handle exit codes 0 (ok), 1 (not installed), 2 (not configured), 3 (version mismatch), 4 (not git repo)
+   - Resolve VALIDATE_GIT_TOWN_SH in this order: (1) $(git rev-parse --show-toplevel 2>/dev/null)/packages/git/skills/git-town/scripts/validate-git-town.sh (canonical monorepo root); (2) legacy CWD-relative packages/git/skills/git-town/scripts/validate-git-town.sh; (3) Claude Code plugin root ${CLAUDE_PLUGIN_ROOT}/skills/git/git-town/scripts/validate-git-town.sh (note: nested under skills/git/git-town/..., not skills/git-town/..., because git is a whole-directory symlink); (4) Pi/OMP vendor bundle — resolve the ensemble-pi package location (its own declared install location) via: node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}", then join the directory of that output with /vendor/scripts/validate-git-town.sh. If none resolve, HALT with an error. Otherwise run: bash "$VALIDATE_GIT_TOWN_SH" — handle exit codes 0 (ok), 1 (not installed), 2 (not configured), 3 (version mismatch), 4 (not git repo)
    - Run: git status --porcelain — HALT if output non-empty (dirty working directory)
 
 **4. Epic Discovery**

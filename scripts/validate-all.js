@@ -46,6 +46,125 @@ function validateFrontmatter() {
   return failures;
 }
 
+/**
+ * Ensure every packages/development/lib/*.js file has a corresponding
+ * entry (symlink or real file) in packages/full/lib/. packages/full is
+ * meant to mirror the underlying packages via symlinks; a silently
+ * missing entry here means the bundled full plugin is missing code that
+ * command YAML in packages/development relies on.
+ *
+ * @returns {string[]} One message per missing file
+ */
+function validateFullLibMirror() {
+  const failures = [];
+  const devLibDir = path.join(PACKAGES_DIR, 'development', 'lib');
+  const fullLibDir = path.join(PACKAGES_DIR, 'full', 'lib');
+
+  if (!fs.existsSync(devLibDir) || !fs.existsSync(fullLibDir)) {
+    return failures;
+  }
+
+  const devFiles = fs.readdirSync(devLibDir).filter(f => f.endsWith('.js'));
+  let checked = 0;
+  devFiles.forEach(file => {
+    const fullPath = path.join(fullLibDir, file);
+    // lstatSync so this correctly reports presence of symlinks even if
+    // their target is missing (a broken symlink is still "present").
+    if (!safeLstatExists(fullPath)) {
+      failures.push(
+        `packages/full/lib/${file} is missing (present in packages/development/lib/) - add a symlink: ` +
+        `ln -sf ../../development/lib/${file} packages/full/lib/${file}`
+      );
+    } else {
+      checked++;
+    }
+  });
+
+  console.log(`  ✓ ${checked}/${devFiles.length} packages/development/lib/*.js file(s) mirrored in packages/full/lib/`);
+  return failures;
+}
+
+/**
+ * Ensure every skill under packages/<pkg>/skills/<skill>/ (excluding pi and
+ * full themselves) is reachable from packages/full/skills/. packages/full
+ * mirrors source packages either per-skill (e.g. `developing-with-flutter ->
+ * ../../development/skills/developing-with-flutter`) or via a whole-package
+ * symlink (e.g. `git -> ../../git/skills`, which implicitly covers every
+ * skill underneath it, like `git/git-town`). A skill reachable through
+ * neither shape means packages/full silently lacks something a command
+ * relies on via ${CLAUDE_PLUGIN_ROOT}/skills/... path resolution.
+ *
+ * @returns {string[]} One message per unreachable skill
+ */
+function validateFullSkillsMirror() {
+  const failures = [];
+  const fullSkillsDir = path.join(PACKAGES_DIR, 'full', 'skills');
+
+  if (!fs.existsSync(fullSkillsDir)) {
+    return failures;
+  }
+
+  // Directories that are already symlinked wholesale into packages/full/skills/
+  // (e.g. `git -> ../../git/skills`) — any skill under those source packages'
+  // skills/ dir is implicitly covered without needing its own entry.
+  const wholeDirMirroredPackages = new Set();
+  for (const entry of fs.readdirSync(fullSkillsDir, { withFileTypes: true })) {
+    if (!entry.isSymbolicLink()) continue;
+    const target = fs.readlinkSync(path.join(fullSkillsDir, entry.name));
+    const match = target.match(/^\.\.\/\.\.\/([^/]+)\/skills$/);
+    if (match) wholeDirMirroredPackages.add(match[1]);
+  }
+
+  let checked = 0;
+  let total = 0;
+  const packageDirs = fs.readdirSync(PACKAGES_DIR, { withFileTypes: true })
+    .filter(e => e.isDirectory() && e.name !== 'pi' && e.name !== 'full');
+
+  for (const pkgEntry of packageDirs) {
+    const pkgName = pkgEntry.name;
+    const skillsDir = path.join(PACKAGES_DIR, pkgName, 'skills');
+    if (!fs.existsSync(skillsDir)) continue;
+    if (wholeDirMirroredPackages.has(pkgName)) continue; // whole dir already covers it
+
+    for (const skillEntry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!skillEntry.isDirectory() && !skillEntry.isSymbolicLink()) continue;
+      // Only real skills (a SKILL.md of their own) count — excludes asset
+      // subdirectories like a top-level-layout skill's examples/ or templates/.
+      if (!fs.existsSync(path.join(skillsDir, skillEntry.name, 'SKILL.md'))) continue;
+      total++;
+      const skillName = skillEntry.name;
+      if (safeLstatExists(path.join(fullSkillsDir, skillName))) {
+        checked++;
+      } else {
+        failures.push(
+          `packages/full/skills/${skillName} is missing (present in packages/${pkgName}/skills/) - add a symlink: ` +
+          `ln -sf ../../${pkgName}/skills/${skillName} packages/full/skills/${skillName}`
+        );
+      }
+    }
+  }
+
+  console.log(`  ✓ ${checked}/${total} skill(s) reachable from packages/full/skills/`);
+  return failures;
+}
+
+/**
+ * fs.existsSync follows symlinks and returns false for broken symlinks.
+ * Use lstatSync to detect the symlink/file entry itself regardless of
+ * whether its target currently resolves.
+ *
+ * @param {string} p
+ * @returns {boolean}
+ */
+function safeLstatExists(p) {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function validatePlugin(pluginDir) {
   const pluginName = path.basename(pluginDir);
   console.log(`\nValidating plugin: ${pluginName}`);
@@ -137,6 +256,22 @@ function main() {
   console.log('\nValidating Markdown frontmatter...');
   const frontmatterFailures = validateFrontmatter();
   frontmatterFailures.forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
+  // packages/full/lib/ must mirror packages/development/lib/ (symlink drift check)
+  console.log('\nValidating packages/full/lib/ mirrors packages/development/lib/...');
+  const fullLibFailures = validateFullLibMirror();
+  fullLibFailures.forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
+  // packages/full/skills/ must reach every source package's skills (symlink drift check)
+  console.log('\nValidating packages/full/skills/ mirrors source packages...');
+  const fullSkillsFailures = validateFullSkillsMirror();
+  fullSkillsFailures.forEach(message => {
     console.error(`✗ ${message}`);
     errors++;
   });

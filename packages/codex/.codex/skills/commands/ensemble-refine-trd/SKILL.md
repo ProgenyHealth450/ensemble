@@ -345,7 +345,13 @@ Incorporate stakeholder feedback collected during the interview into a change pl
 
 ### Phase 3: Enhancement
 
-**1. Content Refinement**
+**1. List Available TRDs**
+   If --list is passed, show available TRDs and exit
+
+   - If $ARGUMENTS contains '--list': Resolve TRD_CLI (same resolution as implement-trd-beads): set TRD_CLI to the first path that exists among, in order: (1) "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/lib/trd-cli.js" (canonical monorepo root); (2) "${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js"; (3) "packages/development/lib/trd-cli.js" (legacy CWD-relative); (4) the Pi/OMP vendor bundle path — resolve the ensemble-pi package's own declared install location via node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}" and join the directory of that output with "/vendor/lib/trd-cli.js". If none exists, print 'ERROR: trd-cli.js not found — cannot list TRDs.' and HALT.
+   - If $ARGUMENTS contains '--list': run node "$TRD_CLI" list --type trd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of TRDs (columns: ID/Name, Status, Score, Last Modified). Then call AskUserQuestion with id='trd_select', question='Select a TRD to refine:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected TRD_SLUG. Then derive TRD_FILE_PATH as docs/TRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <TRD_SLUG>' and HALT. Set the derived path as the $ARGUMENTS positional and continue.
+
+**2. Content Refinement**
    Apply changes ONLY for the SELECTED_ITEMS identified in the Synthesis step.
 Do not alter sections that were not selected by the user.
 
@@ -370,7 +376,7 @@ Enhancements to apply (scoped to selected findings):
 - "(PR_FORMAT=false, user confirmed conversion) Convert ### Phase N: / ### Sprint N: headings in the Master Task List to ### PR N: format; add a **Shippable State:** line for each (gathered via interview); leave ## Sprint Planning section unchanged — it uses H2 headings and is informational only"
 
 
-**2. Validation**
+**3. Validation**
    Verify structural integrity of the refined TRD before writing
 
    - Verify all TRD-NNN IDs are unique and sequential
