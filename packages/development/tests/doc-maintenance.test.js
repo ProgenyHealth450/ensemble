@@ -94,4 +94,22 @@ describe('runDocMaintenance', () => {
     const result = runDocMaintenance({}, gitLogLike, repoRoot, {});
     expect(result.categories).toContain('added-command');
   });
+
+  test('reads current docs and passes them to specialist runner', () => {
+    let runnerInput = null;
+    const result = runDocMaintenance({ trd: 'meta' }, ['added command'], repoRoot, {
+      specialistRunner(input) {
+        runnerInput = input;
+        return [
+          { path: 'README.md', content: `${input.files['README.md']}updated\n` },
+        ];
+      },
+    });
+
+    expect(runnerInput).toBeTruthy();
+    expect(runnerInput.allowedPaths).toEqual(['README.md', 'AGENTS.md', 'docs/UserGuide.md']);
+    expect(runnerInput.files['README.md']).toBe('# README\n');
+    expect(result.filesUpdated).toContain('README.md');
+    expect(fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8')).toContain('updated');
+  });
 });

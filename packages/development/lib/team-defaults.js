@@ -1,38 +1,50 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const yaml = require('js-yaml');
+
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function inferBuilderAgents(domains = []) {
+function loadTeamConfiguration() {
+  const configPath = path.join(__dirname, '..', 'commands', 'configure-team.yaml');
+  const parsed = yaml.load(fs.readFileSync(configPath, 'utf8'));
+  return parsed.team_configuration;
+}
+
+function inferBuilderAgents(domains = [], teamConfiguration = loadTeamConfiguration()) {
+  const defaults = teamConfiguration.default_agents || {};
   const builders = [];
 
-  if (domains.includes('backend') || domains.includes('database') || domains.includes('security')) {
-    builders.push('backend-developer');
+  const directBuilderDomains = ['backend', 'frontend', 'infrastructure', 'devops'];
+  for (const domain of domains) {
+    if (directBuilderDomains.includes(domain) && defaults[domain]) {
+      builders.push(defaults[domain]);
+    }
   }
 
-  if (domains.includes('frontend')) {
-    builders.push('frontend-developer');
-  }
-
-  if (domains.includes('infrastructure') || domains.includes('devops')) {
-    builders.push('infrastructure-developer');
+  if (domains.includes('database') || domains.includes('security')) {
+    if (defaults.backend) builders.push(defaults.backend);
   }
 
   if (builders.length === 0) {
-    builders.push('backend-developer');
+    builders.push(defaults.backend || 'backend-developer');
   }
 
   return unique(builders);
 }
 
 function resolveDefaultTeamRoles(input = {}) {
+  const teamConfiguration = loadTeamConfiguration();
+  const defaults = teamConfiguration.default_agents || {};
   const domains = input.domains || [];
-  const builderAgents = inferBuilderAgents(domains);
+  const builderAgents = inferBuilderAgents(domains, teamConfiguration);
 
   return {
     lead: {
-      agents: ['tech-lead-orchestrator'],
+      agents: [defaults.lead || 'tech-lead-orchestrator'],
       owns: ['planning', 'escalation', 'skip-decisions'],
     },
     builder: {
@@ -44,15 +56,15 @@ function resolveDefaultTeamRoles(input = {}) {
       owns: ['task-design', 'architecture-drift-detection'],
     },
     documentation: {
-      agents: ['documentation-specialist'],
+      agents: [defaults.documentation || 'documentation-specialist'],
       owns: ['pr-boundary-doc-maintenance'],
     },
     reviewer: {
-      agents: ['code-reviewer'],
+      agents: [defaults.reviewer || 'code-reviewer'],
       owns: ['code-review'],
     },
     qa: {
-      agents: ['qa-orchestrator'],
+      agents: [defaults.qa || defaults.qa_fallback || 'qa-orchestrator'],
       owns: ['quality-assurance'],
     },
     advisor: {
@@ -67,6 +79,7 @@ function resolveDefaultTeamRoles(input = {}) {
 }
 
 module.exports = {
+  loadTeamConfiguration,
   resolveDefaultTeamRoles,
   inferBuilderAgents,
 };

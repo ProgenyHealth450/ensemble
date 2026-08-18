@@ -62,7 +62,7 @@ function shouldBootstrapUserGuide(categories) {
 }
 
 function normalizeAllowedPath(filePath) {
-  return filePath.replace(/^\.\//, '').replace(/^\//, '');
+  return String(filePath || '').replace(/^\.\//, '').replace(/^\//, '');
 }
 
 function applyScopeGuard(edits = []) {
@@ -70,7 +70,7 @@ function applyScopeGuard(edits = []) {
   const rejectedPaths = [];
 
   for (const edit of edits) {
-    const normalizedPath = normalizeAllowedPath(edit.path || '');
+    const normalizedPath = normalizeAllowedPath(edit.path);
     if (!ALLOWED_DOC_PATHS.includes(normalizedPath)) {
       rejectedPaths.push(normalizedPath);
       continue;
@@ -85,6 +85,16 @@ function ensureFile(repoRoot, relativePath, content) {
   const absolutePath = path.join(repoRoot, relativePath);
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.writeFileSync(absolutePath, content, 'utf8');
+}
+
+function readCurrentDocs(repoRoot) {
+  return Object.fromEntries(ALLOWED_DOC_PATHS.map((relativePath) => {
+    const absolutePath = path.join(repoRoot, relativePath);
+    if (!fs.existsSync(absolutePath)) {
+      return [relativePath, null];
+    }
+    return [relativePath, fs.readFileSync(absolutePath, 'utf8')];
+  }));
 }
 
 function runDocMaintenance(trdMetadata, beadHistory, repoRoot, options = {}) {
@@ -103,12 +113,13 @@ function runDocMaintenance(trdMetadata, beadHistory, repoRoot, options = {}) {
   }
 
   const categories = options.changeScopeCategories || summarizeChangeScope(beadHistory);
-  const userGuidePath = path.join(repoRoot, 'docs/UserGuide.md');
-  const userGuideExists = fs.existsSync(userGuidePath);
+  const currentDocs = readCurrentDocs(repoRoot);
+  const userGuideExists = currentDocs['docs/UserGuide.md'] != null;
 
   if (!userGuideExists && shouldBootstrapUserGuide(categories)) {
     try {
       ensureFile(repoRoot, 'docs/UserGuide.md', USER_GUIDE_TEMPLATE);
+      currentDocs['docs/UserGuide.md'] = USER_GUIDE_TEMPLATE;
       createdFiles.push('docs/UserGuide.md');
       filesUpdated.push('docs/UserGuide.md');
     } catch (error) {
@@ -116,7 +127,17 @@ function runDocMaintenance(trdMetadata, beadHistory, repoRoot, options = {}) {
     }
   }
 
-  const proposedEdits = options.proposedEdits || [];
+  const specialistRunner = options.specialistRunner;
+  const proposedEdits = specialistRunner
+    ? (specialistRunner({
+        trdMetadata,
+        beadHistory,
+        categories,
+        files: currentDocs,
+        allowedPaths: [...ALLOWED_DOC_PATHS],
+      }) || [])
+    : (options.proposedEdits || []);
+
   const { accepted, rejectedPaths } = applyScopeGuard(proposedEdits);
 
   for (const edit of accepted) {
@@ -144,6 +165,7 @@ function runDocMaintenance(trdMetadata, beadHistory, repoRoot, options = {}) {
     logs,
     categories,
     rejectedPaths,
+    currentDocs,
   };
 }
 
@@ -153,5 +175,6 @@ module.exports = {
   summarizeChangeScope,
   shouldBootstrapUserGuide,
   applyScopeGuard,
+  readCurrentDocs,
   runDocMaintenance,
 };
