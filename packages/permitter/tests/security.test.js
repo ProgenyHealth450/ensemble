@@ -597,10 +597,19 @@ describe('Security: Fuzz Testing (PERM-P4-SEC-006)', () => {
   describe('Mixed Unicode', () => {
     test('parser should handle random unicode', () => {
       for (let i = 0; i < 100; i++) {
-        // Generate random unicode codepoints
+        // Generate random non-ASCII codepoints. The floor of 0x80 is load-bearing:
+        // drawing from 0x00 made this test flaky at roughly 3% per run, because the
+        // range includes the shell metacharacters checkUnsafe is built to reject.
+        // A random U+0060 produced 'Command substitution `` not supported' -- the
+        // parser working correctly -- which a bare not.toThrow() reads as a crash.
+        // ASCII is already fuzzed by the Random ASCII Input and Shell Special
+        // Characters cases above, which allow-list those expected rejections;
+        // keeping this case non-ASCII lets it assert the stronger invariant that
+        // unicode must never throw at all. checkUnsafe matches nothing above
+        // U+007F, so no draw here can trigger it.
         let cmd = 'cmd ';
         for (let j = 0; j < 20; j++) {
-          const codepoint = Math.floor(Math.random() * 0xFFFF);
+          const codepoint = 0x80 + Math.floor(Math.random() * (0xFFFF - 0x80));
           cmd += String.fromCharCode(codepoint);
         }
         expect(() => parseCommand(cmd)).not.toThrow();
