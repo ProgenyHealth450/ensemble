@@ -1,0 +1,155 @@
+name: Sync from upstream
+
+# This file lives on `automation`, not on `main`, for two reasons:
+#
+#   1. GitHub only fires `schedule:` triggers from a repository's DEFAULT
+#      branch. `automation` is this fork's default branch so that this cron
+#      actually runs.
+#   2. `main` and `stable` are byte-pure mirrors of Sunstone-Partners/ensemble.
+#      A workflow file committed to `main` would ride along on every feature/*
+#      branch cut from it and appear in the diff of every PR sent upstream.
+#
+# What it does: fast-forward `main` from upstream unconditionally, then advance
+# `stable` -- the ref the team's plugin marketplace clones -- only if that commit
+# survives a real Windows consumer test. See README.md on this branch.
+
+on:
+  schedule:
+    - cron: '17 7 * * *'   # daily 07:17 UTC; off-the-hour to dodge GitHub's cron backlog
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: Sunstone-Partners/ensemble
+
+jobs:
+  sync-main:
+    name: Fast-forward main
+    runs-on: ubuntu-latest
+    outputs:
+      needs_promote: ${{ steps.sync.outputs.needs_promote }}
+    steps:
+      - id: sync
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          UP=$(gh api "repos/$UPSTREAM/git/refs/heads/main" --jq '.object.sha')
+          echo "upstream main: $UP"
+
+          # Fast-forward-only; the API refuses to clobber a diverged fork. Any
+          # failure here is diagnosed by the SHA assertion below rather than by
+          # trying to interpret the response body.
+          gh api "repos/$GITHUB_REPOSITORY/merge-upstream" -X POST -f branch=main --jq '.message' || true
+
+          MAIN=$(gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/main" --jq '.object.sha')
+          if [ "$MAIN" != "$UP" ]; then
+            echo "::error::main is at $MAIN but upstream is at $UP - the fork's main has diverged and cannot be fast-forwarded. Someone committed to main directly; it is supposed to be a pure mirror."
+            exit 1
+          fi
+          echo "main is in sync at $MAIN"
+
+          STABLE=$(gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" --jq '.object.sha')
+          if [ "$STABLE" = "$MAIN" ]; then
+            echo "needs_promote=false" >> "$GITHUB_OUTPUT"
+            echo "stable already at $MAIN - nothing to promote"
+          else
+            echo "needs_promote=true" >> "$GITHUB_OUTPUT"
+            echo "stable is at $STABLE, main is at $MAIN - gate will decide"
+          fi
+
+  gate:
+    name: Windows consumer gate
+    needs: sync-main
+    if: needs.sync-main.outputs.needs_promote == 'true'
+    runs-on: windows-latest
+    outputs:
+      tested_sha: ${{ steps.clone.outputs.sha }}
+    steps:
+      # Clone exactly the way a teammate's machine does. Git for Windows leaves
+      # core.symlinks=false unless the installer's symlink option was ticked, so
+      # this is the configuration that actually ships to people.
+      - id: clone
+        name: Clone as a Windows consumer (core.symlinks=false)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c core.symlinks=false clone --depth 1 --branch main \
+            "https://github.com/$GITHUB_REPOSITORY" candidate
+          cd candidate
+          SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "testing $SHA"
+
+      # A path containing ':' is unrepresentable on NTFS and aborts checkout on
+      # every Windows machine. This broke the marketplace clone org-wide once
+      # already (upstream PR #13, 38 offending paths under SessionLogs/).
+      - name: No colon paths
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          if git ls-tree -r HEAD --name-only | grep ':'; then
+            echo "::error::paths above contain ':' and cannot be checked out on Windows"
+            exit 1
+          fi
+          echo "no colon paths"
+
+      # The file Claude Code reads to enumerate every plugin. If it is committed
+      # as a symlink, a core.symlinks=false checkout materializes it as a ~19
+      # byte text file holding the link target, and the whole marketplace fails
+      # to load. Upstream PR #51.
+      - name: Loaded manifest parses as JSON
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          node -e "
+            const fs = require('fs');
+            const p = '.claude-plugin/marketplace.json';
+            const raw = fs.readFileSync(p, 'utf8');
+            try {
+              const m = JSON.parse(raw);
+              console.log('ok:', p, '->', (m.plugins || []).length, 'plugins');
+            } catch (e) {
+              console.error('::error::' + p + ' is not valid JSON on a Windows checkout. First 80 bytes: ' + JSON.stringify(raw.slice(0, 80)));
+              console.error('If that looks like a path, the file is committed as a symlink. It must be a regular file.');
+              process.exit(1);
+            }
+          "
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm ci && npm run validate
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          npm ci --legacy-peer-deps
+          npm run validate
+
+  promote-stable:
+    name: Advance stable
+    needs: [sync-main, gate]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ needs.gate.outputs.tested_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No `force`, so GitHub rejects anything that is not a fast-forward.
+          gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -X PATCH -f sha="$SHA" --jq '.object.sha'
+          echo "stable advanced to $SHA"
+          echo "### stable advanced to \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
