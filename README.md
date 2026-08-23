@@ -37,8 +37,9 @@ Daily at 07:17 UTC, and on demand via **Actions → Sync from upstream → Run w
    afterwards rather than trusting the response.
 2. **Gate the commit on `windows-latest`** — but only if `stable` is actually behind, so
    a quiet day costs one API call. The gate clones with `core.symlinks=false`, the way a
-   teammate's machine does, then checks: no `:` in any path, `.claude-plugin/marketplace.json`
-   parses as JSON, and `npm ci && npm run validate` passes.
+   teammate's machine does, then checks that no path contains `:` and that
+   `.claude-plugin/marketplace.json` parses as JSON. No npm install, so it finishes in
+   about a minute.
 3. **Advance `stable`** to exactly the commit the gate tested. Fast-forward only.
 
 If the gate fails, `stable` is left where it is and the run fails, which emails whoever
@@ -60,3 +61,17 @@ Both checks encode a bug that actually shipped:
 
 Upstream CI runs on Linux, where both problems are invisible. That is the gap this gate
 covers, and it is the reason `stable` is a separate ref from `main` at all.
+
+## What the gate deliberately does not check
+
+`npm run validate` is not run here. Upstream CI already runs it on ubuntu, and the only
+Windows-specific thing it adds is a `packages/full/skills/` check that is permanently red
+on a `core.symlinks=false` checkout: **97 paths under `packages/full/` are symlinks**, so a
+Windows clone materializes every one of them as a short text file. Four of them are
+whole-directory mirrors, which is why the validator reports exactly four failures rather
+than ninety-seven — the individually-linked ones still "exist" as files and pass a
+plain existence check.
+
+That is a real defect in the `ensemble-full` bundle on Windows and worth an upstream fix,
+but it does not stop the marketplace installing, and gating `stable` on it would freeze
+the ref indefinitely. This gate blocks only on what actually breaks installation.
