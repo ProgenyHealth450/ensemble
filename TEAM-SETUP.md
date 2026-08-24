@@ -3,10 +3,10 @@
 Install the Ensemble plugins and keep them current. Everything installs from
 `ProgenyHealth450/ensemble`, ref `stable`.
 
-Run the `claude ...` commands below in a terminal — PowerShell and Git Bash both work.
-`/ensemble:reinstall-plugins` is different: it is a slash command, typed inside a running
-Claude Code session. You can also run any of the terminal commands from inside a session
-by prefixing it with `!`.
+Run the `claude ...` commands below at a **PowerShell** prompt — including the integrated
+terminal in Visual Studio or VS Code. `/ensemble:reinstall-plugins` is different: it is a
+slash command, typed inside a running Claude Code session. You can also run any of the
+terminal commands from inside a session by prefixing it with `!`.
 
 ## Install
 
@@ -56,8 +56,20 @@ framework packs for React, Rails, Phoenix, NestJS, Jest, pytest, RSpec and ExUni
 
 ### 3. Restart Claude Code
 
-Plugins are only picked up at session startup. `--continue` re-runs discovery, so it
-works; `--bare` does not.
+Plugins are only picked up when a session starts — an already-running one will not see
+them. In PowerShell that means exiting and running `claude` again (`claude --continue`
+counts, it re-runs discovery). In Visual Studio or VS Code, start a new Claude session.
+
+## What follows you, and what doesn't
+
+Plugins install per user, so the same set is active in **every repo you open and on every
+surface** — Claude CLI in PowerShell, Visual Studio, and VS Code all read the same
+`~/.claude`. Install once per machine.
+
+Instructions do not work that way. Most repos carry their own `CLAUDE.md`, and there is a
+user-level `~/.claude/CLAUDE.md` on top of it. So Claude can behave quite differently in
+two repos while running identical plugins — that difference is the repo's `CLAUDE.md`,
+not your install.
 
 ## Update
 
@@ -78,8 +90,8 @@ marketplace content changed but the plugin's version number did not.
 
 ## Don't
 
-**Don't install `ensemble-full` on Windows.** It installs successfully but its skills
-and library code arrive as unusable placeholder files. Install the individual plugins
+**Don't install `ensemble-full`.** It installs successfully but its skills and library
+code arrive as unusable placeholder files on Windows. Install the individual plugins
 above.
 
 **Don't install with `-s project`.** User scope already applies in every repo, and a
