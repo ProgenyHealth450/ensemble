@@ -37,6 +37,9 @@ for p in ensemble-core ensemble-development ensemble-product ensemble-quality en
 done
 ```
 
+These install at **user scope**, so they are available in every repo you open on this
+machine. There is nothing to install per project.
+
 27 plugins are available. Add others as you need them — `ensemble-infrastructure`,
 `ensemble-metrics`, `ensemble-ai`, `ensemble-router`, `ensemble-permitter`, and
 framework packs for React, Rails, Phoenix, NestJS, Jest, pytest, RSpec and ExUnit.
