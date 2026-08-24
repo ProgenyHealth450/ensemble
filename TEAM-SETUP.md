@@ -107,22 +107,17 @@ command above can miss one you set up months ago somewhere else:
 ```powershell
 $reg = "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
 $all = (Get-Content $reg -Raw | ConvertFrom-Json).plugins.PSObject.Properties
-Write-Output "Scanning $(($all | Measure-Object).Count) installed plugins across every repo on this machine..."
-
-$bad = $all | ForEach-Object {
-  $name = $_.Name
-  $_.Value | Where-Object { $_.scope -ne 'user' } | ForEach-Object {
-    [pscustomobject]@{ Plugin = $name; Scope = $_.scope; Repo = $_.projectPath }
-  }
-}
-
-if ($bad) { $bad | Sort-Object Repo, Plugin | Format-Table -AutoSize }
-else { Write-Output "All user scope - nothing to clean up." }
+$bad = $all | ForEach-Object { $n = $_.Name; $_.Value | Where-Object { $_.scope -ne 'user' } | ForEach-Object { [pscustomobject]@{ Plugin = $n; Scope = $_.scope; Repo = $_.projectPath } } }
+"Scanned $(($all | Measure-Object).Count) plugins across every repo. Non-user installs: $(($bad | Measure-Object).Count)"
+$bad | Sort-Object Repo, Plugin | Format-Table -AutoSize
 ```
 
-Anything it finds is printed with the repo it belongs to:
+Paste all five lines at once. A clean machine prints the count and nothing else;
+anything it finds comes with the repo it belongs to:
 
 ```
+Scanned 25 plugins across every repo. Non-user installs: 2
+
 Plugin                    Scope   Repo
 ------                    -----   ----
 ensemble-quality@ensemble project C:\dev\BT3
