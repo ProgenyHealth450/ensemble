@@ -50,10 +50,6 @@ claude plugin install ensemble-e2e-testing@ensemble
 These install at **user scope**, so they are available in every repo you open on this
 machine. There is nothing to install per project.
 
-27 plugins are available. Add others as you need them — `ensemble-infrastructure`,
-`ensemble-metrics`, `ensemble-ai`, `ensemble-router`, `ensemble-permitter`, and
-framework packs for React, Rails, Phoenix, NestJS, Jest, pytest, RSpec and ExUnit.
-
 ### 3. Restart Claude Code
 
 Plugins are only picked up when a session starts — an already-running one will not see
