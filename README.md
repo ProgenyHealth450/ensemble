@@ -16,9 +16,9 @@ The interesting refs are below.
 | `dev` | Dogfooding: `main` plus every open PR, **rebuilt** each run. | The sync workflow — **never commit here**, a rebuild discards it |
 | `feature/*` | Real contributions. Cut from `main`, PR'd to **Sunstone-Partners/ensemble**, never merged here. | Contributors |
 
-**Installing or updating the plugins? See [TEAM-SETUP.md](TEAM-SETUP.md).** It is the
-one procedure everyone should follow — several of the steps have failure modes that
-report success.
+**Installing or updating the plugins? See [TEAM-SETUP.md](TEAM-SETUP.md)** — the steps
+everyone should follow. The reasoning behind the ref topology lives here; that file is
+just the procedure.
 
 Install from an explicit ref — `#stable` for normal use, `#dev` only for deliberate
 dogfooding of work that has not merged upstream. Do not add the marketplace without a
