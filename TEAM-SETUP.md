@@ -3,11 +3,16 @@
 Install the Ensemble plugins and keep them current. Everything installs from
 `ProgenyHealth450/ensemble`, ref `stable`.
 
+Run the `claude ...` commands below in a terminal — PowerShell and Git Bash both work.
+`/ensemble:reinstall-plugins` is different: it is a slash command, typed inside a running
+Claude Code session. You can also run any of the terminal commands from inside a session
+by prefixing it with `!`.
+
 ## Install
 
 ### 1. Add the marketplace
 
-```bash
+```
 claude plugin marketplace add https://github.com/ProgenyHealth450/ensemble.git#stable
 ```
 
@@ -22,7 +27,7 @@ Only the `#stable` fragment form works:
 
 Confirm:
 
-```bash
+```
 claude plugin marketplace list
 #   ❯ ensemble
 #     Source: Git (https://github.com/ProgenyHealth450/ensemble.git@stable)
@@ -30,11 +35,16 @@ claude plugin marketplace list
 
 ### 2. Install the plugins
 
-```bash
-for p in ensemble-core ensemble-development ensemble-product ensemble-quality ensemble-git \
-         ensemble-dotnet ensemble-xunit ensemble-blazor ensemble-e2e-testing; do
-  claude plugin install "$p@ensemble"
-done
+```
+claude plugin install ensemble-core@ensemble
+claude plugin install ensemble-development@ensemble
+claude plugin install ensemble-product@ensemble
+claude plugin install ensemble-quality@ensemble
+claude plugin install ensemble-git@ensemble
+claude plugin install ensemble-dotnet@ensemble
+claude plugin install ensemble-xunit@ensemble
+claude plugin install ensemble-blazor@ensemble
+claude plugin install ensemble-e2e-testing@ensemble
 ```
 
 These install at **user scope**, so they are available in every repo you open on this
@@ -51,7 +61,7 @@ works; `--bare` does not.
 
 ## Update
 
-```bash
+```
 claude plugin marketplace update ensemble
 ```
 
