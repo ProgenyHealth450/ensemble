@@ -106,15 +106,32 @@ command above can miss one you set up months ago somewhere else:
 
 ```powershell
 $reg = "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
-$bad = (Get-Content $reg -Raw | ConvertFrom-Json).plugins.PSObject.Properties |
-  ForEach-Object { $n = $_.Name; $_.Value | Where-Object { $_.scope -ne 'user' } |
-  ForEach-Object { "$n  ($($_.scope) scope)" } }
-if ($bad) { $bad } else { "All installs are user scope." }
+$all = (Get-Content $reg -Raw | ConvertFrom-Json).plugins.PSObject.Properties
+Write-Output "Scanning $(($all | Measure-Object).Count) installed plugins across every repo on this machine..."
+
+$bad = $all | ForEach-Object {
+  $name = $_.Name
+  $_.Value | Where-Object { $_.scope -ne 'user' } | ForEach-Object {
+    [pscustomobject]@{ Plugin = $name; Scope = $_.scope; Repo = $_.projectPath }
+  }
+}
+
+if ($bad) { $bad | Sort-Object Repo, Plugin | Format-Table -AutoSize }
+else { Write-Output "All user scope - nothing to clean up." }
+```
+
+Anything it finds is printed with the repo it belongs to:
+
+```
+Plugin                    Scope   Repo
+------                    -----   ----
+ensemble-quality@ensemble project C:\dev\BT3
+ensemble-git@ensemble     project C:\dev\CRIBs
 ```
 
 **If it lists anything**, for each plugin it named:
 
-1. `cd` to the repo that install belongs to.
+1. `cd` to the repo shown in the **Repo** column.
 2. Remove it, using the scope the check reported:
    ```
    claude plugin uninstall <plugin>@ensemble -s project
