@@ -88,6 +88,51 @@ Then restart.
 Do not use `claude plugin update` — it reports success and does nothing when the
 marketplace content changed but the plugin's version number did not.
 
+## Cleanup: check your install scope
+
+A project-scoped copy shadows the user-scoped one, drifts on its own, and is skipped by
+`/ensemble:reinstall-plugins`. Everything should be user scope.
+
+**In the repo you are sitting in:**
+
+```
+claude plugin list
+```
+
+Every plugin should read `Scope: user`.
+
+**Across every repo at once.** A project install only shows up in its own repo, so the
+command above can miss one you set up months ago somewhere else:
+
+```powershell
+$reg = "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
+$bad = (Get-Content $reg -Raw | ConvertFrom-Json).plugins.PSObject.Properties |
+  ForEach-Object { $n = $_.Name; $_.Value | Where-Object { $_.scope -ne 'user' } |
+  ForEach-Object { "$n  ($($_.scope) scope)" } }
+if ($bad) { $bad } else { "All installs are user scope." }
+```
+
+**If it lists anything**, for each plugin it named:
+
+1. `cd` to the repo that install belongs to.
+2. Remove it, using the scope the check reported:
+   ```
+   claude plugin uninstall <plugin>@ensemble -s project
+   ```
+   (`-s local` if the check said `local`.)
+3. Run the check again. If the plugin has now disappeared entirely, it only ever existed
+   at project scope — reinstall it:
+   ```
+   claude plugin install <plugin>@ensemble
+   ```
+   User is the default. Do not pass `-s`.
+4. Restart Claude Code.
+
+**Do not run the uninstall speculatively.** `uninstall -s project` fails when there is no
+project install to remove, but a paired `install -s project` will cheerfully create one
+where none existed. Only touch the plugins the check actually named, and never pass
+`-s project` to `install`.
+
 ## Don't
 
 **Don't install `ensemble-full`.** It installs successfully but its skills and library
