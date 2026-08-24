@@ -36,10 +36,10 @@ Daily at 07:17 UTC, and on demand via **Actions → Sync from upstream → Run w
    API, which refuses to clobber a diverged fork, then asserts `main == upstream/main`
    afterwards rather than trusting the response.
 2. **Gate the commit on `windows-latest`** — but only if `stable` is actually behind, so
-   a quiet day costs one API call. The gate clones with `core.symlinks=false`, the way a
+   a quiet day never starts the Windows runner. The gate clones with `core.symlinks=false`, the way a
    teammate's machine does, then checks that no path contains `:` and that
    `.claude-plugin/marketplace.json` parses as JSON. No npm install, so it finishes in
-   about a minute.
+   about fifteen seconds.
 3. **Advance `stable`** to exactly the commit the gate tested. Fast-forward only.
 4. **Rebuild `dev`** as `main` + every open PR authored by the maintainer, in parallel with
    the gate — dev is for dogfooding, so it tracks `main` even on a commit `stable` is not
@@ -70,10 +70,16 @@ covers, and it is the reason `stable` is a separate ref from `main` at all.
 `npm run validate` is not run here. Upstream CI already runs it on ubuntu, and the only
 Windows-specific thing it adds is a `packages/full/skills/` check that is permanently red
 on a `core.symlinks=false` checkout: **97 paths under `packages/full/` are symlinks**, so a
-Windows clone materializes every one of them as a short text file. Four of them are
-whole-directory mirrors, which is why the validator reports exactly four failures rather
-than ninety-seven — the individually-linked ones still "exist" as files and pass a
-plain existence check.
+Windows clone materializes every one of them as a short text file.
+
+The validator nonetheless reports only **four** failures, which understates the damage
+rather than bounding it. Most skills have an individually-named entry under
+`packages/full/skills/`, and a text file still satisfies a plain existence check, so they
+pass spuriously. The four that fail — `dotnet-framework`, `framework-detector`,
+`test-detector`, `git-town` — are the only ones reachable *solely* through one of the 13
+whole-package mirrors (`packages/full/skills/core -> ../../core/skills` and friends), and
+you cannot traverse into a text file. Read "4 errors" as "the symlinks are broken", not as
+"4 skills are broken".
 
 That is a real defect in the `ensemble-full` bundle on Windows and worth an upstream fix,
 but it does not stop the marketplace installing, and gating `stable` on it would freeze
@@ -94,6 +100,10 @@ arrives via `main` instead. Nothing accumulates.
 **The trade: `dev` is disposable.** Anything you want on it has to exist as a branch or an
 open PR. Commit to `dev` directly and the next run throws it away.
 
+If an open PR conflicts with the rebuild, `dev` is left exactly where it was and the run
+fails naming the PR. Fix it by rebasing that PR, or close the PR to drop it from `dev`.
+`main` and `stable` are unaffected either way — the rebuild is a separate job.
+
 ## Do not click "Sync fork"
 
 That button syncs the repository's **default branch**, which is this one. On
@@ -103,3 +113,10 @@ branch protection to make that fail loudly instead of silently.
 
 Nobody needs it: the workflow already keeps `main`, `stable`, and `dev` current, and it
 runs on demand from **Actions → Sync from upstream → Run workflow**.
+
+## If the sync goes quiet
+
+GitHub disables scheduled workflows after **60 days without repository activity**, with a
+warning email first. That is the first thing to check if the refs start drifting and no
+runs appear — it fails silently in the sense that nothing goes red; the cron simply stops.
+Re-enable it from the Actions tab.
