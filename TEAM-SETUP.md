@@ -65,9 +65,6 @@ marketplace content changed but the plugin's version number did not.
 
 ## Don't
 
-**Don't add the `dev` marketplace.** It replaces your `stable` registration instead of
-adding a second one, and prints a success message either way. Ask Mike if you need it.
-
 **Don't install `ensemble-full` on Windows.** It installs successfully but its skills
 and library code arrive as unusable placeholder files. Install the individual plugins
 above.
@@ -83,8 +80,7 @@ project copy drifts and gets missed by `/ensemble:reinstall-plugins`.
 | Command or agent missing after an update | Restart the session |
 | Not sure what you are running | `claude plugin marketplace list` and `claude plugin list` |
 
-Every plugin should read `Scope: user` and end in `@ensemble`. If any say
-`@ensemble-dev`, you are on the wrong ref.
+Every plugin should read `Scope: user` and end in `@ensemble`.
 
 ## Problems
 
