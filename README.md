@@ -13,7 +13,7 @@ The interesting refs are below.
 |---|---|---|
 | `stable` | What the team's plugin marketplace clones. Byte-identical to some vetted upstream commit. | The sync workflow, only after the Windows gate passes |
 | `main` | Byte-pure mirror of upstream `main`. Base for `feature/*` branches. | The sync workflow (fast-forward only) — **never commit here** |
-| `dev` | Local dogfooding aggregation: `main` plus branches still in flight upstream. | By hand; reset rather than merged |
+| `dev` | Dogfooding: `main` plus every open PR, **rebuilt** each run. | The sync workflow — **never commit here**, a rebuild discards it |
 | `feature/*` | Real contributions. Cut from `main`, PR'd to **Sunstone-Partners/ensemble**, never merged here. | Contributors |
 
 Install from an explicit ref — `ProgenyHealth450/ensemble#stable` for normal use,
@@ -41,6 +41,9 @@ Daily at 07:17 UTC, and on demand via **Actions → Sync from upstream → Run w
    `.claude-plugin/marketplace.json` parses as JSON. No npm install, so it finishes in
    about a minute.
 3. **Advance `stable`** to exactly the commit the gate tested. Fast-forward only.
+4. **Rebuild `dev`** as `main` + every open PR authored by the maintainer, in parallel with
+   the gate — dev is for dogfooding, so it tracks `main` even on a commit `stable` is not
+   allowed to have. Pushes only if the resulting tree actually differs.
 
 If the gate fails, `stable` is left where it is and the run fails, which emails whoever
 last edited the cron. `main` still moves — it is a mirror, and nothing installs from it.
@@ -75,3 +78,28 @@ plain existence check.
 That is a real defect in the `ensemble-full` bundle on Windows and worth an upstream fix,
 but it does not stop the marketplace installing, and gating `stable` on it would freeze
 the ref indefinitely. This gate blocks only on what actually breaks installation.
+
+## Why `dev` is rebuilt rather than merged
+
+`dev` is not a mirror, so it cannot be fast-forwarded: it is `main` plus whatever is
+still in flight. The tempting approach is to keep merging `main` into it, and that is
+what rots. Work merges upstream under a *different SHA* than the copy already sitting on
+`dev`, so `dev` ends up holding duplicate-content commits that re-conflict on every later
+merge — which is exactly how it had to be steamrolled by hand on 2026-08-23.
+
+Rebuilding removes the failure mode by construction. `dev` is recomputed from `main` plus
+the currently-open PRs, so a PR merging upstream simply drops off the list and its content
+arrives via `main` instead. Nothing accumulates.
+
+**The trade: `dev` is disposable.** Anything you want on it has to exist as a branch or an
+open PR. Commit to `dev` directly and the next run throws it away.
+
+## Do not click "Sync fork"
+
+That button syncs the repository's **default branch**, which is this one. On
+2026-08-23 it was used here and overwrote the sync workflow with a copy of upstream
+`main`, taking the automation out until it was restored by hand. `automation` now has
+branch protection to make that fail loudly instead of silently.
+
+Nobody needs it: the workflow already keeps `main`, `stable`, and `dev` current, and it
+runs on demand from **Actions → Sync from upstream → Run workflow**.

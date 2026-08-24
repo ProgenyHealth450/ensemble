@@ -150,3 +150,81 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/stable" -X PATCH -f sha="$SHA" --jq '.object.sha'
           echo "stable advanced to $SHA"
           echo "### stable advanced to \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # dev is not a mirror -- it is main plus whatever is still in flight upstream, so it
+  # cannot be fast-forwarded. It is REBUILT from main each run rather than merged into
+  # forever. That is the property that keeps it healthy: when a PR merges upstream it
+  # drops off the open list on its own and its content arrives via main, instead of
+  # lingering as a duplicate-SHA commit that re-conflicts on every later merge.
+  #
+  # Consequence: dev is disposable. Never commit to it directly -- the next rebuild
+  # discards anything that is not main or an open PR.
+  #
+  # Deliberately independent of the stable gate: dev exists for dogfooding, so it should
+  # track main even on a commit that stable is not allowed to have.
+  rebuild-dev:
+    name: Rebuild dev
+    needs: sync-main
+    runs-on: ubuntu-latest
+    env:
+      DEV_PR_AUTHOR: michaeldevenney
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: dev = main + open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "https://github.com/$UPSTREAM" 2>/dev/null || true
+          git fetch -q upstream main
+          git fetch -q origin dev
+
+          git checkout -q -B dev upstream/main
+          echo "reset dev to $(git rev-parse --short HEAD) (upstream main)"
+
+          # refs/pull/N/head resolves no matter where the PR head lives -- this fork, a
+          # personal fork, or upstream itself -- so this keeps working unchanged if
+          # contributions later move to branches on the upstream repo directly.
+          PRS=$(gh pr list --repo "$UPSTREAM" --state open --author "$DEV_PR_AUTHOR" \
+                  --json number,title --jq '.[] | "\(.number)\t\(.title)"')
+
+          if [ -z "$PRS" ]; then
+            echo "no open PRs by $DEV_PR_AUTHOR - dev is just main"
+          else
+            while IFS=$'\t' read -r N TITLE; do
+              [ -n "$N" ] || continue
+              echo "folding in #$N: $TITLE"
+              git fetch -q upstream "pull/$N/head"
+              if ! git merge --no-ff -q -m "dogfood: fold in #$N ($TITLE)" FETCH_HEAD; then
+                git merge --abort || true
+                echo "::error::PR #$N conflicts with this rebuild - dev left unchanged. Rebase the PR, or close it to drop it from dev."
+                exit 1
+              fi
+            done <<< "$PRS"
+          fi
+
+          # Folding version bumps from several branches can leave the two manifests
+          # disagreeing. On a branch headed upstream that is a defect worth failing on;
+          # on dev it is noise, and dev is never PR'd, so just repair it.
+          if ! cmp -s marketplace.json .claude-plugin/marketplace.json; then
+            cp marketplace.json .claude-plugin/marketplace.json
+            git add .claude-plugin/marketplace.json
+            git commit -q -m "chore(marketplace): re-sync loaded manifest after fold"
+            echo "re-synced .claude-plugin/marketplace.json"
+          fi
+
+          if [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse 'origin/dev^{tree}')" ]; then
+            echo "dev content is already correct - not pushing"
+            exit 0
+          fi
+
+          git push --force-with-lease=dev:"$(git rev-parse origin/dev)" origin dev
+          echo "### dev rebuilt at `$(git rev-parse --short HEAD)`" >> "$GITHUB_STEP_SUMMARY"
