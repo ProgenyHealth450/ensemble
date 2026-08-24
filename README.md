@@ -16,9 +16,13 @@ The interesting refs are below.
 | `dev` | Dogfooding: `main` plus every open PR, **rebuilt** each run. | The sync workflow — **never commit here**, a rebuild discards it |
 | `feature/*` | Real contributions. Cut from `main`, PR'd to **Sunstone-Partners/ensemble**, never merged here. | Contributors |
 
-Install from an explicit ref — `ProgenyHealth450/ensemble#stable` for normal use,
-`#dev` to dogfood work that has not merged upstream yet. Do not add the marketplace
-without a ref; you would get this branch.
+**Installing or updating the plugins? See [TEAM-SETUP.md](TEAM-SETUP.md).** It is the
+one procedure everyone should follow — several of the steps have failure modes that
+report success.
+
+Install from an explicit ref — `#stable` for normal use, `#dev` only for deliberate
+dogfooding of work that has not merged upstream. Do not add the marketplace without a
+ref; you would get this branch, which carries no plugins.
 
 ## Why `automation` is the default branch
 
