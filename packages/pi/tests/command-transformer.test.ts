@@ -93,7 +93,7 @@ describe('transformCommand', () => {
 
     it('includes the command name and version in the second comment line', () => {
       const output = transformCommand(MINIMAL_COMMAND, SOURCE_PATH, {});
-      expect(output).toContain('Command: ensemble:create-prd | Version: 1.0.0');
+      expect(output).toContain('Command: ensemble-create-prd | Version: 1.0.0');
     });
 
     it('includes the description in the third comment line', () => {
@@ -105,7 +105,7 @@ describe('transformCommand', () => {
   describe('H1 title', () => {
     it('renders the metadata name as an H1 heading', () => {
       const output = transformCommand(MINIMAL_COMMAND, SOURCE_PATH, {});
-      expect(output).toContain('# ensemble:create-prd');
+      expect(output).toContain('# ensemble-create-prd');
     });
 
     it('uses the name from metadata when it differs', () => {
@@ -114,7 +114,24 @@ describe('transformCommand', () => {
         metadata: { ...MINIMAL_COMMAND.metadata, name: 'ensemble:custom-command' },
       };
       const output = transformCommand(cmd, SOURCE_PATH, {});
-      expect(output).toContain('# ensemble:custom-command');
+      expect(output).toContain('# ensemble-custom-command');
+    });
+  });
+
+  describe('command reference normalization', () => {
+    it('rewrites ensemble:<cmd> command references to the Pi ensemble-<cmd> form', () => {
+      const cmd: CommandYaml = {
+        ...MINIMAL_COMMAND,
+        mission: {
+          summary: 'Then run /ensemble:refine-trd and see the ensemble:beads-build workflow.',
+        },
+      };
+      const output = transformCommand(cmd, SOURCE_PATH, {});
+      expect(output).toContain('/ensemble-refine-trd');
+      expect(output).toContain('ensemble-beads-build');
+      // No Claude-style colon command references survive into Pi output
+      // (covers the H1 title and every in-body cross-command reference).
+      expect(output).not.toMatch(/ensemble:[a-z0-9-]+/);
     });
   });
 

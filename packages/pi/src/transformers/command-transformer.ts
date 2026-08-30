@@ -38,9 +38,9 @@ function renderHeader(commandYaml: CommandYaml, sourcePath: string): string {
 }
 
 /**
- * Render the H1 title from metadata.name.
- * Normalises "ensemble:create-prd" style names by stripping the namespace prefix
- * for display while keeping it in the title for traceability.
+ * Render the H1 title from metadata.name. Claude-style command names
+ * (ensemble:<cmd>) are normalized to the Pi invocation form (ensemble-<cmd>)
+ * globally in transformCommand, so this renders the name as-is.
  */
 function renderTitle(name: string): string {
   return `# ${name}`;
@@ -209,6 +209,14 @@ export function transformCommand(
   // Claude Code tool name (AskUserQuestion).  A global replacement here
   // ensures no AskUserQuestion references survive into any Pi prompt.
   output = output.replace(/AskUserQuestion/g, 'ask_user');
+
+  // Rewrite Claude-style command references (ensemble:<cmd>) to the Pi
+  // invocation form (ensemble-<cmd>). Pi command names cannot contain ':'
+  // (illegal in filenames on Windows), so each command is emitted as
+  // prompts/ensemble-<cmd>.md and invoked as /ensemble-<cmd>. This covers the
+  // H1 title, the header comment, and every cross-command reference in the
+  // body, keeping the YAML source authored in the Claude-canonical colon form.
+  output = output.replace(/ensemble:([a-z0-9-]+)/g, 'ensemble-$1');
 
   // INTERVIEW PROTOCOL annotations and {{variable}} placeholders require
   // no additional transformation: action items render verbatim (the
