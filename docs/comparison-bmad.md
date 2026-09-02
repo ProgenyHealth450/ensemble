@@ -35,7 +35,7 @@ Key architectural elements:
 - **Agent mesh:** 38 specialized agents; delegation via Task() tool
 - **Task persistence:** beads SQLite + JSONL with dependency graphs and PageRank
 - **Runtimes:** Claude Code, Codex, OpenCode, Pi, OMP
-- **Enforcement:** Soft-gate constitution (pauses, allows override)
+- **Enforcement:** Hard-gate constitution in create-prd/create-trd (violations block phase, no override)
 - **Scope:** Full lifecycle PRD → TRD → implement, plus `fix-issue` for quick fixes without PRD/TRD overhead
 
 ### BMAD (BMAD Code, v6.8.0)
@@ -82,6 +82,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 | **Constitution / Principles** | `docs/standards/constitution.md` via `/init-project`; hard-gated in create-prd/create-trd | Implicit in agent personas; not formalized | `memory/constitution.md` Nine Articles; hard-gated |
 | **Expansion/Specialization** | Framework-specific plugins only | Expansion packs (domain-agnostic) | Community catalog (third-party) |
 | **Multi-Runtime Support** | Claude Code, Codex, OpenCode, Pi, OMP (5) | Claude Code, Cursor, Codex CLI (3) | 30+ agents (broadest) |
+| **Setup Complexity** | High (Node.js, br/bv binaries, Claude Code) | Medium (Node.js CLI, AI agent) | Low (Python uv, any agent) |
 | **Learning Curve** | Steep (24 packages, YAML, beads) | Medium (agile roles, workflows, markdown) | Low (Python, Markdown) |
 | **Maintenance Overhead** | High (npm packages, schema CI) | Medium (expansion packs, npm) | Low (~30 files) |
 
@@ -246,7 +247,7 @@ Does your stack include React, NestJS, Rails, Phoenix, or Blazor?
 └── No → Continue
 
 Do you need immutable, hard-enforced constitutional governance?
-├── Yes → Spec-Kit (Nine Articles phase gates)
+├── Yes → Ensemble (create-prd/create-trd hard-gate) or Spec-Kit (Nine Articles phase gates)
 └── No → Continue
 
 Is multi-runtime support essential?

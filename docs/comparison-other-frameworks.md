@@ -186,15 +186,18 @@ Key architectural elements:
 - MCP server integration for optional TRD workflow enhancement
 - Foreman dispatch for fully automated orchestration pipelines
 - Collaborative PRD/TRD review via `--collab` browser UI
+- Hard-gate constitution enforcement: violations in `create-prd`/`create-trd` block phase with no override path (PR #59)
+- Standalone `research.md` and `data-model.md` companion artifacts generated when domains detected (PR #60)
+- Quickstart validation artifact: `implement-trd` generates `quickstart.md` smoke-test runbook after completion verification passes (PR #61)
 
-- Constitution enforcement is hard-gated in create-prd/create-trd (violations block phase, no override) — matching Spec-Kit's rigor
+**Cons:**
 - No mandatory `[NEEDS CLARIFICATION]` discipline during spec generation (though create-prd does mark ambiguities)
-- No standalone `research.md` or `data-model.md` artifacts (though standalone artifact generation was added in v5.0+)
 - Narrower runtime coverage compared to Spec-Kit (5 vs 30+ agents)
 - No community extension system — Sunstone-curated only
 - No preset/template override system
 - Requires `br`/`bv` third-party binaries (separate from ensemble itself)
 - High maintenance overhead: 24 npm packages, schema CI, marketplace
+
 ### Spec-Kit
 
 **Pros:**
@@ -248,8 +251,8 @@ Is your team a solo developer or small team wanting lightweight spec discipline?
 ├── Yes → Spec-Kit (lowest friction, 5-phase SDD)
 └── No → Continue
 
-Does your team need deep constitutional governance?
-├── Yes → Spec-Kit (Nine Articles enforced as phase gates)
+Does your team need hard-enforced constitutional governance?
+├── Yes → Ensemble (hard-gated in create-prd/create-trd) or Spec-Kit (Nine Articles)
 └── No → Continue
 
 Is fast onboarding with minimal setup a priority?
