@@ -36,7 +36,7 @@ Key architectural elements:
 - **Task persistence:** beads SQLite + JSONL with dependency graphs and PageRank
 - **Runtimes:** Claude Code, Codex, OpenCode, Pi, OMP
 - **Enforcement:** Soft-gate constitution (pauses, allows override)
-- **Scope:** Full lifecycle PRD → TRD → implement
+- **Scope:** Full lifecycle PRD → TRD → implement, plus `fix-issue` for quick fixes without PRD/TRD overhead
 
 ### BMAD (BMAD Code, v6.8.0)
 
@@ -76,7 +76,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 | **Cross-Session Resumability** | Full — beads survive session end | No — workflow artifacts restart | No — state lost |
 | **Team Mode** | Auto-detects complexity; generates config | Built-in agile team roles | Single agent guidance |
 | **Design/Architecture Artifact** | Embedded in TRD | Standalone `architecture.md` | Standalone `PLAN.md` |
-| **Quick/Lightweight Path** | None — all work follows PRD→TRD pipeline | Quick Flow (spec straight to build) | Spec-only path (skip plan if clear) |
+| **Quick/Lightweight Path** | `fix-issue` command (lightweight bug fixes) | Quick Flow (spec straight to build) | Spec-only path (skip plan if clear) |
 | **Constitution / Principles** | `docs/standards/constitution.md` via `/init-project`; soft-gated | Implicit in agent personas; not formalized | `memory/constitution.md` Nine Articles; hard-gated |
 | **Expansion/Specialization** | Framework-specific plugins only | Expansion packs (domain-agnostic) | Community catalog (third-party) |
 | **Multi-Runtime Support** | Claude Code, Codex, OpenCode, Pi, OMP (5) | Claude Code, Cursor, Codex CLI (3) | 30+ agents (broadest) |

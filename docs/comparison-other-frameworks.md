@@ -80,7 +80,7 @@ Key architectural elements:
 | **Security Scanning** | OWASP-aware via code-reviewer agent | None built-in |
 | **MCP Server Integration** | Optional TRD Workflow MCP tools (inject_checkpoints, assess_complexity) | None |
 | **Git/Release/CI-CD Commands** | Conventional commits, git-town, release orchestration | None |
-| **Preset / Template Override** | None | Priority-stacked presets (e.g., domain-specific templates) |
+| **Quick/Lightweight Path** | `fix-issue` for lightweight bug fixes (no PRD/TRD overhead) | Spec-only path (skip plan if clear) |
 | **Community Extensions** | Sunstone-curated only | Open catalog with third-party contributions |
 | **Multi-Runtime Support** | Claude Code, Codex, OpenCode, Pi, OMP (5 runtimes) | 30+ agents (CLI + IDE) |
 | **Dependency** | `br`/`bv` binaries (third-party); Node.js ecosystem | `uv` (Python package manager) only |
