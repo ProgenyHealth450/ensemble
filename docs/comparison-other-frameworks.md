@@ -303,8 +303,6 @@ These capabilities were proposed as opportunities but already exist in Ensemble:
 - ✓ **Cross-artifact requirement analysis** — `ensemble:analyze-requirements` validates PRD↔TRD↔beads alignment
 - ✓ **Clarification enforcement** — `ensemble:refine-prd`, `refine-trd`, `refine-prd-meeting` surface ambiguities
 - ✓ **Auto feature-branching** — `ensemble:create-prd` auto-creates branches (spec-first)
-- ✓ **Preset system** — `ensemble:configure-team` for governance/domain customization
-- ✓ **Beads dashboards** — `ensemble:manager-dashboard`, `web-metrics-dashboard`, `beads-build` provide visualization
 
 ---
 
