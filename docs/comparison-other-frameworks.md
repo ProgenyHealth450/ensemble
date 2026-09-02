@@ -192,7 +192,6 @@ Key architectural elements:
 - Constitution enforcement is soft-gate-based (pauses, requires decision, allows override) rather than hard-gate-based (blocks without override)
 - No mandatory `[NEEDS CLARIFICATION]` discipline during spec generation (though create-prd does mark ambiguities)
 - No cross-artifact consistency analysis before implementation (only traceability validation)
-- Specs stored flat (no branch-per-feature isolation)
 - No standalone `research.md` or `data-model.md` artifacts
 - Narrower runtime coverage compared to Spec-Kit (5 vs 30+ agents)
 - No community extension system — Sunstone-curated only
