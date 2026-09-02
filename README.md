@@ -24,6 +24,19 @@ per-project model config to maintain — the same commands work on every backend
 
 Ensemble Plugins v5.0.0 provides a modular plugin system for Claude Code, allowing developers to install only the capabilities they need—from core orchestration to framework-specific skills.
 
+## Framework Comparison & Selection
+
+Comparing Ensemble to other AI-driven development frameworks? See our comprehensive analysis:
+
+- **[Ensemble vs. Spec-Kit](docs/comparison-other-frameworks.md)** — Quick reference table and detailed analysis of orchestration models, requirement traceability, task persistence, constitutional governance, runtime compatibility, and decision framework for choosing between the two.
+
+- **[Ensemble vs. BMAD vs. Spec-Kit](docs/comparison-bmad.md)** — Three-way analysis covering scale-adaptive planning, agent specialization, documentation-first approaches, persistent task state, and migration paths between all three frameworks.
+
+**TL;DR:** Choose Ensemble for persistent cross-session task state and deep requirement traceability; choose BMAD for scale-adaptive planning and lightweight core; choose Spec-Kit for 30+ runtime support and hard-enforced constitutional governance.
+
+---
+
+
 ## Architecture
 
 The plugin ecosystem is organized into 4 tiers across 24 packages:
