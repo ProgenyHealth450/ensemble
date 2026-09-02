@@ -67,11 +67,9 @@ Key architectural elements:
 | **Multi-Agent Execution** | 38 specialized agents in role-based state machine (builder → reviewer → advisor → QA) | PM agent + developer agent; no builder/reviewer/QA chain |
 | **Parallel Execution** | `bv --robot-plan` partitions tracks; concurrent dispatch with file-conflict detection | Sequential Markdown task execution |
 | **Cross-Session Resumability** | Full — beads survive session end, `--status`/`--reset-task` recover | None — state lost when session ends |
-| **Team Mode** | Auto-detects complexity (Simple/Medium/Complex); generates YAML team config | Single agent; no team mode |
-| **Design/Architecture Artifact** | Embedded in TRD | Standalone `PLAN.md` with API contracts and data model |
-| **Research Artifact** | Embedded in TRD | Standalone `research.md` (technology investigation, library compatibility) |
-| **Data Model Artifact** | Embedded in TRD | Standalone `data-model.md` (schema, entity relationships) |
-| **Constitution / Principles** | `docs/standards/constitution.md` via `/init-project`; soft-gated (pauses on failure, requires override) | `memory/constitution.md` with Nine Articles enforced as blocking phase gates |
+| **Research Artifact** | Standalone `research.md` when research domain detected | Standalone `research.md` (technology investigation, library compatibility) |
+| **Data Model Artifact** | Standalone `-data-model.md` when database domain detected | Standalone `data-model.md` (schema, entity relationships) |
+| **Constitution / Principles** | `docs/standards/constitution.md` via `/init-project`; hard-gated in create-prd/create-trd; violations block phase completion, no override | `memory/constitution.md` with Nine Articles enforced as blocking phase gates |
 | **Ambiguity Marking** | `[NEEDS CLARIFICATION: ...]` in create-prd + create-trd | `[NEEDS CLARIFICATION]` in spec template (mandatory LLM discipline) |
 | **Consistency Analysis** | Traceability validation only | `/speckit.analyze` — coverage, contradictions, spec/plan/task consistency |
 | **Pre-Implementation Gate** | Design Readiness Gate (scorecard, 1–5) | Phase gates via constitution enforcement |
@@ -144,9 +142,9 @@ Key architectural elements:
 
 **Spec-Kit's** `/speckit.constitution` produces a `memory/constitution.md` with Nine Articles (library-first, anti-abstraction gates, simplicity gates, etc.) that every subsequent command enforces as phase gates. This is a powerful mechanism for encoding team standards as technical constraints rather than advisory prompts.
 
-**Ensemble** provides `/init-project`, which generates `docs/standards/constitution.md` with project guardrails, coverage targets, approval requirements, and tech stack detection. The constitution is enforced as a *soft gate* during `implement-trd-beads`: quality gate comparison against constitution targets (coverage %, approval checklist) pauses the phase and prompts user decision (fix now, skip check, or abort). Implementation can proceed by explicit override, but cannot proceed silently.
+**Ensemble** provides `/init-project`, which generates `docs/standards/constitution.md` with project guardrails, coverage targets, approval requirements, and tech stack detection. The constitution is enforced as a *hard gate* during `create-prd` and `create-trd`: violations halt the phase and block completion with no override path. This matches Spec-Kit's Nine Articles rigor.
 
-**Assessment:** Both enforce constitution, but with different rigor levels. Spec-Kit's Nine Articles are *hard phase gates*—they block spec/plan generation with no override. Ensemble's constitution is a *soft gate*—it pauses implementation and requires explicit user decision to proceed (fix, skip, or abort), but allows override. Spec-Kit's model is more prescriptive; Ensemble's allows developer judgment. For organizations requiring immutable governance, Spec-Kit is superior.
+**Assessment:** Both enforce constitution as hard phase gates. Spec-Kit's Nine Articles block spec/plan generation with no override. Ensemble's constitution (created via `/init-project`) halts `create-prd`/`create-trd` with no override. For organizations requiring immutable governance, both are now equivalent.
 
 ### 8. Runtime Compatibility
 
@@ -189,17 +187,14 @@ Key architectural elements:
 - Foreman dispatch for fully automated orchestration pipelines
 - Collaborative PRD/TRD review via `--collab` browser UI
 
-**Cons:**
-- Constitution enforcement is soft-gate-based (pauses, requires decision, allows override) rather than hard-gate-based (blocks without override)
+- Constitution enforcement is hard-gated in create-prd/create-trd (violations block phase, no override) — matching Spec-Kit's rigor
 - No mandatory `[NEEDS CLARIFICATION]` discipline during spec generation (though create-prd does mark ambiguities)
-- No cross-artifact consistency analysis before implementation (only traceability validation)
-- No standalone `research.md` or `data-model.md` artifacts
+- No standalone `research.md` or `data-model.md` artifacts (though standalone artifact generation was added in v5.0+)
 - Narrower runtime coverage compared to Spec-Kit (5 vs 30+ agents)
 - No community extension system — Sunstone-curated only
 - No preset/template override system
 - Requires `br`/`bv` third-party binaries (separate from ensemble itself)
 - High maintenance overhead: 24 npm packages, schema CI, marketplace
-
 ### Spec-Kit
 
 **Pros:**
@@ -289,11 +284,11 @@ Ensemble already implements most capabilities. Genuine opportunities to increase
 
 | Priority | Opportunity | Description | Status |
 |---|---|---|---|
-| High | **Hard-enforce constitution in spec/plan phases** | Move from soft-gate enforcement (current: pauses, allows override) to hard-gate enforcement during `create-prd` and `create-trd` phases; blocks generation if constitution violated, matching Spec-Kit's Nine Articles rigor | Gap |
-| Medium | **Standalone `research.md` and `data-model.md`** | Generated by `create-trd` when database/research domains detected; auditable separately from TRD body | Gap |
+| High | **Hard-enforce constitution in spec/plan phases** | Constitution violations during `create-prd` and `create-trd` now block phase completion with no override — matching Spec-Kit's Nine Articles rigor | **Implemented (PR #59)** |
+| High | **Standalone `research.md` and `data-model.md`** | `create-trd` generates standalone companion artifacts when database or research domains are detected; linked from TRD body | **Implemented (PR #60)** |
 | Medium | **Multi-AI-agent support** | Generate command files for Gemini/Copilot/Cursor from same YAML source via `npm run generate` | Gap |
 | Medium | **Community plugin catalog** | Open submission mechanism beyond Sunstone-authored plugins | Gap |
-| Low | **`quickstart.md` validation artifact** | Key end-to-end validation scenarios derived from ACs; gives QA a manual smoke test runbook | Gap |
+| Low | **`quickstart.md` validation artifact** | `implement-trd` generates quickstart.md smoke-test runbook from TRD acceptance criteria | **Implemented (PR #61)** |
 
 ### Already Implemented (no action needed)
 
@@ -301,6 +296,9 @@ Ensemble already implements most capabilities. Genuine opportunities to increase
 
 These capabilities were proposed as opportunities but already exist in Ensemble:
 
+- ✓ **Hard-gate constitution enforcement** — `create-prd` and `create-trd` now hard-HALT on constitution violations with no override path (PR #59)
+- ✓ **Standalone `research.md` and `data-model.md`** — `create-trd` generates companion artifacts when database or research domains are detected (PR #60)
+- ✓ **Quickstart validation artifact** — `implement-trd` generates quickstart.md smoke-test runbook from acceptance criteria (PR #61)
 - ✓ **Quick-fix workflow** — `ensemble:fix-issue` for lightweight bug fixes (no PRD/TRD overhead)
 - ✓ **Cross-artifact requirement analysis** — `ensemble:analyze-requirements` validates PRD↔TRD↔beads alignment
 - ✓ **Clarification enforcement** — `ensemble:refine-prd`, `refine-trd`, `refine-prd-meeting` surface ambiguities

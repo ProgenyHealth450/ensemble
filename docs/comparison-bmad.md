@@ -76,11 +76,12 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 | **Cross-Session Resumability** | Full — beads survive session end | No — workflow artifacts restart | No — state lost |
 | **Team Mode** | Auto-detects complexity; generates config | Built-in agile team roles | Single agent guidance |
 | **Design/Architecture Artifact** | Embedded in TRD | Standalone `architecture.md` | Standalone `PLAN.md` |
+| **Research Artifact** | Standalone `research.md` when research domain detected | Embedded in Brief/PRD | Standalone `research.md` |
+| **Data Model Artifact** | Standalone `-data-model.md` when database domain detected | Embedded in architecture | Standalone `data-model.md` |
 | **Quick/Lightweight Path** | `fix-issue` command (lightweight bug fixes) | Quick Flow (spec straight to build) | Spec-only path (skip plan if clear) |
-| **Constitution / Principles** | `docs/standards/constitution.md` via `/init-project`; soft-gated | Implicit in agent personas; not formalized | `memory/constitution.md` Nine Articles; hard-gated |
+| **Constitution / Principles** | `docs/standards/constitution.md` via `/init-project`; hard-gated in create-prd/create-trd | Implicit in agent personas; not formalized | `memory/constitution.md` Nine Articles; hard-gated |
 | **Expansion/Specialization** | Framework-specific plugins only | Expansion packs (domain-agnostic) | Community catalog (third-party) |
 | **Multi-Runtime Support** | Claude Code, Codex, OpenCode, Pi, OMP (5) | Claude Code, Cursor, Codex CLI (3) | 30+ agents (broadest) |
-| **Setup Complexity** | High (Node.js, br/bv binaries, Claude Code) | Medium (Node.js CLI, AI agent) | Low (Python uv, any agent) |
 | **Learning Curve** | Steep (24 packages, YAML, beads) | Medium (agile roles, workflows, markdown) | Low (Python, Markdown) |
 | **Maintenance Overhead** | High (npm packages, schema CI) | Medium (expansion packs, npm) | Low (~30 files) |
 
@@ -128,13 +129,13 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 
 ### 5. Constitutional Governance
 
-**Ensemble** provides `/init-project` generating `docs/standards/constitution.md` with guardrails and quality gates. Enforcement is soft-gated: pauses implementation, requires decision, allows override.
+**Ensemble** provides `/init-project` generating `docs/standards/constitution.md` with guardrails and quality gates. Enforcement is hard-gated in `create-prd` and `create-trd`: violations halt the phase with no override — matching Spec-Kit's rigor.
 
 **BMAD** embeds governance in agent personas (Analyst ensures scope, Architect ensures contracts). Governance is implicit, not formalized as a document.
 
-**Spec-Kit** enforces Nine Articles as immutable hard-phase-gates that can block spec/plan generation.
+**Spec-Kit** enforces Nine Articles as immutable hard-phase-gates that block spec/plan generation.
 
-**Assessment:** Spec-Kit is most rigorous. Ensemble's soft gates balance flexibility with guardrails. BMAD's persona-based governance is lightweight but less enforceable.
+**Assessment:** Ensemble and Spec-Kit are equally rigorous on constitutional governance. BMAD's persona-based governance is lightweight but less formally enforceable.
 
 ### 6. Lightweight vs. Comprehensive Tooling
 
@@ -158,12 +159,13 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 - 38 specialized agents with framework-specific skills (React, NestJS, Rails, etc.)
 - Dependency-aware execution with PageRank triage
 - Complete operational breadth (git, CI/CD, release, metrics, testing, security)
-- Soft-gate constitution balances governance with developer autonomy
+- Hard-gate constitution enforcement in create-prd/create-trd (matching Spec-Kit's rigor)
+- Standalone `research.md` and `data-model.md` companion artifacts when domains detected
+- Quickstart smoke-test runbook generation from acceptance criteria
 - Multi-runtime support (5 runtimes)
 
 **Cons:**
-- Fixed planning depth (all work follows PRD→TRD pipeline)
-- No quick path for trivial changes
+- Fixed planning depth (all work follows PRD→TRD pipeline; lightweight `fix-issue` for trivial changes)
 - High setup complexity (br/bv binaries, Node.js ecosystem)
 - High maintenance overhead (24 npm packages)
 - Requires Claude Code (OpenCode/Codex/Pi/OMP require translation)
@@ -257,8 +259,7 @@ Is multi-runtime support essential?
 ## Migration Paths
 
 ### Ensemble → BMAD
-
-- **Loss:** Persistent beads state, framework-specific skills, full requirement traceability, soft-gate constitution
+- **Loss:** Persistent beads state, framework-specific skills, full requirement traceability, hard-gate constitution
 - **Gain:** Scale-adaptive planning, lightweight core, expansion packs, role-based agents
 - **Path:** Export TRD tasks → BMAD story format; migrate architecture to architecture.md; rebuild in BMAD workflows
 
