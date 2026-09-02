@@ -188,7 +188,7 @@ Key architectural elements:
 - Collaborative PRD/TRD review via `--collab` browser UI
 - Hard-gate constitution enforcement: violations in `create-prd`/`create-trd` block phase with no override path (PR #59)
 - Standalone `research.md` and `data-model.md` companion artifacts generated when domains detected (PR #60)
-- Quickstart validation artifact: `implement-trd` generates `quickstart.md` smoke-test runbook after completion verification passes (PR #61)
+- Quickstart validation artifact: `implement-trd` generates `quickstart.md` smoke-test runbook after completion verification passes; `implement-trd-beads` routes to `implement-trd` for v1 (PR #61)
 
 **Cons:**
 - No mandatory `[NEEDS CLARIFICATION]` discipline during spec generation (though create-prd does mark ambiguities)
@@ -291,7 +291,7 @@ Ensemble already implements most capabilities. Genuine opportunities to increase
 | High | **Standalone `research.md` and `data-model.md`** | `create-trd` generates standalone companion artifacts when database or research domains are detected; linked from TRD body | **Implemented (PR #60)** |
 | Medium | **Multi-AI-agent support** | Generate command files for Gemini/Copilot/Cursor from same YAML source via `npm run generate` | Gap |
 | Medium | **Community plugin catalog** | Open submission mechanism beyond Sunstone-authored plugins | Gap |
-| Low | **`quickstart.md` validation artifact** | `implement-trd` generates quickstart.md smoke-test runbook from TRD acceptance criteria | **Implemented (PR #61)** |
+| Low | **`quickstart.md` validation artifact** | `implement-trd` generates quickstart.md smoke-test runbook from TRD acceptance criteria; implement-trd-beads routes to implement-trd for v1 | **Implemented (PR #61)** |
 
 ### Already Implemented (no action needed)
 
@@ -301,7 +301,7 @@ These capabilities were proposed as opportunities but already exist in Ensemble:
 
 - ✓ **Hard-gate constitution enforcement** — `create-prd` and `create-trd` now hard-HALT on constitution violations with no override path (PR #59)
 - ✓ **Standalone `research.md` and `data-model.md`** — `create-trd` generates companion artifacts when database or research domains are detected (PR #60)
-- ✓ **Quickstart validation artifact** — `implement-trd` generates quickstart.md smoke-test runbook from acceptance criteria (PR #61)
+- ✓ **Quickstart validation artifact** — `implement-trd` generates `quickstart.md` smoke-test runbook from acceptance criteria after completion verification; `implement-trd-beads` routes to `implement-trd` for v1 (PR #61)
 - ✓ **Quick-fix workflow** — `ensemble:fix-issue` for lightweight bug fixes (no PRD/TRD overhead)
 - ✓ **Cross-artifact requirement analysis** — `ensemble:analyze-requirements` validates PRD↔TRD↔beads alignment
 - ✓ **Clarification enforcement** — `ensemble:refine-prd`, `refine-trd`, `refine-prd-meeting` surface ambiguities

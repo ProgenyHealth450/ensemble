@@ -160,10 +160,10 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 - 38 specialized agents with framework-specific skills (React, NestJS, Rails, etc.)
 - Dependency-aware execution with PageRank triage
 - Complete operational breadth (git, CI/CD, release, metrics, testing, security)
-- Hard-gate constitution enforcement in create-prd/create-trd (matching Spec-Kit's rigor)
+- Multi-runtime support (Claude Code, Codex, OpenCode, Pi, OMP — 5 runtimes)
 - Standalone `research.md` and `data-model.md` companion artifacts when domains detected
-- Quickstart smoke-test runbook generation from acceptance criteria
-- Multi-runtime support (5 runtimes)
+- Quickstart validation runbook: `implement-trd` generates `quickstart.md` smoke-test runbook from acceptance criteria; `implement-trd-beads` routes to `implement-trd` for v1
+- Hard-gate constitution enforcement in create-prd/create-trd (matching Spec-Kit's rigor)
 
 **Cons:**
 - Fixed planning depth (all work follows PRD→TRD pipeline; lightweight `fix-issue` for trivial changes)
