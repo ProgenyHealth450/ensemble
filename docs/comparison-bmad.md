@@ -28,11 +28,11 @@
 
 **Philosophy:** Full-lifecycle orchestration platform with specialized agent mesh and persistent task state.
 
-Ensemble is a Claude Code plugin ecosystem organized into 4 tiers across 24 npm packages. It provides 28 specialized agents orchestrated through YAML-defined workflow commands. The primary pipeline: `create-prd` → `refine-prd` → `create-trd` → `refine-trd` → `implement-trd-beads`, driven by persistent beads (`br`/`bv`) task management with cross-session resumability and dependency-aware triage.
+Ensemble is a Claude Code plugin ecosystem organized into 4 tiers across 24 npm packages. It provides 38 specialized agents orchestrated through YAML-defined workflow commands. The primary pipeline: `create-prd` → `refine-prd` → `create-trd` → `refine-trd` → `implement-trd-beads`, driven by persistent beads (`br`/`bv`) task management with cross-session resumability and dependency-aware triage.
 
 Key architectural elements:
 - **Plugin tiers:** Core → Workflow → Framework Skills → Test Frameworks
-- **Agent mesh:** 28 specialized agents; delegation via Task() tool
+- **Agent mesh:** 38 specialized agents; delegation via Task() tool
 - **Task persistence:** beads SQLite + JSONL with dependency graphs and PageRank
 - **Runtimes:** Claude Code, Codex, OpenCode, Pi, OMP
 - **Enforcement:** Soft-gate constitution (pauses, allows override)
@@ -71,7 +71,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 | **Requirement IDs** | REQ-NNN, AC-NNN-M, TRD-NNN | Document-based (artifact references) | Implicit (document position) |
 | **Bidirectional Traceability** | ID-based chains with closure tokens | Story→Architecture→Code mapping | Document position linking |
 | **Persistent Task State** | beads (SQLite + JSONL, cross-session) | Workflow artifacts only (session ephemeral) | Markdown checkboxes (session ephemeral) |
-| **Multi-Agent Execution** | 28 agents; role-based state machine | Multiple agents; agile role-based orchestration | PM + developer agent pair |
+| **Multi-Agent Execution** | 38 agents; role-based state machine | Multiple agents; agile role-based orchestration | PM + developer agent pair |
 | **Parallel Execution** | `bv --robot-plan` concurrent dispatch | Sequential workflow phases | Sequential task execution |
 | **Cross-Session Resumability** | Full — beads survive session end | No — workflow artifacts restart | No — state lost |
 | **Team Mode** | Auto-detects complexity; generates config | Built-in agile team roles | Single agent guidance |
@@ -100,7 +100,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 
 ### 2. Agent Organization & Specialization
 
-**Ensemble** provides 28 specialized agents with deep expertise per domain (backend-developer, frontend-developer, code-reviewer, etc.). Agents are Claude Code plugins with framework-specific skills (React, NestJS, Rails).
+**Ensemble** provides 38 specialized agents with deep expertise per domain (backend-developer, frontend-developer, code-reviewer, etc.). Agents are Claude Code plugins with framework-specific skills (React, NestJS, Rails).
 
 **BMAD** provides agents organized by agile roles (Analyst, Product Manager, Architect, Developer, Tester, Scrum Master). Role-based rather than domain-specific; expansion packs add domain expertise (Game Dev, Creative, Testing).
 
@@ -155,7 +155,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 **Pros:**
 - Deep bidirectional requirement traceability with ID chains and closure tokens
 - Persistent cross-session task state via beads — resumable across sessions/crashes
-- 28 specialized agents with framework-specific skills (React, NestJS, Rails, etc.)
+- 38 specialized agents with framework-specific skills (React, NestJS, Rails, etc.)
 - Dependency-aware execution with PageRank triage
 - Complete operational breadth (git, CI/CD, release, metrics, testing, security)
 - Soft-gate constitution balances governance with developer autonomy
