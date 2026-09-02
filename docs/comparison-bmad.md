@@ -42,7 +42,7 @@ Key architectural elements:
 
 **Philosophy:** Scale-adaptive, agile-first AI-driven development that right-sizes planning to work complexity.
 
-BMAD is an npm-installable Node.js CLI providing 21+ specialized agents organized by agile roles (Analyst, Product Manager, Architect, Developer, Tester). The framework uses markdown agents and YAML workflows to orchestrate planning and delivery. Scale-adaptive intelligence automatically adjusts depth: Quick Flow for bug fixes and small features (straight to spec/build); fuller planning for complex initiatives. Expansion packs extend beyond software into any domain.
+BMAD is an npm-installable Node.js CLI providing specialized agents organized by agile roles (Analyst, Product Manager, Architect, Developer, Tester). The framework uses markdown agents and YAML workflows to orchestrate planning and delivery. Scale-adaptive intelligence automatically adjusts depth: Quick Flow for bug fixes and small features (straight to spec/build); fuller planning for complex initiatives. Expansion packs extend beyond software into any domain.
 
 Key architectural elements:
 - **Agent roles:** Analyst, Product Manager, Architect, Product Owner, Developer, Scrum Master, Tester
@@ -71,7 +71,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 | **Requirement IDs** | REQ-NNN, AC-NNN-M, TRD-NNN | Document-based (artifact references) | Implicit (document position) |
 | **Bidirectional Traceability** | ID-based chains with closure tokens | Story→Architecture→Code mapping | Document position linking |
 | **Persistent Task State** | beads (SQLite + JSONL, cross-session) | Workflow artifacts only (session ephemeral) | Markdown checkboxes (session ephemeral) |
-| **Multi-Agent Execution** | 28 agents; role-based state machine | 21 agents; agile role-based orchestration | PM + developer agent pair |
+| **Multi-Agent Execution** | 28 agents; role-based state machine | Multiple agents; agile role-based orchestration | PM + developer agent pair |
 | **Parallel Execution** | `bv --robot-plan` concurrent dispatch | Sequential workflow phases | Sequential task execution |
 | **Cross-Session Resumability** | Full — beads survive session end | No — workflow artifacts restart | No — state lost |
 | **Team Mode** | Auto-detects complexity; generates config | Built-in agile team roles | Single agent guidance |
@@ -102,7 +102,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 
 **Ensemble** provides 28 specialized agents with deep expertise per domain (backend-developer, frontend-developer, code-reviewer, etc.). Agents are Claude Code plugins with framework-specific skills (React, NestJS, Rails).
 
-**BMAD** provides 21 agents organized by agile roles (Analyst, Product Manager, Architect, Developer, Tester, Scrum Master). Role-based rather than domain-specific; expansion packs add domain expertise (Game Dev, Creative, Testing).
+**BMAD** provides agents organized by agile roles (Analyst, Product Manager, Architect, Developer, Tester, Scrum Master). Role-based rather than domain-specific; expansion packs add domain expertise (Game Dev, Creative, Testing).
 
 **Spec-Kit** uses a simpler model: PM agent + developer agent. No specialized domain agents.
 
@@ -175,7 +175,7 @@ Spec-Kit is a Python CLI providing 30+ agent support and core SDD process: Const
 - Scale-adaptive planning (Quick Flow for small, fuller for complex)
 - Documentation-first with all decisions version-controlled
 - Lightweight core + opt-in expansion packs (lean and extensible)
-- 21 agents organized by intuitive agile roles
+- Multiple agents organized by intuitive agile roles
 - Medium setup complexity (Node.js CLI)
 - Multi-agent orchestration with clear role separation
 - Web Bundles for planning via Gemini/ChatGPT
@@ -271,7 +271,7 @@ Is multi-runtime support essential?
 ### Spec-Kit ↔ BMAD
 
 - **Loss:** Hard-enforce constitution (BMAD has none); persistent state (neither has it)
-- **Gain (BMAD):** Scale-adaptive planning, expansion packs, 21 agents vs. 2
+- **Gain (BMAD):** Scale-adaptive planning, expansion packs, multiple agents vs. 2
 - **Gain (Spec-Kit):** 30+ runtimes, hard-enforce constitution, consistent discipline
 - **Path:** Both use Markdown artifacts; convert Spec.md/Plan.md/Tasks.md to BMAD format or vice versa
 
