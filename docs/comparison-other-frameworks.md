@@ -297,6 +297,8 @@ Ensemble already implements most capabilities. Genuine opportunities to increase
 
 ### Already Implemented (no action needed)
 
+*Verified by reading actual command YAML definitions and workflow specifications.*
+
 These capabilities were proposed as opportunities but already exist in Ensemble:
 
 - ✓ **Quick-fix workflow** — `ensemble:fix-issue` for lightweight bug fixes (no PRD/TRD overhead)
@@ -305,6 +307,24 @@ These capabilities were proposed as opportunities but already exist in Ensemble:
 - ✓ **Feature branching & stacked PRs** — `ensemble:implement-trd` (git-town workflow) and `ensemble:implement-trd-beads` (--branch option, stacked PR support)
 
 ---
+
+## Methodology: Verification of Claims
+
+All numeric and capability claims in this document have been verified against authoritative sources:
+
+- **Ensemble agent count (38):** Verified via direct file count of `packages/*/agents/*.md` files in the repository
+- **Ensemble command inventory (43):** Verified via explicit enumeration of YAML files in `packages/*/commands/`
+- **Command capabilities:** Claims about command behavior verified by reading actual command YAML descriptions (`description:` field) and workflow definitions, not inferred from filename or keyword matching
+- **Spec-Kit claims (30+ agents):** Retained as stated in official Spec-Kit documentation
+- **BMAD agent count:** Removed unverifiable claims; Spec-Kit comparison uses only verifiable information
+
+**False positives removed during audit:**
+- `configure-team`: Does NOT provide named governance presets; performs auto-sizing by task count
+- `manager-dashboard`: Does NOT provide beads dependency visualization; shows git/test/sprint metrics  
+- `create-prd`: Does NOT support branching (create-prd has zero branching code); feature branching is provided by `implement-trd` and `implement-trd-beads`
+
+**Lessons learned:** Keyword substring matching on command names is insufficient for capability verification. Each claim requires reading the actual command description and workflow definition.
+
 
 ## Additional Resources
 

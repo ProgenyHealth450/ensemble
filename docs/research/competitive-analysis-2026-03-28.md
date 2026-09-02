@@ -12,7 +12,7 @@ This analysis compares five AI coding agent frameworks to identify Ensemble's co
 
 ### Ensemble (v5.1.0) -- Sunstone Partners
 **Philosophy:** Full-lifecycle orchestration platform with specialized agent mesh.
-**Size:** 23 npm packages, 28 agents, 15+ commands, 5 framework skills, 5 test framework skills.
+**Size:** 24 npm packages, 38 agents, 43 commands, 5 framework skills, 5 test framework skills.
 **Architecture:** 4-tier monorepo (Core -> Workflow -> Framework Skills -> Test Frameworks) with YAML agents, JSON manifests, and hook system.
 **Runtimes:** Claude Code + OpenCode (via translation layer).
 
@@ -46,7 +46,7 @@ This analysis compares five AI coding agent frameworks to identify Ensemble's co
 
 | Dimension | Ensemble | AgentOS | GSD | Superpowers | BMAD |
 |-----------|----------|---------|-----|-------------|------|
-| **Agents** | 28 YAML agents, 6 orchestrators | None (defers to tool) | 18 functional specialists | 1 formal + 3 prompt templates | 9 named personas |
+| **Agents** | 38 YAML agents, 6 orchestrators | None (defers to tool) | 18 functional specialists | 1 formal + 3 prompt templates | 9 named personas |
 | **Commands** | 15+ YAML/MD | 5 markdown | 44 markdown | 3 (deprecated) | Menu-based per persona |
 | **Plugin model** | NPM packages + JSON manifests | File-based profiles | Config skill injection + SDK | Write a SKILL.md | npm modules (BMad Builder) |
 | **Task mgmt** | Beads (Dolt-backed, persistent) | None | STATE.md + milestones + seeds | TodoWrite only | Epics/stories/sprints (YAML) |
@@ -63,7 +63,7 @@ This analysis compares five AI coding agent frameworks to identify Ensemble's co
 
 ## Ensemble Strengths
 
-1. **Most sophisticated agent mesh.** 28 specialized agents with a formal delegation hierarchy, handoff protocols, and conflict resolution strategies. No other framework comes close to this level of agent specialization.
+1. **Most sophisticated agent mesh.** 38 specialized agents with a formal delegation hierarchy, handoff protocols, and conflict resolution strategies. No other framework comes close to this level of agent specialization.
 
 2. **Best parallel execution.** Beads-based dispatch with file conflict detection (`selectConflictFree()`), builder slot management, sequential commit queuing, and failure isolation. GSD has wave-based execution but lacks the conflict detection sophistication.
 
