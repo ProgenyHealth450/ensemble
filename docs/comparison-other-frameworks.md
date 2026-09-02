@@ -28,11 +28,11 @@
 
 **Philosophy:** Full-lifecycle orchestration platform with a specialized agent mesh.
 
-Ensemble is a Claude Code plugin ecosystem organized into 4 tiers across 24 npm packages. It provides 28 specialized agents (backend-developer, frontend-developer, code-reviewer, qa-orchestrator, etc.) orchestrated through YAML-defined workflow commands. The primary pipeline: `create-prd` → `refine-prd` → `create-trd` → `refine-trd` → `implement-trd-beads`, driven by persistent beads (`br`/`bv`) task management with cross-session resumability.
+Ensemble is a Claude Code plugin ecosystem organized into 4 tiers across 24 npm packages. It provides 38 specialized agents (backend-developer, frontend-developer, code-reviewer, qa-orchestrator, etc.) orchestrated through YAML-defined workflow commands. The primary pipeline: `create-prd` → `refine-prd` → `create-trd` → `refine-trd` → `implement-trd-beads`, driven by persistent beads (`br`/`bv`) task management with cross-session resumability.
 
 Key architectural elements:
 - **Plugin tiers:** Core (ensemble-core) → Workflow (product, development, quality, infrastructure) → Framework Skills (React, NestJS, Rails, Phoenix, Blazor) → Test Frameworks (Jest, Pytest, RSpec, xUnit, ExUnit)
-- **Agent mesh:** 28 specialized agents with 6 orchestrators; delegation via `Task()` tool with alias resolution (`@backend-developer` → `ensemble-full:backend-developer`)
+- **Agent mesh:** 38 specialized agents with 6 orchestrators; delegation via `Task()` tool with alias resolution (`@backend-developer` → `ensemble-full:backend-developer`)
 - **Task persistence:** beads (`br`/`bv`) provides a real SQLite + JSONL persistence layer with dependency graphs, PageRank triage, and cross-session resumability
 - **Runtimes:** Claude Code, Codex, OpenCode, Pi, OMP via direct support and compatibility layers
 - **Foreman dispatch:** `--foreman` flag enables fully automated orchestration pipelines
@@ -64,7 +64,7 @@ Key architectural elements:
 | **Requirement IDs** | REQ-NNN, AC-NNN-M, TRD-NNN | Implicit (document position) |
 | **Bidirectional Traceability** | `[satisfies REQ-NNN]` on every task; paired -TEST tasks; closure tokens | Loose — tasks linked to spec by document position |
 | **Persistent Task State** | beads (`br`/`bv`): SQLite + JSONL, dependency graph, PageRank triage | Markdown checkboxes only — session ephemeral |
-| **Multi-Agent Execution** | 28 specialized agents in role-based state machine (builder → reviewer → advisor → QA) | PM agent + developer agent; no builder/reviewer/QA chain |
+| **Multi-Agent Execution** | 38 specialized agents in role-based state machine (builder → reviewer → advisor → QA) | PM agent + developer agent; no builder/reviewer/QA chain |
 | **Parallel Execution** | `bv --robot-plan` partitions tracks; concurrent dispatch with file-conflict detection | Sequential Markdown task execution |
 | **Cross-Session Resumability** | Full — beads survive session end, `--status`/`--reset-task` recover | None — state lost when session ends |
 | **Team Mode** | Auto-detects complexity (Simple/Medium/Complex); generates YAML team config | Single agent; no team mode |
