@@ -302,7 +302,6 @@ These capabilities were proposed as opportunities but already exist in Ensemble:
 - ✓ **Quick-fix workflow** — `ensemble:fix-issue` for lightweight bug fixes (no PRD/TRD overhead)
 - ✓ **Cross-artifact requirement analysis** — `ensemble:analyze-requirements` validates PRD↔TRD↔beads alignment
 - ✓ **Clarification enforcement** — `ensemble:refine-prd`, `refine-trd`, `refine-prd-meeting` surface ambiguities
-- ✓ **Auto feature-branching** — `ensemble:create-prd` auto-creates branches (spec-first)
 
 ---
 
