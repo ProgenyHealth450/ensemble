@@ -67,7 +67,7 @@ jobs:
           fi
 
           if ! WHO=$(gh api user --jq '.login' 2>&1); then
-            echo "::error::SYNC_PAT is set but the API rejected it. The usual cause is expiry - fine-grained PATs do expire. Mint a replacement carrying Contents: write and Workflows: write on $GITHUB_REPOSITORY. Response was: $WHO"
+            echo "::error::SYNC_PAT is set but the API rejected it. Two causes look identical here. (1) NOT YET APPROVED: this repo is owned by an organization, so a fine-grained PAT scoped to it stays Pending until an org owner approves it - only ph-clombardo or sankalppande can, at https://github.com/organizations/ProgenyHealth450/settings/personal-access-token-requests. (2) EXPIRED: fine-grained PATs do expire; mint a replacement carrying Contents: write and Workflows: write on $GITHUB_REPOSITORY. Check the token's status on the settings page before assuming either. Response was: $WHO"
             exit 1
           fi
           echo "SYNC_PAT accepted as $WHO"
