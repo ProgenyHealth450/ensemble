@@ -82,17 +82,22 @@ jobs:
           fi
           echo "SYNC_PAT can read $UPSTREAM"
 
-          # The check that actually proves org access. Everything above passes
-          # with an unapproved token.
-          if ! PERMS=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.permissions.push' 2>&1); then
-            echo "::error::SYNC_PAT cannot reach $GITHUB_REPOSITORY at all. This repo is owned by an organization, so a fine-grained PAT scoped to it has NO access until an org owner approves the request - only ph-clombardo or sankalppande can, at https://github.com/organizations/ProgenyHealth450/settings/personal-access-token-requests. Response was: $PERMS"
+          # The check that actually proves write access to this org's repo.
+          # It has to BE a write: `repos/{repo}` .permissions describes the
+          # authenticated USER's access to the repo, not the token's grant, so
+          # it reports push=true for a repo admin even when the token itself
+          # has no write access at all -- it cheerfully said "can write"
+          # seconds before the first write was refused on 2026-09-03.
+          #
+          # Setting a ref to the value it already holds is a real write that
+          # changes nothing: 200 and the ref is untouched (verified). A token
+          # without write access gets 403 instead, which is the signal.
+          MAIN_NOW=$(gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/main" --jq '.object.sha')
+          if ! PROBE=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/main" -f sha="$MAIN_NOW" 2>&1); then
+            echo "::error::SYNC_PAT cannot write to $GITHUB_REPOSITORY - a no-op ref update was refused, so the real fast-forward would be too. This repo is owned by an organization, so a fine-grained PAT scoped to it has no write access until an org owner APPROVES the request: only ph-clombardo or sankalppande can, at https://github.com/organizations/ProgenyHealth450/settings/personal-access-token-requests. If it is already approved, the token is missing Contents: write. Response was: $PROBE"
             exit 1
           fi
-          if [ "$PERMS" != "true" ]; then
-            echo "::error::SYNC_PAT can see $GITHUB_REPOSITORY but reports push=$PERMS, so it cannot write. Either the request is still pending org approval (see https://github.com/organizations/ProgenyHealth450/settings/personal-access-token-requests) or the token is missing Contents: write."
-            exit 1
-          fi
-          echo "SYNC_PAT can write $GITHUB_REPOSITORY"
+          echo "SYNC_PAT can write $GITHUB_REPOSITORY (no-op ref update accepted, main still $MAIN_NOW)"
 
       - id: sync
         env:
