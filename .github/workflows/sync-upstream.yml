@@ -50,10 +50,14 @@ jobs:
       needs_promote: ${{ steps.sync.outputs.needs_promote }}
     steps:
       # Fail in the first five seconds, by name, when the credential is the
-      # problem. Both capabilities get checked: a fine-grained PAT scoped to
-      # this repo alone can normally still read upstream because upstream is
-      # public, but an org PAT policy or a too-narrow selection can take that
-      # away -- and the resulting mid-run failure looks nothing like auth.
+      # problem. Three capabilities get checked, and the THIRD is the one that
+      # matters: `gh api user` is not org-scoped and upstream is a different
+      # org's public repo, so both of those pass even with a PAT that has zero
+      # approved access here. Only a call against THIS repo -- an org-owned
+      # resource, gated by the org's PAT policy -- distinguishes an approved
+      # token from a pending one. Learned the hard way on 2026-09-03: a token
+      # pending approval sailed through the first two and then 403'd on the
+      # first actual write.
       - name: SYNC_PAT works
         env:
           GH_TOKEN: ${{ secrets.SYNC_PAT }}
@@ -78,6 +82,18 @@ jobs:
           fi
           echo "SYNC_PAT can read $UPSTREAM"
 
+          # The check that actually proves org access. Everything above passes
+          # with an unapproved token.
+          if ! PERMS=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.permissions.push' 2>&1); then
+            echo "::error::SYNC_PAT cannot reach $GITHUB_REPOSITORY at all. This repo is owned by an organization, so a fine-grained PAT scoped to it has NO access until an org owner approves the request - only ph-clombardo or sankalppande can, at https://github.com/organizations/ProgenyHealth450/settings/personal-access-token-requests. Response was: $PERMS"
+            exit 1
+          fi
+          if [ "$PERMS" != "true" ]; then
+            echo "::error::SYNC_PAT can see $GITHUB_REPOSITORY but reports push=$PERMS, so it cannot write. Either the request is still pending org approval (see https://github.com/organizations/ProgenyHealth450/settings/personal-access-token-requests) or the token is missing Contents: write."
+            exit 1
+          fi
+          echo "SYNC_PAT can write $GITHUB_REPOSITORY"
+
       - id: sync
         env:
           GH_TOKEN: ${{ secrets.SYNC_PAT }}
@@ -95,6 +111,21 @@ jobs:
           # reader hunting for a rogue commit that does not exist.
           RESP=$(gh api "repos/$GITHUB_REPOSITORY/merge-upstream" -X POST -f branch=main 2>&1) || true
           echo "merge-upstream said: $RESP"
+
+          # A refused WRITE must fail the run even if the SHA assertion below
+          # is then satisfied by luck. On 2026-09-03 this call 403'd on a PAT
+          # pending org approval, but main already happened to equal upstream
+          # from a hand-sync, so the assertion passed and the run went green
+          # with the sync provably broken -- it would have stayed green until
+          # the next time upstream actually moved. Matched on the message
+          # rather than the exit code so a benign already-up-to-date response
+          # can never trip it.
+          case "$RESP" in
+            *"not accessible by personal access token"*|*"Resource not accessible"*|*"Bad credentials"*|*"Requires authentication"*|*"without \`workflows\` permission"*)
+              echo "::error::merge-upstream was REFUSED for a credential reason, so this run proves nothing about whether the sync works - regardless of what the SHAs say. Fix SYNC_PAT before trusting a green run: if the message mentions approval or accessibility, the PAT is pending org approval or lacks Contents: write; if it mentions \`workflows\` permission, it is missing Workflows: write. Response above."
+              exit 1
+              ;;
+          esac
 
           MAIN=$(gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/main" --jq '.object.sha')
           if [ "$MAIN" != "$UP" ]; then
