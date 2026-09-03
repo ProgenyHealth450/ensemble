@@ -12,6 +12,20 @@ name: Sync from upstream
 # What it does: fast-forward `main` from upstream unconditionally, then advance
 # `stable` -- the ref the team's plugin marketplace clones -- only if that commit
 # survives a real Windows consumer test. See README.md on this branch.
+#
+# Every write to this repository uses the SYNC_PAT secret, NOT GITHUB_TOKEN.
+# GITHUB_TOKEN is a GitHub App token, and GitHub refuses to let an App token
+# create or update anything under .github/workflows/ without the `workflows`
+# App permission -- which the Actions `permissions:` block has no key for and
+# so cannot grant. Upstream touches its own workflow files regularly, so with
+# GITHUB_TOKEN the fast-forward dies with HTTP 422 on those days and only on
+# those days. It did: broken 2026-08-31 through 09-03 by upstream eb9b91ae
+# editing .github/workflows/claude-code-review.yml.
+#
+# SYNC_PAT must be a fine-grained PAT on this repository carrying
+# Contents: write and Workflows: write. Fine-grained PATs EXPIRE -- when this
+# one does, the precheck in sync-main names it rather than letting the failure
+# resurface as an opaque 401 halfway through the run.
 
 on:
   schedule:
@@ -35,9 +49,38 @@ jobs:
     outputs:
       needs_promote: ${{ steps.sync.outputs.needs_promote }}
     steps:
+      # Fail in the first five seconds, by name, when the credential is the
+      # problem. Both capabilities get checked: a fine-grained PAT scoped to
+      # this repo alone can normally still read upstream because upstream is
+      # public, but an org PAT policy or a too-narrow selection can take that
+      # away -- and the resulting mid-run failure looks nothing like auth.
+      - name: SYNC_PAT works
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Repository secret SYNC_PAT is not set. Mint a fine-grained PAT on $GITHUB_REPOSITORY with Contents: write and Workflows: write, then store it as SYNC_PAT. GITHUB_TOKEN cannot do this job - see the comment at the top of this file."
+            exit 1
+          fi
+
+          if ! WHO=$(gh api user --jq '.login' 2>&1); then
+            echo "::error::SYNC_PAT is set but the API rejected it. The usual cause is expiry - fine-grained PATs do expire. Mint a replacement carrying Contents: write and Workflows: write on $GITHUB_REPOSITORY. Response was: $WHO"
+            exit 1
+          fi
+          echo "SYNC_PAT accepted as $WHO"
+
+          if ! gh api "repos/$UPSTREAM/git/refs/heads/main" --jq '.object.sha' > /dev/null 2>&1; then
+            echo "::error::SYNC_PAT cannot read $UPSTREAM, which this workflow must do to know what to sync. Give the token read access to public repositories, or add $UPSTREAM to its selected repositories."
+            exit 1
+          fi
+          echo "SYNC_PAT can read $UPSTREAM"
+
       - id: sync
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         shell: bash
         run: |
           set -euo pipefail
@@ -45,14 +88,27 @@ jobs:
           UP=$(gh api "repos/$UPSTREAM/git/refs/heads/main" --jq '.object.sha')
           echo "upstream main: $UP"
 
-          # Fast-forward-only; the API refuses to clobber a diverged fork. Any
-          # failure here is diagnosed by the SHA assertion below rather than by
-          # trying to interpret the response body.
-          gh api "repos/$GITHUB_REPOSITORY/merge-upstream" -X POST -f branch=main --jq '.message' || true
+          # Fast-forward-only; the API refuses to clobber a diverged fork. Keep
+          # the response body. A REFUSED fast-forward and a genuinely diverged
+          # main are different problems, and the SHA assertion below cannot tell
+          # them apart on its own -- blaming divergence for a refusal sends the
+          # reader hunting for a rogue commit that does not exist.
+          RESP=$(gh api "repos/$GITHUB_REPOSITORY/merge-upstream" -X POST -f branch=main 2>&1) || true
+          echo "merge-upstream said: $RESP"
 
           MAIN=$(gh api "repos/$GITHUB_REPOSITORY/git/refs/heads/main" --jq '.object.sha')
           if [ "$MAIN" != "$UP" ]; then
-            echo "::error::main is at $MAIN but upstream is at $UP - the fork's main has diverged and cannot be fast-forwarded. Someone committed to main directly; it is supposed to be a pure mirror."
+            # base=our main, head=upstream main. behind_by counts commits OUR
+            # main holds that upstream lacks, so 0 means main is still a clean
+            # ancestor: nothing diverged, the write was simply refused.
+            BEHIND=$(gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN...$UP" --jq '.behind_by' 2>/dev/null || echo unknown)
+            if [ "$BEHIND" = "0" ]; then
+              echo "::error::main is at $MAIN, upstream at $UP, and main is STILL A CLEAN ANCESTOR - the fast-forward was refused, not impossible. Nothing diverged; do not go looking for a stray commit. Read the merge-upstream response above: if it mentions .github/workflows/, SYNC_PAT is missing Workflows: write."
+            elif [ "$BEHIND" = "unknown" ]; then
+              echo "::error::main is at $MAIN, upstream at $UP, and the compare API could not resolve both commits - so the cause is genuinely undetermined. Read the merge-upstream response above before assuming either divergence or a refusal."
+            else
+              echo "::error::main has really diverged - it holds $BEHIND commit(s) upstream does not have, and it is supposed to be a pure mirror. Someone committed to main directly. Inspect with: git fetch https://github.com/$UPSTREAM main && git log FETCH_HEAD..main"
+            fi
             exit 1
           fi
           echo "main is in sync at $MAIN"
@@ -141,7 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
           SHA: ${{ needs.gate.outputs.tested_sha }}
         shell: bash
         run: |
@@ -173,10 +229,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+          # The push at the end of this job carries upstream's
+          # .github/workflows/ changes onto dev, so it needs the PAT for the
+          # same reason sync-main does. checkout persists this credential into
+          # the local git config and the `git push` below reuses it.
+          token: ${{ secrets.SYNC_PAT }}
 
       - name: dev = main + open PRs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         shell: bash
         run: |
           set -euo pipefail
