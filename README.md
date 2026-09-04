@@ -124,3 +124,35 @@ GitHub disables scheduled workflows after **60 days without repository activity*
 warning email first. That is the first thing to check if the refs start drifting and no
 runs appear — it fails silently in the sense that nothing goes red; the cron simply stops.
 Re-enable it from the Actions tab.
+
+## What a sync cannot refresh
+
+The workflow moves refs on GitHub. It never touches anyone's machine, so every kind of
+derived state is refreshed locally or not at all. There are only two, and they affect
+different people.
+
+**The plugin cache**, under `~/.claude/plugins/cache/`. This is what everyone has, and
+TEAM-SETUP.md's Update section is the whole procedure: `marketplace update`, then
+`/ensemble:reinstall-plugins`, then restart. Note that `claude plugin update` is not a
+substitute — it gates on the plugin's declared version, so when upstream changes a
+command's content without bumping that number, it reports success and installs nothing.
+That is the failure this mirror exists to make visible, and it is why the update step is
+an uninstall-and-reinstall.
+
+One sharp edge: uninstalling a plugin can leave its cache directory behind. Claude Code
+keeps reading it, so the plugin's agents and commands stay available even though
+`claude plugin list` does not mention it — and then disappear the moment something prunes
+the directory. An agent that exists in one session and not the next, surviving a restart,
+is almost always this. TEAM-SETUP.md carries a check.
+
+**Compiled output**, which only matters if you cloned the repo. `dist/` is gitignored, so
+`git pull` never refreshes it. Exactly one script in the monorepo executes anything from a
+gitignored build directory — `packages/pi`'s `generate` runs `node dist/index.js` — and
+until upstream PR #64 lands it does not build first. A stale `dist/` there fails silently
+and plausibly: on 2026-09-03 a nine-day-old build ran against current sources and wrote 44
+files into a namespace upstream had deleted, then bumped a version off that output. It
+exits 0. `packages/opencode` also compiles, but nothing ever runs its `dist/`, so it needs
+no pre-build.
+
+Dependencies are the ordinary third case: when a pull moves `package-lock.json`,
+`node_modules` is stale, and the symptom is test failures that look unrelated to the pull.

@@ -84,6 +84,44 @@ Then restart.
 Do not use `claude plugin update` — it reports success and does nothing when the
 marketplace content changed but the plugin's version number did not.
 
+### After updating: check for stale cache directories
+
+An update can leave a cache directory behind for a plugin you no longer have installed.
+Claude Code still reads it, so its agents and commands keep appearing — until something
+clears it and they vanish mid-project.
+
+```powershell
+$cache = "$env:USERPROFILE\.claude\plugins\cache\ensemble"
+$dirs = @(Get-ChildItem $cache -Directory -ErrorAction Ignore | Select-Object -ExpandProperty Name)
+$reg = "$env:USERPROFILE\.claude\plugins\installed_plugins.json"
+$installed = @((Get-Content $reg -Raw | ConvertFrom-Json).plugins.PSObject.Properties.Name | ForEach-Object { $_.Split('@')[0] } | Where-Object { $_ -like 'ensemble-*' })
+$orphans = @($dirs | Where-Object { $installed -notcontains $_ })
+"Cached: $($dirs.Count). Installed: $($installed.Count). Stale cache dirs: $($orphans.Count)"
+$orphans | ForEach-Object { "  $_" }
+```
+
+Paste all seven lines at once. A clean machine reports `Stale cache dirs: 0`:
+
+```
+Cached: 9. Installed: 9. Stale cache dirs: 0
+```
+
+Anything it names is a plugin whose cache outlived its install:
+
+```
+Cached: 10. Installed: 9. Stale cache dirs: 1
+  ensemble-permitter
+```
+
+For each one it names, either install it properly so it is real:
+
+```
+claude plugin install <plugin>@ensemble
+```
+
+Or delete the directory it named under
+`%USERPROFILE%\.claude\plugins\cache\ensemble\`. Then restart Claude Code.
+
 ## Cleanup: check your install scope
 
 A project-scoped copy shadows the user-scoped one, drifts on its own, and is skipped by
@@ -141,6 +179,41 @@ project install to remove, but a paired `install -s project` will cheerfully cre
 where none existed. Only touch the plugins the check actually named, and never pass
 `-s project` to `install`.
 
+**One exception, and only if you cloned this repo.** The check will report
+`ensemble-e2e-testing` and `ensemble-quality` at project scope for your `ensemble` clone.
+Those two are listed in the repo's own committed `.claude/settings.json`, and Claude Code
+recreates them at every session start — uninstalling works until you restart, then they
+are back. Leave them; they point at the same files as your user-scope copies. Every other
+repo the check names should be cleaned up as above.
+
+## If you cloned the repo
+
+Skip this whole section if you installed from the marketplace. Everything above needs no
+clone, no Node, and no `npm`. This applies only if you cloned `ensemble` to work on the
+plugins themselves.
+
+A `git pull` updates tracked files only. Two things it never updates:
+
+**Dependencies.** When the pull's output mentions `package-lock.json`:
+
+```
+npm ci --legacy-peer-deps
+```
+
+Skipping it shows up as test failures that look unrelated to the pull.
+
+**Compiled output.** Before `npm run generate:pi`:
+
+```
+npm run build --workspace=packages/pi
+```
+
+`packages/pi/dist` is gitignored, so a pull never refreshes it and `generate:pi` runs
+whatever build is sitting on disk. That produces wrong output silently. Upstream PR #64
+makes `generate:pi` build itself; once it merges, drop this step.
+
+Nothing else in the repo needs a build before use.
+
 ## Don't
 
 **Don't install `ensemble-full`.** It installs successfully but its skills and library
@@ -156,6 +229,8 @@ project copy drifts and gets missed by `/ensemble:reinstall-plugins`.
 |---|---|
 | `Filename too long` while adding | `git config --global core.longpaths true` |
 | Command or agent missing after an update | Restart the session |
+| Still missing after a restart | Run the stale-cache-directory check above |
+| An agent you never installed is offered | Same check — a stale cache directory is serving it |
 | Not sure what you are running | `claude plugin marketplace list` and `claude plugin list` |
 
 Every plugin should read `Scope: user` and end in `@ensemble`.
