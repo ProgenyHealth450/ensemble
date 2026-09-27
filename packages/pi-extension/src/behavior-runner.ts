@@ -11,6 +11,7 @@ import { AutofixLoop, FixCandidate, SuiteResult, AttemptOutcome } from "./autofi
 import { ConstitutionProposal, ConstitutionChange, PullRequestRef } from "./constitution-proposal";
 import { IssueKeyInput, issueKey } from "./issue-identity";
 import { captureTreeBaseline, changedSinceBaseline, treeChangesSinceBaseline } from "./tree-baseline";
+import { parseTotals } from "./verify-suite";
 
 /**
  * The invoker that runs when a behavior matches (PR 7).
@@ -73,9 +74,14 @@ export interface BehaviorRunnerOptions {
 
 /** Parses a jest/mix/pytest-style summary into a pass/fail count. */
 export function parseSuiteOutput(output: string, exitCode: number): SuiteResult {
-  const jest = /Tests:\s+(?:(\d+) failed,\s+)?(?:\d+ skipped,\s+)?(\d+) passed/.exec(output);
-  if (jest) {
-    const failures = Number(jest[1] ?? 0);
+  // Every jest summary, not the first: `npm test` prints one per workspace,
+  // and a pass in the first must not vouch for a failure in the fifth. A
+  // suite that could not load counts as a failure (br-srbd), and so does a
+  // non-zero exit with no failing test reported.
+  const jest = parseTotals(output);
+  if (jest.runs > 0) {
+    let failures = jest.failed + jest.failedSuites;
+    if (failures === 0 && exitCode !== 0) failures = 1;
     return { failures, targetPasses: failures === 0, output };
   }
   const mix = /(\d+)\s+tests?,\s+(\d+)\s+failures?/.exec(output);

@@ -55,23 +55,19 @@ capabilities:
   mutation_classes: [artifact.write]
 execution:
   graph: fix-failing-test
-  # Was required by the loader while policy.mode was auto; now optional
-  # under propose, but left in place since it's the command a human
-  # approver (or a future auto/governed run) should verify a proposal
-  # against. Be precise about what it currently does: the governed path
-  # re-runs this command over the WHOLE
-  # suite before accepting a fix, so a repair that greens its target while
-  # breaking three others is rejected. On the continuation path -- the one
-  # observed firing -- it is never invoked, and only the narrower failing
-  # command is re-run. Until br-o355 converges the paths, treat this as
-  # satisfying validation rather than as a live full-suite guarantee.
+  # The whole-suite check. BOTH dispatch paths re-run this before accepting
+  # a fix: the governed AutofixLoop, and the continuation path's
+  # verification (extension.ts verifyPendingFix), which runs it after the
+  # narrow failing command passes. A repair that greens its target while
+  # breaking three others is rolled back.
   #
-  # Runs from the repository root. There is no root jest config, so whether
-  # this collects anything was checked rather than assumed: `npx jest
-  # --listTests` from the root yields 170 suites, including 18 under
-  # packages/agent-core and 16 under packages/pi-extension. It is a real
-  # full-suite command, not a zero-test run that would exit 0 and make the
-  # whole-suite check vacuous.
-  test_command: npx jest
+  # Runs from the repository root. It was `npx jest`, which was checked with
+  # `npx jest --listTests` (170 suites) -- but listing is not loading. With
+  # no root jest config, every TypeScript suite fails to parse at the root
+  # (66 of them), so the check failed for every fix, correct ones included,
+  # and every fix was rolled back (br-srbd). `npm test` runs each
+  # workspace's own configured runner, the same command CI runs.
+  # Slower (about a minute) but real.
+  test_command: npm test
 outcomes:
   - test.failure.investigated
