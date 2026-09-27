@@ -156,6 +156,18 @@ describe("a non-zero exit with no failing test reported is still a failure", () 
     expect(v.detail).toMatch(/command exited 3 with no failing test reported; 4 passed, 4 total/);
   });
 
+  // Observed: npm test exited 1 because a Python workspace refused to run
+  // under CI=true without pytest; every jest count was clean, so the detail
+  // alone blamed the fix. The failing workspace must be named.
+  it("names the failing npm workspace from stderr", () => {
+    const root = mkdtempSync(join(tmpdir(), "verify-hint-"));
+    writeFileSync(join(root, "out.txt"), "Tests:       4 passed, 4 total\n");
+    const cmd =
+      "cat out.txt; echo 'npm error Lifecycle script `test` failed' >&2; " +
+      "echo 'npm error path /repo/packages/router' >&2; exit 1";
+    expect(verifySuite(cmd, root, root).detail).toMatch(/; stderr: npm error path \/repo\/packages\/router$/);
+  });
+
   it("the governed path's parser no longer lets a summary override the exit code", () => {
     expect(parseSuiteOutput("Tests:       4 passed, 4 total\n", 1)).toMatchObject({ failures: 1, targetPasses: false });
     expect(parseSuiteOutput("Tests:       4 passed, 4 total\n", 0)).toMatchObject({ failures: 0, targetPasses: true });

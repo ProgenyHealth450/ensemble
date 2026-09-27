@@ -128,8 +128,24 @@ export function verifySuite(
   if (out.status !== 0) {
     return {
       status: "failed",
-      detail: `command exited ${out.status ?? `on signal ${out.signal}`} with no failing test reported; ${detail}`,
+      detail:
+        `command exited ${out.status ?? `on signal ${out.signal}`} with no failing test reported; ${detail}` +
+        failureHint(out.stderr ?? ""),
     };
   }
   return { status: "passed", detail };
+}
+
+/**
+ * Names what failed when no test did. `npm test` across workspaces reports
+ * the failing workspace as `npm error path ...` / `npm error workspace ...`;
+ * anything else falls back to the last stderr line. Without this the detail
+ * shows only passing counts and the rollback looks like the fix's fault --
+ * observed: a missing pytest under CI=true read as "the fix broke something".
+ */
+function failureHint(stderr: string): string {
+  const lines = stderr.split("\n").map((l) => l.trim()).filter(Boolean);
+  const npm = lines.filter((l) => /^npm error (workspace|path) /.test(l));
+  const hint = (npm.length ? npm : lines.slice(-1)).join("; ").slice(0, 300);
+  return hint ? `; stderr: ${hint}` : "";
 }

@@ -68,6 +68,14 @@ execution:
   # and every fix was rolled back (br-srbd). `npm test` runs each
   # workspace's own configured runner, the same command CI runs.
   # Slower (about a minute) but real.
-  test_command: npm test
+  #
+  # `env -u CI`: omp sets CI=true for every tool process, so a local run
+  # looks like CI. packages/router's test script deliberately exits 1 under
+  # CI when pytest is missing, so on any machine without pytest every
+  # verification failed -- observed, with 3189 jest tests passing and a
+  # correct fix rolled back. Without CI it skips with a visible message if
+  # pytest is absent and runs if present; real CI still enforces it.
+  # Nothing else in the suite reads CI.
+  test_command: env -u CI npm test
 outcomes:
   - test.failure.investigated
