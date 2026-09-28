@@ -237,7 +237,7 @@ describe("guardrails stay protected between behavior windows", () => {
     void fire;
   });
 
-  it("does not adopt a tamper made before the window opened, when the boundary widens", async () => {
+  it("does not adopt a tamper landing between the last tool call and window open", async () => {
     const { root } = await start();
     mkdirSync(join(root, "docs", "standards"), { recursive: true });
     writeFileSync(join(root, GUARD), "# rules\n");
@@ -246,21 +246,28 @@ describe("guardrails stay protected between behavior windows", () => {
 
     const fresh = await start(undefined, root);
 
-    // Tampered while the boundary is NARROW, with no tool call in between,
-    // so nothing has checked yet when the window opens.
-    writeFileSync(join(root, GUARD), "# rules\n- smuggled in before the window\n");
+    // The failing run: this is the last CHECKED moment, and the guardrail is
+    // still pristine here.
+    await fresh.fire("tool_result", {
+      type: "tool_result",
+      toolCallId: "run-1",
+      toolName: "bash",
+      input: { command: "npm test" },
+      content: [{ type: "text", text: "1 failed" }],
+      isError: true,
+    });
 
-    // The window opens and the boundary widens to the whole tree. Rebuilding
-    // the monitor here would baseline the guardrail at its TAMPERED state and
-    // bless it permanently -- laundering performed by the boundary itself.
-    await openFixTurn(fresh.fire);
+    // Now the tamper lands with no tool call behind it -- a process the model
+    // spawned earlier, or the user's own editor. Nothing checks it.
+    writeFileSync(join(root, GUARD), "# rules\n- smuggled before the widen\n");
 
-    await fresh.fire("tool_result", toolDone);
+    // turn_end opens the window and widens the boundary. Rebuilding the
+    // monitor here would baseline the guardrail AS TAMPERED and bless it.
+    await fresh.fire("turn_end", turnWithTools);
 
-    // The revert is the property under test. The model is told at the FIRST
-    // tool call after the window opens, which is inside openFixTurn, so by
-    // this point there is correctly nothing left to report.
+    const reply = await fresh.fire("tool_result", toolDone);
     expect(read(root, GUARD)).toBe("# rules\n");
+    expect(reply?.isError).toBe(true);
   });
 
   it("still reverts a guardrail write AFTER a window has closed", async () => {
