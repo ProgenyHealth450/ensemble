@@ -624,9 +624,16 @@ ${next.instruction}`);
     // A COMMAND, not a prompt, because the decision cannot be awaited where
     // the violation is detected: tool_result handlers are killed at 30s
     // (br-9hv6) and a human reading a guardrail diff takes longer than that.
-    // A command is invoked by the user directly, carries no handler deadline,
-    // and -- unlike a confirm() the model could learn to expect -- cannot be
-    // triggered by the model at all.
+    // A command is invoked by the user directly and carries no deadline.
+    //
+    // It is also unreachable by the model, which is load-bearing here -- it
+    // is why an autonomous loop cannot approve its own quarantined edit.
+    // Verified in the host rather than assumed: agent-session's steer() and
+    // followUp(), the only programmatic paths that inject message text, both
+    // call _throwIfExtensionCommand() and THROW on anything starting with
+    // "/". Extension commands dispatch from interactive input only. A shell
+    // escape (`omp -p "/ensemble-approve 1"`) buys nothing either: quarantine
+    // lives in this process's memory, so a new session's map is empty.
     pi.registerCommand("ensemble-approve", {
       description:
         "Re-apply a protected-path change that was reverted by the write boundary",

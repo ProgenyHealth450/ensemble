@@ -118,6 +118,76 @@ export function outputReportsFailure(output: string): boolean {
   return FAILURE_OUTPUT_PATTERNS.some((pattern) => pattern.test(output));
 }
 
+/**
+ * Commands that rewrite working-tree files, in command position.
+ *
+ * Not an attempt to catch every way a shell can write a file -- that is
+ * impossible, and write-boundary-monitor.ts exists precisely because it is.
+ * These are the shapes a mutation test actually takes.
+ */
+const MUTATION_INDICATORS: readonly RegExp[] = [
+  /^sed\s+(-\S*\s+)*-\S*i/, // sed -i / sed -E -i
+  /^perl\s+(-\S+\s*)*-\S*i/, // perl -pi -e, perl -0pi -e
+  // `cp` and `mv` only when a CODE file is involved, for the same reason as
+  // `tee` below: `cp .env.test .env && npx jest` is a legitimate fixture
+  // setup step, and suppressing it would disable autofix for a whole class
+  // of honest runs. The mutation-test shape always names a source file --
+  // `cp src/x.ts /tmp/bak` -- on one side or the other.
+  /^(cp|mv)\b.*\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|ex|exs|c|h|cpp|cs)\b/,
+  // `tee` ONLY when it writes a source file. A bare /^tee\b/ was wrong and
+  // was caught in review: `npx jest 2>&1 | tee out.log` is an everyday way
+  // to capture a run, and matching it suppressed autofix for one of the most
+  // common command shapes there is -- a silent hole in the product's whole
+  // purpose. Capturing a log is not mutating the code under test.
+  /^tee\s+(-\S+\s+)*\S+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|ex|exs|c|h|cpp|cs)\b/,
+  /^patch\b/,
+  /^git\s+(checkout|restore|stash|apply|revert|reset)\b/,
+];
+
+/** Explicit "this red is intentional" marker, honoured anywhere in the command. */
+const OPT_OUT = /\bENSEMBLE_NO_AUTOFIX=1\b/;
+
+/**
+ * True when a failing run proves nothing actionable about the source.
+ *
+ * OBSERVED LIVE, twice in one session (br-x13x). A guard was deliberately
+ * broken to prove the test covering it actually fails, and restored in the
+ * same command:
+ *
+ *   cp src/x.ts /tmp/bak && perl -0pi -e 's/.../' src/x.ts && npx jest ...
+ *     -> "Tests: 2 failed" -> autofix continuation injected
+ *
+ * There was nothing to fix: the mutants were already reverted before the
+ * instruction arrived. The danger is not the wasted turn. Mutation testing
+ * is how this project proves a test is load-bearing, the red is the POINT,
+ * and the plausible "fix" for a deliberate mutant is to loosen the assertion
+ * that caught it -- producing a green suite that proves nothing. A loop that
+ * treats every red as a defect is hostile to the practice keeping the suite
+ * honest.
+ *
+ * The asymmetry drives the design: NOT firing costs a turn the user can
+ * retry by hand, while firing wrongly can silently destroy a test's value.
+ * So this errs toward suppression, and a chain that both edits files and
+ * runs tests is treated as inconclusive even though some such chains carry
+ * real failures.
+ *
+ * RESIDUAL GAP, deliberately unaddressed here: a mutation applied in one
+ * tool call and tested in the NEXT arrives as a bare `npx jest` and is
+ * indistinguishable from a genuine failure. Catching that needs a clean
+ * re-run to confirm the failure persists, which is br-c3s4's territory --
+ * today's verifier re-runs the whole chain and would re-apply the mutation.
+ */
+export function isInconclusiveRun(command: string): boolean {
+  if (OPT_OUT.test(command)) return true;
+  if (!isTestCommand(command)) return false;
+  return command.split(SEGMENT_SPLIT).some((segment) => {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return false;
+    const invocation = tokens.join(" ");
+    return MUTATION_INDICATORS.some((pattern) => pattern.test(invocation));
+  });
+}
+
 export interface TranslationOptions {
   /**
    * The behavior-declared test command, when one is known. An exact
@@ -151,6 +221,9 @@ export function translateEvent(
   const declared = options.testCommand?.trim();
   const matches = (declared && command.trim() === declared) || isTestCommand(command);
   if (!matches) return undefined;
+
+  // A deliberate mutation test is not a defect report (br-x13x).
+  if (isInconclusiveRun(command)) return undefined;
 
   const output = typeof payload.output === "string" ? payload.output : "";
   // Either signal is sufficient. Exit status is authoritative when present,
