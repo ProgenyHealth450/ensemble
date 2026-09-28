@@ -88,6 +88,26 @@ export async function drainDispatches(): Promise<void> {
   }
 }
 
+/**
+ * What the model and the user are told when a fix fails verification. The
+ * model has usually already reported success, so the notice tells it to
+ * correct that, and that its edits are gone from disk. It asks for no
+ * retry: a retry here would run outside any behavior window.
+ */
+export function rollbackNotice(command: string, detail: string, rollback: RestoreResult): string {
+  const outcome = rollback.restored
+    ? "The working tree was ROLLED BACK to its state before the fix turn" +
+      (rollback.removed.length > 0 ? ` (removed: ${rollback.removed.join(", ")})` : "") +
+      ". Edits made during the fix turn are no longer on disk; re-read any file before editing it again."
+    : `Rolling back the working tree FAILED (${rollback.detail}); the failed fix may still be on disk.`;
+  return [
+    "[ensemble:autofix] MACHINE-GENERATED NOTICE -- NOT FROM THE USER.",
+    `The automated fix for \`${command}\` FAILED verification: ${detail}.`,
+    outcome,
+    "Tell the user the automated fix did not land. Do not retry it.",
+  ].join("\n");
+}
+
 let trackedDispatches: Set<Promise<void>> | undefined;
 let monitor: WriteBoundaryMonitor | undefined;
 export function createActivate(options: ActivateOptions = {}): {
@@ -416,6 +436,34 @@ export function createActivate(options: ActivateOptions = {}): {
           ? { rolledBack: rollback.restored, removed: rollback.removed, rollbackDetail: rollback.detail }
           : {}),
       });
+
+      // A rollback must not be silent (br-o9j1). By the time it happens the
+      // model has usually told the user the fix worked, and it still
+      // believes its edits are on disk: if the run goes on (a queued user
+      // message, a follow-up request) it would edit files that no longer
+      // hold what it wrote. The notice goes into the model's context AND the
+      // transcript. Steered, so it lands before anything else queued.
+      //
+      // Best-effort: this runs inside turn_end, and a throw there would
+      // also drop the next queued continuation. A failed notice is logged.
+      if (rollback) {
+        try {
+          pi.sendMessage(
+            {
+              customType: "ensemble-autofix-rollback",
+              content: rollbackNotice(command, verdict.detail, rollback),
+              display: true,
+            },
+            { triggerTurn: true, deliverAs: "steer" },
+          );
+        } catch (err) {
+          logRuntime(resolveRepoRoot(process.cwd()), {
+            kind: "rollback-notice-failed",
+            issue: command,
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
     };
 
     // Has the model finished answering the fix instruction? A continuation
@@ -424,9 +472,17 @@ export function createActivate(options: ActivateOptions = {}): {
     // released the scope after the first batch and every later call ran
     // ungranted -- observed live as `edit` executing for a behavior that
     // granted only read/grep/glob/ensemble.bash. Verifying there graded a
-    // half-finished fix. A turn that ran NO tools is the model's final
-    // answer. Anything unrecognisable counts as not finished; agent_end is
-    // the backstop.
+    // half-finished fix. A turn that ran NO tools is the model handing
+    // control back: a final answer, a clarifying question, or an errored or
+    // aborted turn. Anything unrecognisable counts as not finished;
+    // agent_end is the backstop.
+    //
+    // That hand-back is where the behavior's authority ends. If the run
+    // continues after it (the user answers the question, or a queued
+    // message arrives), what follows is a reply to NEW input and runs
+    // under the user's own grants. A fix left unfinished at the hand-back
+    // is graded as it stands and rolled back if it fails; the rollback
+    // notice (see verifyPendingFix) tells the model before it touches those files again.
     //
     // Closing here rather than at agent_end matters in interactive
     // sessions, where the fix turn and everything the user does afterwards

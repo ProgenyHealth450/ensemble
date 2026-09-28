@@ -98,6 +98,7 @@ type ToolResultReply = { isError?: boolean; content?: { text: string }[] } | und
 function fakePi() {
   const handlers = new Map<string, ((e: unknown) => unknown)[]>();
   const sent: string[] = [];
+  const notices: { message: { customType: string; content: string; display?: boolean }; options?: unknown }[] = [];
   const pi = {
     registerCommand: () => undefined,
     registerTool: () => undefined,
@@ -105,6 +106,9 @@ function fakePi() {
     getFlag: () => false,
     sendUserMessage: (m: string) => {
       sent.push(m);
+    },
+    sendMessage: (message: (typeof notices)[number]["message"], options?: unknown) => {
+      notices.push({ message, options });
     },
     on: (name: string, h: (e: unknown) => unknown) => {
       handlers.set(name, [...(handlers.get(name) ?? []), h]);
@@ -122,7 +126,7 @@ function fakePi() {
     await drainDispatches();
     return reply;
   };
-  return { pi, fire, sent };
+  return { pi, fire, sent, notices };
 }
 
 /** A tool call the model (or user) made; the monitor checks after each. */
@@ -139,7 +143,7 @@ async function start() {
   const harness = fakePi();
   instance.activate(harness.pi);
   expect(instance.lastActivation()!.loaded).toEqual(["fix-failing-test"]);
-  return { root, pi: harness.pi, fire: harness.fire, sent: harness.sent };
+  return { root, pi: harness.pi, fire: harness.fire, sent: harness.sent, notices: harness.notices };
 }
 
 /** The real failing command fails, then the turn it ran in ends: the fix turn is injected. */
@@ -233,15 +237,33 @@ describe("the behavior window ends with the fix turn, not the agent run (br-kluf
     expect(read(root, TEST_FILE)).toBe(TEST_EDITED);
   });
 
-  it("rolls back a fix that fails verification at the final answer", async () => {
-    const { root, fire } = await start();
+  it("rolls back a fix that fails verification at the final answer, and says so", async () => {
+    const { root, fire, notices } = await start();
     await openFixTurn(fire);
 
-    // The model "fixes" nothing and answers.
+    // The model writes a wrong fix and answers.
+    writeFileSync(join(root, "src", "math.js"), "exports.add = () => 0;\n");
     await fire("turn_end", finalTurn);
 
     expect(read(root, ".ensemble/runtime-log.jsonl")).toMatch(/"kind":"verification".*"status":"failed"/);
     expect(read(root, "src/math.js")).toBe(BROKEN);
+    // br-o9j1: not silent. The model is told, ahead of anything queued.
+    expect(notices).toHaveLength(1);
+    expect(notices[0].message.customType).toBe("ensemble-autofix-rollback");
+    expect(notices[0].message.display).toBe(true);
+    expect(notices[0].message.content).toMatch(/FAILED verification/);
+    expect(notices[0].message.content).toMatch(/ROLLED BACK/);
+    expect(notices[0].options).toEqual({ triggerTurn: true, deliverAs: "steer" });
+  });
+
+  it("sends no notice when the fix passes", async () => {
+    const { root, fire, notices } = await start();
+    await openFixTurn(fire);
+    writeFileSync(join(root, "src", "math.js"), GOOD_FIX);
+
+    await fire("turn_end", finalTurn);
+
+    expect(notices).toHaveLength(0);
   });
 
   it("agent_end still closes the window and verifies when no final turn was seen", async () => {
@@ -264,5 +286,51 @@ describe("the behavior window ends with the fix turn, not the agent run (br-kluf
     await fire("session_shutdown", { type: "session_shutdown" });
 
     expect(activeBehaviorScope(pi)).toBeUndefined();
+  });
+});
+
+describe("a turn with no tool calls mid-fix hands control back", () => {
+  // A clarifying question, or a text-only reply, with the fix unfinished.
+  // If the run continues (the user answers, a queued message arrives),
+  // what follows answers NEW input. It runs under the user's grants, and
+  // the unfinished fix has already been graded -- so the model must be
+  // told its edits were rolled back before it edits again.
+  it("closes the window, grades the unfinished fix, and tells the model before it continues", async () => {
+    const { root, fire, pi, notices } = await start();
+    await openFixTurn(fire);
+
+    // Half a fix, then a question for the user.
+    writeFileSync(join(root, "src", "math.js"), "exports.add = (a, b) => a;\n");
+    await fire("turn_end", turnWithTools);
+    await fire("turn_end", finalTurn);
+
+    expect(activeBehaviorScope(pi)).toBeUndefined();
+    expect(read(root, "src/math.js")).toBe(BROKEN);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].message.content).toMatch(/no longer on disk/);
+
+    // The user answers; the model carries on in the same run. The test
+    // edit is the user's call now, so the boundary does not revert it.
+    writeFileSync(join(root, TEST_FILE), TEST_EDITED);
+    expect(await fire("tool_result", toolDone)).toBeUndefined();
+    await fire("turn_end", turnWithTools);
+    expect(read(root, TEST_FILE)).toBe(TEST_EDITED);
+
+    // The run's end does not grade or roll back a second time.
+    await fire("agent_end", { type: "agent_end", messages: [] });
+    expect(read(root, ".ensemble/runtime-log.jsonl").match(/"kind":"verification"/g)).toHaveLength(1);
+    expect(notices).toHaveLength(1);
+  });
+
+  it.each(["error", "aborted"])("an %s turn closes the window and grades the fix", async (stopReason) => {
+    const { root, fire, pi } = await start();
+    await openFixTurn(fire);
+    writeFileSync(join(root, "src", "math.js"), GOOD_FIX);
+
+    await fire("turn_end", { type: "turn_end", toolResults: [], message: { role: "assistant", stopReason } });
+
+    expect(activeBehaviorScope(pi)).toBeUndefined();
+    expect(read(root, ".ensemble/runtime-log.jsonl")).toMatch(/"kind":"verification".*"status":"passed"/);
+    expect(read(root, "src/math.js")).toBe(GOOD_FIX);
   });
 });
