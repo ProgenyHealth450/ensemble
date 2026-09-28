@@ -163,12 +163,13 @@ describe("break a test, run it, and follow the event all the way through", () =>
       }),
       proposeConstitutionChange: () => change,
       approvalHost: host,
-      openPullRequest: (c) => {
-        // The sanctioned route: the behavior itself may not write
-        // constitution.md (it is a protected path). Landing the change
-        // is a human-approved merge, modelled here.
-        const file = join(root, "docs", "standards", "constitution.md");
-        writeFileSync(file, readFileSync(file, "utf8") + c.diff + "\n");
+      openPullRequest: (_c) => {
+        // Delivery only, now that approval applies the change (br-9uqd).
+        // This used to be the sanctioned WRITE path -- it wrote
+        // constitution.md itself, modelling a human merging the PR --
+        // which meant nothing verified that the runtime could update the
+        // file. The real applier does it now, so the assertion below is
+        // about production behaviour rather than about this stub.
         merged = true;
         return { url: "https://example.test/pr/7", branch: "ensemble/constitution/7" };
       },
@@ -207,9 +208,10 @@ describe("break a test, run it, and follow the event all the way through", () =>
     expect(after.code).toBe(0);
     expect(after.output).toContain("1 passed");
 
-    // 6. The constitution was updated through the approval gate.
-    expect(approvals).toEqual(["Propose constitution change"]);
-    expect(record.constitution?.status).toBe("proposed");
+    // 6. The constitution was updated in place, through the approval gate,
+    //    by the production applier (br-9uqd).
+    expect(approvals).toEqual(["Apply constitution change"]);
+    expect(record.constitution?.status).toBe("applied");
     expect(merged).toBe(true);
     expect(readFileSync(join(root, "docs", "standards", "constitution.md"), "utf8")).toContain(
       "verified by a suite that can fail",

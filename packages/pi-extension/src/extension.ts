@@ -5,11 +5,12 @@ import { wireSessionLifecycle } from "./session";
 import { handleEchoToolCall } from "./echo-tool-handler";
 import { activateBehaviorPipeline, resolveRepoRoot, BehaviorActivationResult } from "./behavior-activation";
 import { createBehaviorInvoker, FixProvider, ConstitutionProvider, BehaviorRunRecord } from "./behavior-runner";
-import { ConstitutionChange, PullRequestRef } from "./constitution-proposal";
+import { ConstitutionChange, PullRequestRef, AppliedChange } from "./constitution-proposal";
 import { SuiteResult } from "./autofix-loop";
 import { logRuntime, runtimeLogPath, setRuntimeLoggingArmed, isRuntimeLoggingArmed } from "./runtime-log";
 import { createAgentFixProvider } from "./agent-fix-provider";
 import { SessionUiBridge } from "./session-ui";
+import { createConstitutionApplier } from "./constitution-applier";
 import { WriteBoundaryMonitor, verificationCommand } from "@sunstone-partners/ensemble-agent-core";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -68,6 +69,8 @@ export interface ActivateOptions {
   proposeFix?: FixProvider;
   /** Supplies constitution changes implied by an investigation. */
   proposeConstitutionChange?: ConstitutionProvider;
+  /** Overrides how an approved constitution change is applied (br-9uqd). */
+  applyConstitutionChange?: (change: ConstitutionChange) => AppliedChange | Promise<AppliedChange>;
   /**
    * Approval host. Absent means no UI, and ApprovalGate fails closed,
    * so a constitution change is declined rather than auto-applied.
@@ -595,6 +598,15 @@ ${next.instruction}`,
       // The bridge is the production approval channel: it answers
       // through whatever UI context Pi most recently supplied.
       approval: new ApprovalGate(options.approvalHost ?? uiBridge),
+      // Applying an approved change has to re-baseline the write boundary in
+      // the same step, or the boundary reverts it on the next tool call and
+      // the loop reports a success that left the constitution unchanged.
+      applyConstitutionChange:
+        options.applyConstitutionChange ??
+        createConstitutionApplier({
+          rootDir: resolveRepoRoot(process.cwd()),
+          accept: (relPath) => monitor?.accept(relPath),
+        }),
       openPullRequest: options.openPullRequest,
       runSuite: options.runSuite,
       records: runRecords,
