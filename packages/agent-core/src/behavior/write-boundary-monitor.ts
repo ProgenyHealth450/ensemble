@@ -124,6 +124,16 @@ function headFingerprint(rootDir: string, relPath: string): Fingerprint | undefi
   }
 }
 
+/** True when the path is tracked at HEAD, distinguishing deletion from error. */
+function pathExistsAtHead(rootDir: string, relPath: string): boolean {
+  try {
+    return git(rootDir, ["ls-tree", "-r", "--name-only", "HEAD", "--", relPath]).trim() !== "";
+  } catch {
+    // Unknown, so claim nothing: the caller keeps the existing baseline.
+    return true;
+  }
+}
+
 /**
  * How HEAD got from `fromOid` to now, per the reflog.
  *
@@ -206,9 +216,20 @@ export class WriteBoundaryMonitor {
     this.knownHead = current;
     if (!external) return;
 
-    for (const path of this.snapshots.keys()) {
+    for (const path of [...this.snapshots.keys()]) {
       const committed = headFingerprint(this.rootDir, path);
-      if (!committed) continue;
+      if (!committed) {
+        // Two very different reasons `git show HEAD:path` can fail, and
+        // treating them alike resurrects deleted files. When the pull
+        // legitimately REMOVED the path and it is gone from disk, the
+        // pristine state is now "absent" -- re-baseline to that, or the next
+        // check() restores a file upstream deliberately deleted. Any other
+        // failure (unreadable object, odd ref state) keeps the old baseline.
+        if (!pathExistsAtHead(this.rootDir, path) && !existsSync(resolve(this.rootDir, path))) {
+          this.accept(path);
+        }
+        continue;
+      }
       const disk = fingerprint(this.rootDir, path);
       if (!disk.existed || disk.digest !== committed.digest) continue;
       this.accept(path);

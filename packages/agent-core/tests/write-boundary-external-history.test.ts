@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WriteBoundaryMonitor, changedPaths } from "../src/behavior/write-boundary-monitor";
@@ -125,5 +125,30 @@ describe("HEAD moving under a live monitor", () => {
 
     expect(monitor.pending()).toEqual([]);
     expect(readFileSync(join(clone, GUARD), "utf8")).toContain("merged work");
+  });
+
+  it("does not resurrect a file the pull legitimately deleted", () => {
+    const { origin, clone } = repoPair();
+    const monitor = armed(clone); // Baseline says the file exists.
+
+    execFileSync("git", ["rm", "-q", GUARD], { cwd: origin });
+    git(origin, ["commit", "-qm", "drop the guard"]);
+    git(clone, ["pull", "-q", "--ff-only", "origin", "main"]);
+
+    const result = monitor.check();
+
+    expect(result.violations).toEqual([]);
+    expect(existsSync(join(clone, GUARD))).toBe(false);
+  });
+
+  it("still reverts a LOCAL deletion of a protected file", () => {
+    const { clone } = repoPair();
+    const monitor = armed(clone);
+
+    rmSync(join(clone, GUARD));
+    const result = monitor.check();
+
+    expect(result.violations.map((v) => v.path)).toEqual([GUARD]);
+    expect(existsSync(join(clone, GUARD))).toBe(true);
   });
 });

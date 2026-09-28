@@ -18,6 +18,28 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  */
 
 const dirs: string[] = [];
+
+/** Auto-mode so dispatch queues a continuation without an approval prompt. */
+const AUTO_BEHAVIOR = `api_version: ensemble.sunstone.dev/v1
+kind: Behavior
+metadata:
+  name: investigate-test-failure
+  version: 1.0.0
+trigger:
+  event_type: test.failure.observed
+policy:
+  mode: auto
+  timeout: 30m
+capabilities:
+  tools:
+    - read
+  mutation_classes: []
+execution:
+  graph: investigate-test-failure
+  test_command: npm test
+outcomes:
+  - test.failure.investigated
+`;
 const originalCwd = process.cwd();
 afterAll(() => {
   process.chdir(originalCwd);
@@ -151,5 +173,46 @@ describe("/ensemble-approve", () => {
 
     expect(h.notices.join("\n")).toContain("No quarantined change");
     expect(readFileSync(join(root, GUARD), "utf8")).toBe("export const original = 1;\n");
+  });
+
+  it("offers nothing during a machine-originated run", async () => {
+    // The structural guarantee behind "an autonomous loop cannot approve its
+    // own guardrail edit". It must not rest on host internals (whether the
+    // model can reach a slash command at all), so it is asserted here on the
+    // observable behaviour instead: while a continuation is in flight, a
+    // protected write is reverted with NO approvable entry created.
+    const root = repoWithGuardrail();
+    const bdir = join(root, "packages", "agent-core", "behaviors", "investigate-test-failure");
+    mkdirSync(bdir, { recursive: true });
+    writeFileSync(join(bdir, "behavior.yaml"), AUTO_BEHAVIOR);
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "behaviors"], { cwd: root });
+
+    process.chdir(root);
+    const { createActivate } = await import("../src/extension");
+    const h = harness();
+    createActivate().activate(h.pi);
+
+    // A failing test run, then the turn boundary that injects the fix turn.
+    await h.fire("tool_result", {
+      type: "tool_result",
+      toolCallId: "t1",
+      toolName: "bash",
+      input: { command: "npm test" },
+      content: [{ type: "text", text: "Tests: 1 failed, 0 passed" }],
+      isError: true,
+    });
+    await h.fire("turn_end", {});
+
+    // A protected write made by that machine-originated turn.
+    writeFileSync(join(root, GUARD), "export const original = 1;\n// loop edit\n");
+    const result = (await h.fire("tool_result", {})) as { content: { text: string }[] };
+
+    expect(readFileSync(join(root, GUARD), "utf8")).not.toContain("loop edit");
+    expect(result.content[0].text).not.toContain("/ensemble-approve");
+
+    // And there is nothing for anyone to approve.
+    await h.run("ensemble-approve", "");
+    expect(h.notices.join("\n")).toContain("No reverted protected changes are awaiting approval.");
   });
 });

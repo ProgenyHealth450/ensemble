@@ -626,14 +626,27 @@ ${next.instruction}`);
     // (br-9hv6) and a human reading a guardrail diff takes longer than that.
     // A command is invoked by the user directly and carries no deadline.
     //
-    // It is also unreachable by the model, which is load-bearing here -- it
-    // is why an autonomous loop cannot approve its own quarantined edit.
-    // Verified in the host rather than assumed: agent-session's steer() and
-    // followUp(), the only programmatic paths that inject message text, both
-    // call _throwIfExtensionCommand() and THROW on anything starting with
-    // "/". Extension commands dispatch from interactive input only. A shell
-    // escape (`omp -p "/ensemble-approve 1"`) buys nothing either: quarantine
-    // lives in this process's memory, so a new session's map is empty.
+    // It is also not reachable by the model, which is load-bearing: it is why
+    // an autonomous loop cannot approve its own quarantined edit. The precise
+    // mechanism, read out of @earendil-works/pi-coding-agent 0.87.1 rather
+    // than assumed -- an earlier version of this comment cited the WRONG
+    // function and had to be corrected:
+    //
+    //   - agent-session prompt() DOES execute "/..." immediately, via
+    //     _tryExecuteExtensionCommand, "even during streaming". It does not
+    //     throw. Its expandPromptTemplates defaults to TRUE.
+    //   - sendUserMessage() -- the only injection API this extension uses --
+    //     calls prompt() with `expandPromptTemplates ?? false`, so command
+    //     execution is off unless a caller explicitly opts in. Neither of
+    //     our two call sites does, and both send text that begins with a
+    //     marker rather than "/".
+    //   - _throwIfExtensionCommand() guards _queueUserInput (steer/followUp)
+    //     only. It is NOT what protects this path.
+    //
+    // That default is a host implementation detail, so it is not relied on
+    // alone. The structural guarantee is the one above: a machine-originated
+    // run never creates a quarantine entry, so even a successful
+    // self-invocation of this command has nothing of its own to approve.
     pi.registerCommand("ensemble-approve", {
       description:
         "Re-apply a protected-path change that was reverted by the write boundary",
