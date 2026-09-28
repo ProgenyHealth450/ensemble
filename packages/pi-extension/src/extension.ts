@@ -1054,15 +1054,43 @@ ${next.instruction}`,
     // timeout -- a fix slower than that cannot be rescued here, which is why
     // long-running autofix ultimately needs a detached worker (see notes).
     pi.on("session_shutdown", async () => {
+      // br-mr22: two candidate causes produce the same symptom -- a governed
+      // run that begins and never completes. Either this hook is never
+      // emitted in a headless run, or it is emitted and the host exits
+      // without awaiting it. They need different fixes, so record BOTH
+      // edges: entering the hook, and the drain actually finishing.
+      logRuntime(resolveRepoRoot(process.cwd()), {
+        kind: "shutdown-hook-entered",
+        pending: trackedDispatches ? trackedDispatches.size : 0,
+      });
       await drainDispatches();
+      // Its ABSENCE is the signal (br-mr22): measured live, the process is
+      // killed about two seconds into the drain, so this record is missing
+      // whenever a governed run was still in flight at shutdown.
+      logRuntime(resolveRepoRoot(process.cwd()), { kind: "shutdown-drain-complete" });
     });
+
+    // Records that a governed run BEGAN. The completion record is written
+    // only after the whole run resolves -- fix provider and rule provider
+    // subprocesses included -- so a run still in flight when the session ends
+    // left no trace at all. Its absence was then indistinguishable from "no
+    // behavior matched", which is how a slow-but-working governed path gets
+    // read as a dead one (br-zcxb). Logged here rather than per event so it
+    // fires only when a behavior actually matched and was invoked.
+    const tracedInvoker: typeof invoker = async (invocation) => {
+      logRuntime(resolveRepoRoot(process.cwd()), {
+        kind: "invocation-started",
+        behavior: invocation.behavior?.metadata?.name,
+      });
+      return invoker(invocation);
+    };
 
     lastActivation = activateBehaviorPipeline(
       pi,
       resolveRepoRoot(process.cwd()),
       [echoTool, createEnsembleBashTool({ cwd: resolveRepoRoot(process.cwd()), policy: bashPolicy })],
       undefined,
-      invoker,
+      tracedInvoker,
     );
 
     // Out-of-band consent for a reverted protected write.
