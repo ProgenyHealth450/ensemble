@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verifySuite, parseTotals } from "../src/verify-suite";
+import { verifySuite, parseTotals, failingSuites } from "../src/verify-suite";
 import { parseSuiteOutput } from "../src/behavior-runner";
 
 /**
@@ -110,6 +110,7 @@ describe("a suite that cannot load is a failure, and says so", () => {
     const v = verifySuite(`${JEST} --rootDir .`, root, root);
     expect(v.status).toBe("failed");
     expect(v.detail).toMatch(/1 test suite\(s\) failed or could not load/);
+    expect(v.detail).toMatch(/failing: .*broken\.test\.js/);
     expect(v.detail).toMatch(/1 passed/);
   });
 
@@ -144,6 +145,24 @@ describe("every summary counts", () => {
 
   it("ignores a test NAME that merely contains 'Tests:'", () => {
     expect(parseTotals("  ✓ Tests: 5 failed is a string (1 ms)\nTests:       1 passed, 1 total\n").failed).toBe(0);
+  });
+});
+
+// Observed live: the rollback notice said a test failed but not which, and
+// the model could not tell whether its fix broke a caller.
+describe("a failed verdict names the failing test files", () => {
+  it("lists each FAIL line once, colour codes stripped", () => {
+    const out = "\x1b[1mFAIL\x1b[22m tests/a.test.js\n  ● a\nFAIL tests/b.test.ts\nPASS tests/c.test.js\nFAIL tests/a.test.js\n";
+    expect(failingSuites(out)).toBe("; failing: tests/a.test.js, tests/b.test.ts");
+  });
+
+  it("caps the list", () => {
+    const out = Array.from({ length: 7 }, (_, i) => `FAIL t${i}.test.js`).join("\n");
+    expect(failingSuites(out, 5)).toBe("; failing: t0.test.js, t1.test.js, t2.test.js, t3.test.js, t4.test.js (+2 more)");
+  });
+
+  it("is empty when nothing failed", () => {
+    expect(failingSuites("PASS tests/c.test.js\n")).toBe("");
   });
 });
 

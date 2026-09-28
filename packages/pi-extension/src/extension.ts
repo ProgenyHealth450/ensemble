@@ -104,7 +104,7 @@ export function rollbackNotice(command: string, detail: string, rollback: Restor
     "[ensemble:autofix] MACHINE-GENERATED NOTICE -- NOT FROM THE USER.",
     `The automated fix for \`${command}\` FAILED verification: ${detail}.`,
     outcome,
-    "Tell the user the automated fix did not land. Do not retry it.",
+    "Tell the user the automated fix did not land. Do not retry it. Check any file with a tool before describing its contents.",
   ].join("\n");
 }
 

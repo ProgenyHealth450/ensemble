@@ -107,7 +107,7 @@ export function verifySuite(
   // Checked before "did anything run": a run where EVERY suite failed to
   // load reports zero tests, and that is a failure, not an absence.
   if (t.failedSuites > 0 || t.failed > 0) {
-    return { status: "failed", detail };
+    return { status: "failed", detail: detail + failingSuites(text) };
   }
 
   // A non-zero count of passed/failed/total is the proof that the suite
@@ -148,4 +148,18 @@ function failureHint(stderr: string): string {
   const npm = lines.filter((l) => /^npm error (workspace|path) /.test(l));
   const hint = (npm.length ? npm : lines.slice(-1)).join("; ").slice(0, 300);
   return hint ? `; stderr: ${hint}` : "";
+}
+
+/**
+ * Names the failing test files. Without them, the rollback notice says a
+ * test failed but not which one, and the model cannot tell whether its fix
+ * broke a real caller or tripped over something unrelated -- observed live.
+ */
+export function failingSuites(text: string, max = 5): string {
+  // eslint-disable-next-line no-control-regex
+  const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+  const files = [...new Set([...plain.matchAll(/^[ \t]*FAIL[ \t]+(\S+)/gm)].map((m) => m[1]))];
+  if (files.length === 0) return "";
+  const more = files.length > max ? ` (+${files.length - max} more)` : "";
+  return `; failing: ${files.slice(0, max).join(", ")}${more}`;
 }
