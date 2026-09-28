@@ -174,7 +174,20 @@ export class WriteBoundaryMonitor {
   private readonly seen: WriteViolation[] = [];
   private knownHead: string;
 
-  constructor(private readonly rootDir: string) {
+  /**
+   * `inScope` narrows WHICH protected paths this monitor governs.
+   *
+   * Defaults to every protected path. A narrower scope is not cosmetic:
+   * check() treats a protected path it never enumerated as "created after
+   * activation" and DELETES it. Enumerating a subset while still judging
+   * every protected path would therefore destroy the user's own test files
+   * the moment they edited one outside a behavior window -- found exactly
+   * that way. Scope is applied at judgement time, not just capture time.
+   */
+  constructor(
+    private readonly rootDir: string,
+    private readonly inScope: (path: string) => boolean = () => true,
+  ) {
     this.knownHead = headOid(rootDir);
   }
 
@@ -280,7 +293,7 @@ export class WriteBoundaryMonitor {
     // condition under which check() would otherwise delete them as
     // "created after activation". One bad file would become data loss.
     for (const p of paths) {
-      if (!classifyPath(p).protected) continue;
+      if (!classifyPath(p).protected || !this.inScope(p)) continue;
       this.enumerated.add(p);
       try {
         this.protect(p);
@@ -314,7 +327,7 @@ export class WriteBoundaryMonitor {
     const out: WriteViolation[] = [];
     for (const path of candidates) {
       const verdict = classifyPath(path);
-      if (!verdict.protected) continue;
+      if (!verdict.protected || !this.inScope(path)) continue;
       if (this.snapshots.has(path)) {
         if (!this.changedSinceActivation(path)) continue;
       } else if (!this.enumerationComplete || this.enumerated.has(path)) {
@@ -367,7 +380,7 @@ export class WriteBoundaryMonitor {
 
     for (const path of candidates) {
       const verdict = classifyPath(path);
-      if (!verdict.protected) continue;
+      if (!verdict.protected || !this.inScope(path)) continue;
 
       const snapshot = this.snapshots.get(path);
       let restored = false;

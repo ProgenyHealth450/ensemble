@@ -235,14 +235,28 @@ const NAVIGATION = /^cd\s/;
  * correct work. Returns undefined when no test invocation survives, so the
  * caller can decline to grade rather than grade the wrong thing.
  */
-export function verificationCommand(command: string): string | undefined {
+export function verificationCommand(command: string, testCommand?: string): string | undefined {
+  // A behavior-declared test_command is AUTHORITATIVE, exactly as it is for
+  // detection (TranslationOptions.testCommand, REQ-012). Pattern matching
+  // recognises the common runners; a repository whose suite runs via
+  // something unrecognised -- `node run-all.js`, a shell wrapper, a make
+  // target -- declares it instead.
+  //
+  // Without this, verification returned "no test invocation found" for such
+  // a repo and every fix stayed unverified: never rolled back, but never
+  // confirmed either. The maintainer had already told us how to run the
+  // suite; refusing to believe them is not caution, it is just silence.
+  const declared = testCommand?.trim();
+  const isTest = (segment: string): boolean =>
+    (declared !== undefined && declared.length > 0 && segment === declared) || isTestCommand(segment);
+
   const kept = command
     .split(SEGMENT_SPLIT)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
-    .filter((segment) => NAVIGATION.test(segment) || isTestCommand(segment));
+    .filter((segment) => NAVIGATION.test(segment) || isTest(segment));
 
-  if (!kept.some((segment) => isTestCommand(segment))) return undefined;
+  if (!kept.some((segment) => isTest(segment))) return undefined;
   return kept.join(" && ");
 }
 

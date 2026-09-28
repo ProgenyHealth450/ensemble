@@ -11,6 +11,7 @@ import { AutofixLoop, FixCandidate, SuiteResult, AttemptOutcome } from "./autofi
 import { ConstitutionProposal, ConstitutionChange, PullRequestRef, AppliedChange } from "./constitution-proposal";
 import { IssueKeyInput, issueKey } from "./issue-identity";
 import { captureTreeBaseline, changedSinceBaseline, treeChangesSinceBaseline } from "./tree-baseline";
+import { parseTotals } from "./verify-suite";
 
 /**
  * The invoker that runs when a behavior matches (PR 7).
@@ -76,9 +77,14 @@ export interface BehaviorRunnerOptions {
 
 /** Parses a jest/mix/pytest-style summary into a pass/fail count. */
 export function parseSuiteOutput(output: string, exitCode: number): SuiteResult {
-  const jest = /Tests:\s+(?:(\d+) failed,\s+)?(?:\d+ skipped,\s+)?(\d+) passed/.exec(output);
-  if (jest) {
-    const failures = Number(jest[1] ?? 0);
+  // Every jest summary, not the first: `npm test` prints one per workspace,
+  // and a pass in the first must not vouch for a failure in the fifth. A
+  // suite that could not load counts as a failure (br-srbd), and so does a
+  // non-zero exit with no failing test reported.
+  const jest = parseTotals(output);
+  if (jest.runs > 0) {
+    let failures = jest.failed + jest.failedSuites;
+    if (failures === 0 && exitCode !== 0) failures = 1;
     return { failures, targetPasses: failures === 0, output };
   }
   const mix = /(\d+)\s+tests?,\s+(\d+)\s+failures?/.exec(output);
@@ -214,8 +220,25 @@ export function createBehaviorInvoker(options: BehaviorRunnerOptions): BehaviorI
         : "no fix candidate offered";
     }
 
-    // 2. Propose a constitution change, if the investigation implies one.
-    const change = await options.proposeConstitutionChange?.(invocation, issue);
+    // 2. Propose a constitution change, if the investigation implies one AND
+    //    the behavior is actually allowed to.
+    //
+    // The capability gate is not a formality here. This call was
+    // unconditional, which was harmless only while the provider defaulted to
+    // undefined: the moment a real default was wired, EVERY run of EVERY
+    // behavior spawned a second agent subprocess to ask about the
+    // constitution -- including behaviors that declare no interest in it.
+    // Observed as behavior-window.e2e hanging on a fixture whose
+    // mutation_classes are [artifact.write] alone.
+    //
+    // mutation_classes is the behavior's own declaration of what it may
+    // change. Asking a model whether to amend the constitution, on behalf of
+    // a behavior that was never granted constitution.propose, is exactly the
+    // ungoverned-capability problem MutationGuard exists to prevent -- and
+    // it costs a model call per run to do it.
+    const mayPropose =
+      compiled.manifest.capabilities.mutation_classes.includes("constitution.propose");
+    const change = mayPropose ? await options.proposeConstitutionChange?.(invocation, issue) : undefined;
     if (change) {
       // The PR backend is no longer required: approval now APPLIES the
       // change (br-9uqd), and delivery is optional. What is still required

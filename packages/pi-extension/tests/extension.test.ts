@@ -15,6 +15,18 @@ describe("pi-extension activation (AC-004-1/AC-004-2)", () => {
     } as unknown as Pick<ExtensionAPI, "on"> as ExtensionAPI;
     expect(() => activate(brokenPi)).toThrow(/BLOCKING GAP/);
   });
+
+  it("throws a blocking-gap error if sendMessage is missing: a rollback could not be reported (br-o9j1)", () => {
+    const noSendMessage = {
+      on: () => undefined,
+      registerTool: () => undefined,
+      registerCommand: () => undefined,
+      registerFlag: () => undefined,
+      getFlag: () => false,
+      sendUserMessage: () => undefined,
+    } as unknown as ExtensionAPI;
+    expect(() => activate(noSendMessage)).toThrow(/BLOCKING GAP: pi\.sendMessage/);
+  });
 });
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -61,6 +73,7 @@ describe("production activate() wires the behavior pipeline (TRD-005 / AC-009-1,
       registerFlag: () => undefined,
       getFlag: () => false,
       sendUserMessage: () => undefined,
+      sendMessage: () => undefined,
       on: (name: string, h: (e: { type: string; toolCallId: string; toolName: string }) =>
         | { block?: boolean; reason?: string }
         | undefined) => {
@@ -131,6 +144,7 @@ describe("live dispatch reaches a behavior through the real activate() (TRD-015 
       registerFlag: () => undefined,
       getFlag: () => false,
       sendUserMessage: () => undefined,
+      sendMessage: () => undefined,
       on: (name: string, h: (e: unknown) => Promise<void> | void) => {
         handlers.set(name, h);
         return () => undefined;

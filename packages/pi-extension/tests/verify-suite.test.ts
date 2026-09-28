@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verifySuite } from "../src/verify-suite";
+import { verifySuite, parseTotals, failingSuites } from "../src/verify-suite";
+import { parseSuiteOutput } from "../src/behavior-runner";
 
 /**
  * The verifier is the only thing standing between "the model says it fixed
@@ -93,5 +94,110 @@ describe("a pipeline must not launder a failure into a pass", () => {
     const piped = `${JEST2} --rootDir . sum 2>&1 | tail -60`;
     expect(spawnSync("bash", ["-lc", `cd ${root} && ${piped}`]).status).toBe(0); // pipeline hides it
     expect(verifySuite(piped, root, root).status).toBe("failed");
+  });
+});
+
+// br-srbd. Observed live: `npx jest` at a root with no jest config could
+// not load 66 TypeScript suites; every test that loaded passed; exit 1. The
+// old parse read only the first `Tests:` line, saw "2693 passed" and no
+// failure count, and produced a "failed" verdict whose detail showed nothing
+// failing -- while the governed path's parser graded the same output a PASS.
+describe("a suite that cannot load is a failure, and says so", () => {
+  it("reports INCONCLUSIVE with the unloadable suite named, using a real jest run", () => {
+    const root = fixture(PASSING);
+    // A second suite that cannot even be parsed.
+    writeFileSync(join(root, "tests/broken.test.js"), "import type { X } from 'y';\n");
+    const v = verifySuite(`${JEST} --rootDir .`, root, root);
+
+    // This assertion was "failed" when the branch that added it landed, and
+    // the reversal is deliberate. A suite that cannot LOAD is not a verdict
+    // on the fix: br-srbd reproduced a correct repair being rolled back
+    // because 66 TypeScript suites died on `import type` while every test
+    // that ran passed. A wrong "failed" destroys correct work silently.
+    //
+    // What that branch was right about is kept: the unloadable suite is
+    // NAMED, so this is never a bare verdict with empty detail.
+    expect(v.status).toBe("inconclusive");
+    expect(v.detail).toMatch(/1 test suite\(s\) failed or could not load/);
+    expect(v.detail).toMatch(/failing: .*broken\.test\.js/);
+    expect(v.detail).toMatch(/1 passed/);
+  });
+
+  it("the governed path's parser counts it as a failure too", () => {
+    const out = "Test Suites: 66 failed, 109 passed, 175 total\nTests:       5 skipped, 2693 passed, 2698 total\n";
+    expect(parseSuiteOutput(out, 1)).toMatchObject({ failures: 66, targetPasses: false });
+  });
+});
+
+// `npm test` at the repo root runs one jest per workspace and prints one
+// summary each. The first summary must not speak for the rest.
+describe("every summary counts", () => {
+  const TWO_RUNS =
+    "Test Suites: 3 passed, 3 total\nTests:       10 passed, 10 total\n" +
+    "Test Suites: 1 failed, 2 passed, 3 total\nTests:       1 failed, 7 passed, 8 total\n";
+
+  it("sums all runs", () => {
+    expect(parseTotals(TWO_RUNS)).toEqual({ runs: 2, failed: 1, passed: 17, skipped: 0, total: 18, failedSuites: 1 });
+  });
+
+  it("verifySuite fails on a failure in a later run, even when the command exits 0", () => {
+    const root = mkdtempSync(join(tmpdir(), "verify-runs-"));
+    writeFileSync(join(root, "out.txt"), TWO_RUNS);
+    const v = verifySuite("cat out.txt", root, root);
+    expect(v.status).toBe("failed");
+    expect(v.detail).toMatch(/1 failed, 17 passed, 18 total across 2 jest runs/);
+  });
+
+  it("the governed path's parser fails on it too", () => {
+    expect(parseSuiteOutput(TWO_RUNS, 0)).toMatchObject({ failures: 2, targetPasses: false });
+  });
+
+  it("ignores a test NAME that merely contains 'Tests:'", () => {
+    expect(parseTotals("  ✓ Tests: 5 failed is a string (1 ms)\nTests:       1 passed, 1 total\n").failed).toBe(0);
+  });
+});
+
+// Observed live: the rollback notice said a test failed but not which, and
+// the model could not tell whether its fix broke a caller.
+describe("a failed verdict names the failing test files", () => {
+  it("lists each FAIL line once, colour codes stripped", () => {
+    const out = "\x1b[1mFAIL\x1b[22m tests/a.test.js\n  ● a\nFAIL tests/b.test.ts\nPASS tests/c.test.js\nFAIL tests/a.test.js\n";
+    expect(failingSuites(out)).toBe("; failing: tests/a.test.js, tests/b.test.ts");
+  });
+
+  it("caps the list", () => {
+    const out = Array.from({ length: 7 }, (_, i) => `FAIL t${i}.test.js`).join("\n");
+    expect(failingSuites(out, 5)).toBe("; failing: t0.test.js, t1.test.js, t2.test.js, t3.test.js, t4.test.js (+2 more)");
+  });
+
+  it("is empty when nothing failed", () => {
+    expect(failingSuites("PASS tests/c.test.js\n")).toBe("");
+  });
+});
+
+describe("a non-zero exit with no failing test reported is still a failure", () => {
+  it("verifySuite fails and says why, rather than showing only passing counts", () => {
+    const root = mkdtempSync(join(tmpdir(), "verify-exit-"));
+    writeFileSync(join(root, "out.txt"), "Tests:       4 passed, 4 total\n");
+    const v = verifySuite("cat out.txt; exit 3", root, root);
+    expect(v.status).toBe("failed");
+    expect(v.detail).toMatch(/command exited 3 with no failing test reported; 4 passed, 4 total/);
+  });
+
+  // Observed: npm test exited 1 because a Python workspace refused to run
+  // under CI=true without pytest; every jest count was clean, so the detail
+  // alone blamed the fix. The failing workspace must be named.
+  it("names the failing npm workspace from stderr", () => {
+    const root = mkdtempSync(join(tmpdir(), "verify-hint-"));
+    writeFileSync(join(root, "out.txt"), "Tests:       4 passed, 4 total\n");
+    const cmd =
+      "cat out.txt; echo 'npm error Lifecycle script `test` failed' >&2; " +
+      "echo 'npm error path /repo/packages/router' >&2; exit 1";
+    expect(verifySuite(cmd, root, root).detail).toMatch(/; stderr: npm error path \/repo\/packages\/router$/);
+  });
+
+  it("the governed path's parser no longer lets a summary override the exit code", () => {
+    expect(parseSuiteOutput("Tests:       4 passed, 4 total\n", 1)).toMatchObject({ failures: 1, targetPasses: false });
+    expect(parseSuiteOutput("Tests:       4 passed, 4 total\n", 0)).toMatchObject({ failures: 0, targetPasses: true });
   });
 });

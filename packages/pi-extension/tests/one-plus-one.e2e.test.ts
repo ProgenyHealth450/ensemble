@@ -99,6 +99,7 @@ function fakePi() {
     registerFlag: () => undefined,
     getFlag: () => false,
     sendUserMessage: () => undefined,
+    sendMessage: () => undefined,
     on: (n: string, h: (e: unknown) => Promise<void> | void) => {
       handlers.set(n, h);
       return () => undefined;

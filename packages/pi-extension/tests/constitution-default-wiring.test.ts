@@ -70,6 +70,9 @@ function harness() {
     registerTool: () => undefined,
     registerFlag: () => undefined,
     getFlag: () => false,
+    // #94 made the rollback notice a REQUIRED capability: without it a
+    // rolled-back fix is silent, so activate() refuses to start.
+    sendMessage: (_m: unknown, _o?: unknown) => undefined,
     sendUserMessage: () => undefined,
     on: () => () => undefined,
   } as unknown as ExtensionAPI;
