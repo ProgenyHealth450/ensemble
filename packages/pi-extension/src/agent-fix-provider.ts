@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { classifyPath } from "@sunstone-partners/ensemble-agent-core";
 import { FixProvider } from "./behavior-runner";
 import { CandidateWrite, FixCandidate } from "./autofix-loop";
+import { createFixSandbox } from "./fix-sandbox";
 
 /**
  * A production FixProvider backed by a real model.
@@ -169,6 +170,20 @@ export function createAgentFixProvider(options: AgentFixProviderOptions): FixPro
     options.run ??
     ((prompt: string, signal: AbortSignal) =>
       new Promise<string>((resolve, reject) => {
+        // The child runs in a DISPOSABLE mirror of the tree, never the live
+        // repository (br-r3om). It is spawned --no-extensions, so nothing we
+        // built applies inside it: no grants, no MutationGuard, no write
+        // boundary, no log. Rules cannot be enforced in a process we do not
+        // control, so it is given nothing of value to write to instead.
+        const sandbox = createFixSandbox(options.rootDir);
+        if (!sandbox) {
+          // Fail CLOSED. Falling back to the live repo would silently
+          // restore the ungoverned behaviour, at the exact moment something
+          // is already wrong.
+          reject(new Error("fix sandbox could not be created; refusing to run the agent"));
+          return;
+        }
+
         const child = execFile(
           options.command ?? "omp",
           [
@@ -176,11 +191,12 @@ export function createAgentFixProvider(options: AgentFixProviderOptions): FixPro
             "--no-session",
             // Without this the child loads this extension and recurses.
             "--no-extensions",
-            `--cwd=${options.rootDir}`,
+            `--cwd=${sandbox.dir}`,
             prompt,
           ],
-          { cwd: options.rootDir, signal, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 },
+          { cwd: sandbox.dir, signal, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 },
           (error, stdout) => {
+            sandbox.cleanup();
             // A non-zero exit still often carries a usable reply on stdout;
             // only treat it as failure when nothing came back.
             if (error && !stdout) reject(error);
