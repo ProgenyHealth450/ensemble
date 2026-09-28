@@ -95,6 +95,13 @@ describe("production wiring for step 3", () => {
     const status = h.notices.join("\n");
     expect(status).toContain("rule provider    : configured (agent subprocess)");
     expect(status).not.toContain("rule provider    : NOT configured");
+    // The fix provider's line used to hardcode the word "configured" and
+    // never look at the provider in use, so it would have gone on claiming
+    // "configured (agent subprocess)" with its default wiring deleted --
+    // the same lie the rule provider's line told. Both are checked here so
+    // neither can regress silently.
+    expect(status).toContain("fix provider     : configured (agent subprocess)");
+    expect(status).not.toContain("fix provider     : NOT configured");
   });
 
   it("reports an injected provider as injected, so the status cannot lie", async () => {

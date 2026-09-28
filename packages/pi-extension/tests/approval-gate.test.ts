@@ -154,3 +154,30 @@ describe("constitution changes are gated, then applied (br-9uqd)", () => {
     expect(appliedEarly).toBe(false);
   });
 });
+
+describe("when the approved change cannot be applied", () => {
+  it("reports failure instead of rejecting, and does not claim the human declined", async () => {
+    let prOpened = false;
+    const p = new ConstitutionProposal({
+      approval: new ApprovalGate(host(true, true)),
+      applyChange: () => {
+        // e.g. the file is gone, the disk is full, or re-baselining the
+        // write boundary throws.
+        throw new Error("EACCES: permission denied, open 'docs/standards/constitution.md'");
+      },
+      openPullRequest: (): PullRequestRef => {
+        prOpened = true;
+        return { url: "x", branch: "y" };
+      },
+    });
+
+    const outcome = await p.propose(change);
+
+    // Not "declined": nobody refused anything. Blaming the maintainer for a
+    // broken applier would hide the bug behind a normal-looking outcome.
+    expect(outcome.status).toBe("failed");
+    expect(outcome.status === "failed" && outcome.reason).toContain("EACCES");
+    // And nothing is delivered for a change that never landed.
+    expect(prOpened).toBe(false);
+  });
+});

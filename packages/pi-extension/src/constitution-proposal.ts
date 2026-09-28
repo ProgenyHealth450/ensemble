@@ -57,7 +57,14 @@ export interface ConstitutionProposalDeps {
 
 export type ProposalOutcome =
   | { status: "applied"; applied: AppliedChange; pr?: PullRequestRef; deliveryError?: string }
-  | { status: "declined"; reason: string };
+  | { status: "declined"; reason: string }
+  /**
+   * Approved, but the write did not land. Distinct from "declined" on
+   * purpose: reporting a failed write as a refusal would blame a maintainer
+   * for a decision they did not make, and would hide a broken applier behind
+   * a perfectly normal-looking outcome.
+   */
+  | { status: "failed"; reason: string };
 
 export class ConstitutionProposal {
   constructor(private readonly deps: ConstitutionProposalDeps) {}
@@ -79,7 +86,16 @@ export class ConstitutionProposal {
       return { status: "declined", reason: decision.reason };
     }
 
-    const applied = await this.deps.applyChange(change);
+    let applied: AppliedChange;
+    try {
+      applied = await this.deps.applyChange(change);
+    } catch (error) {
+      // The consequential step: a human said yes and the write to a
+      // protected path was attempted. A rejected promise here escapes the
+      // runner entirely, losing the run record along with any report of what
+      // happened, so this failure is returned as an outcome like any other.
+      return { status: "failed", reason: error instanceof Error ? error.message : String(error) };
+    }
 
     if (!this.deps.openPullRequest) return { status: "applied", applied };
 

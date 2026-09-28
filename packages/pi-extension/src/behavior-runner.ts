@@ -191,7 +191,9 @@ export function createBehaviorInvoker(options: BehaviorRunnerOptions): BehaviorI
                   ? `${result.applied.detail}; delivery failed: ${result.deliveryError}`
                   : result.applied.detail,
             }
-          : { status: "declined", detail: result.reason };
+          : result.status === "failed"
+            ? { status: "failed", detail: `constitution change approved but not applied: ${result.reason}` }
+            : { status: "declined", detail: result.reason };
     }
 
     finish(record);
