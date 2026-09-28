@@ -137,6 +137,129 @@ export function outputReportsFailure(output: string): boolean {
   return FAILURE_OUTPUT_PATTERNS.some((pattern) => pattern.test(output));
 }
 
+/**
+ * Commands that rewrite working-tree files, in command position.
+ *
+ * Not an attempt to catch every way a shell can write a file -- that is
+ * impossible, and write-boundary-monitor.ts exists precisely because it is.
+ * These are the shapes a mutation test actually takes.
+ */
+const MUTATION_INDICATORS: readonly RegExp[] = [
+  /^sed\s+(-\S*\s+)*-\S*i/, // sed -i / sed -E -i
+  /^perl\s+(-\S+\s*)*-\S*i/, // perl -pi -e, perl -0pi -e
+  // `cp` and `mv` only when a CODE file is involved, for the same reason as
+  // `tee` below: `cp .env.test .env && npx jest` is a legitimate fixture
+  // setup step, and suppressing it would disable autofix for a whole class
+  // of honest runs. The mutation-test shape always names a source file --
+  // `cp src/x.ts /tmp/bak` -- on one side or the other.
+  /^(cp|mv)\b.*\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|ex|exs|c|h|cpp|cs)\b/,
+  // `tee` ONLY when it writes a source file. A bare /^tee\b/ was wrong and
+  // was caught in review: `npx jest 2>&1 | tee out.log` is an everyday way
+  // to capture a run, and matching it suppressed autofix for one of the most
+  // common command shapes there is -- a silent hole in the product's whole
+  // purpose. Capturing a log is not mutating the code under test.
+  /^tee\s+(-\S+\s+)*\S+\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|ex|exs|c|h|cpp|cs)\b/,
+  /^patch\b/,
+  /^git\s+(checkout|restore|stash|apply|revert|reset)\b/,
+];
+
+/** Explicit "this red is intentional" marker, honoured anywhere in the command. */
+const OPT_OUT = /\bENSEMBLE_NO_AUTOFIX=1\b/;
+
+/**
+ * True when a failing run proves nothing actionable about the source.
+ *
+ * OBSERVED LIVE, twice in one session (br-x13x). A guard was deliberately
+ * broken to prove the test covering it actually fails, and restored in the
+ * same command:
+ *
+ *   cp src/x.ts /tmp/bak && perl -0pi -e 's/.../' src/x.ts && npx jest ...
+ *     -> "Tests: 2 failed" -> autofix continuation injected
+ *
+ * There was nothing to fix: the mutants were already reverted before the
+ * instruction arrived. The danger is not the wasted turn. Mutation testing
+ * is how this project proves a test is load-bearing, the red is the POINT,
+ * and the plausible "fix" for a deliberate mutant is to loosen the assertion
+ * that caught it -- producing a green suite that proves nothing. A loop that
+ * treats every red as a defect is hostile to the practice keeping the suite
+ * honest.
+ *
+ * The asymmetry drives the design: NOT firing costs a turn the user can
+ * retry by hand, while firing wrongly can silently destroy a test's value.
+ * So this errs toward suppression, and a chain that both edits files and
+ * runs tests is treated as inconclusive even though some such chains carry
+ * real failures.
+ *
+ * RESIDUAL GAP, deliberately unaddressed here: a mutation applied in one
+ * tool call and tested in the NEXT arrives as a bare `npx jest` and is
+ * indistinguishable from a genuine failure. Catching that needs a clean
+ * re-run to confirm the failure persists, which is br-c3s4's territory --
+ * today's verifier re-runs the whole chain and would re-apply the mutation.
+ */
+export function isInconclusiveRun(command: string): boolean {
+  if (OPT_OUT.test(command)) return true;
+  if (!isTestCommand(command)) return false;
+  return command.split(SEGMENT_SPLIT).some((segment) => {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return false;
+    const invocation = tokens.join(" ");
+    return MUTATION_INDICATORS.some((pattern) => pattern.test(invocation));
+  });
+}
+
+/** Keeps a directory change so the tests run where they actually failed. */
+const NAVIGATION = /^cd\s/;
+
+/**
+ * The part of a failing command that should be RE-RUN to verify a fix.
+ *
+ * OBSERVED LIVE (br-c3s4). A test was broken with a compound command:
+ *
+ *   cd packages/agent-core && python3 -c "<edit that introduces the bug>" \
+ *     && sed -n '18,21p' src/behavior/outbox.ts && npx jest ...
+ *
+ * Verification re-ran that command VERBATIM, so the python3 step matched
+ * again -- the repair had restored exactly the text its .replace() searches
+ * for -- and re-introduced the bug. jest failed, and a CORRECT fix was
+ * rolled back as rejected. The loop was structurally unable to accept a
+ * good fix to a bug introduced this way.
+ *
+ * Verification therefore re-runs only what is needed to observe the tests:
+ * directory changes, and the test invocations themselves. Everything else is
+ * dropped, because anything else in the chain is what BROKE the tests.
+ *
+ * Conservative on purpose. A dropped step might have been genuine setup
+ * (a build, a fixture), and losing it can make the re-run fail or find
+ * nothing -- both of which surface as "inconclusive", which does NOT roll
+ * back. The opposite error, re-running the mutation, silently destroys
+ * correct work. Returns undefined when no test invocation survives, so the
+ * caller can decline to grade rather than grade the wrong thing.
+ */
+export function verificationCommand(command: string, testCommand?: string): string | undefined {
+  // A behavior-declared test_command is AUTHORITATIVE, exactly as it is for
+  // detection (TranslationOptions.testCommand, REQ-012). Pattern matching
+  // recognises the common runners; a repository whose suite runs via
+  // something unrecognised -- `node run-all.js`, a shell wrapper, a make
+  // target -- declares it instead.
+  //
+  // Without this, verification returned "no test invocation found" for such
+  // a repo and every fix stayed unverified: never rolled back, but never
+  // confirmed either. The maintainer had already told us how to run the
+  // suite; refusing to believe them is not caution, it is just silence.
+  const declared = testCommand?.trim();
+  const isTest = (segment: string): boolean =>
+    (declared !== undefined && declared.length > 0 && segment === declared) || isTestCommand(segment);
+
+  const kept = command
+    .split(SEGMENT_SPLIT)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .filter((segment) => NAVIGATION.test(segment) || isTest(segment));
+
+  if (!kept.some((segment) => isTest(segment))) return undefined;
+  return kept.join(" && ");
+}
+
 export interface TranslationOptions {
   /**
    * The behavior-declared test command, when one is known. An exact
@@ -170,6 +293,9 @@ export function translateEvent(
   const declared = options.testCommand?.trim();
   const exactDeclared = Boolean(declared && command.trim() === declared);
   if (!exactDeclared && !isTestCommand(command)) return undefined;
+
+  // A deliberate mutation test is not a defect report (br-x13x).
+  if (isInconclusiveRun(command)) return undefined;
 
   const output = typeof payload.output === "string" ? payload.output : "";
   // Either signal is sufficient. Exit status counts only when it is the

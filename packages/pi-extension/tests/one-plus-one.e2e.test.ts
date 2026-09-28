@@ -99,6 +99,7 @@ function fakePi() {
     registerFlag: () => undefined,
     getFlag: () => false,
     sendUserMessage: () => undefined,
+    sendMessage: () => undefined,
     on: (n: string, h: (e: unknown) => Promise<void> | void) => {
       handlers.set(n, h);
       return () => undefined;
@@ -213,7 +214,7 @@ describe("1 + 1 === 3: the system must refuse to 'fix' the assertion", () => {
 
     // 6. The constitution proposal still runs (investigation is allowed
     //    even when the fix is refused) and is gated on approval.
-    expect(approvals).toEqual(["Propose constitution change"]);
+    expect(approvals).toEqual(["Apply constitution change"]);
     expect(prOpened).toBe(true);
     expect(readFileSync(join(root, "docs", "standards", "constitution.md"), "utf8")).toContain(
       "Never edit a test to make it pass",

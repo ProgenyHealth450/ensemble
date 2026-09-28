@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,6 +155,17 @@ describe("the fixing agent is spawned read-only", () => {
       );
       chmodSync(fakeAgent, 0o755);
 
+      // A git repo, because the child now runs in a disposable worktree
+      // (br-r3om) and the provider FAILS CLOSED when one cannot be built --
+      // it will not fall back to the live tree. A plain temp dir silently
+      // produced no spawn at all.
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "t@t.test"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "t"], { cwd: dir });
+      writeFileSync(join(dir, "seed.txt"), "seed\n");
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-qm", "seed"], { cwd: dir });
+
       const provider = createAgentFixProvider({ rootDir: dir, command: fakeAgent });
       const candidate = await provider(invocation, issue);
 
@@ -161,6 +173,11 @@ describe("the fixing agent is spawned read-only", () => {
       expect(argv).toContain(`--tools=${FIX_AGENT_TOOLS.join(",")}`);
       expect(argv).toContain("--no-extensions");
       expect(argv.filter((a) => a.startsWith("--tools="))).toHaveLength(1);
+      // Containment (br-r3om): the child is pointed at the disposable
+      // worktree, never at the live tree it was asked to repair.
+      const cwdArg = argv.find((a) => a.startsWith("--cwd="))!;
+      expect(cwdArg).toBeDefined();
+      expect(cwdArg).not.toBe(`--cwd=${dir}`);
       expect(candidate?.writes[0]?.path).toBe("src/a.ts");
     } finally {
       rmSync(dir, { recursive: true, force: true });

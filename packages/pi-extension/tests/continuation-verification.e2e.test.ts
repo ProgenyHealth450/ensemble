@@ -130,6 +130,7 @@ function fakePi() {
     registerFlag: () => undefined,
     getFlag: () => false,
     sendUserMessage: () => undefined,
+    sendMessage: () => undefined,
     on: (name: string, h: (e: unknown) => Promise<void> | void) => {
       const list = handlers.get(name) ?? [];
       list.push(h);

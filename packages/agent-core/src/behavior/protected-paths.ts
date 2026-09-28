@@ -101,3 +101,30 @@ export function classifyPath(rawPath: string): ProtectedPathVerdict {
 export function isProtectedPath(path: string): boolean {
   return classifyPath(path).protected;
 }
+
+/**
+ * Paths protected WHETHER OR NOT a behavior is running.
+ *
+ * Two designs for br-vjm5 collided, each right about something. Arming the
+ * boundary permanently over every tracked file reverted the maintainer's own
+ * edits mid-session: protection that locks you out of your repository.
+ * Arming it only inside a fix turn left the guardrails -- the constitution,
+ * the enforcement sources, the conformance fixtures -- writable at every
+ * other moment, which is precisely when an ordinary turn could quietly
+ * rewrite the rules that govern the next fix turn.
+ *
+ * The split is by REASON, not by timing. A test file is the user's working
+ * material: theirs to edit freely, and guarded only while an autofix turn is
+ * live, because that is the only window in which the machine should not be
+ * silently rewriting the test it is being judged by. The constitution and
+ * the guardrail sources are never ordinary working material.
+ */
+export function isAlwaysProtectedPath(path: string): boolean {
+  const verdict = classifyPath(path);
+  return (
+    verdict.protected &&
+    (verdict.reason === "constitution" ||
+      verdict.reason === "guardrail-source" ||
+      verdict.reason === "conformance-fixture")
+  );
+}
