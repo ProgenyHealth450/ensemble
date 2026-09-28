@@ -258,4 +258,62 @@ describe("break a test, run it, and follow the event all the way through", () =>
     expect(opened).toBe(false);
     expect(readFileSync(join(root, "docs", "standards", "constitution.md"), "utf8")).not.toContain("should not land");
   });
+
+  it("an approved change that cannot be written is reported as failed, not declined", async () => {
+    const root = sandbox();
+    const before = runSuiteForReal(root);
+
+    const approvals: string[] = [];
+    let opened = false;
+    const instance = createActivate({
+      proposeFix: () => ({
+        writes: [{ path: "src/math.js", contents: FIXED, mutationClass: "artifact.write" }],
+      }),
+      proposeConstitutionChange: () => ({
+        behaviorName: "fix-failing-test",
+        rationale: "r",
+        diff: "- a rule that never lands",
+      }),
+      approvalHost: {
+        hasUI: true,
+        async confirm(title: string) {
+          approvals.push(title);
+          return true;
+        },
+      },
+      applyConstitutionChange: () => {
+        throw new Error("EACCES: permission denied");
+      },
+      openPullRequest: () => {
+        opened = true;
+        return { url: "x", branch: "y" };
+      },
+    });
+
+    process.chdir(root);
+    const { pi, fire } = fakePi();
+    instance.activate(pi);
+
+    await fire("tool_result", {
+      type: "tool_result",
+      toolCallId: "run-3",
+      toolName: "bash",
+      input: { command: "npm test" },
+      content: [{ type: "text", text: before.output }],
+      isError: true,
+    });
+
+    const record = instance.runRecords[0];
+    // The human said YES, so calling this "declined" would blame them for a
+    // decision they did not make, and would hide a broken applier behind a
+    // routine-looking outcome.
+    expect(approvals).toEqual(["Apply constitution change"]);
+    expect(record.constitution?.status).toBe("failed");
+    expect(record.constitution?.status).not.toBe("declined");
+    expect(record.constitution?.detail).toContain("EACCES");
+    // Nothing is delivered for a change that never landed...
+    expect(opened).toBe(false);
+    // ...and a broken step 3 must not cost a repair that already verified.
+    expect(record.outcome?.status).toBe("accepted");
+  });
 });
