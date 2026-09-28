@@ -49,10 +49,30 @@ capabilities:
   #
   # The run that proved this behavior worked logged a continuation and no
   # dispatch/invocation record at all -- so the continuation path is what
-  # fires in practice, and this list was not consulted. The guard is wired,
-  # not dead code; the gap is that the two paths diverge. That is br-o355.
+  # fires in practice, and this list was not consulted. The gap is that the
+  # two paths diverge. That is br-o355.
+  #
+  # The paragraph above is CORRECT and stays: the guard is wired, not dead
+  # code. createBehaviorInvoker (behavior-runner.ts:111) is called live at
+  # extension.ts:996, and a live run logs an `invocation` record to prove it.
+  #
+  # What that live record showed was "no fix candidate offered": the governed
+  # invoker ran, but the repair happened on the continuation path, where the
+  # MODEL edits files directly. So this list is not consulted for the fix --
+  # not because the code never runs, but because the fix does not travel
+  # through it. br-o355.
   tools: [read, grep, glob, bash, edit]
-  mutation_classes: [artifact.write]
+  #
+  # constitution.propose is the right to ASK for a constitution amendment, not
+  # to write one: a proposal still requires human approval before it is
+  # applied. Without it the behavior can repair a failing test forever and
+  # never record what would stop the failure recurring, which is the whole
+  # point of the loop.
+  #
+  # Inert until br-zcxb lands -- the constitution step is only called from the
+  # dead governed path, so nothing will exercise this grant until the live
+  # loop can reach it.
+  mutation_classes: [artifact.write, constitution.propose]
 execution:
   graph: fix-failing-test
   # The whole-suite check. BOTH dispatch paths re-run this before accepting
