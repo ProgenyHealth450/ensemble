@@ -54,11 +54,35 @@ export function verifySuite(
     };
   }
 
+  // Suites that never LOADED are not a verdict on the fix.
+  //
+  // OBSERVED LIVE (br-srbd): a root-level `npx jest` with no root config
+  // produced "66 suites failed to run, 2693 tests passed, 0 failed" and
+  // exit 1 -- every TypeScript suite died on `import type` before a single
+  // assertion ran. The old logic found no failed COUNT, fell through to the
+  // exit code, and graded it "failed", so restoreWorkingTree() rolled back
+  // fixes that were correct. Reproduced end to end: a correct a-b -> a+b
+  // repair passed its own test and was reverted anyway.
+  //
+  // Zero failed TESTS alongside failed SUITES means the harness could not
+  // run, which is an environment problem, not evidence about the change.
+  // "inconclusive" is the honest answer and, unlike "failed", does not
+  // destroy work.
+  const suites = /Test Suites:\s+(.*)/.exec(text)?.[1] ?? "";
+  const suitesFailed = /\b([1-9]\d*)\s+failed/.exec(suites);
+  const failed = /\b([1-9]\d*)\s+failed/.exec(totals);
+
+  if (suitesFailed && !failed) {
+    return {
+      status: "inconclusive",
+      detail: `suites failed to load, no test failures: suites=${suites.trim()}; tests=${totals.trim()}`,
+    };
+  }
+
   // The exit code is NOT trusted on its own. Observed live: the model ran
   // `npx jest live-e2e 2>&1 | tail -60`, and in a pipeline $? is the status of
   // `tail`, not of jest -- so a suite reporting "1 failed, 1 passed" exited 0
   // and was graded "passed". Any reported failure count outweighs a zero exit.
-  const failed = /\b([1-9]\d*)\s+failed/.exec(totals);
   if (failed) {
     return { status: "failed", detail: totals.trim() };
   }

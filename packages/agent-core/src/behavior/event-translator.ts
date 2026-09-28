@@ -188,6 +188,45 @@ export function isInconclusiveRun(command: string): boolean {
   });
 }
 
+/** Keeps a directory change so the tests run where they actually failed. */
+const NAVIGATION = /^cd\s/;
+
+/**
+ * The part of a failing command that should be RE-RUN to verify a fix.
+ *
+ * OBSERVED LIVE (br-c3s4). A test was broken with a compound command:
+ *
+ *   cd packages/agent-core && python3 -c "<edit that introduces the bug>" \
+ *     && sed -n '18,21p' src/behavior/outbox.ts && npx jest ...
+ *
+ * Verification re-ran that command VERBATIM, so the python3 step matched
+ * again -- the repair had restored exactly the text its .replace() searches
+ * for -- and re-introduced the bug. jest failed, and a CORRECT fix was
+ * rolled back as rejected. The loop was structurally unable to accept a
+ * good fix to a bug introduced this way.
+ *
+ * Verification therefore re-runs only what is needed to observe the tests:
+ * directory changes, and the test invocations themselves. Everything else is
+ * dropped, because anything else in the chain is what BROKE the tests.
+ *
+ * Conservative on purpose. A dropped step might have been genuine setup
+ * (a build, a fixture), and losing it can make the re-run fail or find
+ * nothing -- both of which surface as "inconclusive", which does NOT roll
+ * back. The opposite error, re-running the mutation, silently destroys
+ * correct work. Returns undefined when no test invocation survives, so the
+ * caller can decline to grade rather than grade the wrong thing.
+ */
+export function verificationCommand(command: string): string | undefined {
+  const kept = command
+    .split(SEGMENT_SPLIT)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .filter((segment) => NAVIGATION.test(segment) || isTestCommand(segment));
+
+  if (!kept.some((segment) => isTestCommand(segment))) return undefined;
+  return kept.join(" && ");
+}
+
 export interface TranslationOptions {
   /**
    * The behavior-declared test command, when one is known. An exact

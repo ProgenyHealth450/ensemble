@@ -10,7 +10,7 @@ import { SuiteResult } from "./autofix-loop";
 import { logRuntime, runtimeLogPath, setRuntimeLoggingArmed, isRuntimeLoggingArmed } from "./runtime-log";
 import { createAgentFixProvider } from "./agent-fix-provider";
 import { SessionUiBridge } from "./session-ui";
-import { WriteBoundaryMonitor } from "@sunstone-partners/ensemble-agent-core";
+import { WriteBoundaryMonitor, verificationCommand } from "@sunstone-partners/ensemble-agent-core";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -300,9 +300,22 @@ export function createActivate(options: ActivateOptions = {}): {
     /**
      * Re-runs the failing command ourselves; see verify-suite.ts for why a
      * zero exit code alone is never accepted as a pass.
+     *
+     * Only the TEST part of the captured command is re-run (br-c3s4). The
+     * captured key is the whole compound invocation, mutation step included,
+     * so replaying it verbatim re-applied the very bug the turn had just
+     * repaired and rolled the good fix back.
      */
-    const verifyCommand = (command: string, cwd: string | undefined) =>
-      verifySuite(command, cwd, resolveRepoRoot(process.cwd()));
+    const verifyCommand = (command: string, cwd: string | undefined) => {
+      const scoped = verificationCommand(command);
+      if (!scoped) {
+        return {
+          status: "inconclusive" as const,
+          detail: `no test invocation found in captured command: ${command.slice(0, 120)}`,
+        };
+      }
+      return verifySuite(scoped, cwd, resolveRepoRoot(process.cwd()));
+    };
 
     // key of a continuation whose turn has been injected and whose result
     // has not yet been independently checked.
