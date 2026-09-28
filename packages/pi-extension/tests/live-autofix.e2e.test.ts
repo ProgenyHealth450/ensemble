@@ -163,12 +163,13 @@ describe("break a test, run it, and follow the event all the way through", () =>
       }),
       proposeConstitutionChange: () => change,
       approvalHost: host,
-      openPullRequest: (c) => {
-        // The sanctioned route: the behavior itself may not write
-        // constitution.md (it is a protected path). Landing the change
-        // is a human-approved merge, modelled here.
-        const file = join(root, "docs", "standards", "constitution.md");
-        writeFileSync(file, readFileSync(file, "utf8") + c.diff + "\n");
+      openPullRequest: (_c) => {
+        // Delivery only, now that approval applies the change (br-9uqd).
+        // This used to be the sanctioned WRITE path -- it wrote
+        // constitution.md itself, modelling a human merging the PR --
+        // which meant nothing verified that the runtime could update the
+        // file. The real applier does it now, so the assertion below is
+        // about production behaviour rather than about this stub.
         merged = true;
         return { url: "https://example.test/pr/7", branch: "ensemble/constitution/7" };
       },
@@ -207,9 +208,10 @@ describe("break a test, run it, and follow the event all the way through", () =>
     expect(after.code).toBe(0);
     expect(after.output).toContain("1 passed");
 
-    // 6. The constitution was updated through the approval gate.
-    expect(approvals).toEqual(["Propose constitution change"]);
-    expect(record.constitution?.status).toBe("proposed");
+    // 6. The constitution was updated in place, through the approval gate,
+    //    by the production applier (br-9uqd).
+    expect(approvals).toEqual(["Apply constitution change"]);
+    expect(record.constitution?.status).toBe("applied");
     expect(merged).toBe(true);
     expect(readFileSync(join(root, "docs", "standards", "constitution.md"), "utf8")).toContain(
       "verified by a suite that can fail",
@@ -255,5 +257,63 @@ describe("break a test, run it, and follow the event all the way through", () =>
     expect(record.constitution?.status).toBe("declined");
     expect(opened).toBe(false);
     expect(readFileSync(join(root, "docs", "standards", "constitution.md"), "utf8")).not.toContain("should not land");
+  });
+
+  it("an approved change that cannot be written is reported as failed, not declined", async () => {
+    const root = sandbox();
+    const before = runSuiteForReal(root);
+
+    const approvals: string[] = [];
+    let opened = false;
+    const instance = createActivate({
+      proposeFix: () => ({
+        writes: [{ path: "src/math.js", contents: FIXED, mutationClass: "artifact.write" }],
+      }),
+      proposeConstitutionChange: () => ({
+        behaviorName: "fix-failing-test",
+        rationale: "r",
+        diff: "- a rule that never lands",
+      }),
+      approvalHost: {
+        hasUI: true,
+        async confirm(title: string) {
+          approvals.push(title);
+          return true;
+        },
+      },
+      applyConstitutionChange: () => {
+        throw new Error("EACCES: permission denied");
+      },
+      openPullRequest: () => {
+        opened = true;
+        return { url: "x", branch: "y" };
+      },
+    });
+
+    process.chdir(root);
+    const { pi, fire } = fakePi();
+    instance.activate(pi);
+
+    await fire("tool_result", {
+      type: "tool_result",
+      toolCallId: "run-3",
+      toolName: "bash",
+      input: { command: "npm test" },
+      content: [{ type: "text", text: before.output }],
+      isError: true,
+    });
+
+    const record = instance.runRecords[0];
+    // The human said YES, so calling this "declined" would blame them for a
+    // decision they did not make, and would hide a broken applier behind a
+    // routine-looking outcome.
+    expect(approvals).toEqual(["Apply constitution change"]);
+    expect(record.constitution?.status).toBe("failed");
+    expect(record.constitution?.status).not.toBe("declined");
+    expect(record.constitution?.detail).toContain("EACCES");
+    // Nothing is delivered for a change that never landed...
+    expect(opened).toBe(false);
+    // ...and a broken step 3 must not cost a repair that already verified.
+    expect(record.outcome?.status).toBe("accepted");
   });
 });

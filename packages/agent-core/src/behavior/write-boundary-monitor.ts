@@ -83,6 +83,85 @@ function fingerprint(rootDir: string, relPath: string): Fingerprint {
     digest: createHash("sha256").update(readFileSync(abs)).digest("hex"),
   };
 }
+/**
+ * Reflog actions that move HEAD by importing history someone else wrote.
+ *
+ * `commit`, `commit (amend)`, `reset` and `cherry-pick` are deliberately
+ * absent. They publish content that originated HERE, so treating them as
+ * external would hand any process with a shell a one-command bypass: edit a
+ * protected file, commit it, and the boundary adopts the tainted content as
+ * its new pristine state. That defeats the entire boundary, so a local
+ * commit never re-baselines anything.
+ */
+const EXTERNAL_HISTORY_ACTIONS = new Set([
+  "pull",
+  "merge",
+  "fetch",
+  "rebase",
+  "checkout",
+  "switch",
+  "clone",
+]);
+
+function headOid(rootDir: string): string {
+  try {
+    return git(rootDir, ["rev-parse", "HEAD"]).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Content of a path as committed at HEAD, or undefined when absent there. */
+function headFingerprint(rootDir: string, relPath: string): Fingerprint | undefined {
+  try {
+    const blob = execFileSync("git", ["show", `HEAD:${relPath}`], {
+      cwd: rootDir,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return { existed: true, digest: createHash("sha256").update(blob).digest("hex") };
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the path is tracked at HEAD, distinguishing deletion from error. */
+function pathExistsAtHead(rootDir: string, relPath: string): boolean {
+  try {
+    return git(rootDir, ["ls-tree", "-r", "--name-only", "HEAD", "--", relPath]).trim() !== "";
+  } catch {
+    // Unknown, so claim nothing: the caller keeps the existing baseline.
+    return true;
+  }
+}
+
+/**
+ * How HEAD got from `fromOid` to now, per the reflog.
+ *
+ * Returns false when the move cannot be fully accounted for -- an unfound
+ * starting point, an unreadable reflog, or any local-authorship action in
+ * the range. Unexplained history is treated as suspicious rather than
+ * external, because the failure mode of guessing "external" is silent
+ * adoption of an attacker's content.
+ */
+function movedByExternalHistory(rootDir: string, fromOid: string): boolean {
+  let lines: string[];
+  try {
+    lines = git(rootDir, ["reflog", "--format=%H%x09%gs", "-n", "200"]).split("\n");
+  } catch {
+    return false;
+  }
+
+  for (const line of lines) {
+    const [oid, subject = ""] = line.split("\t");
+    if (oid === fromOid) return true; // Walked the whole range cleanly.
+    if (!oid.trim()) continue;
+    const action = subject.split(":")[0].trim().split(" ")[0];
+    if (!EXTERNAL_HISTORY_ACTIONS.has(action)) return false;
+  }
+
+  return false; // Starting point not in the window.
+}
+
 
 export class WriteBoundaryMonitor {
   // One snapshot per path so a violation restores exactly that path,
@@ -93,11 +172,68 @@ export class WriteBoundaryMonitor {
   private readonly captureFailures: string[] = [];
   private enumerationComplete = false;
   private readonly seen: WriteViolation[] = [];
+  private knownHead: string;
 
-  constructor(private readonly rootDir: string) {}
+  constructor(private readonly rootDir: string) {
+    this.knownHead = headOid(rootDir);
+  }
 
   get violations(): readonly WriteViolation[] {
     return this.seen;
+  }
+
+  /**
+   * Re-baselines protected paths when HEAD moved because history arrived
+   * from outside this session.
+   *
+   * Without this, a long session is a live hazard to the checkout it is
+   * running in. The baseline is captured once at activation; when someone
+   * else pulls or merges, every protected file the merge touched now differs
+   * from that baseline, so the NEXT tool call -- including a read-only one --
+   * "detects a violation" and reverts freshly merged work to activation-time
+   * content. Observed for real: an external `pull --ff-only` landed mid
+   * session and four files were reverted, deleting ~175 lines of merged
+   * tests, triggered by an `ls`.
+   *
+   * Adoption needs BOTH conditions, and each blocks a different attack:
+   *
+   *  1. the reflog range contains no locally-authored move, so an agent
+   *     cannot launder an edit by committing it; and
+   *  2. the file on disk matches HEAD exactly, so uncommitted changes
+   *     riding along with a legitimate pull are not adopted.
+   *
+   * Either alone is bypassable. Condition 1 alone would adopt a dirty tree
+   * after any pull; condition 2 alone falls to `edit && git commit` in one
+   * shell call.
+   */
+  private syncExternalHistory(): void {
+    const current = headOid(this.rootDir);
+    if (!current || current === this.knownHead) return;
+
+    const external = movedByExternalHistory(this.rootDir, this.knownHead);
+    // Recorded either way: a rejected move must not be re-examined on every
+    // subsequent call, and its paths stay pinned to their old baselines.
+    this.knownHead = current;
+    if (!external) return;
+
+    for (const path of [...this.snapshots.keys()]) {
+      const committed = headFingerprint(this.rootDir, path);
+      if (!committed) {
+        // Two very different reasons `git show HEAD:path` can fail, and
+        // treating them alike resurrects deleted files. When the pull
+        // legitimately REMOVED the path and it is gone from disk, the
+        // pristine state is now "absent" -- re-baseline to that, or the next
+        // check() restores a file upstream deliberately deleted. Any other
+        // failure (unreadable object, odd ref state) keeps the old baseline.
+        if (!pathExistsAtHead(this.rootDir, path) && !existsSync(resolve(this.rootDir, path))) {
+          this.accept(path);
+        }
+        continue;
+      }
+      const disk = fingerprint(this.rootDir, path);
+      if (!disk.existed || disk.digest !== committed.digest) continue;
+      this.accept(path);
+    }
   }
 
   /**
@@ -161,6 +297,55 @@ export class WriteBoundaryMonitor {
   }
 
   /**
+   * Reports protected paths that changed, WITHOUT reverting anything.
+   *
+   * `check()` reverts as it detects, which makes "ask the user first"
+   * impossible: by the time there is something to ask about, the edit is
+   * already gone. Separating detection from reversion is what lets a human
+   * turn offer consent instead of being silently overruled.
+   *
+   * This is deliberately NOT a softer `check()`. Nothing here decides that a
+   * write is allowed; it only reports. The caller must either accept() a
+   * path explicitly or call check() to revert it.
+   */
+  pending(): readonly WriteViolation[] {
+    this.syncExternalHistory();
+    const candidates = new Set([...changedPaths(this.rootDir), ...this.snapshots.keys()]);
+    const out: WriteViolation[] = [];
+    for (const path of candidates) {
+      const verdict = classifyPath(path);
+      if (!verdict.protected) continue;
+      if (this.snapshots.has(path)) {
+        if (!this.changedSinceActivation(path)) continue;
+      } else if (!this.enumerationComplete || this.enumerated.has(path)) {
+        // Same caution as check(): without a completed enumeration, absence
+        // from `snapshots` proves nothing about whether the file pre-existed.
+        continue;
+      }
+      out.push({ path, reason: verdict.reason as ProtectedPathReason, restored: false });
+    }
+    return out;
+  }
+
+  /**
+   * Accepts one already-approved change: the current on-disk state becomes
+   * the new pristine baseline, so a later check() no longer reverts it.
+   *
+   * Scoped to a single path and re-baselined immediately, on purpose. A
+   * longer-lived "edits allowed" mode would let everything after the
+   * approval write freely, which is the protection this boundary exists to
+   * provide. A SECOND edit to the same path is a new change against the new
+   * baseline, and needs its own approval.
+   */
+  accept(relPath: string): void {
+    const snapshot = new WorkspaceSnapshot(this.rootDir);
+    snapshot.capture(relPath);
+    this.snapshots.set(relPath, snapshot);
+    this.baselines.set(relPath, fingerprint(this.rootDir, relPath));
+    this.enumerated.add(relPath);
+  }
+
+  /**
    * Checks what changed since activation and reverts protected paths.
    *
    * Intended to run after every tool call, not at some later accept
@@ -176,6 +361,7 @@ export class WriteBoundaryMonitor {
    * git status is still what discovers protected files created later.
    */
   check(): MonitorResult {
+    this.syncExternalHistory();
     const candidates = new Set([...changedPaths(this.rootDir), ...this.snapshots.keys()]);
     const violations: WriteViolation[] = [];
 

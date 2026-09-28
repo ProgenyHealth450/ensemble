@@ -8,7 +8,7 @@ import {
   ApprovalGate,
 } from "@sunstone-partners/ensemble-agent-core";
 import { AutofixLoop, FixCandidate, SuiteResult, AttemptOutcome } from "./autofix-loop";
-import { ConstitutionProposal, ConstitutionChange, PullRequestRef } from "./constitution-proposal";
+import { ConstitutionProposal, ConstitutionChange, PullRequestRef, AppliedChange } from "./constitution-proposal";
 import { IssueKeyInput, issueKey } from "./issue-identity";
 import { captureTreeBaseline, changedSinceBaseline, treeChangesSinceBaseline } from "./tree-baseline";
 
@@ -62,6 +62,9 @@ export interface BehaviorRunnerOptions {
   proposeFix?: FixProvider;
   proposeConstitutionChange?: ConstitutionProvider;
   approval?: ApprovalGate;
+  /** Applies an APPROVED constitution change in place (br-9uqd). */
+  applyConstitutionChange?: (change: ConstitutionChange) => AppliedChange | Promise<AppliedChange>;
+  /** Optional delivery of an already-applied change; no longer a gate. */
   openPullRequest?: (change: ConstitutionChange) => PullRequestRef | Promise<PullRequestRef>;
   /** Overrides suite execution; defaults to spawning the declared command. */
   runSuite?: (command: string, signal: AbortSignal) => SuiteResult | Promise<SuiteResult>;
@@ -214,23 +217,36 @@ export function createBehaviorInvoker(options: BehaviorRunnerOptions): BehaviorI
     // 2. Propose a constitution change, if the investigation implies one.
     const change = await options.proposeConstitutionChange?.(invocation, issue);
     if (change) {
-      if (!options.approval || !options.openPullRequest) {
+      // The PR backend is no longer required: approval now APPLIES the
+      // change (br-9uqd), and delivery is optional. What is still required
+      // is a way to ask a human and a way to write the file.
+      if (!options.approval || !options.applyConstitutionChange) {
         record.constitution = {
           status: "declined",
-          detail: "constitution change implied but no approval gate or PR backend is configured",
+          detail: "constitution change implied but no approval gate or applier is configured",
         };
         finish(record);
         return;
       }
       const proposal = new ConstitutionProposal({
         approval: options.approval,
+        applyChange: options.applyConstitutionChange,
         openPullRequest: options.openPullRequest,
       });
       const result = await proposal.propose(change);
       record.constitution =
-        result.status === "proposed"
-          ? { status: "proposed", detail: result.pr.url }
-          : { status: "declined", detail: result.reason };
+        result.status === "applied"
+          ? {
+              status: "applied",
+              detail: result.pr
+                ? `${result.applied.detail}; delivered as ${result.pr.url}`
+                : result.deliveryError
+                  ? `${result.applied.detail}; delivery failed: ${result.deliveryError}`
+                  : result.applied.detail,
+            }
+          : result.status === "failed"
+            ? { status: "failed", detail: `constitution change approved but not applied: ${result.reason}` }
+            : { status: "declined", detail: result.reason };
     }
 
     finish(record);

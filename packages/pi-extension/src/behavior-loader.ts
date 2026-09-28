@@ -84,7 +84,13 @@ export function loadCompiledBehavior(
         ctx.ui.setStatus?.(artifacts.commandName, artifacts.skillMarkdown);
         return;
       }
-      pi.sendUserMessage(artifacts.promptMarkdown, { deliverAs: "followUp" });
+      // Pinned OFF for the same reason as the autofix call site: with it on,
+      // prompt() would dispatch a behavior prompt that happens to begin with
+      // "/" as an extension command instead of sending it.
+      pi.sendUserMessage(artifacts.promptMarkdown, {
+        deliverAs: "followUp",
+        expandPromptTemplates: false,
+      });
     },
   });
 
