@@ -70,13 +70,17 @@ function harness() {
   const handlers = new Map<string, ((e: unknown) => Promise<unknown> | unknown)[]>();
   const commands = new Map<string, { handler: (args: unknown, ctx: unknown) => Promise<void> }>();
   const notices: string[] = [];
+  const sent: { content: string; options?: unknown }[] = [];
   const pi = {
     registerCommand: (name: string, o: unknown) =>
       commands.set(name, o as { handler: (a: unknown, c: unknown) => Promise<void> }),
     registerTool: () => undefined,
     registerFlag: () => undefined,
     getFlag: () => false,
-    sendUserMessage: () => undefined,
+    sendUserMessage: (content: unknown, options?: unknown) => {
+      sent.push({ content: String(content), options });
+      return undefined;
+    },
     on: (name: string, h: (e: unknown) => Promise<unknown> | unknown) => {
       const list = handlers.get(name) ?? [];
       list.push(h);
@@ -89,6 +93,7 @@ function harness() {
   return {
     pi,
     notices,
+    sent,
     // Fires every registered handler and returns the first result that is
     // defined, which is how the host treats a result-rewriting handler.
     fire: async (n: string, e: unknown) => {
@@ -203,6 +208,14 @@ describe("/ensemble-approve", () => {
       isError: true,
     });
     await h.fire("turn_end", {});
+
+    // The injected turn carries text assembled from TEST OUTPUT. If the host
+    // were allowed to expand it, prompt() would dispatch anything starting
+    // with "/" as an extension command. Pinned off here rather than trusting
+    // the library default, so a dependency bump cannot reopen it silently.
+    expect(h.sent.length).toBe(1);
+    expect(h.sent[0].options).toMatchObject({ expandPromptTemplates: false });
+    expect(h.sent[0].content.startsWith("/")).toBe(false);
 
     // A protected write made by that machine-originated turn.
     writeFileSync(join(root, GUARD), "export const original = 1;\n// loop edit\n");

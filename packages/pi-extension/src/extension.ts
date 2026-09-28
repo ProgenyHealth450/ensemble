@@ -372,9 +372,19 @@ export function createActivate(options: ActivateOptions = {}): {
       // Opened BEFORE the turn is queued: the fix turn runs under the
       // grants of the behaviors that matched, not the user's own.
       beginBehaviorScope(pi, next.behaviors);
-      await pi.sendUserMessage(`${AUTOFIX_MARKER}
+      // expandPromptTemplates is pinned OFF rather than left to the host
+      // default. With it on, prompt() dispatches any text starting with "/"
+      // straight to an extension command -- and this text is assembled from
+      // TEST OUTPUT, which is attacker-influenceable. The default is
+      // currently false, but a default is not a guarantee: a dependency bump
+      // could flip it and silently turn injected output into command
+      // execution, including /ensemble-approve.
+      await pi.sendUserMessage(
+        `${AUTOFIX_MARKER}
 
-${next.instruction}`);
+${next.instruction}`,
+        { expandPromptTemplates: false },
+      );
       // next.key is the RAW command, and must stay raw here. Normalisation
       // exists only inside ContinuationBudget for counting attempts; if the
       // normalised form ever became the stored command, verification would
@@ -635,11 +645,13 @@ ${next.instruction}`);
     //   - agent-session prompt() DOES execute "/..." immediately, via
     //     _tryExecuteExtensionCommand, "even during streaming". It does not
     //     throw. Its expandPromptTemplates defaults to TRUE.
-    //   - sendUserMessage() -- the only injection API this extension uses --
-    //     calls prompt() with `expandPromptTemplates ?? false`, so command
-    //     execution is off unless a caller explicitly opts in. Neither of
-    //     our two call sites does, and both send text that begins with a
-    //     marker rather than "/".
+    //   - That branch needs BOTH expandPromptTemplates === true AND
+    //     text.startsWith("/"). sendUserMessage() -- the only injection API
+    //     this extension uses -- calls prompt() with
+    //     `expandPromptTemplates ?? false`, and both of our call sites now
+    //     pass `false` EXPLICITLY rather than trusting that default, so a
+    //     dependency bump cannot silently reopen the path. The text we send
+    //     also begins with AUTOFIX_MARKER, never "/".
     //   - _throwIfExtensionCommand() guards _queueUserInput (steer/followUp)
     //     only. It is NOT what protects this path.
     //
