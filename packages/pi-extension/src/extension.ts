@@ -11,6 +11,7 @@ import { logRuntime, runtimeLogPath, setRuntimeLoggingArmed, isRuntimeLoggingArm
 import { createAgentFixProvider } from "./agent-fix-provider";
 import { SessionUiBridge } from "./session-ui";
 import { createConstitutionApplier } from "./constitution-applier";
+import { createAgentConstitutionProvider } from "./agent-constitution-provider";
 import { WriteBoundaryMonitor, verificationCommand } from "@sunstone-partners/ensemble-agent-core";
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -95,6 +96,21 @@ export async function drainDispatches(): Promise<void> {
 
 let trackedDispatches: Set<Promise<void>> | undefined;
 let monitor: WriteBoundaryMonitor | undefined;
+/**
+ * Describes a provider by what is ACTUALLY in use.
+ *
+ * Takes `unknown` on purpose. Reading the options field directly reported
+ * "configured" even when the default wiring had been deleted -- a status
+ * line that lies, which is worse than none -- and a `const` holding the
+ * resolved provider narrows to "always defined", so TypeScript rejects the
+ * honest check. Passing through a parameter keeps the check real, and
+ * mutation-testing the wiring now fails as it should.
+ */
+function providerLabel(effective: unknown, injected: unknown): string {
+  if (!effective) return "NOT configured";
+  return `configured (${injected ? "injected" : "agent subprocess"})`;
+}
+
 export function createActivate(options: ActivateOptions = {}): {
   activate: (pi: ExtensionAPI) => void;
   sink: InMemoryEventSink;
@@ -578,6 +594,14 @@ ${next.instruction}`,
     // Bound once so the status line reports the provider actually in use.
     // Reading options.proposeFix reported "NOT configured" while a default
     // provider was wired -- a status line that lies is worse than none.
+    // Bound once, for the same reason as the fix provider below: the status
+    // line must report the provider ACTUALLY in use. Reading options here
+    // reported "configured" even with the default wiring deleted -- caught
+    // by mutation-testing this exact line.
+    const effectiveProposeConstitution =
+      options.proposeConstitutionChange ??
+      createAgentConstitutionProvider({ rootDir: resolveRepoRoot(process.cwd()) });
+
     const effectiveProposeFix =
       options.proposeFix ??
       createAgentFixProvider({
@@ -594,7 +618,10 @@ ${next.instruction}`,
       // (guard, snapshot, suite verification, retry budget, commit policy)
       // was reachable only from tests. Injectable so tests need not spawn.
       proposeFix: effectiveProposeFix,
-      proposeConstitutionChange: options.proposeConstitutionChange,
+      // Default to a real provider, for the same reason proposeFix has one:
+      // leaving it undefined made step 3 of the loop unreachable outside
+      // tests, so the constitution was never updated by anything.
+      proposeConstitutionChange: effectiveProposeConstitution,
       // The bridge is the production approval channel: it answers
       // through whatever UI context Pi most recently supplied.
       approval: new ApprovalGate(options.approvalHost ?? uiBridge),
@@ -760,6 +787,7 @@ ${next.instruction}`,
           `  invocations      : ${runRecords.length}`,
           `  last invocation  : ${runRecords.length ? JSON.stringify(runRecords[runRecords.length - 1]) : "(none)"}`,
           `  fix provider     : configured (${options.proposeFix ? "injected" : "agent subprocess"})`,
+          `  rule provider    : ${providerLabel(effectiveProposeConstitution, options.proposeConstitutionChange)}`,
           `  dispatches in flight : ${pendingDispatches.size}`,
           `  approval channel : ${uiBridge.hasUI ? "live (ui.confirm)" : "unavailable - constitution changes fail closed"}`,
           `  log              : ${
