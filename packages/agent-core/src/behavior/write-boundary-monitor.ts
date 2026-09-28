@@ -186,13 +186,38 @@ export class WriteBoundaryMonitor {
    */
   constructor(
     private readonly rootDir: string,
-    private readonly inScope: (path: string) => boolean = () => true,
+    private inScope: (path: string) => boolean = () => true,
   ) {
     this.knownHead = headOid(rootDir);
   }
 
   get violations(): readonly WriteViolation[] {
     return this.seen;
+  }
+
+  /**
+   * Changes which protected paths this monitor governs, IN PLACE.
+   *
+   * Replacing the monitor instead would re-baseline everything to whatever
+   * is on disk at that moment. Proved by probe: tamper with the
+   * constitution while the boundary is narrow, then widen by constructing a
+   * fresh monitor, and the tampered text becomes the new pristine state --
+   * the laundering the boundary exists to prevent, performed by the
+   * boundary itself. Existing baselines are kept here precisely so a
+   * pending violation survives the transition.
+   *
+   * Paths leaving scope are FORGOTTEN, not merely ignored. A stale snapshot
+   * from an earlier window would otherwise revert the user's own later
+   * edits back to a state they never asked for.
+   */
+  setScope(inScope: (path: string) => boolean): void {
+    this.inScope = inScope;
+    for (const path of [...this.snapshots.keys()]) {
+      if (inScope(path)) continue;
+      this.snapshots.delete(path);
+      this.baselines.delete(path);
+      this.enumerated.delete(path);
+    }
   }
 
   /**

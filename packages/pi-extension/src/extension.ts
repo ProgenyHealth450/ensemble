@@ -468,7 +468,19 @@ export function createActivate(options: ActivateOptions = {}): {
       // Widened from guardrails to the whole tree for the duration of the
       // fix turn: this is the one window in which the machine must not
       // silently rewrite the test it is being judged by.
-      monitor = armWriteBoundary();
+      //
+      // The SAME monitor is widened, never replaced. A fresh one would
+      // re-baseline every guardrail to its current contents, so a tamper
+      // made while the boundary was narrow would be adopted as pristine at
+      // window open -- laundering, performed by the boundary itself.
+      const root = resolveRepoRoot(process.cwd());
+      monitor ??= armGuardrails();
+      monitor.setScope(() => true);
+      try {
+        monitor.protectAll(trackedAndUntracked(root));
+      } catch {
+        // Not a git repo: stays as narrow as it was.
+      }
     };
 
     // Idempotent, and called on every exit path: a window left open strands
@@ -477,8 +489,11 @@ export function createActivate(options: ActivateOptions = {}): {
       endBehaviorScope(pi);
       windowOpen = false;
       // Narrowed, NOT disarmed. The user's own files are theirs again the
-      // moment the fix turn ends; the guardrails never are.
-      monitor = armGuardrails();
+      // moment the fix turn ends; the guardrails never are. Narrowing in
+      // place keeps each guardrail's baseline from activation rather than
+      // blessing whatever the fix turn left behind.
+      monitor ??= armGuardrails();
+      monitor.setScope(isAlwaysProtectedPath);
     };
 
     const verifyPendingFix = (): void => {

@@ -237,6 +237,32 @@ describe("guardrails stay protected between behavior windows", () => {
     void fire;
   });
 
+  it("does not adopt a tamper made before the window opened, when the boundary widens", async () => {
+    const { root } = await start();
+    mkdirSync(join(root, "docs", "standards"), { recursive: true });
+    writeFileSync(join(root, GUARD), "# rules\n");
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-q", "-m", "guard"], { cwd: root });
+
+    const fresh = await start(undefined, root);
+
+    // Tampered while the boundary is NARROW, with no tool call in between,
+    // so nothing has checked yet when the window opens.
+    writeFileSync(join(root, GUARD), "# rules\n- smuggled in before the window\n");
+
+    // The window opens and the boundary widens to the whole tree. Rebuilding
+    // the monitor here would baseline the guardrail at its TAMPERED state and
+    // bless it permanently -- laundering performed by the boundary itself.
+    await openFixTurn(fresh.fire);
+
+    await fresh.fire("tool_result", toolDone);
+
+    // The revert is the property under test. The model is told at the FIRST
+    // tool call after the window opens, which is inside openFixTurn, so by
+    // this point there is correctly nothing left to report.
+    expect(read(root, GUARD)).toBe("# rules\n");
+  });
+
   it("still reverts a guardrail write AFTER a window has closed", async () => {
     const { root, fire } = await start();
     mkdirSync(join(root, "docs", "standards"), { recursive: true });
