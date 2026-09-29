@@ -105,7 +105,7 @@ export const DOMAIN_TOOL_EVENT_MAPPING: Record<DomainToolName, readonly string[]
     "constitution.proposed",
     "release.proposed",
   ],
-  "ensemble.report_blocked": ["behavior.blocked", "behavior.unblocked", "implementation.blocked"],
+  "ensemble.report_blocked": ["behavior.blocked", "implementation.blocked"],
   "ensemble.request_approval": [
     "approval.requested",
     "prd.approved",

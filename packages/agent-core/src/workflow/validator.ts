@@ -28,6 +28,7 @@ import {
   WORKFLOW_SCHEMA_VERSION,
   WorkflowDefinition,
   WorkflowStep,
+  WorkflowStepKind,
   parseDuration,
 } from "./schema";
 import { REFERENCE_ROOTS, collectReferences } from "./references";
@@ -164,6 +165,21 @@ export function validateWorkflow(input: WorkflowValidationInput): WorkflowValida
       }
     }
 
+    // br-n3gj: a field the schema does not define is a typo or a belief about
+    // a feature that does not exist, and silence makes the two
+    // indistinguishable. `next: some-step` compiled clean in two shipped
+    // manifests; the flow was correct only because declaration order happened
+    // to match the intent, so reordering steps for readability would have
+    // rewired the workflow with no diagnostic at any point. Naming the key and
+    // listing what was allowed is the whole fix: the author needs to learn
+    // that the field is ignored, which is the one thing the runtime never told
+    // them.
+    for (const key of Object.keys(step)) {
+      if (!isAllowedStepField(kind, key)) {
+        note(id, `unknown field ${JSON.stringify(key)} on a '${kind}' step; allowed fields are [${allowedStepFields(kind).join(", ")}]`);
+      }
+    }
+
     switch (kind) {
       case "agent":
         validateAgentStep(step as unknown as AgentStep, id, input, note);
@@ -200,6 +216,37 @@ export function validateWorkflow(input: WorkflowValidationInput): WorkflowValida
     diagnostics,
     workflow: candidate as unknown as WorkflowDefinition,
   };
+}
+
+
+/**
+ * The fields each step kind accepts, mirroring schema.ts exactly.
+ *
+ * This is duplication, and deliberately so: TypeScript interfaces vanish at
+ * run time, and a manifest is parsed YAML, not a typed object. There is no way
+ * to derive these from the interfaces without a schema library, and adding one
+ * to police five step kinds would be a larger commitment than the problem
+ * warrants. The cost is that a new field must be added in two places — which
+ * a conformance test enforces by failing when they diverge.
+ */
+const COMMON_STEP_FIELDS = ["id", "kind", "timeout", "on_failure"] as const;
+
+const STEP_FIELDS: Record<WorkflowStepKind, readonly string[]> = {
+  agent: ["prompt", "tools", "inputs", "expect", "max_output_bytes", "attempts"],
+  command: ["command", "args"],
+  condition: ["left", "operator", "right", "then", "otherwise"],
+  approval: ["title", "message", "on_approved", "on_declined"],
+  outcome: ["outcome", "status", "evidence"],
+};
+
+/** Allowed fields for a kind, common ones included, for use in diagnostics. */
+export function allowedStepFields(kind: string): readonly string[] {
+  const specific = STEP_FIELDS[kind as WorkflowStepKind] ?? [];
+  return [...COMMON_STEP_FIELDS, ...specific];
+}
+
+function isAllowedStepField(kind: string, key: string): boolean {
+  return allowedStepFields(kind).includes(key);
 }
 
 type Note = (step: string, message: string) => void;
