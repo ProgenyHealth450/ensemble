@@ -14,6 +14,7 @@ import {
   ACTIVATION_SEARCH_ROOTS,
 } from "@sunstone-partners/ensemble-agent-core";
 import { existsSync } from "node:fs";
+import { readRepoConsent, RepoConsent } from "./repo-consent";
 import { dirname, join } from "node:path";
 import { loadCompiledBehavior } from "./behavior-loader";
 
@@ -60,6 +61,12 @@ export interface BehaviorActivationResult {
    * ships its own prompt/skill files wherever it actually lives.
    */
   packageDirs?: Map<string, string>;
+  /**
+   * Whether this repository consented to being acted on, and why (br-fvmq).
+   * Always populated, including when arming was refused — a caller that wants
+   * to tell the user why nothing ran needs the reason, not just `discovered: 0`.
+   */
+  consent?: RepoConsent;
   /** Invoker failures; one behavior's failure never hides its siblings. */
   invocationErrors: { behavior: string; reason: string }[];
   /** Successfully loaded compiled packages, for late-bound consumers. */
@@ -94,6 +101,18 @@ export function activateBehaviorPipeline(
   const live: CompiledBehaviorPackage[] = [];
   const packageDirs = new Map<string, string>();
   const result: BehaviorActivationResult = { discovered: 0, loaded: [], skipped: [], inertTriggers: [], invocationErrors: [], compiled: live, packageDirs };
+
+  // Consent is checked BEFORE discovery, not after (br-fvmq). Arming must be
+  // something the repository's owner did, not a consequence of what its
+  // dependency tree happens to contain. An unarmed repo still activates the
+  // extension and still returns a matcher, so nothing downstream has to
+  // null-check — it simply has no behaviors to dispatch to.
+  const consent = readRepoConsent(rootDir);
+  result.consent = consent;
+  if (!consent.armed) {
+    result.matcher = new LocalEventMatcher([], { invoke: invoke ?? (() => undefined) });
+    return result;
+  }
 
   let discovered;
   try {

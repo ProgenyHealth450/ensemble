@@ -41,8 +41,20 @@ function fakePi() {
 }
 
 /** Builds a throwaway repo laid out the way discovery expects. */
+/**
+ * Arms a fixture repository (br-fvmq). Production requires an explicit
+ * `.ensemble/config.yaml` marker before any repo is acted on; these tests are
+ * about what happens ONCE armed, so they state consent here rather than in
+ * every assertion. Refusal has its own suite: tests/repo-consent.test.ts.
+ */
+function arm(root: string): string {
+  mkdirSync(join(root, ".ensemble"), { recursive: true });
+  writeFileSync(join(root, ".ensemble", "config.yaml"), "behaviors:\n  armed: true\n");
+  return root;
+}
+
 function repoWithBehavior(yamlBody: string): string {
-  const root = mkdtempSync(join(tmpdir(), "activation-"));
+  const root = arm(mkdtempSync(join(tmpdir(), "activation-")));
   const dir = join(root, "packages", "agent-core", "behaviors", "investigate-test-failure");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "behavior.yaml"), yamlBody);
@@ -138,7 +150,7 @@ describe("behavior pipeline activation (TRD-005 / REQ-009)", () => {
 
 describe("resolveRepoRoot (TRD-005 robustness)", () => {
   it("finds the repo root when started from a nested subdirectory", () => {
-    const root = mkdtempSync(join(tmpdir(), "root-"));
+    const root = arm(mkdtempSync(join(tmpdir(), "root-")));
     mkdirSync(join(root, ".git"), { recursive: true });
     const nested = join(root, "packages", "deep", "nested");
     mkdirSync(nested, { recursive: true });
@@ -148,7 +160,7 @@ describe("resolveRepoRoot (TRD-005 robustness)", () => {
   });
 
   it("falls back to the start directory when no .git ancestor exists", () => {
-    const orphan = mkdtempSync(join(tmpdir(), "orphan-"));
+    const orphan = arm(mkdtempSync(join(tmpdir(), "orphan-")));
     expect(resolveRepoRoot(orphan)).toBe(orphan);
     rmSync(orphan, { recursive: true, force: true });
   });
@@ -193,7 +205,7 @@ describe("portability of activation (TRD-008 reachability)", () => {
     // TRD-008 made discovery configurable; this asserts activation
     // actually passes that configuration through, rather than leaving
     // the new capability reachable only from unit tests.
-    const root = mkdtempSync(join(tmpdir(), "portable-"));
+    const root = arm(mkdtempSync(join(tmpdir(), "portable-")));
     mine.push(root);
     const dir = join(root, ".ensemble", "behaviors", "investigate-test-failure");
     mkdirSync(dir, { recursive: true });

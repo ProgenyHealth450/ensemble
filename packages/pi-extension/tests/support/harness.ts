@@ -43,7 +43,15 @@ export function sandbox(files: readonly SandboxFile[]): string {
   const root = mkdtempSync(join(tmpdir(), "ensemble-e2e-"));
   created.push(root);
 
-  for (const file of files) {
+  // Every sandbox consents to being armed unless the test supplies its own
+  // marker (br-fvmq). Arming is an explicit act in production, so a fixture
+  // must perform it too — but an e2e test is about what the runtime does
+  // ONCE armed, and making each one restate consent would bury the thing it
+  // actually tests. A test that wants to exercise refusal overrides the path.
+  const consented = files.some((f) => f.path === ".ensemble/config.yaml");
+  const all = consented ? files : [...files, { path: ".ensemble/config.yaml", contents: "behaviors:\n  armed: true\n" }];
+
+  for (const file of all) {
     const abs = join(root, file.path);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, file.contents);

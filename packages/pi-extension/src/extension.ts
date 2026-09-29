@@ -418,6 +418,10 @@ export function createActivate(options: ActivateOptions = {}): {
       skipped: lastActivation.skipped,
       commands: dispatcher.commandIds,
       hasApprovalHost: Boolean(options.approvalHost),
+      // Why this repo is or is not armed (br-fvmq). Without it, an unarmed
+      // repo reports `discovered: 0` and is indistinguishable from a broken
+      // one — and "nothing happened" is the hardest failure to diagnose.
+      consent: lastActivation.consent?.reason,
     });
   };
 

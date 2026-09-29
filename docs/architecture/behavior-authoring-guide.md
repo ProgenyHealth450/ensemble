@@ -15,6 +15,33 @@ input to a runtime that decides what it may do.
 The practical consequence for you as an author: **if the runtime will not let you express it, that
 is the answer, not an obstacle to route around.** There is no escape hatch, by design.
 
+## Arming the repository
+
+Nothing in this guide takes effect until the repository opts in. The extension loads in **every**
+omp session on the machine, but it will only discover and run behaviors in a repository that says
+so:
+
+```yaml
+# .ensemble/config.yaml
+behaviors:
+  armed: true
+```
+
+Without it, activation stops before discovery: no behaviors are found, no matcher is wired, nothing
+runs. Set `armed: false` to disarm without deleting any packages.
+
+This exists because arming used to be a side effect of dependency layout (br-fvmq). A repository
+armed because it happened to contain a `behaviors/` directory — or because something it *depended
+on* shipped one. Installing the runtime is consent to have it; it is not consent for a particular
+repository to be acted on, and the person who installs is not necessarily the person, or the
+moment, whose repo arms.
+
+Presence of the file is deliberately not enough. `.ensemble/` already holds behavior packages, so a
+repo can have that directory without anyone having decided anything. The key must be there.
+
+If a behavior you expect is not running, check the `consent` field in `.ensemble/runtime-log.jsonl`
+first — an unarmed repo reports `discovered: 0`, which otherwise looks exactly like a bug.
+
 ## Package layout
 
 ```

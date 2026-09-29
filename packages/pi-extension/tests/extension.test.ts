@@ -8,6 +8,13 @@ import activate from "../src/extension";
 // dynamic `import()` gets compiled back to `require` under a CJS jest
 // transform. A real Node ESM process sidesteps that resolver limitation
 // entirely instead of mocking around it.
+/** Arms a fixture repository; see br-fvmq. Refusal is covered separately. */
+function arm(root: string): string {
+  mkdirSync(join(root, ".ensemble"), { recursive: true });
+  writeFileSync(join(root, ".ensemble", "config.yaml"), "behaviors:\n  armed: true\n");
+  return root;
+}
+
 describe("pi-extension activation (AC-004-1/AC-004-2)", () => {
   it("throws a documented blocking-gap error instead of degrading silently if registerTool is missing (AC-004-2)", async () => {
     const brokenPi = {
@@ -87,7 +94,7 @@ describe("production activate() wires the behavior pipeline (TRD-005 / AC-009-1,
     // wiring is removed from extension.ts, this test fails even though
     // the pipeline modules still work in isolation. That distinction is
     // the entire point of REQ-009.
-    const root = mkdtempSync(join(tmpdir(), "activate-e2e-"));
+    const root = arm(mkdtempSync(join(tmpdir(), "activate-e2e-")));
     dirs.push(root);
     const dir = join(root, "packages", "agent-core", "behaviors", "investigate-test-failure");
     mkdirSync(dir, { recursive: true });
@@ -143,7 +150,7 @@ describe("live dispatch reaches a behavior through the real activate() (TRD-015 
     // The full production path: real createActivate() -> session
     // wiring -> translator -> matcher -> behavior. Only a raw Pi
     // tool_result is injected; everything else must be real.
-    const root = mkdtempSync(join(tmpdir(), "dispatch-e2e-"));
+    const root = arm(mkdtempSync(join(tmpdir(), "dispatch-e2e-")));
     dirs.push(root);
     const dir = join(root, "packages", "agent-core", "behaviors", "investigate-test-failure");
     mkdirSync(dir, { recursive: true });
