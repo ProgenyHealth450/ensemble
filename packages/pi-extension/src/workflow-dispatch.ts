@@ -44,6 +44,24 @@ export interface DispatchRecord {
   readonly run?: WorkflowRunResult;
   /** Present when it did not, explaining exactly which condition fired. */
   readonly skipped?: string;
+  /**
+   * Set the moment the run BEGINS, before the interpreter is entered.
+   *
+   * br-mr22: records used to be written only after a run resolved, so a run
+   * still executing when the session ended left no trace at all. Foreman,
+   * which owns the session and collects afterwards, then saw a clean
+   * termination with an empty outbox — indistinguishable from "the behavior
+   * matched nothing and correctly did nothing". A silent false negative in
+   * the direction that looks like success.
+   */
+  readonly startedAt?: string;
+  /**
+   * Present while a run is in flight, and cleared when it resolves. A record
+   * still carrying this after the session ends IS the evidence that the run
+   * was cut short — absence of an outcome is reported as abandonment rather
+   * than inferred as "nothing happened".
+   */
+  readonly abandoned?: string;
 }
 
 export interface WorkflowDispatchOptions {
@@ -174,6 +192,24 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
 
     const timeoutMs = parseDuration(compiled.manifest.policy.timeout ?? "") ?? undefined;
 
+    // The record goes in BEFORE the interpreter is entered, not after it
+    // returns (br-mr22). The session's lifetime is not ours to control:
+    // Foreman launches it and collects afterwards, so a run that is still
+    // executing when the session ends must leave evidence that it STARTED.
+    // Writing only on resolution made "cut short" and "correctly did nothing"
+    // produce byte-identical output.
+    const startedAt = (options.now ?? (() => new Date().toISOString()))();
+    const slot = records.length;
+    const started: DispatchRecord = {
+      behavior: behaviorName,
+      event: invocation.event.type,
+      startedAt,
+      abandoned: "run began but did not resolve; the session likely ended first",
+    };
+    records.push(started);
+    options.onRecord?.(started);
+    log({ kind: "invocation-started", behavior: behaviorName, event: invocation.event.type, startedAt });
+
     const run = await runWorkflow({
       behavior: behaviorName,
       behaviorDigest: authority.digest,
@@ -202,7 +238,12 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
       outcome: run.outcome,
       acceptance: acceptLocally("local-session").scope,
     });
-    finish({ behavior: behaviorName, event: invocation.event.type, run });
+
+    // Replace the in-flight record in place. `abandoned` is dropped, which is
+    // what makes its PRESENCE meaningful to a reader after the fact.
+    const resolved: DispatchRecord = { behavior: behaviorName, event: invocation.event.type, run, startedAt };
+    records[slot] = resolved;
+    options.onRecord?.(resolved);
   };
 
   return { invoke, records, commandIds };

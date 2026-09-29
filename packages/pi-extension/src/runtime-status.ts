@@ -42,6 +42,13 @@ export interface StateCounts {
   readonly completed: number;
   readonly failed: number;
   readonly skipped: number;
+  /**
+   * Runs that began and never resolved (br-mr22). Counted separately from
+   * `failed` on purpose: a failure is a result, abandonment is the ABSENCE
+   * of one, and collapsing them would let a session cut short read as a
+   * behavior that ran and did not succeed.
+   */
+  readonly abandoned: number;
 }
 
 export function countStates(input: StatusInput): StateCounts {
@@ -59,6 +66,7 @@ export function countStates(input: StatusInput): StateCounts {
     failed: runs.filter((r) => r.run?.terminal === "failed" || r.run?.terminal === "cancelled").length,
     // Skipped covers both activation-time skips and dispatch-time refusals.
     skipped: (activation?.skipped.length ?? 0) + input.records.filter((r) => r.skipped).length,
+    abandoned: input.records.filter((r) => r.abandoned).length,
   };
 }
 
@@ -69,7 +77,22 @@ export function renderStatusReport(input: StatusInput): string {
 
   lines.push(`  states           : discovered=${counts.discovered} validated=${counts.validated} ` +
     `matched=${counts.matched} invoked=${counts.invoked} pending=${counts.pending} ` +
-    `completed=${counts.completed} failed=${counts.failed} skipped=${counts.skipped}`);
+    `completed=${counts.completed} failed=${counts.failed} skipped=${counts.skipped} ` +
+    `abandoned=${counts.abandoned}`);
+
+  if (counts.abandoned > 0) {
+    // Stated in full rather than left as a number. A reader who sees only a
+    // count may treat it as noise; the consequence -- that results are
+    // MISSING rather than negative -- is the part that matters to anyone
+    // drawing conclusions from this session.
+    lines.push(
+      `  WARNING          : ${counts.abandoned} run(s) began and never resolved. Their results are ` +
+        `missing, not negative. Do not read an empty outcome as "nothing to do".`,
+    );
+    for (const r of input.records.filter((x) => x.abandoned)) {
+      lines.push(`    ${r.behavior} on ${r.event} (started ${r.startedAt}): ${r.abandoned}`);
+    }
+  }
 
   if (!a) {
     lines.push("  activation       : NOT ACTIVATED");
