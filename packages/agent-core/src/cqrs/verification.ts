@@ -153,6 +153,38 @@ const UNLOADABLE_PATTERNS: readonly RegExp[] = [
   /\(module\s+(\S+)\s+is not available\)/g,
 ];
 
+/**
+ * Phrases by which a runner or wrapper announces it did not run part of the
+ * suite.
+ *
+ * Deliberately requires an explicit statement rather than inferring from
+ * counts. A suite that legitimately contains zero tests in one project is
+ * normal; a run that SAYS it skipped something has told us its coverage is
+ * partial, and that is a different and much stronger signal.
+ *
+ * Anchored to whole lines so a test named "skipping empty input" in someone's
+ * output cannot trip it.
+ */
+const ANNOUNCED_SKIP_PATTERNS: readonly RegExp[] = [
+  // packages/router when pytest is absent and CI is unset (br-91nr).
+  /^\s*Skipping\s+\w+\s+tests?\b.*$/gim,
+  /^\s*Skipped\s+\w+\s+tests?\b.*$/gim,
+  /^\s*No\s+\w+\s+tests?\s+to\s+run\b.*$/gim,
+];
+
+/** Lines in which the run declared it skipped part of the suite. */
+export function findAnnouncedSkips(text: string): string[] {
+  const found = new Set<string>();
+  for (const pattern of ANNOUNCED_SKIP_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (const match of text.matchAll(pattern)) {
+      const line = match[0].trim();
+      if (line) found.add(line);
+    }
+  }
+  return [...found];
+}
+
 export function findUnloadableSuites(text: string): string[] {
   const found = new Set<string>();
   for (const pattern of UNLOADABLE_PATTERNS) {
@@ -192,6 +224,26 @@ export function verifyOutput(input: VerifyInput): VerificationResult {
     return {
       status: "inconclusive",
       detail: `verification timed out before the suite reported: ${input.command}`,
+      framework: "unknown",
+      unloadableSuites,
+    };
+  }
+
+  // A wrapper that ANNOUNCES it skipped part of the suite has not verified
+  // that part, whatever it exits with (br-91nr).
+  //
+  // Concretely: `packages/router` prints "Skipping Python tests" and exits 0
+  // when pytest is absent and CI is unset. Nothing downstream could tell that
+  // from a real pass, because the JS half of the same run reports perfectly
+  // good counts and an adapter matches them happily. The skip is upstream of
+  // the framework adapters, so it must be checked before them.
+  const announcedSkips = findAnnouncedSkips(text);
+  if (announcedSkips.length > 0) {
+    return {
+      status: "inconclusive",
+      detail:
+        `the run announced it skipped part of the suite (${announcedSkips.join("; ")}), ` +
+        `so a pass covers only what actually ran: ${input.command}`,
       framework: "unknown",
       unloadableSuites,
     };
