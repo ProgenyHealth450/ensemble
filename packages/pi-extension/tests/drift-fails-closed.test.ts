@@ -50,19 +50,27 @@ const REQUEST = {
   stepId: "s",
   prompt: "p",
   tools: ["read"],
+  expect: "text" as const,
+  maxOutputBytes: 64_000,
   timeoutMs: 10_000,
   signal: new AbortController().signal,
 };
 
 describe("an unverifiable working tree is refused, not trusted", () => {
   it("discards the reply when drift could not be determined", async () => {
-    const result = await port(nonRepo()).invoke(REQUEST as never);
+    const result = await port(nonRepo()).invoke(REQUEST);
 
     expect(result.ok).toBe(false);
   });
 
   it("says why, rather than reporting a generic failure", async () => {
-    const result = (await port(nonRepo()).invoke(REQUEST as never)) as { ok: false; reason: string };
+    const result = await port(nonRepo()).invoke(REQUEST);
+
+    // Narrowed by a real check rather than a cast. A cast to `{ ok: false }`
+    // would assert the very thing under test, so a regression that returned
+    // `ok: true` would surface as a confusing undefined-match instead of the
+    // refusal having stopped working.
+    if (result.ok) throw new Error("expected refusal, got a successful reply");
 
     expect(result.reason).toMatch(/could not be checked/);
     // The consequence is stated, not just the condition: a reader must
@@ -71,7 +79,7 @@ describe("an unverifiable working tree is refused, not trusted", () => {
   });
 
   it("does not return the agent's reply, which is the actual hazard", async () => {
-    const result = await port(nonRepo()).invoke(REQUEST as never);
+    const result = await port(nonRepo()).invoke(REQUEST);
 
     expect(JSON.stringify(result)).not.toContain("the agent's reply");
   });
@@ -86,7 +94,7 @@ describe("an unverifiable working tree is refused, not trusted", () => {
       log: (entry) => entries.push(entry),
     });
 
-    await p.invoke(REQUEST as never);
+    await p.invoke(REQUEST);
 
     expect(entries.some((e) => e.kind === "agent-invoke-drift-unavailable")).toBe(true);
   });
@@ -100,8 +108,8 @@ describe("an unverifiable working tree is refused, not trusted", () => {
       run: async () => "reply",
     });
 
-    const result = (await p.invoke(REQUEST as never)) as { ok: false; reason: string };
-    expect(result.ok).toBe(false);
+    const result = await p.invoke(REQUEST);
+    if (result.ok) throw new Error("expected refusal, got a successful reply");
     expect(result.reason).toMatch(/refusing to invoke/);
   });
 });
