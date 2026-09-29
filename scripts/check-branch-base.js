@@ -36,7 +36,7 @@ function fail(message, code = 1) {
   process.exit(code);
 }
 
-function resolveBase(branch) {
+function resolveBase() {
   // An explicit base is REQUIRED in CI and optional locally.
   //
   // Locally, `@{u}` is the right question: "am I behind what I last pushed
@@ -84,7 +84,7 @@ function main() {
     process.exit(0);
   }
 
-  const upstream = resolveBase(branch);
+  const upstream = resolveBase();
 
   const counts = git(["rev-list", "--left-right", "--count", `${upstream}...HEAD`], { allowFailure: true });
   if (!counts) fail(`could not compare ${branch} against ${upstream}. Try: git fetch`, 2);
