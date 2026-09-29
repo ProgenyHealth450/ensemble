@@ -39,7 +39,7 @@ import {
   EvidenceRef,
   HandlerOutcome,
 } from "./command-contract";
-import { MutationGuard, MutationKind } from "../behavior/mutation-guard";
+import { MutationGuard, MutationKind, SANCTIONED_PROTECTED_CLASS } from "../behavior/mutation-guard";
 import { AcceptanceRecord, acceptLocally, lookupEvent, stampEvent } from "./event-authority";
 import { RuntimeStampedEvent } from "../events";
 
@@ -77,12 +77,11 @@ interface Invocation {
   readonly signal?: AbortSignal;
 }
 
-/**
- * The single mutation class MutationGuard exempts from protected-path refusal.
- * Declared here, next to the registration check that constrains it, so the
- * exemption has exactly one name in the codebase.
- */
-export const SANCTIONED_PROTECTED_CLASS = "constitution.write";
+// Re-exported for callers that reach the catalog through this module. The
+// declaration lives beside the guard check it governs, in
+// `behavior/mutation-guard.ts`; importing it in that direction is the one that
+// does not create a cycle.
+export { SANCTIONED_PROTECTED_CLASS };
 
 let requestSequence = 0;
 

@@ -2,6 +2,16 @@ import { CompiledBehaviorPackage } from "./compiler";
 import { classifyPath } from "./protected-paths";
 
 /**
+ * The single mutation class exempt from protected-path refusal below.
+ *
+ * Declared here, beside the check it governs, so the exemption has exactly one
+ * name in the codebase. `cqrs/command-registry.ts` imports it from this module
+ * — never the reverse, which would be a cycle — and refuses to register any
+ * command descriptor that claims this class without requiring approval.
+ */
+export const SANCTIONED_PROTECTED_CLASS = "constitution.write";
+
+/**
  * The single authorization chokepoint for mutations (TRD-002).
  *
  * Before this existed, `CompiledBehaviorPackage.hasMutationAuthority()`
