@@ -107,3 +107,38 @@ describe("the allow-list matches the schema it duplicates", () => {
     expect(allowedStepFields(kind).filter((f) => !declared.includes(f))).toEqual([]);
   });
 });
+
+describe("unknown fields on the workflow object itself are rejected", () => {
+  function workflowObject(extra: Record<string, unknown>) {
+    return validateWorkflow({
+      behaviorName: "t",
+      workflow: {
+        schema_version: "1.0.0",
+        start: "done",
+        steps: [{ id: "done", kind: "outcome", outcome: "ok", status: "succeeded" }],
+        ...extra,
+      },
+      declaredOutcomes: ["ok"],
+      behaviorTools: [],
+      behaviorCommands: [],
+    });
+  }
+
+  it("rejects a plausible global default that does nothing", () => {
+    // `timeout` at workflow level reads as "applies to every step". It does
+    // not exist, and silently accepting it means every step runs unbounded
+    // while the manifest says otherwise.
+    const result = workflowObject({ timeout: "5m" });
+
+    expect(result.valid).toBe(false);
+    expect(messages(result)).toContain('unknown field "timeout"');
+  });
+
+  it("rejects an invented top-level key", () => {
+    expect(messages(workflowObject({ on_failure: "done" }))).toContain('unknown field "on_failure"');
+  });
+
+  it("accepts the three declared keys and nothing more", () => {
+    expect(messages(workflowObject({}))).not.toContain("unknown field");
+  });
+});

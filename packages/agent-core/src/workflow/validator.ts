@@ -124,6 +124,15 @@ export function validateWorkflow(input: WorkflowValidationInput): WorkflowValida
 
   const targetExists = (target: unknown): boolean => typeof target === "string" && ids.has(target);
 
+  // The same silent-discard one level up: a key here is as easy to invent as
+  // one on a step, and a plausible-looking `on_failure:` or `timeout:` at
+  // workflow level reads as a global default while doing nothing at all.
+  for (const key of Object.keys(candidate)) {
+    if (!WORKFLOW_FIELDS.includes(key)) {
+      note("(workflow)", `unknown field ${JSON.stringify(key)} on the workflow; allowed fields are [${WORKFLOW_FIELDS.join(", ")}]`);
+    }
+  }
+
   for (const [id, step] of ids) {
     const kind = step.kind;
     if (typeof kind !== "string" || !(SUPPORTED_STEP_KINDS as readonly string[]).includes(kind)) {
@@ -229,6 +238,9 @@ export function validateWorkflow(input: WorkflowValidationInput): WorkflowValida
  * warrants. The cost is that a new field must be added in two places — which
  * a conformance test enforces by failing when they diverge.
  */
+/** The only keys a workflow object may carry (schema.ts WorkflowDefinition). */
+const WORKFLOW_FIELDS = ["schema_version", "start", "steps"];
+
 const COMMON_STEP_FIELDS = ["id", "kind", "timeout", "on_failure"] as const;
 
 const STEP_FIELDS: Record<WorkflowStepKind, readonly string[]> = {
