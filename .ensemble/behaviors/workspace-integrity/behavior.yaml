@@ -32,6 +32,11 @@ execution:
     schema_version: "1.0.0"
     start: check
     steps:
+      # Flow is DECLARATION ORDER: there is no `next:` field, so a
+      # non-condition step falls through to the step declared after it and
+      # only a condition redirects. Reordering these steps rewires the
+      # workflow silently, so terminal outcomes come last.
+      #
       # No agent step. Every judgement here is mechanical -- a symlink either
       # resolves or it does not -- and involving a model would add latency and
       # cost to a startup path in exchange for a new way to be wrong.
@@ -39,7 +44,6 @@ execution:
         kind: command
         command: workspace.check
         args: {}
-        next: classify
 
       - id: classify
         kind: condition

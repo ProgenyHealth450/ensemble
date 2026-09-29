@@ -19,6 +19,7 @@ Every command runs through one registry. Authorization is checked in a fixed ord
 | `fix.apply` | `fix.apply` | `artifact.write` (write) | **required** | `fix.applied`, `fix.rejected` |
 | `constitution.propose` | `constitution.propose` | no | no | `constitution.proposed` |
 | `constitution.apply` | `constitution.apply` | `constitution.write` (write) | **required** | `constitution.applied`, `constitution.declined` |
+| `verification.run` | `verification.run` | no | no | `behavior.observation.recorded` |
 | `workspace.check` | `workspace.check` | no | no | `behavior.observation.recorded` |
 
 ### `investigation.record` v1.0.0
@@ -62,6 +63,13 @@ Apply an approved constitution amendment to the canonical constitution
 
 - **Input:** `proposalRef: string`
 - **Result:** `proposalRef: string`, `path: string`, `events: record`
+
+### `verification.run` v1.0.0
+
+Run a verification command against the current tree in an isolated workspace
+
+- **Input:** `command: string`, `timeoutMs: number`
+- **Result:** `verdict: string`, `detail: string`, `framework: string`, `vacuous: boolean`, `events: record`
 
 ### `workspace.check` v1.0.0
 

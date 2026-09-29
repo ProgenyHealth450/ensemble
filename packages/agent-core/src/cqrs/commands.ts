@@ -627,6 +627,109 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
   };
 
   /**
+   * Runs a verification command in an isolated workspace, unbound to any
+   * proposal (br-zctt).
+   *
+   * `fix.verify` does the same work but only for a proposal's writes. A gate
+   * that wants to check the tree AS IT STANDS had no command at all, so this
+   * exists rather than overloading `fix.verify` with an optional proposal —
+   * an optional binding on a security-relevant command is how the binding
+   * ends up skipped.
+   *
+   * THE VERDICT IS THE POINT, NOT THE EXIT CODE. `verifyOutput` returns
+   * `inconclusive` for a run that executed nothing, so "Tests: 0 total,
+   * exit 0" cannot be reported as success. A gate that accepts a vacuous pass
+   * is worse than no gate, because it manufactures confidence (br-cwrh).
+   */
+  const verificationRun: CommandDescriptor<{ command: string; timeoutMs?: number }, unknown> = {
+    id: "verification.run",
+    version: "1.0.0",
+    description: "Run a verification command against the current tree in an isolated workspace",
+    requiredCapability: "verification.run",
+    emits: ["behavior.observation.recorded"],
+    input: {
+      type: "object",
+      fields: {
+        command: { type: "string", minLength: 1 },
+        timeoutMs: { type: "number", integer: true, min: 1000 },
+      },
+      optional: ["timeoutMs"],
+    },
+    result: {
+      type: "object",
+      fields: {
+        verdict: { type: "string" },
+        detail: { type: "string" },
+        framework: { type: "string" },
+        vacuous: { type: "boolean" },
+        events: { type: "record", values: { type: "unknown" } },
+      },
+    },
+    async handler(ctx, args): Promise<HandlerOutcome<unknown>> {
+      const isolation = isolate(deps.workspaceRoot, "verification");
+      if (!isolation.ok) {
+        // Cannot isolate ⇒ cannot verify. Running in the live tree would make
+        // verification a mutation, which is the thing being avoided — and
+        // "we could not isolate" must never resolve to "therefore proceed".
+        return {
+          status: "completed",
+          result: {
+            verdict: "inconclusive",
+            detail: isolation.reason,
+            framework: "unknown",
+            vacuous: false,
+            events: {
+              "behavior.observation.recorded": {
+                observation: "verification.run",
+                verdict: "inconclusive",
+                detail: isolation.reason,
+              },
+            },
+          },
+          evidence: [{ kind: "verification", ref: args.command, detail: isolation.reason }],
+        };
+      }
+
+      try {
+        const output = run(
+          args.command,
+          isolation.workspace.root,
+          args.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS,
+          ctx.signal,
+        );
+        const verdict = verifyOutput({ ...output, command: args.command });
+        // A run that executed nothing is reported as such in its own field,
+        // so a consumer cannot collapse it into "not passed" and lose the
+        // distinction between "your code is broken" and "nothing was checked".
+        const vacuous = verdict.status === "inconclusive" && verdict.total === 0;
+
+        ctx.log({ kind: "verification-run", command: args.command, verdict: verdict.status, vacuous });
+        return {
+          status: "completed",
+          result: {
+            verdict: verdict.status,
+            detail: verdict.detail,
+            framework: verdict.framework,
+            vacuous,
+            events: {
+              "behavior.observation.recorded": {
+                observation: "verification.run",
+                command: args.command,
+                verdict: verdict.status,
+                detail: verdict.detail,
+                vacuous,
+              },
+            },
+          },
+          evidence: [{ kind: "verification", ref: args.command, detail: verdict.detail }],
+        };
+      } finally {
+        isolation.workspace.dispose();
+      }
+    },
+  };
+
+  /**
    * Read-only workspace integrity check (br-c4ni).
    *
    * No mutation class and no approval, because it changes nothing: it reads
@@ -689,6 +792,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     fixApply as unknown as CommandDescriptor<never, unknown>,
     constitutionPropose as unknown as CommandDescriptor<never, unknown>,
     constitutionApply as unknown as CommandDescriptor<never, unknown>,
+    verificationRun as unknown as CommandDescriptor<never, unknown>,
     workspaceCheck as unknown as CommandDescriptor<never, unknown>,
   ];
 }
@@ -701,5 +805,6 @@ export const BUILTIN_COMMAND_CAPABILITIES: Readonly<Record<string, string>> = {
   "fix.apply": "fix.apply",
   "constitution.propose": "constitution.propose",
   "constitution.apply": "constitution.apply",
+  "verification.run": "verification.run",
   "workspace.check": "workspace.check",
 };
