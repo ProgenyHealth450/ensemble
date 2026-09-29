@@ -120,6 +120,45 @@ describe("a behavior's outcome becomes an event", () => {
   });
 });
 
+describe("an inconclusive run is never reported as a completed one", () => {
+  /**
+   * This shipped wrong once. `inconclusive` had no branch in the mapping and
+   * fell through to `behavior.completed`, so "we could not tell" was
+   * published as "it worked".
+   *
+   * That is the exact overclaim the vacuous-test-run behavior exists to
+   * catch — it uses `status: inconclusive`, never `succeeded`, precisely so
+   * a suite that executed nothing is not called a pass. Collapsing the two
+   * in the event layer would have undone that everywhere downstream, which
+   * is worse than never having made the distinction.
+   */
+  it("publishes behavior.outcome.recorded, not behavior.completed", async () => {
+    const h = harness(manifest({ status: "inconclusive" }));
+    await h.d.invoke({ behavior: h.m, event: event() } as never);
+
+    const outcome = h.published.find((e) => e.type.startsWith("behavior."));
+    expect(outcome?.type).toBe("behavior.outcome.recorded");
+    expect(outcome?.type).not.toBe("behavior.completed");
+  });
+
+  it("carries the real terminal state, so the weaker claim is checkable", async () => {
+    const h = harness(manifest({ status: "inconclusive" }));
+    await h.d.invoke({ behavior: h.m, event: event() } as never);
+
+    expect(h.published.find((e) => e.type.startsWith("behavior."))?.payload).toMatchObject({
+      terminal: "inconclusive",
+    });
+  });
+
+  it("keeps succeeded distinct, so the fix did not simply move the collapse", async () => {
+    const h = harness(manifest({ status: "succeeded" }));
+    await h.d.invoke({ behavior: h.m, event: event() } as never);
+
+    expect(h.published.find((e) => e.type.startsWith("behavior."))?.type).toBe("behavior.completed");
+  });
+});
+
+
 describe("chaining is bounded, so a self-triggering behavior cannot run away", () => {
   it("terminates a behavior that triggers on its own completion", async () => {
     // The behavior listens for behavior.completed and emits behavior.completed.

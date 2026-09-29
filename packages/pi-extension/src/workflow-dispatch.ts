@@ -255,18 +255,35 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
     // it. Command events already re-enter the sink so a behavior can react to
     // `fix.verified`; this is the missing half of the same design.
     //
-    // Mapping. The catalog has no `behavior.failed`, so a run that did not
-    // reach a declared outcome is `behavior.abandoned` and carries its real
-    // terminal state in the payload. One event per run, not two: emitting
-    // `behavior.outcome.recorded` alongside would double the volume to say
-    // the same thing twice.
+    // Mapping, and the distinctions in it are load bearing:
+    //
+    //   succeeded    -> behavior.completed         (authority: observed)
+    //   inconclusive -> behavior.outcome.recorded  (authority: diagnostic)
+    //   blocked      -> behavior.blocked           (authority: diagnostic)
+    //   failed |
+    //   cancelled    -> behavior.abandoned         (authority: observed)
+    //
+    // `inconclusive` gets its own event on purpose. It first fell through to
+    // `behavior.completed`, which quietly reported "we could not tell" as
+    // "it worked" — the same overclaim this session built the whole
+    // vacuous-test-run behavior to catch, where `status: inconclusive` is
+    // used precisely so a suite that ran nothing is never called a pass.
+    // Making that mistake in the event layer would have undone it everywhere
+    // downstream. `behavior.outcome.recorded` carries authority "diagnostic"
+    // rather than "observed", which is exactly the weaker claim wanted here.
+    //
+    // The catalog has no `behavior.failed`, so a run that did not reach a
+    // declared outcome is `behavior.abandoned` and carries its real terminal
+    // state in the payload. Still one event per run, never two.
     if (options.publish) {
       const type =
         run.terminal === "blocked"
           ? "behavior.blocked"
-          : run.terminal === "failed" || run.terminal === "cancelled"
-            ? "behavior.abandoned"
-            : "behavior.completed";
+          : run.terminal === "inconclusive"
+            ? "behavior.outcome.recorded"
+            : run.terminal === "failed" || run.terminal === "cancelled"
+              ? "behavior.abandoned"
+              : "behavior.completed";
       const stamped = stampEvent({
         type,
         payload: { behavior: behaviorName, terminal: run.terminal, outcome: run.outcome, reason: run.reason },
