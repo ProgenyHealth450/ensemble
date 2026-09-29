@@ -30,6 +30,7 @@ import { Proposal, ProposalStore, currentHash, hashContents } from "./proposal-s
 import { VerificationResult, verifyOutput } from "./verification";
 import { createIsolatedWorkspace, materialize } from "./isolated-workspace";
 import { classifyPath } from "../behavior/protected-paths";
+import { SANCTIONED_PROTECTED_CLASS } from "./command-registry";
 
 export interface CommandCatalogDeps {
   readonly workspaceRoot: string;
@@ -549,7 +550,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     version: "1.0.0",
     description: "Apply an approved constitution amendment to the canonical constitution",
     requiredCapability: "constitution.apply",
-    mutation: { class: "constitution.write", kind: "write" },
+    mutation: { class: SANCTIONED_PROTECTED_CLASS, kind: "write" },
     requiresApproval: true,
     emits: ["constitution.applied", "constitution.declined"],
     input: { type: "object", fields: { proposalRef: { type: "string", minLength: 1 } } },
@@ -584,7 +585,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
       }
 
       const decision = ctx.authorizeMutation({
-        mutationClass: "constitution.write",
+        mutationClass: SANCTIONED_PROTECTED_CLASS,
         path: target.path,
         kind: "write",
       });
