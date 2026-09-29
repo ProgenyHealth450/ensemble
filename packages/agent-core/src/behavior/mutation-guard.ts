@@ -95,9 +95,36 @@ export function createMutationGuard(
       // cheapest way to make a failing test pass is to edit the test,
       // and no amount of declared authority should buy that (TRD-020 /
       // AC-015-2). Mechanical path check, no model involvement.
+      //
+      // ONE exception, and it is a recorded decision rather than an
+      // assumption. br-9uqd retired the older "approval IS a pull request"
+      // design -- main is protected and advances only through a dev -> main
+      // release PR, so human review is structural now -- and named this
+      // consequence directly: "WriteBoundaryMonitor must permit exactly that
+      // one authorized write." Without it `constitution.apply` cannot reach
+      // its write, and REQ-SAFE-008's separate, auditable application would be
+      // satisfied by application being impossible: governance that reads as
+      // working right up until someone needs it to work.
+      //
+      // Why this stays narrow. A mutation class is declared by a command
+      // DESCRIPTOR, never by behavior data, so no manifest can mint
+      // `constitution.write` for itself; the only route to it is a registered
+      // command. CommandRegistry.register() refuses any descriptor claiming
+      // SANCTIONED_PROTECTED_CLASS without `requiresApproval`, so this cannot
+      // be widened later by adding an unapproved command in a distant file.
+      // Coarse class/path scoping is all that belongs here -- the guard runs
+      // BEFORE approval, so it has no approval state to consult. The
+      // anti-forgery checks live one layer down, in the constitution.apply
+      // handler: proposal exists, is a constitution proposal, is unapplied,
+      // and its baseSha256 still matches the file on disk.
+      //
+      // This widens what is reachable. It does not widen who may reach it,
+      // and buys nothing against a test file, a fixture or a guardrail source.
       if (request.path) {
         const verdict = classifyPath(request.path);
-        if (verdict.protected) {
+        const sanctionedConstitutionWrite =
+          verdict.reason === "constitution" && request.mutationClass === SANCTIONED_PROTECTED_CLASS;
+        if (verdict.protected && !sanctionedConstitutionWrite) {
           return {
             allowed: false,
             reason:

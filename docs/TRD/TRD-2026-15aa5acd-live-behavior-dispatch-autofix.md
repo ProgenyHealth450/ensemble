@@ -20,16 +20,21 @@ Source PRD: [PRD-2026-15aa5acd](../PRD/PRD-2026-15aa5acd-live-behavior-dispatch-
 
 > **Partially superseded — 2026-09-29.** Epic `br-behavior-runtime-cqrs-xl24` (behavior runtime:
 > CQRS commands, closed event catalog, declarative workflows) replaced this TRD's *dispatch and
-> auto-fix mechanism*. These modules, all under `packages/pi-extension/src/`, no longer exist:
-> `behavior-runner.ts`, `autofix-loop.ts`, `agent-fix-provider.ts`, `constitution-proposal.ts`,
-> `working-tree-snapshot.ts`, `issue-identity.ts`; `continuation-budget.ts` is now
-> `invocation-budget.ts`. The continuation-message path is gone entirely rather than disabled,
-> because §7 of the CQRS requirements forbids keeping both dispatch paths.
+> auto-fix mechanism*.
 >
-> Note that this document uses two similar names for different things. The deleted module is
-> `packages/pi-extension/src/working-tree-snapshot.ts` (§24). It is **not**
-> `packages/agent-core/src/behavior/workspace-snapshot.ts` (§320), which survives the epic
-> unchanged and is still used by `write-boundary-monitor.ts`.
+> Of the modules this document names, two are gone: `packages/pi-extension/src/autofix-loop.ts` and
+> `packages/pi-extension/src/issue-identity.ts`. The continuation-message path they implemented was
+> deleted outright rather than disabled, because §7 of the CQRS requirements forbids keeping both
+> dispatch paths behind a flag.
+>
+> `packages/agent-core/src/behavior/workspace-snapshot.ts` (named at the Target Files entries around
+> lines 304, 309 and 368) **survives unchanged** and is still used by `write-boundary-monitor.ts`.
+> Do not read it as deleted; a near-identically-named `pi-extension/src/working-tree-snapshot.ts`
+> was removed, but this TRD never referenced that file.
+>
+> The epic also deleted several pi-extension modules this document does not mention. They are
+> listed, with the reasoning for each removal, in
+> [Phase 0 boundaries](../architecture/cqrs-phase0-boundaries.md).
 >
 > **What survives:** the architecture decision below (Option C — one `MutationGuard` chokepoint) is
 > still the design, and `MutationGuard` is still the single enforcement seam. The auto-fix
