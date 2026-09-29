@@ -27,14 +27,17 @@ export interface BudgetDecision {
 }
 
 /**
- * Bounds autofix retries on two independent axes.
+ * Bounds behavior invocations on two independent axes (REQ-SAFE-007).
  *
  * Per-issue alone is not enough: a run that keeps surfacing DIFFERENT failing
- * commands would spawn an unbounded number of continuations while never
- * exceeding any single issue's cap. The session budget is the backstop that
- * makes the loop terminate regardless of how the failures are spelled.
+ * commands would invoke without limit while never exceeding any single issue's
+ * cap. The session budget is the backstop that makes the loop terminate
+ * regardless of how the failures are spelled.
+ *
+ * A local safeguard, not a delivery guarantee: it bounds this process and says
+ * nothing about another, so it must not be described as deduplication.
  */
-export class ContinuationBudget {
+export class InvocationBudget {
   private readonly perIssue = new Map<string, number>();
   private total = 0;
 

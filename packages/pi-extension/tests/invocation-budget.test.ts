@@ -1,4 +1,4 @@
-import { normalizeIssueKey, ContinuationBudget } from "../src/continuation-budget";
+import { normalizeIssueKey, InvocationBudget } from "../src/invocation-budget";
 
 describe("normalizeIssueKey collapses cosmetic command variation", () => {
   // The exact pair observed live: one failure, retried with different output
@@ -20,9 +20,9 @@ describe("normalizeIssueKey collapses cosmetic command variation", () => {
   });
 });
 
-describe("ContinuationBudget bounds retries on both axes", () => {
+describe("InvocationBudget bounds retries on both axes", () => {
   it("refuses a second attempt at the same issue however it is spelled", () => {
-    const b = new ContinuationBudget(1, 10);
+    const b = new InvocationBudget(1, 10);
     expect(b.claim("npx jest live-e2e | tail -5").allowed).toBe(true);
     const second = b.claim("npx jest live-e2e 2>&1 | sed -n 1,60p");
     expect(second.allowed).toBe(false);
@@ -32,7 +32,7 @@ describe("ContinuationBudget bounds retries on both axes", () => {
   // Per-issue caps alone cannot terminate a run that keeps producing new
   // failing commands; the session budget is the backstop that does.
   it("stops an unbounded stream of DIFFERENT failures", () => {
-    const b = new ContinuationBudget(1, 2);
+    const b = new InvocationBudget(1, 2);
     expect(b.claim("npx jest a").allowed).toBe(true);
     expect(b.claim("npx jest b").allowed).toBe(true);
     const third = b.claim("npx jest c");
@@ -42,7 +42,7 @@ describe("ContinuationBudget bounds retries on both axes", () => {
   });
 
   it("does not consume budget for a refused attempt", () => {
-    const b = new ContinuationBudget(1, 5);
+    const b = new InvocationBudget(1, 5);
     b.claim("npx jest a");
     b.claim("npx jest a"); // refused
     expect(b.spent).toBe(1);
