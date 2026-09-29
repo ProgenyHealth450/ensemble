@@ -57,13 +57,20 @@ export interface CompiledBehaviorPackage {
  * `metadata.digest` itself (the digest cannot include its own value).
  * Canonical JSON (recursively sorted object keys) makes the digest
  * independent of source key ordering.
+ *
+ * Tolerates a manifest with no `metadata` block at all. That is an invalid
+ * manifest and `compileOne` reports it as such — but this function runs
+ * BEFORE those errors are returned, and destructuring `undefined` threw a
+ * TypeError that escaped discovery entirely. One malformed package then
+ * suppressed every valid sibling in the repository, which is precisely what
+ * REQ-BEH-004 forbids. A crash is not a diagnostic.
  */
 export function computeManifestDigest(manifest: BehaviorManifest): string {
   const { metadata, ...rest } = manifest;
   // `packageDigest` is computed at load time from files on disk, never
   // declared in YAML. Including it would make the manifest digest depend on
   // a value derived from the manifest digest.
-  const { digest: _digest, packageDigest: _packageDigest, ...metadataWithoutDigest } = metadata;
+  const { digest: _digest, packageDigest: _packageDigest, ...metadataWithoutDigest } = metadata ?? {};
   const canonical = canonicalize({ ...rest, metadata: metadataWithoutDigest });
   return createHash("sha256").update(canonical).digest("hex");
 }
