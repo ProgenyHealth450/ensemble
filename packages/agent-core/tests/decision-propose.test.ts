@@ -141,3 +141,40 @@ describe("decision.propose", () => {
     expect(result.result.events["decision.proposed"].provenance).toBe(VALID.provenance);
   });
 });
+
+describe("the staleness baseline is captured at propose time", () => {
+  /**
+   * `decision.apply` will refuse when the brief changed after the proposal was
+   * made, by comparing against `baseSha256`. That refusal is only as good as
+   * the baseline: if propose recorded an empty or constant hash, apply would
+   * compare equal to everything and the check would pass while enforcing
+   * nothing -- a guard that reports success without doing its job, which is
+   * worse than no guard because it is believed.
+   *
+   * Testable now, with the apply half still behind operator approval.
+   */
+  // `string | null`: null is meaningful, not sloppiness -- it is what
+  // currentHash returns when the file does not exist, and an apply comparing
+  // null to null would treat "the brief was deleted" as "unchanged".
+  async function baseOf(contents: string): Promise<string | null | undefined> {
+    const root = workspaceWithBrief(contents);
+    const h = harness(root);
+    const result = (await h.run(VALID)) as { proposalRef?: string };
+    return h.store.read(result.proposalRef as string)?.writes[0].baseSha256;
+  }
+
+  it("records a hash of the brief as it stood", async () => {
+    expect(await baseOf("# Agent brief\n")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("records a DIFFERENT hash for different content", async () => {
+    // The mutation that would defeat the apply-side check: a constant.
+    expect(await baseOf("# Agent brief\n")).not.toBe(await baseOf("# Agent brief\n\nEdited since.\n"));
+  });
+
+  it("records the same hash for identical content, so the check is stable", async () => {
+    // The other direction: a hash that varied per call would make every apply
+    // look stale and the command permanently unusable.
+    expect(await baseOf("# same\n")).toBe(await baseOf("# same\n"));
+  });
+});
