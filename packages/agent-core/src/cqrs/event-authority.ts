@@ -124,8 +124,21 @@ const LIFECYCLE_ENTRIES: readonly EventCatalogEntry[] = [
         verdict: { type: "string", enum: ["passed", "failed", "inconclusive"] },
         detail: { type: "string" },
         command: { type: "string" },
+        // The diagnosis that produced the proposal, carried forward (br-zcxb).
+        //
+        // Without it a downstream behavior — constitution-learning above all —
+        // is asked to judge whether a fix implies a rule while holding only a
+        // proposal reference, a verdict and a command line. It has the fact
+        // that something was fixed and no account of WHY it broke, which is
+        // the only part a rule can be drawn from.
+        //
+        // Optional because a proposal may legitimately carry neither, and a
+        // missing diagnosis must read as "none was recorded" rather than
+        // making the event unpublishable.
+        rationale: { type: "string" },
+        evidence: { type: "array", items: { type: "string" } },
       },
-      optional: ["command"],
+      optional: ["command", "rationale", "evidence"],
     },
   },
   {

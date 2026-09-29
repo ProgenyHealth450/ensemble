@@ -280,6 +280,63 @@ describe("verification is a separate act with its own verdict", () => {
     expect(readFileSync(join(root, "src/math.js"), "utf8")).toBe(ORIGINAL);
   });
 });
+describe("the diagnosis travels with the verdict", () => {
+  /**
+   * `br-zcxb`: the rule provider was asked to judge a constitution change
+   * with no diagnosis in hand.
+   *
+   * `constitution-learning` triggers on `fix.verified`, which carried a
+   * proposal reference, a verdict, a detail line and a command. That is the
+   * fact that something was fixed and no account of WHY it broke — and the
+   * cause is the only part a rule can be drawn from. The behavior had to
+   * either guess, or reconstruct the investigation it could not see.
+   *
+   * A rule drawn from a guess is worse than no rule: a real verified fix sits
+   * behind it, so it reads as evidence-backed and is harder to challenge than
+   * it deserves.
+   */
+  const DIAGNOSIS = "the suite counted a file that never loaded, so zero tests read as a pass";
+
+  async function verified(evidence: string[] = ["tests/a.test.ts:1"]) {
+    const root = workspace({ "src/math.js": ORIGINAL });
+    const h = harness({ root, manifest: manifest({}), approve: true });
+    const proposed = await h.run("fix.propose", {
+      issue: "npm test",
+      rationale: DIAGNOSIS,
+      writes: [CANDIDATE],
+      evidence,
+    });
+    const ref = (proposed as { proposalRef: string }).proposalRef;
+    const result = await h.run("fix.verify", { proposalRef: ref, command: "npm test" });
+    return (result as { result: { events: Record<string, Record<string, unknown>> } }).result.events["fix.verified"];
+  }
+
+  it("carries the investigation's diagnosis on fix.verified", async () => {
+    expect((await verified()).rationale).toBe(DIAGNOSIS);
+  });
+
+  it("carries the evidence that supported it, not just the prose", async () => {
+    expect((await verified(["tests/a.test.ts:1", "src/math.js:3"])).evidence).toEqual([
+      "tests/a.test.ts:1",
+      "src/math.js:3",
+    ]);
+  });
+
+  it("still carries the verdict, so the diagnosis did not displace it", async () => {
+    const event = await verified();
+    expect(event.verdict).toBe("passed");
+    expect(event.proposalRef).toBeTruthy();
+  });
+
+  it("publishes cleanly when there is no evidence to carry", async () => {
+    // The fields are optional on purpose: a proposal may legitimately carry
+    // neither, and that must read as "none was recorded" rather than making
+    // the event unpublishable.
+    const event = await verified([]);
+    expect(event.evidence).toEqual([]);
+    expect(event.rationale).toBe(DIAGNOSIS);
+  });
+});
 
 describe("application requires authority, approval, evidence and a current tree", () => {
   const applying = manifest({

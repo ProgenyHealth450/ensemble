@@ -86,7 +86,7 @@ Authority is the claim strength of the event. Only `applied` and `verified` are 
 | `fix.applied` | 1.0.0 | `applied` | handler | `proposalRef: string`, `paths: array`, `approvedBy: string` |
 | `fix.proposed` | 1.0.0 | `proposed` | handler | `proposalRef: string`, `issue: string`, `paths: array`, `rationale: string` |
 | `fix.rejected` | 1.0.0 | `rejected` | handler | `proposalRef: string`, `reason: string` |
-| `fix.verified` | 1.0.0 | `verified` | handler | `proposalRef: string`, `verdict: string`, `detail: string`, `command: string` |
+| `fix.verified` | 1.0.0 | `verified` | handler | `proposalRef: string`, `verdict: string`, `detail: string`, `command: string`, `rationale: string`, `evidence: array` |
 | `implementation.abandoned` | 1.0.0 | `observed` | runtime | — |
 | `implementation.blocked` | 1.0.0 | `observed` | runtime | — |
 | `implementation.completed` | 1.0.0 | `observed` | runtime | — |

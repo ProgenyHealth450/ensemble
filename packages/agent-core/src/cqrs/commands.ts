@@ -367,6 +367,13 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
             verdict: verdict.status,
             detail: verdict.detail,
             command,
+            // Carried so a downstream behavior judges the fix with the
+            // diagnosis in hand rather than inferring one from a verdict
+            // (br-zcxb). The rationale IS the investigation's diagnosis:
+            // fix-failing-test passes `${steps.investigate.diagnosis}` into
+            // fix.propose as `rationale`.
+            rationale: proposal.rationale,
+            evidence: proposal.evidence,
           },
         },
       },

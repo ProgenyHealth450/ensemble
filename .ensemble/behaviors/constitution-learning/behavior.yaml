@@ -51,6 +51,15 @@ execution:
           proposalRef: ${event.payload.proposalRef}
           detail: ${event.payload.detail}
           command: ${event.payload.command}
+          # The investigation's diagnosis and its evidence (br-zcxb).
+          #
+          # Without these the assessment held only "a fix was verified" and
+          # had to reconstruct WHY the thing broke -- from a command line and
+          # a verdict -- before it could judge whether a rule follows. A rule
+          # drawn from a guess about a cause is worse than no rule: it reads
+          # as evidence-backed because a real fix sits behind it.
+          diagnosis: ${event.payload.rationale}
+          evidence: ${event.payload.evidence}
         on_failure: no-change
 
       - id: warrants-a-rule

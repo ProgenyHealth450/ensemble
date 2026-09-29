@@ -5,6 +5,21 @@ Verified proposal: {{proposalRef}}
 Verification detail: {{detail}}
 Command that was verified: {{command}}
 
+## The diagnosis that produced this fix
+
+{{diagnosis}}
+
+Evidence gathered during the investigation:
+
+{{evidence}}
+
+Reason from the diagnosis, not from the fact that a fix passed. "A test went
+from red to green" is true of every episode here and distinguishes nothing; the
+cause is the only part a rule can be drawn from. If the diagnosis is empty or
+says nothing about a cause, answer "no" — an amendment invented to fill the gap
+would read as evidence-backed because a real, verified fix sits behind it,
+which makes it harder to challenge than a guess deserves.
+
 Read `docs/standards/constitution.md` before answering. An amendment that
 restates or contradicts an existing rule is worse than no amendment.
 
