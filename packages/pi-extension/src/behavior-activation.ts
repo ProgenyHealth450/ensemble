@@ -5,6 +5,7 @@ import {
   compile,
   compileBehaviorToArtifacts,
   discoverBehaviorPackages,
+  explainInertTrigger,
   loadPackageAssets,
   readPackageAsset,
   LocalEventMatcher,
@@ -46,6 +47,8 @@ export interface BehaviorActivationResult {
   discovered: number;
   loaded: string[];
   skipped: { behaviorId: string; reason: string }[];
+  /** Loaded, but nothing in this build emits their trigger (br-jgxo). */
+  inertTriggers: { behaviorId: string; reason: string }[];
   /**
    * Dispatches matching events to loaded behaviors for this session
    * only. Always present, even when nothing was discovered.
@@ -90,7 +93,7 @@ export function activateBehaviorPipeline(
 ): BehaviorActivationResult {
   const live: CompiledBehaviorPackage[] = [];
   const packageDirs = new Map<string, string>();
-  const result: BehaviorActivationResult = { discovered: 0, loaded: [], skipped: [], invocationErrors: [], compiled: live, packageDirs };
+  const result: BehaviorActivationResult = { discovered: 0, loaded: [], skipped: [], inertTriggers: [], invocationErrors: [], compiled: live, packageDirs };
 
   let discovered;
   try {
@@ -131,6 +134,21 @@ export function activateBehaviorPipeline(
         reason: compileResult.errors.map((e) => e.message).join("; ") || "compile produced no output",
       });
       continue;
+    }
+
+    // A behavior whose trigger nothing emits will load cleanly and then sit
+    // there forever, looking installed (br-jgxo). Report it at activation
+    // rather than letting the silence be discovered later, or never.
+    //
+    // A WARNING, not a skip: an adapter may legitimately publish a type this
+    // build does not know about, and refusing to load would turn an
+    // unknown-producer guess into a hard failure.
+    for (const compiled of compileResult.compiled) {
+      const inert = explainInertTrigger(compiled.manifest.trigger.event_type);
+      if (inert) {
+        result.inertTriggers.push({ behaviorId: pkg.behaviorId, reason: inert });
+        console.warn(`[ensemble] ${pkg.behaviorId}: ${inert}`);
+      }
     }
 
     for (const compiled of compileResult.compiled) {

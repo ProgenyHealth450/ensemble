@@ -21,6 +21,7 @@ export * from "./behavior/fixture-conformance";
 export * from "./behavior/artifact-compiler";
 export * from "./behavior/event-catalog";
 export * from "./behavior/event-translator";
+export * from "./behavior/trigger-producers";
 export * from "./behavior/domain-tool-vocabulary";
 export * from "./behavior/outbox";
 export * from "./local-runner";

@@ -104,6 +104,15 @@ export function renderStatusReport(input: StatusInput): string {
     for (const s of a.skipped) lines.push(`    ${s.behaviorId}: ${s.reason}`);
   }
 
+  if (a.inertTriggers?.length) {
+    // Loaded, but nothing emits their trigger. Distinct from "skipped":
+    // these ARE installed and will answer a manual invocation. They just
+    // cannot fire on their own, which is the part that otherwise looks
+    // identical to working (br-jgxo).
+    lines.push("  loaded but cannot fire:");
+    for (const t of a.inertTriggers) lines.push(`    ${t.behaviorId}: ${t.reason}`);
+  }
+
   const skippedRuns = input.records.filter((r) => r.skipped);
   if (skippedRuns.length > 0) {
     lines.push("  skipped at dispatch:");
