@@ -30,6 +30,7 @@ import { Proposal, ProposalStore, currentHash, hashContents } from "./proposal-s
 import { VerificationResult, verifyOutput } from "./verification";
 import { createIsolatedWorkspace, materialize } from "./isolated-workspace";
 import { checkWorkspaceIntegrity } from "../workspace/integrity";
+import { DocClaim, verifyClaims } from "../docs/claim-verification";
 import { classifyPath } from "../behavior/protected-paths";
 import { SANCTIONED_PROTECTED_CLASS } from "./command-registry";
 
@@ -627,6 +628,92 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
   };
 
   /**
+   * Adjudicates claims extracted from documentation (br-gpha).
+   *
+   * THE SPLIT IS THE SAFEGUARD. A model proposes candidate claims, because
+   * finding them in prose needs judgement. This command decides, and its
+   * decisions are mechanical and reproducible. A model that both proposed and
+   * adjudicated would be marking its own homework — which is literally how
+   * the invented line citations were produced: by grepping a file after
+   * inserting a note, then reading that note back as corroboration.
+   */
+  const docVerify: CommandDescriptor<{ claims: DocClaim[]; sourceFiles?: string[] }, unknown> = {
+    id: "doc.verify",
+    version: "1.0.0",
+    description: "Check documented paths, npm scripts and exported symbols against the tree",
+    requiredCapability: "doc.verify",
+    emits: ["behavior.observation.recorded"],
+    input: {
+      type: "object",
+      fields: {
+        claims: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            fields: {
+              kind: { type: "string", minLength: 1 },
+              value: { type: "string", minLength: 1 },
+              source: { type: "string" },
+            },
+            optional: ["source"],
+          },
+        },
+        sourceFiles: { type: "array", items: { type: "string" } },
+      },
+      optional: ["sourceFiles"],
+    },
+    result: {
+      type: "object",
+      fields: {
+        ok: { type: "boolean" },
+        checked: { type: "number" },
+        unresolved: { type: "array", items: { type: "record", values: { type: "unknown" } } },
+        events: { type: "record", values: { type: "unknown" } },
+      },
+    },
+    async handler(ctx, args): Promise<HandlerOutcome<unknown>> {
+      const known: ReadonlySet<string> = new Set(["path", "npm-script", "symbol"]);
+      const unknownKind = args.claims.find((c) => !known.has(c.kind));
+      if (unknownKind) {
+        // Rejected, not ignored. Silently dropping a claim kind would let a
+        // document report "all claims verified" when some were never checked
+        // — a vacuous pass wearing the costume of a thorough one.
+        return { status: "rejected", reason: `unknown claim kind "${unknownKind.kind}"` };
+      }
+
+      const report = verifyClaims({
+        root: deps.workspaceRoot,
+        claims: args.claims,
+        sourceFiles: args.sourceFiles,
+      });
+
+      ctx.log({ kind: "doc-verified", checked: report.checked, unresolved: report.unresolved.length });
+      return {
+        status: "completed",
+        result: {
+          ok: report.ok,
+          checked: report.checked,
+          unresolved: report.unresolved,
+          events: {
+            "behavior.observation.recorded": {
+              observation: "doc.claims",
+              ok: report.ok,
+              checked: report.checked,
+              unresolved: report.unresolved,
+            },
+          },
+        },
+        evidence: report.verdicts.map((v) => ({
+          kind: "doc-claim" as const,
+          ref: v.value,
+          detail: `${v.holds ? "holds" : "UNRESOLVED"}: ${v.detail}${v.source ? ` (${v.source})` : ""}`,
+        })),
+      };
+    },
+  };
+
+  /**
    * Runs a verification command in an isolated workspace, unbound to any
    * proposal (br-zctt).
    *
@@ -792,6 +879,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     fixApply as unknown as CommandDescriptor<never, unknown>,
     constitutionPropose as unknown as CommandDescriptor<never, unknown>,
     constitutionApply as unknown as CommandDescriptor<never, unknown>,
+    docVerify as unknown as CommandDescriptor<never, unknown>,
     verificationRun as unknown as CommandDescriptor<never, unknown>,
     workspaceCheck as unknown as CommandDescriptor<never, unknown>,
   ];
@@ -805,6 +893,7 @@ export const BUILTIN_COMMAND_CAPABILITIES: Readonly<Record<string, string>> = {
   "fix.apply": "fix.apply",
   "constitution.propose": "constitution.propose",
   "constitution.apply": "constitution.apply",
+  "doc.verify": "doc.verify",
   "verification.run": "verification.run",
   "workspace.check": "workspace.check",
 };

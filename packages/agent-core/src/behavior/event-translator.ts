@@ -317,3 +317,53 @@ export function withTranslation(
     if (derived) await publish(derived);
   };
 }
+
+/**
+ * Commands that change the repository's committed state.
+ *
+ * Anchored to command position, never matched against the whole line, for the
+ * same reason `isTestCommand` is: a message containing the words "git commit"
+ * must not be read as one.
+ */
+const REPOSITORY_CHANGING = [
+  /^git\s+commit\b/,
+  /^git\s+merge\b/,
+  /^git\s+rebase\b/,
+  /^git\s+revert\b/,
+  /^git\s+cherry-pick\b/,
+  /^git\s+apply\b/,
+  /^git\s+am\b/,
+];
+
+/** `git checkout -b` / `git switch -c`, which create a branch. */
+const BRANCH_CREATING = [/^git\s+checkout\s+(?:.*\s)?-b\b/, /^git\s+switch\s+(?:.*\s)?-c\b/];
+
+/**
+ * Derives `repository.changed` / `repository.branch.created` from a tool call
+ * (br-gpha, closing two of br-d7lm's EMIT list).
+ *
+ * Kept SEPARATE from `translateEvent` rather than folded into it, because that
+ * function returns at most one event and is written around test runs — every
+ * early return in it means "not a test command", not "nothing happened".
+ *
+ * NOT emitted for a command that failed: a rejected commit changed nothing,
+ * and a behavior that re-checked the tree on every failed attempt would be
+ * noise. The exit status is trusted here only because these commands are the
+ * whole command line, not a segment of a pipeline.
+ */
+export function translateRepositoryChange(event: BehaviorEvent): BehaviorEvent | undefined {
+  if (event.type !== "runtime.tool_call.completed") return undefined;
+
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const command = typeof payload.command === "string" ? payload.command.trim() : undefined;
+  if (!command || payload.isError === true) return undefined;
+
+  const branch = BRANCH_CREATING.some((pattern) => pattern.test(command));
+  if (!branch && !REPOSITORY_CHANGING.some((pattern) => pattern.test(command))) return undefined;
+
+  return normalizeEvent({
+    type: branch ? "repository.branch.created" : "repository.changed",
+    source: event.source,
+    payload: { command, cwd: typeof payload.cwd === "string" ? payload.cwd : undefined },
+  });
+}

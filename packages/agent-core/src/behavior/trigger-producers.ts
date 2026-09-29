@@ -32,6 +32,9 @@ export const TRANSLATED_EVENT_TYPES: readonly string[] = [
   // Narrow: emitted ONLY for a run that reported it executed nothing.
   // A healthy suite still produces no event.
   "test.passed",
+  // Derived from successful git commands (br-gpha).
+  "repository.changed",
+  "repository.branch.created",
 ];
 
 /**

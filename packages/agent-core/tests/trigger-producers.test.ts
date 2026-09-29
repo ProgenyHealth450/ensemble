@@ -73,7 +73,10 @@ describe("knowing which triggers anything actually emits", () => {
     // Not an aspiration — a measurement. If this ratio improves, the number
     // below should be updated deliberately, with the emitter that caused it.
     expect(produced.length).toBeLessThan(SEMANTIC_EVENT_TYPES.length / 2);
-    expect(TRANSLATED_EVENT_TYPES.length).toBe(2);
+    // 2 -> 4 (br-gpha): `repository.changed` and `repository.branch.created`
+    // are now derived from successful git commands, which is what made the
+    // doc-claim behavior reachable instead of inert.
+    expect(TRANSLATED_EVENT_TYPES.length).toBe(4);
   });
 
   it("lists every producible trigger with how it is produced", () => {

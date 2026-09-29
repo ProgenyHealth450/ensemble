@@ -73,8 +73,8 @@ export const EVENT_DISPOSITIONS: Readonly<Record<string, Disposition>> = {
   "approval.requested": "emit",
   // Needs cross-run memory; session-scoped only. The most work in this group.
   "test.regression_detected": "emit",
-  "repository.changed": "emit",
-  "repository.branch.created": "emit",
+  "repository.changed": "keep",
+  "repository.branch.created": "keep",
 
 
   // ---- LAUNCH-INPUT: Foreman's vocabulary ---------------------------------

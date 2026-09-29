@@ -19,6 +19,7 @@ Every command runs through one registry. Authorization is checked in a fixed ord
 | `fix.apply` | `fix.apply` | `artifact.write` (write) | **required** | `fix.applied`, `fix.rejected` |
 | `constitution.propose` | `constitution.propose` | no | no | `constitution.proposed` |
 | `constitution.apply` | `constitution.apply` | `constitution.write` (write) | **required** | `constitution.applied`, `constitution.declined` |
+| `doc.verify` | `doc.verify` | no | no | `behavior.observation.recorded` |
 | `verification.run` | `verification.run` | no | no | `behavior.observation.recorded` |
 | `workspace.check` | `workspace.check` | no | no | `behavior.observation.recorded` |
 
@@ -63,6 +64,13 @@ Apply an approved constitution amendment to the canonical constitution
 
 - **Input:** `proposalRef: string`
 - **Result:** `proposalRef: string`, `path: string`, `events: record`
+
+### `doc.verify` v1.0.0
+
+Check documented paths, npm scripts and exported symbols against the tree
+
+- **Input:** `claims: array`, `sourceFiles: array`
+- **Result:** `ok: boolean`, `checked: number`, `unresolved: array`, `events: record`
 
 ### `verification.run` v1.0.0
 
