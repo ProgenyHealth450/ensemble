@@ -78,3 +78,51 @@ describe("repository.changed reaches the sink through the live wiring", () => {
     expect(types).not.toContain("repository.changed");
   });
 });
+
+describe("a full tool_call / tool_result pair, as a real session produces", () => {
+  /**
+   * The helper above fires only `tool_result`, which is the event carrying the
+   * command. A real session emits `tool_call` first. Exercising the pair
+   * checks two things the single-event test cannot: that the derived event
+   * appears exactly ONCE across the sequence, and that it lands AFTER the
+   * completion it was derived from rather than interleaved ahead of it.
+   */
+  async function pairTypes(command: string): Promise<string[]> {
+    const { pi, fire } = fakePi();
+    const sink = new InMemoryEventSink();
+    wireSessionLifecycle(pi, sink);
+
+    await fire("tool_call", { type: "tool_call", toolCallId: "call-1", toolName: "bash", input: { command } });
+    await fire("tool_result", {
+      type: "tool_result",
+      toolCallId: "call-1",
+      toolName: "bash",
+      input: { command },
+      content: [{ type: "text", text: "[main abc1234] x\n 1 file changed" }],
+      isError: false,
+    });
+
+    return sink.drain().map((envelope) => envelope.event.type);
+  }
+
+  it("derives the event exactly once across the pair", async () => {
+    const types = await pairTypes("git commit -m 'x'");
+
+    // Both events in the pair carry the command. Only one may translate; a
+    // duplicate would dispatch the behavior twice for a single commit.
+    expect(types.filter((t) => t === "repository.changed")).toHaveLength(1);
+  });
+
+  it("publishes it after the tool call completes, not before", async () => {
+    const types = await pairTypes("git commit -m 'x'");
+
+    expect(types.indexOf("repository.changed")).toBeGreaterThan(types.indexOf("runtime.tool_call.completed"));
+  });
+
+  it("leaves the raw harness sequence intact", async () => {
+    const types = await pairTypes("git commit -m 'x'");
+
+    expect(types).toContain("runtime.tool_call.started");
+    expect(types).toContain("runtime.tool_call.completed");
+  });
+});
