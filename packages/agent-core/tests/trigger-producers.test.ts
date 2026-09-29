@@ -86,4 +86,30 @@ describe("knowing which triggers anything actually emits", () => {
     // fine — a check that always passes.
     expect(triggerHasProducer("prd.created")).toBe(false);
   });
+  it("does not warn about raw harness events the adapter really publishes", () => {
+    // Regression: the first version omitted runtime.* entirely and warned
+    // that `runtime.session.started` would never fire. A warning that is
+    // wrong is worse than no warning — it teaches people to ignore the
+    // channel.
+    for (const type of [
+      "runtime.session.started",
+      "runtime.prompt.submitted",
+      "runtime.tool_call.completed",
+    ]) {
+      expect(triggerHasProducer(type)).toBe(true);
+    }
+  });
+
+  it("still reports catalogued runtime types the adapter does not publish", () => {
+    // Verified against packages/pi-extension/src, not inferred from the
+    // catalog: these four are genuinely absent.
+    for (const type of [
+      "runtime.message.emitted",
+      "runtime.session.failed",
+      "runtime.session.cancelled",
+      "runtime.session.timed_out",
+    ]) {
+      expect(triggerHasProducer(type)).toBe(false);
+    }
+  });
 });

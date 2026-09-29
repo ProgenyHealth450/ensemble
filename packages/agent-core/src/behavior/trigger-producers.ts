@@ -68,10 +68,35 @@ export const COMMAND_EMITTED_EVENT_TYPES: readonly string[] = [
  */
 export const REGISTRY_EMITTED_EVENT_TYPES: readonly string[] = ["command.rejected"];
 
+/**
+ * Raw harness events the Pi adapter publishes.
+ *
+ * These are NOT translated — they are the runtime's own telemetry, and a
+ * behavior may legitimately trigger on one. Omitting them from this module
+ * made it warn that `runtime.session.started` would never fire, which is
+ * false and exactly the kind of wrong warning that teaches people to ignore
+ * warnings.
+ *
+ * Verified against `packages/pi-extension/src` rather than assumed from the
+ * catalog: four catalogued `runtime.*` types (`message.emitted`,
+ * `session.failed`, `session.cancelled`, `session.timed_out`) are NOT among
+ * them and remain genuinely inert.
+ */
+export const HARNESS_EMITTED_EVENT_TYPES: readonly string[] = [
+  "runtime.session.started",
+  "runtime.session.completed",
+  "runtime.prompt.submitted",
+  "runtime.tool_call.started",
+  "runtime.tool_call.completed",
+  "runtime.tool.completed",
+  "runtime.tool.failed",
+  "runtime.process.exited",
+];
+
 export interface TriggerProducer {
   readonly eventType: string;
   /** How this type comes to exist. */
-  readonly producedBy: "translator" | "command";
+  readonly producedBy: "translator" | "command" | "harness";
 }
 
 /** Every trigger type this build can actually produce, with its source. */
@@ -85,6 +110,11 @@ export function producibleTriggers(): readonly TriggerProducer[] {
   for (const eventType of [...COMMAND_EMITTED_EVENT_TYPES, ...REGISTRY_EMITTED_EVENT_TYPES]) {
     if (!out.some((entry) => entry.eventType === eventType)) {
       out.push({ eventType, producedBy: "command" });
+    }
+  }
+  for (const eventType of HARNESS_EMITTED_EVENT_TYPES) {
+    if (!out.some((entry) => entry.eventType === eventType)) {
+      out.push({ eventType, producedBy: "harness" });
     }
   }
   return out;
