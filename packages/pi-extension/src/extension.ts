@@ -289,6 +289,20 @@ export function createActivate(options: ActivateOptions = {}): {
         log: (entry) => logRuntime(repoRoot, entry),
       });
 
+    // Cancellation for everything the dispatcher starts (br-vrzv).
+    //
+    // Observed in headless runs: the host exited, and the `omp -p` child the
+    // governed dispatch had spawned kept running, reparented to PID 1, its
+    // result never consumed. Read-only tools, so nothing was written — but it
+    // was unowned model spend, and an unowned process is a bad default
+    // whatever its grants.
+    //
+    // Draining alone could not fix it: joining a run waits for a child that
+    // has no reason to stop, and the host's handler timeout (2s observed)
+    // expires long before it does. The child has to be TOLD to stop, which
+    // `execFile`'s `signal` already does — it was simply never wired.
+    const shutdown = new AbortController();
+
     const dispatcher = createWorkflowDispatcher({
       rootDir: repoRoot,
       sessionId,
@@ -312,6 +326,7 @@ export function createActivate(options: ActivateOptions = {}): {
       catalog: options.catalog,
       budget: options.budget,
       now: options.now,
+      signal: shutdown.signal,
       records: runRecords,
       log: (entry) => logRuntime(repoRoot, entry),
     });
@@ -341,7 +356,15 @@ export function createActivate(options: ActivateOptions = {}): {
     // A one-shot `omp -p` exits as soon as the turn ends, which would kill an
     // in-flight dispatch. Join at shutdown so background work is not silently
     // discarded. Still bounded by the host's handler timeout.
+    //
+    // ABORT BEFORE DRAINING, and the order is the whole point (br-vrzv).
+    // Draining first waits on children that have no reason to stop, the
+    // handler times out, and they are orphaned to PID 1 exactly as before.
+    // Cancelling first gives them a reason, so the join has something to
+    // join. A run that ignores the signal is still bounded by the host
+    // timeout, but it is no longer the expected case.
     pi.on("session_shutdown", async () => {
+      shutdown.abort();
       await drainDispatches();
     });
 
