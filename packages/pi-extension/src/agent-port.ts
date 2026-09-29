@@ -51,6 +51,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentPort, createIsolatedWorkspace, IsolatedWorkspace } from "@sunstone-partners/ensemble-agent-core";
 import { captureTreeBaseline, treeChangesSinceBaseline } from "./tree-baseline";
+import { confineWrites, SandboxSupport, sandboxSupport } from "./write-sandbox";
 
 export interface AgentPortOptions {
   readonly repoRoot: string;
@@ -76,6 +77,24 @@ export interface AgentPortOptions {
    * it is reported, never silent.
    */
   readonly allowUnisolated?: boolean;
+  /**
+   * Runs the child without OS-enforced write confinement.
+   *
+   * Exists so a platform with no sandbox facility can still run the runtime at
+   * all; it is reported in the containment description and the invoke log,
+   * never silent. Turning it on reduces the absolute-path control to detection
+   * after the fact, which cannot revert what it finds.
+   */
+  readonly allowUnconfinedWrites?: boolean;
+  /**
+   * Overrides host sandbox detection.
+   *
+   * Exists so the REFUSAL path is testable on a host that does support
+   * confinement. Without it the fail-closed branch could only ever be
+   * exercised on the platforms where it fires, i.e. never in this repo's
+   * macOS development loop, and an untested refusal is an assumption.
+   */
+  readonly sandbox?: () => SandboxSupport;
   readonly log?: (entry: Record<string, unknown>) => void;
 }
 
@@ -131,9 +150,18 @@ export function createAgentPort(options: AgentPortOptions): AgentPort & { descri
       signal: AbortSignal;
     }) =>
       new Promise<string>((resolve, reject) => {
+        // OS-enforced write confinement (br-r3om). The worktree cwd stops
+        // relative-path writes; this is what stops absolute ones. A live probe
+        // showed a real model escaping by absolute path on its first attempt,
+        // so this is not a hypothetical boundary.
+        const confined = confineWrites(options.command ?? "omp", agentArgs(input.cwd, input.tools, input.prompt), {
+          workspace: input.cwd,
+          home: String(input.env.HOME ?? ""),
+          temp: [tmpdir()],
+        });
         const child = execFile(
-          options.command ?? "omp",
-          agentArgs(input.cwd, input.tools, input.prompt),
+          confined.command,
+          [...confined.args],
           {
             cwd: input.cwd,
             env: input.env,
@@ -161,6 +189,7 @@ export function createAgentPort(options: AgentPortOptions): AgentPort & { descri
       return [
         "throwaway HOME/XDG/OMP config roots (contains _manage_skill and _learn; OS-enforced)",
         "isolated git worktree as cwd (contains writes to project source; OS-enforced)",
+        "OS-enforced write confinement outside the workspace (stops absolute-path writes; refuses to run without it)",
         "--tools allowlist (advisory only; measured not to restrict _write/_learn/_manage_skill)",
       ].join("; ");
     },
@@ -189,20 +218,54 @@ export function createAgentPort(options: AgentPortOptions): AgentPort & { descri
           };
         }
 
+        // Same fail-closed rule, one layer down. confineWrites() returns the
+        // command UNCHANGED when the host cannot confine, by design -- only
+        // this caller knows whether a weaker control is acceptable. Using that
+        // result without checking `confined` would run an unconfined child
+        // while the log said "contained", which is the same fail-open shape as
+        // the drift check that was fixed on this bead and as the original
+        // incident. So the absence of a sandbox is a refusal, not a downgrade.
+        //
+        // Scoped to the REAL spawn path. When `options.run` is supplied the
+        // caller has replaced process execution outright, so there is no child
+        // process for an OS sandbox to confine and demanding one would refuse
+        // every invocation on any host without a sandbox facility -- including
+        // CI, which is Linux, where it would turn a security improvement into
+        // a red suite that says nothing about security.
+        const sandbox = (options.sandbox ?? sandboxSupport)();
+        const spawnsRealChild = options.run === undefined;
+        if (spawnsRealChild && !sandbox.supported && !options.allowUnconfinedWrites) {
+          return {
+            ok: false,
+            reason:
+              `refusing to invoke the agent: ${sandbox.reason}. ` +
+              `Without OS-enforced write confinement a child can write anywhere the user can, ` +
+              `by absolute path, and after-the-fact detection cannot undo it. ` +
+              `An uncontained child is not a supported degraded mode.`,
+          };
+        }
+
         log({
           kind: "agent-invoke",
           behavior: request.behavior,
           step: request.stepId,
           isolation: isolationNote,
+          confinement: sandbox.supported ? sandbox.mechanism : `UNCONFINED (${sandbox.reason})`,
           tools: request.tools,
         });
 
         // Defence in depth, and named as such: this is a before/after check on
-        // the LIVE tree, not a sandbox. The two OS-level boundaries above stop
-        // a child that writes relative paths. They cannot stop one that writes
-        // an ABSOLUTE path back into the user's repository, and pretending
-        // otherwise is the "post-tool monitor described as isolation" that
-        // REQ-SAFE-004 forbids. So the residual case is detected instead.
+        // the LIVE tree, not a sandbox.
+        //
+        // It is no longer the primary control for absolute-path writes --
+        // write confinement above prevents those at the kernel, verified by
+        // live probe: the child reports "Operation not permitted" and nothing
+        // reaches the repository. This remains for the cases confinement does
+        // not cover: a host running with allowUnconfinedWrites, and any write
+        // that arrives by a route the profile permits. Detecting what a
+        // preventive control missed is defence in depth; describing detection
+        // AS the prevention is what REQ-SAFE-004 forbids, and the distinction
+        // is why both exist.
         const baseline = captureTreeBaseline(options.repoRoot);
 
         const reply = await runAgent({
