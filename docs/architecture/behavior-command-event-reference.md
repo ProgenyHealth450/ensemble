@@ -100,9 +100,6 @@ Authority is the claim strength of the event. Only `applied` and `verified` are 
 | `behavior.completed` | 1.0.0 | `observed` | runtime | — |
 | `behavior.observation.recorded` | 1.0.0 | `diagnostic` | handler | — |
 | `behavior.outcome.recorded` | 1.0.0 | `diagnostic` | runtime | — |
-| `behavior.unblocked` | 1.0.0 | `observed` | runtime | — |
-| `change.proposed` | 1.0.0 | `observed` | runtime | — |
-| `child_behavior.requested` | 1.0.0 | `observed` | runtime | — |
 | `command.rejected` | 1.0.0 | `rejected` | runtime | `command: string`, `status: string`, `reason: string` |
 | `constitution.applied` | 1.0.0 | `applied` | handler | `proposalRef: string`, `path: string`, `approvedBy: string` |
 | `constitution.declined` | 1.0.0 | `rejected` | handler | `proposalRef: string`, `reason: string` |
@@ -116,7 +113,6 @@ Authority is the claim strength of the event. Only `applied` and `verified` are 
 | `implementation.completed` | 1.0.0 | `observed` | runtime | — |
 | `implementation.progressed` | 1.0.0 | `observed` | runtime | — |
 | `implementation.started` | 1.0.0 | `observed` | runtime | — |
-| `learning.observation.recorded` | 1.0.0 | `observed` | runtime | — |
 | `prd.approved` | 1.0.0 | `observed` | runtime | — |
 | `prd.created` | 1.0.0 | `observed` | runtime | — |
 | `prd.deprecated` | 1.0.0 | `observed` | runtime | — |
@@ -153,8 +149,6 @@ Authority is the claim strength of the event. Only `applied` and `verified` are 
 | `trd.implementation.progressed` | 1.0.0 | `observed` | runtime | — |
 | `trd.implementation.started` | 1.0.0 | `observed` | runtime | — |
 | `trd.refined` | 1.0.0 | `observed` | runtime | — |
-| `validation.completed` | 1.0.0 | `observed` | runtime | — |
-| `validation.requested` | 1.0.0 | `observed` | runtime | — |
 
 ## Acceptance scopes
 

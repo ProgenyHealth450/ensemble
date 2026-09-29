@@ -109,16 +109,10 @@ export const EVENT_DISPOSITIONS: Readonly<Record<string, Disposition>> = {
 
   // ---- REMOVE: redundant, or no concept behind them -----------------------
   /** Redundant with fix.verified. */
-  "validation.requested": "remove",
-  "validation.completed": "remove",
   /** Redundant with fix.proposed. */
-  "change.proposed": "remove",
   /** No child-behavior step kind exists; adding one is a far larger decision. */
-  "child_behavior.requested": "remove",
   /** Overlaps br-u5o / br-pyg; that pair owns the learning corpus. */
-  "learning.observation.recorded": "remove",
   /** A session-scoped interpreter has no block-and-resume to unblock from. */
-  "behavior.unblocked": "remove",
 };
 
 /** Every type the catalog declares, harness and semantic together. */
