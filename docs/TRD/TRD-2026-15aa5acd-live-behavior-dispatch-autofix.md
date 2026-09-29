@@ -18,6 +18,28 @@ ensemble_implement_trd_beads:
 
 Source PRD: [PRD-2026-15aa5acd](../PRD/PRD-2026-15aa5acd-live-behavior-dispatch-autofix.md) (readiness 4.7, PASS).
 
+> **Partially superseded — 2026-09-29.** Epic `br-behavior-runtime-cqrs-xl24` (behavior runtime:
+> CQRS commands, closed event catalog, declarative workflows) replaced this TRD's *dispatch and
+> auto-fix mechanism*. These modules, all under `packages/pi-extension/src/`, no longer exist:
+> `behavior-runner.ts`, `autofix-loop.ts`, `agent-fix-provider.ts`, `constitution-proposal.ts`,
+> `working-tree-snapshot.ts`, `issue-identity.ts`; `continuation-budget.ts` is now
+> `invocation-budget.ts`. The continuation-message path is gone entirely rather than disabled,
+> because §7 of the CQRS requirements forbids keeping both dispatch paths.
+>
+> Note that this document uses two similar names for different things. The deleted module is
+> `packages/pi-extension/src/working-tree-snapshot.ts` (§24). It is **not**
+> `packages/agent-core/src/behavior/workspace-snapshot.ts` (§320), which survives the epic
+> unchanged and is still used by `write-boundary-monitor.ts`.
+>
+> **What survives:** the architecture decision below (Option C — one `MutationGuard` chokepoint) is
+> still the design, and `MutationGuard` is still the single enforcement seam. The auto-fix
+> *workflow* is now package data rather than code: see
+> [Authoring a behavior package](../architecture/behavior-authoring-guide.md) and the
+> [command/event reference](../architecture/behavior-command-event-reference.md).
+>
+> Read this TRD for the enforcement rationale; do not read it as a description of current modules.
+
+
 ## Reused Capabilities
 
 None. `trd-graph-cli capabilities docs/TRD` returns an empty registry — no `kind: foundational` TRD exists in this repo, so there is no shared capability to reference instead of rebuilding.
