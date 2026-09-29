@@ -153,9 +153,12 @@ describe("the staleness baseline is captured at propose time", () => {
    *
    * Testable now, with the apply half still behind operator approval.
    */
-  // `string | null`: null is meaningful, not sloppiness -- it is what
-  // currentHash returns when the file does not exist, and an apply comparing
-  // null to null would treat "the brief was deleted" as "unchanged".
+  // `string | null` only because currentHash's signature allows null. For a
+  // DECISION proposal it cannot actually be null: resolveDecisionsPath refuses
+  // outright when the brief is absent, so no proposal exists to hash against.
+  // (I first wrote a comment here claiming a null-vs-null fail-open in apply.
+  // That was wrong -- apply re-resolves the path and rejects a missing file
+  // before it ever compares hashes. Retracted on br-42nn.)
   async function baseOf(contents: string): Promise<string | null | undefined> {
     const root = workspaceWithBrief(contents);
     const h = harness(root);

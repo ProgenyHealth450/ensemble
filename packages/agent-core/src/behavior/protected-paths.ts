@@ -73,6 +73,20 @@ const FIXTURE_PATTERNS: readonly RegExp[] = [
   /(^|\/)fixtures\/(events|expected-matches|expected-outcomes)\//,
 ];
 
+/**
+ * The hand-authored agent brief (br-42nn).
+ *
+ * Every future session reads this file and treats it as settled fact, so a
+ * wrong entry is worse than a missing one: it becomes a fabricated premise
+ * that later work builds on. Protected so that the approval-gated
+ * `decision.apply` is the only route in, rather than the polite route in.
+ *
+ * Root-anchored on purpose. `packages/pi/AGENTS.md` is GENERATED and is not
+ * listed: protecting it would tell an agent to route a write through the
+ * decision command, when the correct action there is to edit the generator.
+ */
+const DECISION_MEMORY_PATTERNS: readonly RegExp[] = [/^agents\.md$/];
+
 const CONSTITUTION_PATTERNS: readonly RegExp[] = [
   /(^|\/)docs\/standards\/constitution\.md$/,
   /(^|\/)constitution-rules\.yaml$/,
@@ -83,6 +97,7 @@ export function classifyPath(rawPath: string): ProtectedPathVerdict {
 
   const checks: readonly [ProtectedPathReason, readonly RegExp[]][] = [
     ["constitution", CONSTITUTION_PATTERNS],
+    ["decision-memory", DECISION_MEMORY_PATTERNS],
     ["conformance-fixture", FIXTURE_PATTERNS],
     ["guardrail-source", GUARDRAIL_PATTERNS],
     ["test-file", TEST_PATTERNS],

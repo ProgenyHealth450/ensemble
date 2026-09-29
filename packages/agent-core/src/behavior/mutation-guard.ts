@@ -12,6 +12,18 @@ import { classifyPath } from "./protected-paths";
 export const SANCTIONED_PROTECTED_CLASS = "constitution.write";
 
 /**
+ * The mutation class permitted to write the hand-authored agent brief (br-42nn).
+ *
+ * A SECOND sanctioned class rather than a widening of the first. Reusing
+ * "constitution.write" would have been one line, but it would make a decision
+ * entry indistinguishable from a constitution amendment in code, in logs and
+ * in the registry's own refusal message -- and the two carry different
+ * authority. Keeping them distinct means a behavior granted one cannot write
+ * the other, which is the property worth having.
+ */
+export const SANCTIONED_DECISION_CLASS = "decision.write";
+
+/**
  * The single authorization chokepoint for mutations (TRD-002).
  *
  * Before this existed, `CompiledBehaviorPackage.hasMutationAuthority()`
@@ -132,9 +144,14 @@ export function createMutationGuard(
       // and buys nothing against a test file, a fixture or a guardrail source.
       if (request.path) {
         const verdict = classifyPath(request.path);
-        const sanctionedConstitutionWrite =
-          verdict.reason === "constitution" && request.mutationClass === SANCTIONED_PROTECTED_CLASS;
-        if (verdict.protected && !sanctionedConstitutionWrite) {
+        // Each exemption is keyed to BOTH a path reason and a class, so a
+        // behavior holding one sanctioned class cannot use it to reach the
+        // other's file. A single "is sanctioned" flag would have collapsed
+        // that distinction the first time a second class was added.
+        const sanctioned =
+          (verdict.reason === "constitution" && request.mutationClass === SANCTIONED_PROTECTED_CLASS) ||
+          (verdict.reason === "decision-memory" && request.mutationClass === SANCTIONED_DECISION_CLASS);
+        if (verdict.protected && !sanctioned) {
           return {
             allowed: false,
             reason:
