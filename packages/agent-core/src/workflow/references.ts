@@ -19,8 +19,8 @@ export interface ReferenceScope {
 
 export const REFERENCE_ROOTS = ["event", "steps", "behavior", "workspace"] as const;
 
-const REFERENCE = /\$\{([A-Za-z0-9_.\[\]-]+)\}/g;
-const WHOLE_REFERENCE = /^\$\{([A-Za-z0-9_.\[\]-]+)\}$/;
+const REFERENCE = /\$\{([A-Za-z0-9_.[\]-]+)\}/g;
+const WHOLE_REFERENCE = /^\$\{([A-Za-z0-9_.[\]-]+)\}$/;
 
 export type Resolution =
   | { readonly ok: true; readonly value: unknown }
