@@ -233,8 +233,25 @@ export function createAgentPort(options: AgentPortOptions): AgentPort & { descri
               `discarded and nothing was reverted.`,
           };
         }
-        if (baseline && drift === undefined) {
+        if (drift === undefined) {
+          // "I could not check" must not resolve to "therefore allow"
+          // (br-dowt, br-r3om). This is the residual case the OS boundaries
+          // above deliberately do not cover: a child writing an ABSOLUTE path
+          // back into the live repository. Detection is the only thing
+          // standing there, so a failed detection is not a neutral outcome —
+          // it is the absence of the single control that applies.
+          //
+          // Reachable mainly when the port ran unisolated, which is precisely
+          // when containment is weakest, so failing open here would be worst
+          // exactly where it matters most.
           log({ kind: "agent-invoke-drift-unavailable", behavior: request.behavior, step: request.stepId });
+          return {
+            ok: false,
+            reason:
+              `the working tree could not be checked for changes made while the agent ran, so a ` +
+              `write back into the live repository cannot be ruled out. The reply is discarded ` +
+              `rather than trusted unverified.`,
+          };
         }
 
         return { ok: true, reply };
