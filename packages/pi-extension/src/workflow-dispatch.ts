@@ -88,7 +88,7 @@ export interface WorkflowDispatcher {
 export function createWorkflowDispatcher(options: WorkflowDispatchOptions): WorkflowDispatcher {
   const records = options.records ?? [];
   const log = options.log ?? (() => undefined);
-  const budget = options.budget ?? new InvocationBudget(2, 6);
+  const budget = options.budget ?? new InvocationBudget(1, 3);
   const store = new ProposalStore(options.rootDir);
 
   const approvalPort: ApprovalPort | undefined = options.approval
