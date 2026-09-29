@@ -21,7 +21,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-export type ProposalKind = "fix" | "constitution";
+/**
+ * `decision` records a conversational decision bound for the agent brief
+ * (br-42nn). A distinct kind rather than reusing `constitution`: apply
+ * handlers check the kind before writing, and collapsing the two would let a
+ * constitution proposal be applied to AGENTS.md and vice versa.
+ */
+export type ProposalKind = "fix" | "constitution" | "decision";
 
 export interface ProposedWrite {
   /** Repository-relative path. */

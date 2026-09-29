@@ -57,6 +57,7 @@ export const COMMAND_EMITTED_EVENT_TYPES: readonly string[] = [
   "fix.applied",
   "fix.rejected",
   "constitution.proposed",
+  "decision.proposed",
   "constitution.applied",
   "constitution.declined",
   // br-c4ni: workspace.check reports findings as an observation.

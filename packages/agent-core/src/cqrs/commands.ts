@@ -48,6 +48,8 @@ export interface CommandCatalogDeps {
   readonly isolate?: typeof createIsolatedWorkspace;
   /** Resolves where a constitution amendment belongs (REQ-SAFE-008, br-nft8). */
   readonly resolveConstitutionPath?: (workspaceRoot: string) => { path: string } | { reason: string };
+  /** Overridable so tests can point the agent brief at a sandbox. */
+  readonly resolveDecisionsPath?: (workspaceRoot: string) => { path: string } | { reason: string };
   readonly now?: () => string;
 }
 
@@ -92,6 +94,8 @@ function defaultRunCommand(
  * says so. Creating a second constitution somewhere plausible is the outcome
  * this refuses.
  */
+import { formatDecisionEntry, resolveDecisionsPath } from "./decision-memory";
+
 export function resolveConstitutionPath(workspaceRoot: string): { path: string } | { reason: string } {
   const relative = join("docs", "standards", "constitution.md");
   let current = resolve(workspaceRoot);
@@ -120,6 +124,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
   const run = deps.runCommand ?? defaultRunCommand;
   const isolate = deps.isolate ?? createIsolatedWorkspace;
   const constitutionPath = deps.resolveConstitutionPath ?? resolveConstitutionPath;
+  const decisionsPath = deps.resolveDecisionsPath ?? resolveDecisionsPath;
 
   /** Records an investigation's structured diagnosis. Reads nothing, writes nothing. */
   const investigationRecord: CommandDescriptor<
@@ -872,6 +877,96 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     },
   };
 
+  /**
+   * Records a decision reached in conversation (br-42nn).
+   *
+   * PROPOSE ONLY. The apply half is a separate, approval-gated command for the
+   * same reason the constitution has two: AGENTS.md is read by every future
+   * session, so a wrong entry becomes a fabricated premise that later work
+   * builds on rather than a mistake someone notices. An aspirational event
+   * catalog nobody re-checked already cost this project a session's design
+   * work, which is the concrete case this guards against.
+   *
+   * `provenance` is required and free-text rather than an enum: the honest
+   * answer is usually "the user corrected me in conversation on <date>", and
+   * an enum would force that into a category that loses the only detail worth
+   * having.
+   */
+  const decisionPropose: CommandDescriptor<
+    { decision: string; rationale: string; provenance: string; evidence: string[] },
+    unknown
+  > = {
+    id: "decision.propose",
+    version: "1.0.0",
+    description: "Record an evidence-backed decision for the hand-authored agent brief",
+    requiredCapability: "decision.propose",
+    emits: ["decision.proposed"],
+    input: {
+      type: "object",
+      fields: {
+        decision: { type: "string", minLength: 1 },
+        rationale: { type: "string", minLength: 1 },
+        provenance: { type: "string", minLength: 1 },
+        // minItems 1 makes an unevidenced entry INEXPRESSIBLE rather than
+        // discouraged. The whole risk here is confident text with no source.
+        evidence: { type: "array", items: { type: "string" }, minItems: 1 },
+      },
+    },
+    result: {
+      type: "object",
+      fields: {
+        proposalRef: { type: "string" },
+        events: { type: "record", values: { type: "unknown" } },
+      },
+    },
+    async handler(ctx, args): Promise<HandlerOutcome<unknown>> {
+      const target = decisionsPath(deps.workspaceRoot);
+      if ("reason" in target) return { status: "rejected", reason: target.reason };
+
+      const recordedAt = now().slice(0, 10);
+      const entry = formatDecisionEntry({
+        decision: args.decision,
+        rationale: args.rationale,
+        evidence: args.evidence,
+        provenance: args.provenance,
+        recordedAt,
+      });
+
+      const proposal = deps.store.create(
+        {
+          kind: "decision",
+          behavior: ctx.behavior ?? "(none)",
+          issue: args.decision,
+          rationale: args.rationale,
+          correlationId: ctx.correlationId,
+          evidence: args.evidence,
+          writes: [{ path: target.path, contents: entry, baseSha256: currentHash(deps.workspaceRoot, target.path) }],
+        },
+        now(),
+      );
+
+      ctx.log({ kind: "decision-proposed", proposalRef: proposal.ref, target: target.path });
+      return {
+        status: "accepted",
+        proposalRef: proposal.ref,
+        result: {
+          proposalRef: proposal.ref,
+          events: {
+            "decision.proposed": {
+              proposalRef: proposal.ref,
+              decision: args.decision,
+              rationale: args.rationale,
+              provenance: args.provenance,
+              evidence: args.evidence,
+              recordedAt,
+            },
+          },
+        },
+        evidence: args.evidence.map((e): EvidenceRef => ({ kind: "evidence", ref: e })),
+      };
+    },
+  };
+
   return [
     investigationRecord as unknown as CommandDescriptor<never, unknown>,
     fixPropose as unknown as CommandDescriptor<never, unknown>,
@@ -882,6 +977,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     docVerify as unknown as CommandDescriptor<never, unknown>,
     verificationRun as unknown as CommandDescriptor<never, unknown>,
     workspaceCheck as unknown as CommandDescriptor<never, unknown>,
+    decisionPropose as unknown as CommandDescriptor<never, unknown>,
   ];
 }
 
@@ -896,4 +992,5 @@ export const BUILTIN_COMMAND_CAPABILITIES: Readonly<Record<string, string>> = {
   "doc.verify": "doc.verify",
   "verification.run": "verification.run",
   "workspace.check": "workspace.check",
+  "decision.propose": "decision.propose",
 };

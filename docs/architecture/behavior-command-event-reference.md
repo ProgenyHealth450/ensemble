@@ -22,6 +22,7 @@ Every command runs through one registry. Authorization is checked in a fixed ord
 | `doc.verify` | `doc.verify` | no | no | `behavior.observation.recorded` |
 | `verification.run` | `verification.run` | no | no | `behavior.observation.recorded` |
 | `workspace.check` | `workspace.check` | no | no | `behavior.observation.recorded` |
+| `decision.propose` | `decision.propose` | no | no | `decision.proposed` |
 
 ### `investigation.record` v1.0.0
 
@@ -86,6 +87,13 @@ Report unresolvable workspace symlinks and lockfile drift, without repairing the
 - **Input:** `root: string`
 - **Result:** `ok: boolean`, `findings: array`, `checked: record`, `events: record`
 
+### `decision.propose` v1.0.0
+
+Record an evidence-backed decision for the hand-authored agent brief
+
+- **Input:** `decision: string`, `rationale: string`, `provenance: string`, `evidence: array`
+- **Result:** `proposalRef: string`, `events: record`
+
 ## Events
 
 The catalog is closed: a command may not emit an event that is not listed here, and registration fails at build time if a descriptor declares one. `producer` distinguishes events the runtime stamps from events a handler returns.
@@ -104,6 +112,7 @@ Authority is the claim strength of the event. Only `applied` and `verified` are 
 | `constitution.applied` | 1.0.0 | `applied` | handler | `proposalRef: string`, `path: string`, `approvedBy: string` |
 | `constitution.declined` | 1.0.0 | `rejected` | handler | `proposalRef: string`, `reason: string` |
 | `constitution.proposed` | 1.0.0 | `proposed` | handler | `proposalRef: string`, `rule: string`, `rationale: string`, `diff: string`, `sourceEvidence: array` |
+| `decision.proposed` | 1.0.0 | `proposed` | handler | `proposalRef: string`, `decision: string`, `rationale: string`, `provenance: string`, `evidence: array`, `recordedAt: string` |
 | `fix.applied` | 1.0.0 | `applied` | handler | `proposalRef: string`, `paths: array`, `approvedBy: string` |
 | `fix.proposed` | 1.0.0 | `proposed` | handler | `proposalRef: string`, `issue: string`, `paths: array`, `rationale: string` |
 | `fix.rejected` | 1.0.0 | `rejected` | handler | `proposalRef: string`, `reason: string` |

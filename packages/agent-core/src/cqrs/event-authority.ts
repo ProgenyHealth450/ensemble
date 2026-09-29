@@ -185,6 +185,27 @@ const LIFECYCLE_ENTRIES: readonly EventCatalogEntry[] = [
     },
   },
   {
+    // br-42nn. `proposed`, not `applied`: recording a decision creates a
+    // candidate entry and nothing more, and the authority level is what makes
+    // that structural rather than a convention in the handler.
+    type: "decision.proposed",
+    schemaVersion: "1.0.0",
+    authority: "proposed",
+    producer: "handler",
+    payload: {
+      type: "object",
+      fields: {
+        proposalRef: { type: "string" },
+        decision: { type: "string" },
+        rationale: { type: "string" },
+        provenance: { type: "string" },
+        evidence: { type: "array", items: { type: "string" } },
+        recordedAt: { type: "string" },
+      },
+      optional: [],
+    },
+  },
+  {
     type: "constitution.applied",
     schemaVersion: "1.0.0",
     authority: "applied",
