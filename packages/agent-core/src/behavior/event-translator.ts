@@ -306,6 +306,13 @@ export function translateEvent(
 /**
  * Wraps a publish function so that every raw event is forwarded and any
  * implied semantic event is published immediately after it.
+ *
+ * MUST name every translator. When `translateRepositoryChange` was added this
+ * function still called only `translateEvent`, so its doc comment — "any
+ * implied semantic event" — had quietly become false, and any caller using
+ * this wrapper instead of calling the translators directly would have missed
+ * repository events with no diagnostic anywhere. A new translator has to be
+ * added here as well as at the call site.
  */
 export function withTranslation(
   publish: (event: BehaviorEvent) => void | Promise<void>,
@@ -315,6 +322,8 @@ export function withTranslation(
     await publish(event);
     const derived = translateEvent(event, options);
     if (derived) await publish(derived);
+    const repository = translateRepositoryChange(event);
+    if (repository) await publish(repository);
   };
 }
 
