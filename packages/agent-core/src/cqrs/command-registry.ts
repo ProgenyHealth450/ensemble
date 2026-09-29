@@ -77,6 +77,13 @@ interface Invocation {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * The single mutation class MutationGuard exempts from protected-path refusal.
+ * Declared here, next to the registration check that constrains it, so the
+ * exemption has exactly one name in the codebase.
+ */
+export const SANCTIONED_PROTECTED_CLASS = "constitution.write";
+
 let requestSequence = 0;
 
 export class CommandRegistry {
@@ -99,6 +106,25 @@ export class CommandRegistry {
           `command "${descriptor.id}" declares emitted event "${type}", which is not in the closed catalog`,
         );
       }
+    }
+
+    // `constitution.write` is the one mutation class MutationGuard lets past
+    // its protected-path refusal (br-9uqd: "WriteBoundaryMonitor must permit
+    // exactly that one authorized write"). That carve-out is keyed on the
+    // class alone, and a class comes from this descriptor -- never from
+    // behavior data -- so today it is reachable only through
+    // `constitution.apply`, which requires approval.
+    //
+    // "Today" is the problem. Nothing stops a later descriptor from declaring
+    // the same class without `requiresApproval`, which would silently widen a
+    // human-gated hole into an open one, in a file far from the guard that
+    // grants it. Pin the coupling here, where the class is chosen.
+    if (descriptor.mutation?.class === SANCTIONED_PROTECTED_CLASS && !descriptor.requiresApproval) {
+      throw new Error(
+        `command "${descriptor.id}" declares mutation class "${SANCTIONED_PROTECTED_CLASS}", which is ` +
+          `permitted to write a protected path, but does not set requiresApproval; ` +
+          `refusing to register an unapproved route to the constitution`,
+      );
     }
     this.descriptors.set(descriptor.id, descriptor as unknown as AnyCommandDescriptor);
   }

@@ -2,8 +2,11 @@ import {
   BehaviorAuthority,
   CommandDescriptor,
   CommandRegistry,
+  ProposalStore,
   RuntimeStampedEvent,
+  SANCTIONED_PROTECTED_CLASS,
   acceptLocally,
+  createCommandCatalog,
   createMutationGuard,
   CompiledBehaviorPackage,
   compile,
@@ -124,6 +127,69 @@ describe("one authorization path, regardless of how the command was invoked", ()
 
     expect(result.status).toBe("unauthorized");
     expect((result as { reason: string }).reason).toMatch(/capabilities\.commands/);
+  });
+});
+
+describe("the protected-path exemption cannot be widened by a new descriptor", () => {
+  /**
+   * MutationGuard lets `constitution.write` past its protected-path refusal
+   * (br-9uqd). The exemption keys on the class, and classes are declared by
+   * descriptors, so the blast radius of that carve-out is exactly "the set of
+   * descriptors that claim the class" -- a set that lives in a different file
+   * from the guard granting it.
+   *
+   * This is the test that keeps those two files honest with each other.
+   */
+  function constitutionWriter(overrides: Partial<CommandDescriptor<{ v: string }, unknown>> = {}) {
+    return {
+      id: "sneaky.write",
+      version: "1.0.0",
+      description: "declares the sanctioned class",
+      requiredCapability: "sneaky.write",
+      mutation: { class: SANCTIONED_PROTECTED_CLASS, kind: "write" as const },
+      emits: [],
+      input: { type: "object" as const, fields: { v: { type: "string" as const } } },
+      result: { type: "object" as const, fields: {} },
+      async handler() {
+        return { status: "completed" as const, result: {} };
+      },
+      ...overrides,
+    } as CommandDescriptor<{ v: string }, unknown>;
+  }
+
+  it("refuses to register an unapproved command that claims the sanctioned class", () => {
+    expect(() => registry().register(constitutionWriter())).toThrow(/does not set requiresApproval/);
+  });
+
+  it("names the class and the command, so the failure is actionable at build time", () => {
+    expect(() => registry().register(constitutionWriter())).toThrow(/sneaky\.write/);
+    expect(() => registry().register(constitutionWriter())).toThrow(/constitution\.write/);
+  });
+
+  it("permits the same class once approval is required", () => {
+    expect(() => registry().register(constitutionWriter({ requiresApproval: true }))).not.toThrow();
+  });
+
+  it("leaves ordinary mutation classes unconstrained", () => {
+    const ordinary = constitutionWriter({ id: "artifact.write", mutation: { class: "artifact.write", kind: "write" } });
+    expect(() => registry().register(ordinary)).not.toThrow();
+  });
+
+  it("holds for the real catalog: every claimant of the class requires approval", () => {
+    const catalog = createCommandCatalog({
+      workspaceRoot: "/tmp/does-not-matter",
+      store: new ProposalStore("/tmp/does-not-matter"),
+    });
+    const r = registry({ approval: { async request() { return { approved: false, reason: "no" }; } } });
+    // Registration itself is the assertion: a catalog entry that claimed the
+    // class without approval would throw here.
+    for (const d of catalog) r.register(d);
+
+    const claimants = catalog.filter((d) => d.mutation?.class === SANCTIONED_PROTECTED_CLASS);
+    // If this ever hits zero the carve-out is dead code and should be removed
+    // from MutationGuard, not left sitting there as a standing exemption.
+    expect(claimants.length).toBeGreaterThan(0);
+    for (const d of claimants) expect(d.requiresApproval).toBe(true);
   });
 });
 
