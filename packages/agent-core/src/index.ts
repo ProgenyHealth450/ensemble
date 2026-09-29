@@ -24,3 +24,6 @@ export * from "./behavior/event-translator";
 export * from "./behavior/domain-tool-vocabulary";
 export * from "./behavior/outbox";
 export * from "./local-runner";
+export * from "./behavior/package-assets";
+export * from "./cqrs";
+export * from "./workflow";

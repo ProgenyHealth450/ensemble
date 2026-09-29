@@ -1,9 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   ToolDescriptor,
+  CompileOptions,
   compile,
   compileBehaviorToArtifacts,
   discoverBehaviorPackages,
+  loadPackageAssets,
+  readPackageAsset,
   LocalEventMatcher,
   BehaviorInvoker,
   CompiledBehaviorPackage,
@@ -83,6 +86,7 @@ export function activateBehaviorPipeline(
   availableTools: readonly ToolDescriptor<Record<string, unknown>, unknown>[] = [],
   searchRoots: string[] = [...ACTIVATION_SEARCH_ROOTS],
   invoke?: BehaviorInvoker,
+  compileOptions: CompileOptions = {},
 ): BehaviorActivationResult {
   const live: CompiledBehaviorPackage[] = [];
   const packageDirs = new Map<string, string>();
@@ -112,7 +116,15 @@ export function activateBehaviorPipeline(
       continue;
     }
 
-    const compileResult = compile({ behaviors: [pkg.manifest] });
+    const packageDir = dirname(pkg.manifestPath);
+    // Prompt files are resolved against THIS package's directory, so a
+    // workflow referencing a missing prompt fails at activation with a
+    // diagnostic rather than at invocation with "no candidate offered"
+    // (REQ-BEH-003, REQ-BEH-004).
+    const compileResult = compile(
+      { behaviors: [pkg.manifest] },
+      { ...compileOptions, readPrompt: (_name, relative) => readPackageAsset(packageDir, relative) },
+    );
     if (compileResult.errors.length > 0 || compileResult.compiled.length === 0) {
       result.skipped.push({
         behaviorId: pkg.behaviorId,
@@ -125,8 +137,12 @@ export function activateBehaviorPipeline(
       try {
         const artifacts = compileBehaviorToArtifacts(compiled, availableTools);
         loadCompiledBehavior(pi, compiled, artifacts, availableTools);
+        // Computed here, from the files actually on disk right now. A
+        // manifest digest alone cannot distinguish two runs whose prompts
+        // differ, and prompts are editable by design (REQ-BEH-003).
+        compiled.manifest.metadata.packageDigest = loadPackageAssets(packageDir, compiled.manifest).packageDigest;
         result.loaded.push(compiled.manifest.metadata.name);
-        packageDirs.set(compiled.manifest.metadata.name, dirname(pkg.manifestPath));
+        packageDirs.set(compiled.manifest.metadata.name, packageDir);
         live.push(compiled);
       } catch (error) {
         // Includes the TRD-004 fail-closed refusal for an unenforced

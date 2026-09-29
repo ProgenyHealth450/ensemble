@@ -2,7 +2,7 @@ api_version: ensemble.sunstone.dev/v1
 kind: Behavior
 metadata:
   name: fix-failing-test
-  version: 1.0.0
+  version: 2.0.0
 trigger:
   event_type: test.failure.observed
   predicate:
@@ -12,66 +12,136 @@ trigger:
     command: { matches: "npm test|npx jest|jest|vitest|mix test|pytest|go test|cargo test" }
     isError: { equals: true }
 policy:
-  # Changed from `auto` to `propose` (2026-09-25): a live run produced a
-  # change to packages/agent-core/src/behavior/outbox.ts
-  # (`if (this.entries.length > 0) return;`) that landed uncommitted with no
-  # human review. `propose` makes MutationGuard.authorize() deny every
-  # direct mutation and require a human to apply the proposal instead
-  # (mutation-guard.ts:122-130) -- but ONLY on the governed dispatch path.
-  #
-  # This does NOT close the gap below: the continuation path bypasses
-  # MutationGuard regardless of `mode`, and a `bash`-granted behavior can
-  # write straight past MutationGuard/WorkspaceSnapshot via shell redirection
-  # (write-boundary-monitor.ts's docstring documents exactly this happening
-  # with a live model and `printf > file`). Both are open as br-o355. Treat
-  # `propose` as raising the bar, not as a closed loop, until br-o355 lands.
+  # `propose` now means what it says. Under the previous runtime it did not:
+  # MutationGuard denied the governed write while a second dispatch path -- an
+  # injected user turn -- repaired the same file in the same run. That path is
+  # gone (Phase 0), so the only way this behavior can change a file is
+  # `fix.apply`, which it does not declare.
   mode: propose
-  timeout: 10m
+  timeout: 30m
 capabilities:
-  # `edit` is the difference between this behavior and
-  # investigate-test-failure, which is read-only and therefore can observe a
-  # failure without ever repairing it.
-  #
-  # What mutation_classes buys depends on WHICH dispatch path runs, and there
-  # are two:
-  #
-  #   governed     behavior-runner.runBehavior -> AutofixLoop, constructed
-  #                with createMutationGuard(compiled) at behavior-runner.ts:123.
-  #                Every write is authorized against this list, snapshotted,
-  #                and verified against execution.test_command over the whole
-  #                suite before acceptance.
-  #
-  #   continuation pi.sendUserMessage injects a turn and the MODEL applies the
-  #                change with its own edit calls. Snapshot, verification and
-  #                rollback still apply; MutationGuard does not, because no
-  #                write passes through it. agent-fix-provider.ts:14 says so
-  #                outright.
-  #
-  # The run that proved this behavior worked logged a continuation and no
-  # dispatch/invocation record at all -- so the continuation path is what
-  # fires in practice, and this list was not consulted. The guard is wired,
-  # not dead code; the gap is that the two paths diverge. That is br-o355.
-  tools: [read, grep, glob, bash, edit]
-  mutation_classes: [artifact.write]
+  # Read-only. The investigating agent returns a candidate patch as DATA; it
+  # never holds a tool that can write, and `fix.propose` stores the candidate
+  # rather than applying it.
+  tools: [read, grep, glob]
+  # Empty on purpose. This behavior proposes; it does not mutate. An
+  # `artifact.write` grant here would be inert under `mode: propose` but would
+  # misdescribe the behavior to anyone reading the manifest.
+  mutation_classes: []
+  # The third, independent authority axis: which typed commands may be
+  # requested. Note `fix.apply` is absent -- applying is a separate decision,
+  # made by a human through a separate command.
+  commands:
+    - investigation.record
+    - fix.propose
+    - fix.verify
 execution:
   graph: fix-failing-test
-  # Was required by the loader while policy.mode was auto; now optional
-  # under propose, but left in place since it's the command a human
-  # approver (or a future auto/governed run) should verify a proposal
-  # against. Be precise about what it currently does: the governed path
-  # re-runs this command over the WHOLE
-  # suite before accepting a fix, so a repair that greens its target while
-  # breaking three others is rejected. On the continuation path -- the one
-  # observed firing -- it is never invoked, and only the narrower failing
-  # command is re-run. Until br-o355 converges the paths, treat this as
-  # satisfying validation rather than as a live full-suite guarantee.
-  #
-  # Runs from the repository root. There is no root jest config, so whether
-  # this collects anything was checked rather than assumed: `npx jest
-  # --listTests` from the root yields 170 suites, including 18 under
-  # packages/agent-core and 16 under packages/pi-extension. It is a real
-  # full-suite command, not a zero-test run that would exit 0 and make the
-  # whole-suite check vacuous.
+  # Runs from the repository root. Whether it collects anything is checked
+  # rather than assumed; a zero-test run would exit 0 and make the whole-suite
+  # check vacuous, which is why the verifier treats zero tests as inconclusive.
   test_command: npx jest
+  workflow:
+    schema_version: "1.0.0"
+    start: investigate
+    steps:
+      # 1. Read-only investigation. The agent runs in a contained subprocess
+      #    with a throwaway HOME and an isolated worktree, so what it can
+      #    persist dies with the step.
+      - id: investigate
+        kind: agent
+        prompt: prompts/investigate.md
+        tools: [read, grep, glob]
+        expect: json
+        timeout: 10m
+        attempts: 2
+        max_output_bytes: 262144
+        inputs:
+          command: ${event.payload.command}
+          failureOutput: ${event.payload.output}
+        on_failure: inconclusive
+
+      # 2. Record the diagnosis as a fact, separately from any fix. An
+      #    investigation that reaches no fix is still worth having.
+      - id: record-diagnosis
+        kind: command
+        command: investigation.record
+        timeout: 30s
+        args:
+          command: ${event.payload.command}
+          diagnosis: ${steps.investigate.diagnosis}
+          confidence: ${steps.investigate.confidence}
+          evidence: ${steps.investigate.evidence}
+        on_failure: inconclusive
+
+      # 3. Branch on a STRUCTURED field the agent was required to return, not
+      #    on whether its prose sounded confident.
+      - id: confident-enough
+        kind: condition
+        left: ${steps.investigate.confidence}
+        operator: in
+        right: [high, medium]
+        then: has-candidate
+        otherwise: inconclusive
+
+      # 3b. A confident diagnosis with no candidate is a real and useful
+      #     outcome -- a one-line arithmetic bug may be diagnosed precisely and
+      #     still warrant no patch from an automated step. Without this branch
+      #     it would reach fix.propose with an empty `writes` and be reported
+      #     as malformed, which describes the wrong thing.
+      - id: has-candidate
+        kind: condition
+        left: ${steps.investigate.writes}
+        operator: exists
+        then: propose-fix
+        otherwise: inconclusive
+
+      # 4. The candidate becomes a reviewable artifact. Nothing is written to
+      #    the project.
+      - id: propose-fix
+        kind: command
+        command: fix.propose
+        timeout: 60s
+        args:
+          issue: ${event.payload.command}
+          rationale: ${steps.investigate.diagnosis}
+          writes: ${steps.investigate.writes}
+          evidence: ${steps.investigate.evidence}
+        on_failure: blocked
+
+      # 5. Verification runs in a throwaway worktree, so it cannot be the thing
+      #    that applies the fix. Its verdict is recorded against the proposal
+      #    either way; a failed or inconclusive verdict still leaves a proposal
+      #    a human can read, which is why on_failure lands on `proposed`.
+      - id: verify-candidate
+        kind: command
+        command: fix.verify
+        timeout: 20m
+        args:
+          proposalRef: ${steps.propose-fix.proposalRef}
+          command: ${behavior.testCommand}
+        on_failure: proposed
+
+      - id: proposed
+        kind: outcome
+        outcome: fix.proposed
+        status: succeeded
+        evidence:
+          - ${steps.propose-fix.proposalRef}
+          - ${steps.verify-candidate.result.detail}
+
+      - id: inconclusive
+        kind: outcome
+        outcome: investigation.inconclusive
+        status: inconclusive
+        evidence:
+          - ${steps.investigate.diagnosis}
+
+      - id: blocked
+        kind: outcome
+        outcome: behavior.blocked
+        status: blocked
 outcomes:
-  - test.failure.investigated
+  - fix.proposed
+  - investigation.inconclusive
+  - behavior.blocked
