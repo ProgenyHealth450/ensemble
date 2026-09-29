@@ -473,3 +473,147 @@ describe("the constitution is a proposal, and its home is decided, not guessed",
     expect(outcome).toEqual({ path: join(root, "docs", "standards", "constitution.md") });
   });
 });
+describe("applying a constitution amendment is a separate, approved, checkable act", () => {
+  /**
+   * These cases could not exist until br-dlol landed. Before it, `MutationGuard`
+   * refused every protected path unconditionally, so `constitution.apply` could
+   * never reach its write — REQ-SAFE-008's "approval and application are
+   * separate, auditable operations" was satisfied by application being
+   * impossible. That reads as governance working right up until someone needs
+   * it to work, which is why it was a bug rather than a safe default.
+   *
+   * The carve-out (br-9uqd) is narrow, and these tests are what hold it narrow.
+   */
+  const ORIGINAL = "# Constitution\n\n1. No secrets in logs.\n";
+  const AMENDMENT = "2. **A suite that fails to load counts as a failure.**";
+
+  function applier(overrides: { approve?: boolean | null } = {}) {
+    const root = workspace({ "docs/standards/constitution.md": ORIGINAL });
+    const m = manifest({
+      // `auto`, deliberately. A behavior that APPLIES an approved amendment is
+      // performing a write, and `propose` refuses every write at the registry
+      // boundary before any handler runs. The constitution-learning behavior
+      // stays in `propose` precisely because it only ever proposes; the two
+      // are different jobs with different authority, which is the separation
+      // REQ-SAFE-008 asks for.
+      mode: "auto",
+      commands: ["constitution.propose", "constitution.apply"],
+      mutationClasses: ["constitution.write"],
+    });
+    // NOT `?? true`: `null` is the "no approval channel at all" case, and
+    // `null ?? true` would quietly hand the test a working auto-approver.
+    const approve = overrides.approve === undefined ? true : overrides.approve;
+    const h = harness({ root, manifest: m, approve });
+    return { root, h, file: join(root, "docs/standards/constitution.md") };
+  }
+
+  async function propose(h: Harness) {
+    const result = await h.run("constitution.propose", {
+      rule: "a suite that fails to load counts as a failure",
+      rationale: "verification trusted a runner the same run judged defective",
+      diff: AMENDMENT,
+      sourceEvidence: ["docs/standards/constitution.md:3"],
+    });
+    const ref = (result as { proposalRef: string }).proposalRef;
+    expect(ref).toBeTruthy();
+    return ref;
+  }
+
+  it("applies an approved amendment to the canonical file", async () => {
+    const { h, file } = applier();
+    const ref = await propose(h);
+
+    const applied = await h.run("constitution.apply", { proposalRef: ref });
+
+    expect(applied.status).toBe("completed");
+    const after = readFileSync(file, "utf8");
+    expect(after).toContain(AMENDMENT);
+    // Appends. An amendment that silently replaced the document would lose
+    // every rule it did not mention.
+    expect(after).toContain("1. No secrets in logs.");
+  });
+
+  it("asks a human first, and writes nothing when the answer is no", async () => {
+    const { h, file } = applier({ approve: false });
+    const ref = await propose(h);
+
+    const applied = await h.run("constitution.apply", { proposalRef: ref });
+
+    expect(applied.status).toBe("awaiting_approval");
+    expect(h.approvals.length).toBeGreaterThan(0);
+    expect(readFileSync(file, "utf8")).toBe(ORIGINAL);
+  });
+
+  it("fails closed when there is no approval channel at all", async () => {
+    const { h, file } = applier({ approve: null });
+    const ref = await propose(h);
+
+    const applied = await h.run("constitution.apply", { proposalRef: ref });
+
+    expect(applied.status).not.toBe("completed");
+    expect(readFileSync(file, "utf8")).toBe(ORIGINAL);
+  });
+
+  it("refuses when the constitution changed after the amendment was proposed", async () => {
+    const { h, file } = applier();
+    const ref = await propose(h);
+
+    // Someone edits the constitution between proposal and approval. The
+    // amendment was reasoned about against text that no longer exists.
+    const edited = `${ORIGINAL}\n3. Unrelated human edit.\n`;
+    writeFileSync(file, edited);
+
+    const applied = await h.run("constitution.apply", { proposalRef: ref });
+
+    expect(applied.status).toBe("rejected");
+    expect((applied as { reason?: string }).reason).toMatch(/changed since/);
+    expect(readFileSync(file, "utf8")).toBe(edited);
+  });
+
+  it("refuses to apply the same amendment twice", async () => {
+    const { h } = applier();
+    const ref = await propose(h);
+
+    expect((await h.run("constitution.apply", { proposalRef: ref })).status).toBe("completed");
+    const second = await h.run("constitution.apply", { proposalRef: ref });
+
+    expect(second.status).toBe("rejected");
+    expect((second as { reason?: string }).reason).toMatch(/already applied/);
+  });
+
+  it("refuses a behavior that did not declare the apply command", async () => {
+    const root = workspace({ "docs/standards/constitution.md": ORIGINAL });
+    const h = harness({
+      root,
+      // Declares the mutation class but not the command. A mutation grant is
+      // not a command grant.
+      manifest: manifest({ commands: ["constitution.propose"], mutationClasses: ["constitution.write"] }),
+      approve: true,
+    });
+    const ref = await propose(h);
+
+    const applied = await h.run("constitution.apply", { proposalRef: ref });
+
+    // `unauthorized`, not `rejected`: the registry refused on capability
+    // before the handler ran. The distinction is worth asserting — a handler
+    // rejection would mean the command had been allowed to start.
+    expect(applied.status).toBe("unauthorized");
+    expect(readFileSync(join(root, "docs/standards/constitution.md"), "utf8")).toBe(ORIGINAL);
+  });
+
+  it("still refuses a protected path that is not the constitution", async () => {
+    // The carve-out must buy nothing anywhere else. Same behavior, same
+    // granted class, ordinary protected file.
+    const m = manifest({ commands: ["fix.apply"], mutationClasses: ["constitution.write", "artifact.write"] });
+    const compiled = compile({ behaviors: [m] }).compiled[0];
+    const guard = createMutationGuard(compiled);
+
+    const verdict = guard.authorize({
+      mutationClass: "constitution.write",
+      path: "packages/agent-core/tests/commands.test.ts",
+      kind: "write",
+    });
+
+    expect(verdict.allowed).toBe(false);
+  });
+});
