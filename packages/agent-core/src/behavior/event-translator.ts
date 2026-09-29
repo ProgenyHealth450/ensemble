@@ -28,6 +28,67 @@ const TEST_COMMAND_PATTERNS: readonly RegExp[] = [
   /^yarn\s+test\b/,
 ];
 
+/**
+ * Evidence that a run reported a count of tests actually executed.
+ *
+ * Deliberately separate from the failure patterns. A run reporting
+ * `Tests: 0 total` with exit code 0 matches no failure pattern and is not
+ * `isError`, so before this it produced NO event at all — the single most
+ * common local failure shape in this repo's own log (29 of 51 classifiable
+ * failures) was invisible to the runtime.
+ */
+const TEST_COUNT_PATTERNS: readonly { readonly pattern: RegExp; readonly group: number }[] = [
+  // jest / vitest: "Tests:       12 passed, 12 total"
+  { pattern: /^\s*Tests:.*?\b(\d+)\s+total\b/m, group: 1 },
+  // jest / vitest suites: "Test Suites: 3 passed, 3 total"
+  { pattern: /^\s*Test Suites:.*?\b(\d+)\s+total\b/m, group: 1 },
+  // pytest: "12 passed in 0.4s" / "no tests ran in 0.1s"
+  { pattern: /\b(\d+)\s+passed\b/, group: 1 },
+  // go test: "ok   pkg  0.2s" carries no count; "no test files" is explicit
+  { pattern: /\b(\d+)\s+tests?,\s+\d+\s+failures?\b/, group: 1 },
+];
+
+/** Phrases that state outright that nothing ran. */
+const NOTHING_RAN_PATTERNS: readonly RegExp[] = [
+  /\bno tests ran\b/i,
+  /\bno tests found\b/i,
+  /\[no test files\]/i,
+  /\bno test files\b/i,
+  /^\s*Tests:\s*0\s+total\b/m,
+  /^\s*Test Suites:\s*0\s+total\b/m,
+];
+
+export interface TestVolume {
+  /** Tests the run claims to have executed, when it said so at all. */
+  readonly testsReported?: number;
+  /** True when the output states outright that nothing ran. */
+  readonly nothingRan: boolean;
+  /** True when the run reported no count AND no explicit "nothing ran". */
+  readonly silent: boolean;
+}
+
+/**
+ * What a test run claims about its own volume.
+ *
+ * `silent` is its own case on purpose. "Reported zero" and "reported
+ * nothing" are different facts, and collapsing them would let an unknown
+ * runner's healthy output be read as a vacuous pass — which is the same
+ * class of error in the opposite direction.
+ */
+export function readTestVolume(output: string): TestVolume {
+  const nothingRan = NOTHING_RAN_PATTERNS.some((p) => p.test(output));
+  for (const { pattern, group } of TEST_COUNT_PATTERNS) {
+    const match = pattern.exec(output);
+    if (match) {
+      const count = Number(match[group]);
+      if (Number.isFinite(count)) {
+        return { testsReported: count, nothingRan: nothingRan || count === 0, silent: false };
+      }
+    }
+  }
+  return { nothingRan, silent: !nothingRan };
+}
+
 /** Shell operators that begin a new command. */
 const SEGMENT_SPLIT = /(?:\|\||&&|;|\||\n)/;
 /** Wrappers that delegate to the runner named after them. */
@@ -181,7 +242,42 @@ export function translateEvent(
   const failedByStatus =
     payload.isError === true && (exactDeclared || exitStatusIsRunners(command));
   const failedByOutput = outputReportsFailure(output);
-  if (!failedByStatus && !failedByOutput) return undefined;
+  if (!failedByStatus && !failedByOutput) {
+    // A recognised test command that did NOT report failure.
+    //
+    // A HEALTHY run still translates to nothing, deliberately. The original
+    // contract — "no event for a passing suite" — exists so behaviors cannot
+    // chase healthy suites, and emitting on every green run would also make
+    // this the highest-volume event in the system for no benefit.
+    //
+    // The exception is a run that passed because it ran NOTHING. That is not
+    // a pass; it is the absence of evidence being reported as evidence, and
+    // it was invisible here: it matches no failure pattern and is not
+    // `isError`, so it produced no event at all. In this repo's own log it
+    // is the single most common failure shape (29 of 51 classifiable).
+    //
+    // `silent` — no count and no explicit "nothing ran" — is NOT emitted.
+    // An unrecognised runner's healthy output would otherwise be reported as
+    // vacuous, which is the same error in the opposite direction.
+    const volume = readTestVolume(output);
+    if (!volume.nothingRan) return undefined;
+
+    return normalizeEvent({
+      type: "test.passed",
+      source: event.source,
+      payload: {
+        command,
+        cwd: typeof payload.cwd === "string" ? payload.cwd : undefined,
+        testsReported: volume.testsReported,
+        nothingRan: true,
+        // The verdict is still the behavior's to draw. This module reports
+        // what the run said about itself and nothing more.
+        toolName: payload.toolName,
+        toolCallId: payload.toolCallId,
+        output: payload.output,
+      },
+    });
+  }
 
   return normalizeEvent({
     type: "test.failure.observed",
