@@ -1,3 +1,4 @@
+import { isLaunchInput } from "./event-disposition";
 
 
 /**
@@ -69,6 +70,31 @@ export const COMMAND_EMITTED_EVENT_TYPES: readonly string[] = [
 export const REGISTRY_EMITTED_EVENT_TYPES: readonly string[] = ["command.rejected"];
 
 /**
+ * Terminal outcome events the WORKFLOW DISPATCHER publishes when a behavior
+ * run ends (br-j46q). One per run.
+ *
+ * Separate from the command list because no command descriptor declares them:
+ * they are emitted by the dispatcher in `pi-extension/src/workflow-dispatch.ts`
+ * from the run's terminal state, not chosen by a handler.
+ *
+ * They must be listed HERE, in agent-core, even though the emitter lives in
+ * pi-extension. Without that, `explainInertTrigger` warned that a behavior
+ * triggering on `behavior.completed` would never fire — a FALSE warning about
+ * a working chain, which is worse than no warning at all: it teaches authors
+ * that the diagnostic is noise, and the diagnostic is the only thing standing
+ * between them and a behavior that genuinely never runs.
+ *
+ * `behavior.observation.recorded` is deliberately absent: it is declared but
+ * not emitted, one event per run being the rule.
+ */
+export const DISPATCH_EMITTED_EVENT_TYPES: readonly string[] = [
+  "behavior.completed",
+  "behavior.blocked",
+  "behavior.abandoned",
+  "behavior.outcome.recorded",
+];
+
+/**
  * Raw harness events the Pi adapter publishes.
  *
  * These are NOT translated — they are the runtime's own telemetry, and a
@@ -96,7 +122,7 @@ export const HARNESS_EMITTED_EVENT_TYPES: readonly string[] = [
 export interface TriggerProducer {
   readonly eventType: string;
   /** How this type comes to exist. */
-  readonly producedBy: "translator" | "command" | "harness";
+  readonly producedBy: "translator" | "command" | "harness" | "dispatcher";
 }
 
 /** Every trigger type this build can actually produce, with its source. */
@@ -117,6 +143,11 @@ export function producibleTriggers(): readonly TriggerProducer[] {
       out.push({ eventType, producedBy: "harness" });
     }
   }
+  for (const eventType of DISPATCH_EMITTED_EVENT_TYPES) {
+    if (!out.some((entry) => entry.eventType === eventType)) {
+      out.push({ eventType, producedBy: "dispatcher" });
+    }
+  }
   return out;
 }
 
@@ -127,17 +158,27 @@ export function triggerHasProducer(eventType: string): boolean {
 
 /**
  * A human-readable explanation for an inert trigger, or undefined when the
- * trigger is fine. The message names alternatives, because "this will never
- * fire" without "here is what does" sends the reader back to the catalog that
- * misled them.
+ * trigger is fine.
+ *
+ * THREE states, not two (br-d7lm). A trigger with no in-session producer is
+ * not automatically a mistake: the Foreman-owned families arrive as the LAUNCH
+ * INPUT of a session Foreman starts in response to them. Warning about those
+ * would be a false alarm on a working design, and false alarms are how a
+ * diagnostic loses its authority — after which the genuinely inert triggers it
+ * exists to catch sail through unnoticed.
+ *
+ * The message names alternatives, because "this will never fire" without
+ * "here is what does" sends the reader back to the catalog that misled them.
  */
 export function explainInertTrigger(eventType: string): string | undefined {
   if (triggerHasProducer(eventType)) return undefined;
+  if (isLaunchInput(eventType)) return undefined;
   const translated = TRANSLATED_EVENT_TYPES.join(", ");
   return (
     `trigger "${eventType}" is in the ingress catalog but nothing in this build emits it, ` +
     `so this behavior will never fire. Types the runtime derives from tool calls: ${translated}. ` +
     `Command-emitted lifecycle events (fix.proposed, fix.verified, constitution.proposed, ...) ` +
-    `also fire and can chain one behavior off another. See br-jgxo.`
+    `and behavior outcome events (behavior.completed, behavior.blocked, ...) also fire and can ` +
+    `chain one behavior off another. See br-jgxo, br-d7lm.`
   );
 }

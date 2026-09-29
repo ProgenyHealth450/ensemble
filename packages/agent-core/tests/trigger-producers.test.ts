@@ -29,14 +29,29 @@ describe("knowing which triggers anything actually emits", () => {
   });
 
   it("reports catalogued-but-unproduced types as inert", () => {
-    for (const type of ["prd.created", "trd.refined", "pull_request.proposed", "review.completed"]) {
+    // These carry disposition `remove` (br-d7lm): nothing emits them and
+    // nothing can supply them. Previously this list used `prd.created` and
+    // friends, which are now correctly recognised as LAUNCH INPUT — Foreman
+    // starts a session in response to them, so a behavior triggering on one
+    // does fire and must not be warned about.
+    for (const type of ["change.proposed", "validation.requested", "child_behavior.requested"]) {
       expect(triggerHasProducer(type)).toBe(false);
+      expect(explainInertTrigger(type)).toContain("never fire");
+    }
+  });
+
+  it("stays silent about Foreman-owned types, which arrive as launch input", () => {
+    // A false alarm on a working design is worse than no alarm: it teaches
+    // authors the diagnostic is noise, and then the genuinely inert triggers
+    // it exists to catch sail through unnoticed.
+    for (const type of ["prd.created", "trd.refined", "pull_request.proposed", "review.completed"]) {
+      expect(explainInertTrigger(type)).toBeUndefined();
     }
   });
 
   it("explains an inert trigger instead of merely denying it", () => {
-    const message = explainInertTrigger("prd.created");
-    expect(message).toContain("prd.created");
+    const message = explainInertTrigger("change.proposed");
+    expect(message).toContain("change.proposed");
     expect(message).toContain("never fire");
     // Names what DOES work — otherwise the reader goes back to the catalog
     // that misled them.
