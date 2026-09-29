@@ -103,3 +103,39 @@ describe("the shipped constitution-learning manifest forwards the diagnosis", ()
     expect(step.inputs.evidence).toBe("${event.payload.evidence}");
   });
 });
+
+describe("the shipped prompt template renders what the manifest passes it", () => {
+  /**
+   * The tests above stub `loadPrompt`, so they prove the manifest RESOLVES
+   * the inputs, not that anything displays them. Those are separate failures:
+   * a prompt template that dropped `{{diagnosis}}` would still receive the
+   * value and silently discard it, leaving the assessment exactly as blind as
+   * before the fix while every manifest-level test stayed green.
+   *
+   * This is the last link in the chain: investigate -> rationale ->
+   * fix.verified -> manifest inputs -> the text the model actually reads.
+   */
+  const promptPath = join(
+    __dirname, "..", "..", "..", ".ensemble", "behaviors", "constitution-learning", "prompts", "assess.md",
+  );
+  const template = readFileSync(promptPath, "utf8");
+
+  it("renders the diagnosis", () => {
+    expect(template).toContain("{{diagnosis}}");
+  });
+
+  it("renders the evidence", () => {
+    expect(template).toContain("{{evidence}}");
+  });
+
+  it("uses only placeholders the manifest supplies", () => {
+    // The other direction: a placeholder with no matching input renders as a
+    // literal `{{foo}}` in the prompt, which reads to the model as a
+    // formatting glitch rather than missing data.
+    const step = shippedWorkflow().steps.find((s) => s.id === "assess") as { inputs: Record<string, string> };
+    const supplied = new Set(Object.keys(step.inputs));
+    const used = [...template.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
+
+    expect(used.filter((name) => !supplied.has(name))).toEqual([]);
+  });
+});
