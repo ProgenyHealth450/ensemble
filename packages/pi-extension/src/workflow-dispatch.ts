@@ -28,6 +28,7 @@ import {
   ProposalStore,
   WorkflowRunResult,
   acceptLocally,
+  stampEvent,
   createCommandCatalog,
   createMutationGuard,
   createPromptLoader,
@@ -244,6 +245,46 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
     const resolved: DispatchRecord = { behavior: behaviorName, event: invocation.event.type, run, startedAt };
     records[slot] = resolved;
     options.onRecord?.(resolved);
+
+    // Publish the outcome so another behavior can react to it (br-j46q).
+    //
+    // Until now the interpreter computed `terminal` and `outcome`, every
+    // manifest DECLARED them under `outcomes:`, the compiler validated that
+    // list — and nothing ever published them. An author declared an outcome,
+    // the compiler checked it, the run reached it, and the runtime dropped
+    // it. Command events already re-enter the sink so a behavior can react to
+    // `fix.verified`; this is the missing half of the same design.
+    //
+    // Mapping. The catalog has no `behavior.failed`, so a run that did not
+    // reach a declared outcome is `behavior.abandoned` and carries its real
+    // terminal state in the payload. One event per run, not two: emitting
+    // `behavior.outcome.recorded` alongside would double the volume to say
+    // the same thing twice.
+    if (options.publish) {
+      const type =
+        run.terminal === "blocked"
+          ? "behavior.blocked"
+          : run.terminal === "failed" || run.terminal === "cancelled"
+            ? "behavior.abandoned"
+            : "behavior.completed";
+      const stamped = stampEvent({
+        type,
+        payload: { behavior: behaviorName, terminal: run.terminal, outcome: run.outcome, reason: run.reason },
+        sessionId: options.sessionId,
+        executionId: options.executionId,
+        correlationId: `${options.executionId}:${behaviorName}`,
+        causationId: invocation.event.type,
+        behaviorId: behaviorName,
+        behaviorDigest: authority.digest,
+      });
+      if (stamped.ok) {
+        await options.publish(stamped.event, acceptLocally("local-session"));
+      } else {
+        // Fail loudly rather than silently dropping it — a swallowed outcome
+        // is the exact defect this block exists to fix.
+        log({ kind: "outcome-publish-refused", behavior: behaviorName, type, reason: stamped.reason });
+      }
+    }
   };
 
   return { invoke, records, commandIds };
