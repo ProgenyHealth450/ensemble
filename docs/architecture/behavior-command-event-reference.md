@@ -19,6 +19,7 @@ Every command runs through one registry. Authorization is checked in a fixed ord
 | `fix.apply` | `fix.apply` | `artifact.write` (write) | **required** | `fix.applied`, `fix.rejected` |
 | `constitution.propose` | `constitution.propose` | no | no | `constitution.proposed` |
 | `constitution.apply` | `constitution.apply` | `constitution.write` (write) | **required** | `constitution.applied`, `constitution.declined` |
+| `workspace.check` | `workspace.check` | no | no | `behavior.observation.recorded` |
 
 ### `investigation.record` v1.0.0
 
@@ -62,6 +63,13 @@ Apply an approved constitution amendment to the canonical constitution
 - **Input:** `proposalRef: string`
 - **Result:** `proposalRef: string`, `path: string`, `events: record`
 
+### `workspace.check` v1.0.0
+
+Report unresolvable workspace symlinks and lockfile drift, without repairing them
+
+- **Input:** `root: string`
+- **Result:** `ok: boolean`, `findings: array`, `checked: record`, `events: record`
+
 ## Events
 
 The catalog is closed: a command may not emit an event that is not listed here, and registration fails at build time if a descriptor declares one. `producer` distinguishes events the runtime stamps from events a handler returns.
@@ -74,7 +82,7 @@ Authority is the claim strength of the event. Only `applied` and `verified` are 
 | `behavior.abandoned` | 1.0.0 | `observed` | runtime | — |
 | `behavior.blocked` | 1.0.0 | `diagnostic` | runtime | — |
 | `behavior.completed` | 1.0.0 | `observed` | runtime | — |
-| `behavior.observation.recorded` | 1.0.0 | `observed` | runtime | — |
+| `behavior.observation.recorded` | 1.0.0 | `diagnostic` | handler | — |
 | `behavior.outcome.recorded` | 1.0.0 | `diagnostic` | runtime | — |
 | `behavior.unblocked` | 1.0.0 | `observed` | runtime | — |
 | `change.proposed` | 1.0.0 | `observed` | runtime | — |

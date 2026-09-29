@@ -29,6 +29,7 @@ import { FieldSchema } from "./field-schema";
 import { Proposal, ProposalStore, currentHash, hashContents } from "./proposal-store";
 import { VerificationResult, verifyOutput } from "./verification";
 import { createIsolatedWorkspace, materialize } from "./isolated-workspace";
+import { checkWorkspaceIntegrity } from "../workspace/integrity";
 import { classifyPath } from "../behavior/protected-paths";
 import { SANCTIONED_PROTECTED_CLASS } from "./command-registry";
 
@@ -625,6 +626,62 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     },
   };
 
+  /**
+   * Read-only workspace integrity check (br-c4ni).
+   *
+   * No mutation class and no approval, because it changes nothing: it reads
+   * the filesystem and reports. Deliberately NOT a repair — a fix here means
+   * `npm install`, which is the developer's call, and a runtime that silently
+   * rewrote a dependency tree would be a worse problem than the one it solved.
+   */
+  const workspaceCheck: CommandDescriptor<{ root?: string }, unknown> = {
+    id: "workspace.check",
+    version: "1.0.0",
+    description: "Report unresolvable workspace symlinks and lockfile drift, without repairing them",
+    requiredCapability: "workspace.check",
+    emits: ["behavior.observation.recorded"],
+    input: { type: "object", fields: { root: { type: "string" } }, optional: ["root"] },
+    result: {
+      type: "object",
+      fields: {
+        ok: { type: "boolean" },
+        findings: { type: "array", items: { type: "record", values: { type: "unknown" } } },
+        checked: { type: "record", values: { type: "unknown" } },
+        events: { type: "record", values: { type: "unknown" } },
+      },
+    },
+    async handler(ctx, args): Promise<HandlerOutcome<unknown>> {
+      const report = checkWorkspaceIntegrity(args.root ?? deps.workspaceRoot);
+
+      ctx.log({ kind: "workspace-checked", ok: report.ok, findings: report.findings.length });
+      return {
+        status: "completed",
+        result: {
+          ok: report.ok,
+          findings: report.findings,
+          checked: report.checked,
+          events: {
+            "behavior.observation.recorded": {
+              observation: "workspace.integrity",
+              ok: report.ok,
+              findings: report.findings,
+              checked: report.checked,
+            },
+          },
+        },
+        // The counts are the evidence. A report with no findings means
+        // something only if it says how much it looked at.
+        evidence: [
+          {
+            kind: "workspace",
+            ref: args.root ?? deps.workspaceRoot,
+            detail: `${report.checked.linkCount} links examined, lockfile ${report.checked.lockfile ? "compared" : "not present"}`,
+          },
+        ],
+      };
+    },
+  };
+
   return [
     investigationRecord as unknown as CommandDescriptor<never, unknown>,
     fixPropose as unknown as CommandDescriptor<never, unknown>,
@@ -632,6 +689,7 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
     fixApply as unknown as CommandDescriptor<never, unknown>,
     constitutionPropose as unknown as CommandDescriptor<never, unknown>,
     constitutionApply as unknown as CommandDescriptor<never, unknown>,
+    workspaceCheck as unknown as CommandDescriptor<never, unknown>,
   ];
 }
 
@@ -643,4 +701,5 @@ export const BUILTIN_COMMAND_CAPABILITIES: Readonly<Record<string, string>> = {
   "fix.apply": "fix.apply",
   "constitution.propose": "constitution.propose",
   "constitution.apply": "constitution.apply",
+  "workspace.check": "workspace.check",
 };

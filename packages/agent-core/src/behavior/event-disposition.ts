@@ -59,6 +59,9 @@ export const EVENT_DISPOSITIONS: Readonly<Record<string, Disposition>> = {
   "behavior.blocked": "keep",
   "behavior.abandoned": "keep",
   "behavior.outcome.recorded": "keep",
+  // Emitted by `workspace.check` since br-c4ni. This was the last type whose
+  // disposition hinged on "is there a consumer?" — there is one now.
+  "behavior.observation.recorded": "keep",
 
   // ---- EMIT: knowable in-session, not yet wired ---------------------------
   "runtime.message.emitted": "emit",
@@ -72,10 +75,7 @@ export const EVENT_DISPOSITIONS: Readonly<Record<string, Disposition>> = {
   "test.regression_detected": "emit",
   "repository.changed": "emit",
   "repository.branch.created": "emit",
-  // Deliberately unemitted for now: one event per run is the rule, and a
-  // per-observation event has no identified consumer. Kept as `emit` rather
-  // than `remove` because the concept is real and the decision is reversible.
-  "behavior.observation.recorded": "emit",
+
 
   // ---- LAUNCH-INPUT: Foreman's vocabulary ---------------------------------
   // Retained in the catalog and matchable when a session is launched with one

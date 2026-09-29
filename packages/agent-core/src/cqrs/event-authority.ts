@@ -225,6 +225,22 @@ const LIFECYCLE_ENTRIES: readonly EventCatalogEntry[] = [
     payload: { type: "record", values: { type: "unknown" } },
   },
   {
+    // Emitted by `workspace.check` (br-c4ni). This is the consumer br-d7lm
+    // could not identify for `behavior.observation.recorded`, which is why the
+    // type stayed declared-but-unemitted: an observation with no producer is
+    // a promise, and a catalog full of promises is what made the whole catalog
+    // untrustworthy.
+    //
+    // Authority `diagnostic`, not `observed`: a workspace finding is a report
+    // ABOUT the repository, not a fact the runtime caused. Nothing downstream
+    // may treat it as proof that something was done.
+    type: "behavior.observation.recorded",
+    schemaVersion: "1.0.0",
+    authority: "diagnostic",
+    producer: "handler",
+    payload: { type: "record", values: { type: "unknown" } },
+  },
+  {
     type: "command.rejected",
     schemaVersion: "1.0.0",
     authority: "rejected",
