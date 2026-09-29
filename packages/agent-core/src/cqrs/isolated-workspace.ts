@@ -20,7 +20,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -37,6 +37,77 @@ export type IsolationResult =
 function git(cwd: string, args: string[]): { status: number; out: string; err: string } {
   const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return { status: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
+}
+
+/**
+ * Copies a directory using a copy-on-write clone, or reports that it cannot.
+ *
+ * A git worktree is a checkout of a COMMIT, so gitignored content is absent —
+ * `node_modules` above all. Without it the test command cannot find its own
+ * runner, so `fix.verify` could never reach a verdict of `passed` and the
+ * propose -> verify -> apply chain terminated at step two (br-t0so).
+ *
+ * The three ways to give the workspace its dependencies are not equal:
+ *
+ *   symlink -> instant, but a write through the link reaches the live tree.
+ *              This is the defect br-bxm7 recorded against the old sandbox
+ *              and it must not come back.
+ *   copy    -> safe, and slow enough on a real `node_modules` to make
+ *              verification unusable.
+ *   CoW     -> instant AND private. Writes diverge from the source instead
+ *              of propagating to it.
+ *
+ * So CoW, and where the filesystem cannot do it we REFUSE and say so. A
+ * fallback to symlinking would trade a visible limitation for an invisible
+ * hazard, and a fallback to copying would trade it for a verification step
+ * nobody waits for.
+ */
+function cloneDirectory(source: string, destination: string): { ok: true } | { ok: false; reason: string } {
+  // APFS (macOS) and btrfs/xfs (Linux) express the same operation
+  // differently. `--reflink=always` fails rather than silently copying, which
+  // is what we want: a silent copy would be the slow path in disguise.
+  const attempts: readonly (readonly string[])[] = [
+    ["cp", "-c", "-R", source, destination],
+    ["cp", "-R", "--reflink=always", source, destination],
+  ];
+
+  const failures: string[] = [];
+  for (const [command, ...args] of attempts) {
+    const result = spawnSync(command, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    if (result.status === 0) return { ok: true };
+    failures.push(`${command} ${args[0]}: ${(result.stderr ?? "").trim() || `exit ${result.status}`}`);
+  }
+  return { ok: false, reason: failures.join("; ") };
+}
+
+/**
+ * Dependency directories worth cloning into the workspace.
+ *
+ * Top level plus one level down, which covers a plain repo and the npm
+ * workspaces layout. Deliberately not a full walk: a recursive search would
+ * descend into `node_modules` itself and spend longer looking than cloning.
+ */
+export function dependencyDirectories(repoRoot: string): string[] {
+  const found: string[] = [];
+  const top = join(repoRoot, "node_modules");
+  if (existsSync(top)) found.push("node_modules");
+
+  for (const container of ["packages", "apps"]) {
+    const base = join(repoRoot, container);
+    if (!existsSync(base)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(base);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (existsSync(join(base, entry, "node_modules"))) {
+        found.push(join(container, entry, "node_modules"));
+      }
+    }
+  }
+  return found;
 }
 
 /**
@@ -68,6 +139,28 @@ export function createIsolatedWorkspace(repoRoot: string, label = "verify"): Iso
   if (added.status !== 0) {
     rmSync(dir, { recursive: true, force: true });
     return { ok: false, reason: `cannot isolate: git worktree add failed: ${added.err.trim()}` };
+  }
+
+  // Give the workspace its dependencies, or refuse. A worktree without
+  // `node_modules` cannot run the test command, so verification would be
+  // permanently inconclusive — safe, but useless (br-t0so).
+  for (const relative of dependencyDirectories(repoRoot)) {
+    const target = join(worktreeRoot, relative);
+    mkdirSync(dirname(target), { recursive: true });
+    const cloned = cloneDirectory(join(repoRoot, relative), target);
+    if (!cloned.ok) {
+      git(repoRoot, ["worktree", "remove", "--force", worktreeRoot]);
+      rmSync(dir, { recursive: true, force: true });
+      git(repoRoot, ["worktree", "prune"]);
+      return {
+        ok: false,
+        reason:
+          `cannot isolate: ${relative} could not be cloned copy-on-write, so the workspace would ` +
+          `have no dependencies and could not run the suite (${cloned.reason}). ` +
+          `Copy-on-write needs APFS, btrfs or xfs. Verification is refused rather than run ` +
+          `against a shared or empty tree.`,
+      };
+    }
   }
 
   let disposed = false;
