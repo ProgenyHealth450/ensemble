@@ -43,14 +43,20 @@ execution:
         then: reported-zero
         otherwise: said-nothing-ran
 
-      # Split so the report can be specific. "It told us zero" and "it told
-      # us it ran nothing" are different sentences to a reader trying to work
-      # out whether their config or their path is wrong.
+      # Split so the report is specific. "It told us zero" and "it told us it
+      # ran nothing" send a reader to different places: the first usually
+      # means a path or filter matched no files, the second that the runner
+      # found no suite at all.
+      #
+      # The distinguishing text lives in `evidence`, because OutcomeStep has
+      # no message field. Without these literals the two branches would be
+      # byte-identical and the split would be decoration.
       - id: reported-zero
         kind: outcome
         outcome: behavior.completed
         status: inconclusive
         evidence:
+          - "vacuous: the run reported a total of zero tests"
           - ${event.payload.command}
           - ${event.payload.cwd}
 
@@ -59,6 +65,7 @@ execution:
         outcome: behavior.completed
         status: inconclusive
         evidence:
+          - "vacuous: the run stated outright that no tests ran"
           - ${event.payload.command}
           - ${event.payload.cwd}
 outcomes:

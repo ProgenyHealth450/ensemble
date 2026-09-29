@@ -44,8 +44,13 @@ const TEST_COUNT_PATTERNS: readonly { readonly pattern: RegExp; readonly group: 
   { pattern: /^\s*Test Suites:.*?\b(\d+)\s+total\b/m, group: 1 },
   // pytest: "12 passed in 0.4s" / "no tests ran in 0.1s"
   { pattern: /\b(\d+)\s+passed\b/, group: 1 },
-  // go test: "ok   pkg  0.2s" carries no count; "no test files" is explicit
+  // mix / ExUnit: "5 tests, 0 failures"
   { pattern: /\b(\d+)\s+tests?,\s+\d+\s+failures?\b/, group: 1 },
+  // NOTE: go test has no count-based entry. `go test` prints "ok pkg 0.2s"
+  // with no number, so there is nothing to read. Its empty case is caught
+  // by NOTHING_RAN_PATTERNS ("no test files") instead. Do not add a count
+  // pattern here for go without a real sample -- an invented one would
+  // read some other number as a test count.
 ];
 
 /** Phrases that state outright that nothing ran. */

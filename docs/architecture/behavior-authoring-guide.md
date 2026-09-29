@@ -54,6 +54,34 @@ execution:
     steps: [...]
 outcomes: [behavior.completed]
 ```
+### Which triggers actually fire
+
+Read this before choosing an `event_type`. `behavior/event-catalog.ts` lists around 45 ingress
+event types — `prd.*`, `trd.*`, `implementation.*`, `review.*`, `release.*`, `pull_request.*` and
+more. **Almost none of them are emitted by anything.** A behavior triggering on one will compile,
+validate, load, and then never fire, with no error and no warning: it sits there looking
+installed. Tracked as `br-jgxo`.
+
+As of 2026-09-29 the translator (`behavior/event-translator.ts`) emits exactly two types:
+
+| Trigger | When it fires |
+| --- | --- |
+| `test.failure.observed` | a recognised test command reported failure, by exit status or by output |
+| `test.passed` | **only** when a recognised test command reported it ran *nothing* |
+
+That second row is a deliberate narrowing and the name overclaims. `test.passed` does **not**
+fire for a healthy suite — a passing run still translates to no event at all, so behaviors cannot
+chase working code. If you are building a consumer that wants real passes, this type will not give
+you them today; you would need to widen the translator, and doing so would change a contract that
+five existing tests pin. Its payload always carries `nothingRan: true`, so check that field rather
+than trusting the type name.
+
+Events emitted by *commands* — `fix.proposed`, `fix.verified`, `constitution.proposed` and the
+rest — are separate and do fire; see the
+[command and event reference](./behavior-command-event-reference.md). Triggering one behavior from
+another behavior's command output works today; triggering from the wider domain vocabulary does
+not.
+
 
 ### `policy.mode`
 
