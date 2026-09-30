@@ -27,8 +27,8 @@ import { logRuntime, runtimeLogPath, setRuntimeLoggingArmed, isRuntimeLoggingArm
 import { SessionUiBridge } from "./session-ui";
 import { renderStatusReport } from "./runtime-status";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { beginBehaviorScope, endBehaviorScope } from "./tool-grant-enforcement";
 import { InvocationBudget } from "./invocation-budget";
 
@@ -454,6 +454,23 @@ export function createActivate(options: ActivateOptions = {}): {
         });
       },
       catalog: options.catalog,
+      // The one protected write the boundary must permit: an approved
+      // constitution amendment (br-9uqd; dev 4914226). It is adopted as the
+      // new baseline the moment it lands -- the same single-change consent
+      // /ensemble-approve uses -- so the next tool call does not revert what a
+      // human just approved while the run reports it applied. Compared by real
+      // path, because a run's root may name this repository through a symlink
+      // (/tmp -> /private/tmp); a write in another repository is not this
+      // monitor's to adopt.
+      onSanctionedWrite: (absolutePath) => {
+        let rel: string;
+        try {
+          rel = relative(realpathSync(repoRoot), realpathSync(absolutePath));
+        } catch {
+          return;
+        }
+        if (rel && !rel.startsWith("..") && !isAbsolute(rel)) monitor?.accept(rel);
+      },
       budget: options.budget,
       now: options.now,
       signal: shutdown.signal,

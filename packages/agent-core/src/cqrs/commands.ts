@@ -51,6 +51,16 @@ export interface CommandCatalogDeps {
   /** Overridable so tests can point the agent brief at a sandbox. */
   readonly resolveDecisionsPath?: (workspaceRoot: string) => { path: string } | { reason: string };
   readonly now?: () => string;
+  /**
+   * Told about each approved write to a protected path, after it lands
+   * (br-9uqd: "WriteBoundaryMonitor must permit exactly that one authorized
+   * write"). A host running an effect-based boundary adopts the new content
+   * as its baseline here; without this, the boundary reverts the amendment a
+   * human just approved on the next tool call and the run still reports it
+   * applied. Not a permission: MutationGuard and the approval gate have
+   * already decided by the time it is called.
+   */
+  readonly onSanctionedWrite?: (absolutePath: string) => void;
 }
 
 const WRITE_SCHEMA: FieldSchema = {
@@ -614,6 +624,10 @@ export function createCommandCatalog(deps: CommandCatalogDeps): CommandDescripto
       })();
       const amended = `${existing.replace(/\s*$/, "")}\n\n${write.contents.trim()}\n`;
       writeFileSync(target.path, amended, "utf8");
+      // Adopted before anything else can observe it. If adoption throws, the
+      // handler fails -- reported as "failed", never "declined" -- rather than
+      // claiming an amendment that the boundary is about to revert.
+      deps.onSanctionedWrite?.(target.path);
       deps.store.update({ ...proposal, appliedAt: now() });
 
       ctx.log({ kind: "constitution-applied", proposalRef: proposal.ref, path: target.path });

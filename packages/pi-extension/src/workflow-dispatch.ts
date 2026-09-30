@@ -100,6 +100,8 @@ export interface WorkflowDispatchOptions {
   readonly publish?: (event: RuntimeStampedEvent, acceptance: AcceptanceRecord) => Promise<void>;
   /** Overrides the command catalog; tests supply deterministic handlers. */
   readonly catalog?: ReturnType<typeof createCommandCatalog>;
+  /** Forwarded to the command catalog; see CommandCatalogDeps.onSanctionedWrite. */
+  readonly onSanctionedWrite?: (absolutePath: string) => void;
   readonly signal?: AbortSignal;
   readonly now?: () => string;
   /** Caps invocations per issue and per session (REQ-SAFE-007). */
@@ -128,7 +130,13 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
     : undefined;
 
   const catalogFor = (root: string) =>
-    options.catalog ?? createCommandCatalog({ workspaceRoot: root, store: new ProposalStore(root), now: options.now });
+    options.catalog ??
+    createCommandCatalog({
+      workspaceRoot: root,
+      store: new ProposalStore(root),
+      now: options.now,
+      onSanctionedWrite: options.onSanctionedWrite,
+    });
   const commandIds = catalogFor(options.rootDir)
     .map((c) => c.id)
     .sort();
