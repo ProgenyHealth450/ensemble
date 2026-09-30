@@ -67,6 +67,15 @@ export interface DispatchRecord {
 
 export interface WorkflowDispatchOptions {
   readonly rootDir: string;
+  /**
+   * The repository an invocation acts on, given its triggering event.
+   *
+   * br-x36p: every root used to be the extension host's, so a failure observed
+   * in another worktree sent the whole governed run -- the agent's isolated
+   * workspace, the proposal store, the verification worktree -- at a
+   * repository the failing command never ran in. Defaults to `rootDir`.
+   */
+  readonly rootFor?: (event: BehaviorInvocation["event"]) => string;
   readonly sessionId: string;
   readonly executionId: string;
   readonly compiled: () => readonly CompiledBehaviorPackage[];
@@ -108,7 +117,6 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
   const records = options.records ?? [];
   const log = options.log ?? (() => undefined);
   const budget = options.budget ?? new InvocationBudget(1, 3);
-  const store = new ProposalStore(options.rootDir);
 
   const approvalPort: ApprovalPort | undefined = options.approval
     ? {
@@ -119,8 +127,11 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
       }
     : undefined;
 
-  const catalog = options.catalog ?? createCommandCatalog({ workspaceRoot: options.rootDir, store, now: options.now });
-  const commandIds = catalog.map((c) => c.id).sort();
+  const catalogFor = (root: string) =>
+    options.catalog ?? createCommandCatalog({ workspaceRoot: root, store: new ProposalStore(root), now: options.now });
+  const commandIds = catalogFor(options.rootDir)
+    .map((c) => c.id)
+    .sort();
 
   const invoke: BehaviorInvoker = async (invocation: BehaviorInvocation) => {
     const behaviorName = invocation.behavior.metadata.name;
@@ -171,8 +182,14 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
       return;
     }
 
+    // The repository THIS invocation acts on (br-x36p). Commands, the
+    // interpreter and the agent port all take it from here, so one run cannot
+    // straddle two repositories.
+    const root = options.rootFor?.(invocation.event) ?? options.rootDir;
+    const catalog = catalogFor(root);
+
     const registry = new CommandRegistry({
-      workspaceRoot: options.rootDir,
+      workspaceRoot: root,
       sessionId: options.sessionId,
       executionId: options.executionId,
       approval: approvalPort
@@ -221,7 +238,7 @@ export function createWorkflowDispatcher(options: WorkflowDispatchOptions): Work
       agent: options.agent,
       approval: approvalPort,
       loadPrompt: createPromptLoader(packageDir),
-      workspaceRoot: options.rootDir,
+      workspaceRoot: root,
       testCommand: compiled.manifest.execution.test_command,
       timeoutMs,
       signal: options.signal,

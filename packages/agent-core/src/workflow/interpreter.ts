@@ -45,6 +45,13 @@ export interface AgentPort {
     readonly signal: AbortSignal;
     readonly behavior: string;
     readonly stepId: string;
+    /**
+     * The repository this run acts on (br-x36p). A port that isolates the
+     * agent builds its workspace from this rather than from wherever the
+     * host process happens to be running. Optional so a port that owns its
+     * root can ignore it.
+     */
+    readonly workspaceRoot?: string;
   }): Promise<{ readonly ok: true; readonly reply: string } | { readonly ok: false; readonly reason: string }>;
 }
 
@@ -207,6 +214,7 @@ export async function runWorkflow(options: WorkflowRunOptions): Promise<Workflow
           behavior: options.behavior,
           stepTimeout,
           signal: controller.signal,
+          workspaceRoot: options.workspaceRoot,
         });
         break;
       case "command":
@@ -306,6 +314,7 @@ async function runAgentStep(
     behavior: string;
     stepTimeout: number;
     signal: AbortSignal;
+    workspaceRoot: string;
   },
 ): Promise<Transition> {
   // Loaded per invocation, not cached at activation: REQ-BEH-003 requires a
@@ -342,6 +351,7 @@ async function runAgentStep(
       signal: deps.signal,
       behavior: deps.behavior,
       stepId: step.id,
+      workspaceRoot: deps.workspaceRoot,
     });
 
     if (!reply.ok) {

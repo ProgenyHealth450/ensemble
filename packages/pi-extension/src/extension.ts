@@ -16,6 +16,7 @@ import {
   WriteBoundaryMonitor,
   createCommandCatalog,
   isAlwaysProtectedPath,
+  eventCwd,
 } from "@sunstone-partners/ensemble-agent-core";
 import { wireSessionLifecycle } from "./session";
 import { handleEchoToolCall } from "./echo-tool-handler";
@@ -425,6 +426,15 @@ export function createActivate(options: ActivateOptions = {}): {
 
     const dispatcher = createWorkflowDispatcher({
       rootDir: repoRoot,
+      // br-x36p: a governed run acts on the repository the FAILING COMMAND
+      // ran in, not the host's. Observed on dev: failures in
+      // /private/tmp/wt-autofix-fix sent fix-agent children into the
+      // maintainer's main checkout. A relative cwd is the session's, and an
+      // event that names no cwd keeps the host repository.
+      rootFor: (event) => {
+        const cwd = eventCwd(event);
+        return cwd ? resolveRepoRoot(resolve(process.cwd(), cwd)) : repoRoot;
+      },
       sessionId,
       executionId,
       compiled: () => lastActivation?.compiled ?? [],

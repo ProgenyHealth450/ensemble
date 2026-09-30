@@ -195,13 +195,17 @@ export function createAgentPort(options: AgentPortOptions): AgentPort & { descri
     },
 
     async invoke(request) {
+      // The repository the run acts on, which is the one the failing command
+      // ran in (br-x36p) -- not necessarily the host's. The configured root is
+      // the fallback for a caller that does not say.
+      const repoRoot = request.workspaceRoot ?? options.repoRoot;
       const home = mkdtempSync(join(tmpdir(), "ensemble-agent-home-"));
       let workspace: IsolatedWorkspace | undefined;
-      let cwd = options.repoRoot;
+      let cwd = repoRoot;
       let isolationNote = "live repository (unisolated)";
 
       try {
-        const isolation = isolate(options.repoRoot, "agent");
+        const isolation = isolate(repoRoot, "agent");
         if (isolation.ok) {
           workspace = isolation.workspace;
           cwd = workspace.root;
@@ -266,7 +270,7 @@ export function createAgentPort(options: AgentPortOptions): AgentPort & { descri
         // preventive control missed is defence in depth; describing detection
         // AS the prevention is what REQ-SAFE-004 forbids, and the distinction
         // is why both exist.
-        const baseline = captureTreeBaseline(options.repoRoot);
+        const baseline = captureTreeBaseline(repoRoot);
 
         const reply = await runAgent({
           prompt: request.prompt,
