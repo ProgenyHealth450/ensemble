@@ -94,7 +94,6 @@ function copyOnWriteAvailable(): boolean {
 const COW = copyOnWriteAvailable();
 const describeWithCow = COW ? describe : describe.skip;
 if (!COW) {
-  // eslint-disable-next-line no-console
   console.warn(
     "Skipping copy-on-write provisioning tests: this filesystem cannot clone copy-on-write. " +
       "Asserting the designed refusal instead (br-t0so).",
