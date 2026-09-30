@@ -20,12 +20,25 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export interface IsolatedWorkspace {
   readonly root: string;
+  /** Uncommitted entries that could not be mirrored, each with its reason. */
+  readonly skipped?: readonly string[];
   /** Removes the worktree and its registration. Safe to call twice. */
   dispose(): void;
 }
@@ -34,9 +47,75 @@ export type IsolationResult =
   | { readonly ok: true; readonly workspace: IsolatedWorkspace }
   | { readonly ok: false; readonly reason: string };
 
-function git(cwd: string, args: string[]): { status: number; out: string; err: string } {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+function git(cwd: string, args: string[], input?: string): { status: number; out: string; err: string } {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", input, maxBuffer: 64 * 1024 * 1024 });
   return { status: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
+}
+
+/**
+ * Mirrors the user's UNCOMMITTED work into a fresh worktree (OP-2; dev
+ * b59d2bf, b5d4ffb).
+ *
+ * The failing test is usually the thing just written, so a workspace at HEAD
+ * cannot reproduce the failure: the agent would investigate a tree where
+ * nothing is wrong, and fix.verify would run a suite that does not contain
+ * the failing test and call the result "passed".
+ *
+ * Tracked modifications (staged or not) arrive as a binary patch, so modes
+ * and deletions come across too; failing to apply it refuses the workspace,
+ * because a partial mirror is a tree nobody has. Untracked-but-not-ignored
+ * entries are copied one at a time, and ONE entry that cannot be mirrored
+ * costs only itself -- a symlinked directory once took the whole sandbox
+ * down and silently disabled the governed path (br-boam).
+ *
+ * A mirrored symlink must not lead out of the workspace: a candidate written
+ * through it, or a test run in it, would land in the live tree. So a link is
+ * recreated only when its target resolves inside the repository, and then
+ * rebased onto the workspace; any other link is skipped and reported.
+ * Dependencies are cloned separately, so node_modules is never mirrored here.
+ */
+function mirrorUncommittedWork(
+  repoRoot: string,
+  tree: string,
+): { ok: true; skipped: string[] } | { ok: false; reason: string } {
+  const diff = git(repoRoot, ["diff", "HEAD", "--binary"]);
+  if (diff.status !== 0) return { ok: false, reason: `git diff HEAD failed: ${diff.err.trim()}` };
+  if (diff.out.trim()) {
+    const applied = git(tree, ["apply", "--allow-empty", "-"], diff.out);
+    if (applied.status !== 0) {
+      return { ok: false, reason: `uncommitted changes could not be mirrored: ${applied.err.trim()}` };
+    }
+  }
+
+  const listed = git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  if (listed.status !== 0) return { ok: false, reason: `git ls-files failed: ${listed.err.trim()}` };
+
+  const skipped: string[] = [];
+  for (const rel of listed.out.split("\0").filter(Boolean)) {
+    if (rel.split("/").includes("node_modules")) continue;
+    const from = join(repoRoot, rel);
+    const to = join(tree, rel);
+    try {
+      mkdirSync(dirname(to), { recursive: true });
+      // lstat, NOT stat: a symlink is recreated as a symlink, never followed.
+      const info = lstatSync(from);
+      if (info.isSymbolicLink()) {
+        const inside = relative(repoRoot, resolve(dirname(from), readlinkSync(from)));
+        if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
+          skipped.push(`${rel}: symlink leads outside the repository`);
+          continue;
+        }
+        symlinkSync(relative(dirname(to), join(tree, inside)), to);
+      } else if (info.isFile()) {
+        copyFileSync(from, to);
+      } else {
+        skipped.push(`${rel}: not a regular file or symlink`);
+      }
+    } catch (error) {
+      skipped.push(`${rel}: ${(error as Error).message}`);
+    }
+  }
+  return { ok: true, skipped };
 }
 
 /**
@@ -111,12 +190,18 @@ export function dependencyDirectories(repoRoot: string): string[] {
 }
 
 /**
- * Creates a throwaway worktree at the repository's current HEAD.
+ * Creates a throwaway worktree of the user's CURRENT working state: HEAD plus
+ * their uncommitted work (tracked modifications and untracked, non-ignored
+ * files), plus copy-on-write dependencies.
  *
- * HEAD rather than the working tree: a worktree is a checkout of a commit, so
- * uncommitted work in the user's tree is deliberately absent. That is a real
- * limitation and is reported rather than papered over — a candidate verified
- * here is verified against committed state.
+ * The contract (OP-2, operator decision 2026-09-29, porting dev b59d2bf):
+ * the agent and fix.verify see the tree the failure was observed in, so an
+ * uncommitted failing test is present and a suite without it cannot be
+ * graded "passed". It is also the state fix.propose hashes for baseSha256,
+ * so a verdict describes the candidate against the tree it was proposed for;
+ * if the live tree moves afterwards, fix.apply's base-hash check refuses the
+ * stale proposal (REQ-SAFE-005). Writes stay contained: the live tree is
+ * never touched, and no mirrored symlink leads back into it.
  */
 export function createIsolatedWorkspace(repoRoot: string, label = "verify"): IsolationResult {
   const head = git(repoRoot, ["rev-parse", "--verify", "HEAD"]);
@@ -139,6 +224,14 @@ export function createIsolatedWorkspace(repoRoot: string, label = "verify"): Iso
   if (added.status !== 0) {
     rmSync(dir, { recursive: true, force: true });
     return { ok: false, reason: `cannot isolate: git worktree add failed: ${added.err.trim()}` };
+  }
+
+  const mirrored = mirrorUncommittedWork(repoRoot, worktreeRoot);
+  if (!mirrored.ok) {
+    git(repoRoot, ["worktree", "remove", "--force", worktreeRoot]);
+    rmSync(dir, { recursive: true, force: true });
+    git(repoRoot, ["worktree", "prune"]);
+    return { ok: false, reason: `cannot isolate: ${mirrored.reason}` };
   }
 
   // Give the workspace its dependencies, or refuse. A worktree without
@@ -168,6 +261,7 @@ export function createIsolatedWorkspace(repoRoot: string, label = "verify"): Iso
     ok: true,
     workspace: {
       root: worktreeRoot,
+      skipped: mirrored.skipped,
       dispose() {
         if (disposed) return;
         disposed = true;
