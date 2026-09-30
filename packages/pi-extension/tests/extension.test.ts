@@ -22,6 +22,34 @@ describe("pi-extension activation (AC-004-1/AC-004-2)", () => {
     } as unknown as Pick<ExtensionAPI, "on"> as ExtensionAPI;
     expect(() => activate(brokenPi)).toThrow(/BLOCKING GAP/);
   });
+
+  // REVERSES dev 609e790 (br-o9j1), which made pi.sendMessage a required
+  // capability so a rolled-back continuation fix could be announced. On this
+  // runtime no fix is applied to the live tree before it is verified --
+  // fix.verify runs in a throwaway worktree and fix-failing-test only
+  // proposes -- so there is no rollback to announce, and the extension sends
+  // nothing into the session at all. Refusing to load for want of an API it
+  // never calls would turn a missing capability into a missing extension.
+  it("loads fully without pi.sendMessage: nothing is rolled back, so nothing needs announcing", () => {
+    const registered: string[] = [];
+    const noSendMessage = {
+      on: () => undefined,
+      registerTool: () => undefined,
+      registerCommand: (name: string) => registered.push(name),
+      registerFlag: () => undefined,
+      getFlag: () => false,
+    } as unknown as ExtensionAPI;
+    const cwd = process.cwd();
+    const scratch = mkdtempSync(join(tmpdir(), "no-send-message-"));
+    try {
+      process.chdir(scratch);
+      activate(noSendMessage);
+    } finally {
+      process.chdir(cwd);
+      rmSync(scratch, { recursive: true, force: true });
+    }
+    expect(registered).toEqual(expect.arrayContaining(["ensemble-approve", "ensemble-status"]));
+  });
 });
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";

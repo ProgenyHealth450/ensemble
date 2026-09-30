@@ -14,6 +14,7 @@
 
 export type ProtectedPathReason =
   | "test-file"
+  | "build-config"
   | "guardrail-source"
   | "conformance-fixture"
   | "constitution";
@@ -73,6 +74,41 @@ const FIXTURE_PATTERNS: readonly RegExp[] = [
   /(^|\/)fixtures\/(events|expected-matches|expected-outcomes)\//,
 ];
 
+/**
+ * Build configuration: how the suite RESOLVES and RUNS, as opposed to what it
+ * asserts.
+ *
+ * Observed live (br-afik): four files were edited by fix-agent children and
+ * none was caught, because none was protected --
+ *   jest.config.js   moduleNameMapper -> ../agent-core/src
+ *   tsconfig.json    lib ES2022 -> ES2024
+ *   package.json     added "pretest": "tsc -p ../agent-core"
+ * All three are the same move, and it is the same move as editing the test:
+ * when the real problem is dependency resolution, an agent told "repair the
+ * SOURCE so it passes" will reach for the config that decides whether the
+ * suite can load at all. A green run then proves the harness was changed,
+ * not that the code was fixed -- and it is harder to spot in review than an
+ * edited assertion, because the diff looks like build housekeeping.
+ *
+ * WINDOWED, not always-protected, and deliberately so: see
+ * isAlwaysProtectedPath below. package.json and tsconfig.json are ordinary
+ * working material that a maintainer edits constantly. Arming them
+ * permanently would lock the user out of their own repository, which is the
+ * failure that design note exists to prevent.
+ */
+const BUILD_CONFIG_PATTERNS: readonly RegExp[] = [
+  /(^|\/)package\.json$/,
+  /(^|\/)tsconfig(\.[^/]*)?\.json$/,
+  /(^|\/)jest\.config\.([cm]?[jt]s|json)$/,
+  /(^|\/)jest\.setup\.[cm]?[jt]s$/,
+  /(^|\/)vitest\.config\.[cm]?[jt]s$/,
+  /(^|\/)babel\.config\.([cm]?[jt]s|json)$/,
+  /(^|\/)\.babelrc(\.[^/]+)?$/,
+  /(^|\/)pyproject\.toml$/,
+  /(^|\/)pytest\.ini$/,
+  /(^|\/)setup\.cfg$/,
+];
+
 const CONSTITUTION_PATTERNS: readonly RegExp[] = [
   /(^|\/)docs\/standards\/constitution\.md$/,
   /(^|\/)constitution-rules\.yaml$/,
@@ -85,6 +121,10 @@ export function classifyPath(rawPath: string): ProtectedPathVerdict {
     ["constitution", CONSTITUTION_PATTERNS],
     ["conformance-fixture", FIXTURE_PATTERNS],
     ["guardrail-source", GUARDRAIL_PATTERNS],
+    // Before test-file: a config that happens to sit under tests/ is still
+    // build configuration, and reporting it as a test file would mis-describe
+    // what the agent actually reached for.
+    ["build-config", BUILD_CONFIG_PATTERNS],
     ["test-file", TEST_PATTERNS],
   ];
 
@@ -100,4 +140,39 @@ export function classifyPath(rawPath: string): ProtectedPathVerdict {
 
 export function isProtectedPath(path: string): boolean {
   return classifyPath(path).protected;
+}
+
+/**
+ * Paths protected WHETHER OR NOT a behavior is running.
+ *
+ * Two designs for br-vjm5 collided, each right about something. Arming the
+ * boundary permanently over every tracked file reverted the maintainer's own
+ * edits mid-session: protection that locks you out of your repository.
+ * Arming it only inside a fix turn left the guardrails -- the constitution,
+ * the enforcement sources, the conformance fixtures -- writable at every
+ * other moment, which is precisely when an ordinary turn could quietly
+ * rewrite the rules that govern the next fix turn.
+ *
+ * The split is by REASON, not by timing. A test file is the user's working
+ * material: theirs to edit freely, and guarded only while an autofix turn is
+ * live, because that is the only window in which the machine should not be
+ * silently rewriting the test it is being judged by. The constitution and
+ * the guardrail sources are never ordinary working material.
+ *
+ * BUILD CONFIG SITS WITH TEST FILES, on the windowed side, and the next
+ * person to "tighten" this should not move it. package.json and
+ * tsconfig.json are edited constantly in normal work; arming them
+ * permanently is the br-vjm5 failure above -- protection that locks the
+ * maintainer out of their own repository -- and it would fire on every
+ * dependency bump. Inside a fix turn the calculus inverts: there, changing
+ * how the suite resolves is a way of passing it without fixing anything.
+ */
+export function isAlwaysProtectedPath(path: string): boolean {
+  const verdict = classifyPath(path);
+  return (
+    verdict.protected &&
+    (verdict.reason === "constitution" ||
+      verdict.reason === "guardrail-source" ||
+      verdict.reason === "conformance-fixture")
+  );
 }

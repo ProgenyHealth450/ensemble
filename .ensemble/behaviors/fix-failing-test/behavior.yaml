@@ -37,10 +37,23 @@ capabilities:
     - fix.verify
 execution:
   graph: fix-failing-test
-  # Runs from the repository root. Whether it collects anything is checked
-  # rather than assumed; a zero-test run would exit 0 and make the whole-suite
-  # check vacuous, which is why the verifier treats zero tests as inconclusive.
-  test_command: npx jest
+  # The whole-suite command fix.verify runs, from the root of the throwaway
+  # worktree. Whether it collects anything is checked rather than assumed; a
+  # zero-test run would exit 0 and make the check vacuous, which is why the
+  # verifier treats zero tests as inconclusive.
+  #
+  # Not `npx jest`: listing is not loading. With no root jest config every
+  # TypeScript suite fails to parse at the root (66 of them, br-srbd), so the
+  # verifier could only ever answer "inconclusive". `npm test` runs each
+  # workspace's own configured runner, the same command CI runs, and prints
+  # one jest summary per workspace -- the verifier sums them all.
+  #
+  # `env -u CI`: omp sets CI=true for tool processes, and packages/router's
+  # test script deliberately exits 1 under CI when pytest is missing. Without
+  # CI it announces the skip instead, which the verifier grades inconclusive
+  # (br-91nr) rather than letting it pass as a full run. Real CI still
+  # enforces it; nothing else in the suite reads CI.
+  test_command: env -u CI npm test
   workflow:
     schema_version: "1.0.0"
     start: investigate
