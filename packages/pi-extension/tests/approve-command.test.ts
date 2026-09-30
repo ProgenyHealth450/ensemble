@@ -22,6 +22,13 @@ import { createActivate, drainDispatches } from "../src/extension";
  */
 
 const dirs: string[] = [];
+// A held run is always released after its test, so a failing assertion
+// cannot leave a dispatch pending and hang the worker.
+const gates: EventEmitter[] = [];
+afterEach(async () => {
+  gates.splice(0).forEach((g) => g.emit("release"));
+  await drainDispatches();
+});
 
 /**
  * A governed behavior with a real workflow, so a failing test run dispatches
@@ -226,6 +233,7 @@ describe("/ensemble-approve", () => {
 
     // Held open until the test has acted while the run is in flight.
     const gate = new EventEmitter();
+    gates.push(gate);
     let invoked = 0;
     const agent: AgentPort = {
       async invoke() {
