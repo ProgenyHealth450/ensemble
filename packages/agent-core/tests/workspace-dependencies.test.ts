@@ -62,7 +62,64 @@ describe("finding what to provision", () => {
   });
 });
 
-describe("an isolated workspace can actually run the suite", () => {
+/**
+ * Whether this machine's temp filesystem can clone copy-on-write, found by
+ * trying the same two commands `cloneDirectory` uses.
+ *
+ * The positive tests below need CoW. APFS (macOS) and btrfs/xfs have it;
+ * ext4 and the GitHub-hosted Linux runners do not. Where it is absent, the
+ * designed behaviour is refusal (br-t0so), so those tests are SKIPPED WITH AN
+ * ANNOUNCEMENT and the refusal is asserted instead. CI therefore still checks
+ * what the product actually does on that filesystem; it just doesn't pretend
+ * to check the clone.
+ */
+function copyOnWriteAvailable(): boolean {
+  const probe = mkdtempSync(join(tmpdir(), "cow-probe-"));
+  try {
+    writeFileSync(join(probe, "a"), "x");
+    for (const args of [["-c", join(probe, "a"), join(probe, "b")], ["--reflink=always", join(probe, "a"), join(probe, "c")]]) {
+      try {
+        execFileSync("cp", args, { stdio: "ignore" });
+        return true;
+      } catch {
+        /* try the next form */
+      }
+    }
+    return false;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+}
+
+const COW = copyOnWriteAvailable();
+const describeWithCow = COW ? describe : describe.skip;
+if (!COW) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "Skipping copy-on-write provisioning tests: this filesystem cannot clone copy-on-write. " +
+      "Asserting the designed refusal instead (br-t0so).",
+  );
+}
+
+(COW ? describe.skip : describe)("without copy-on-write, isolation refuses rather than degrading", () => {
+  it("refuses, says why, and leaves no worktree behind", () => {
+    const root = repo();
+    const isolation = createIsolatedWorkspace(root, "test");
+    expect(isolation.ok).toBe(false);
+    if (isolation.ok) return;
+    expect(isolation.reason).toContain("could not be cloned copy-on-write");
+    expect(isolation.reason).toContain("Verification is refused");
+    // Only the main worktree remains: the half-built one was removed.
+    const worktrees = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" })
+      .split("\n")
+      .filter((l) => l.startsWith("worktree "));
+    expect(worktrees).toHaveLength(1);
+    // And the source's dependencies are untouched.
+    expect(readFileSync(join(root, "node_modules", "left-pad", "index.js"), "utf8")).toBe("module.exports = 'pad';\n");
+  });
+});
+
+describeWithCow("an isolated workspace can actually run the suite", () => {
   it("has the dependencies the worktree alone would not contain", () => {
     const root = repo();
     const isolation = createIsolatedWorkspace(root, "test");
@@ -85,7 +142,7 @@ describe("an isolated workspace can actually run the suite", () => {
   });
 });
 
-describe("provisioning does not reconnect the workspace to the live tree", () => {
+describeWithCow("provisioning does not reconnect the workspace to the live tree", () => {
   it("a new file in the workspace's dependencies does not appear in the source", () => {
     const root = repo();
     const isolation = createIsolatedWorkspace(root, "test");
