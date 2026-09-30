@@ -450,6 +450,57 @@ describe("verifyOutput believes reported failures regardless of the exit code", 
   });
 });
 
+/**
+ * `npm test` in a monorepo -- the command fix-failing-test declares -- runs
+ * jest once per workspace and prints one summary per run. The first
+ * workspace here is green; the failure is in the second.
+ */
+const NPM_WORKSPACES_ONE_FAILING = [
+  "> @sunstone-partners/ensemble-agent-core@1.0.0 test",
+  "> jest",
+  "",
+  "Test Suites: 3 passed, 3 total",
+  "Tests:       40 passed, 40 total",
+  "",
+  "> @sunstone-partners/ensemble-pi-extension@1.0.0 test",
+  "> jest",
+  "",
+  "FAIL tests/extension.test.ts",
+  "  ✕ loads the extension (3 ms)",
+  "",
+  "Test Suites: 1 failed, 2 passed, 3 total",
+  "Tests:       1 failed, 11 passed, 12 total",
+].join("\n");
+
+describe("verifyOutput reads a whole multi-workspace run (4f1b1f0, b64ad4b, 2896e8f)", () => {
+  it("sums every jest summary, so a failure in a later workspace is a failed verdict", () => {
+    const result = run({ command: "env -u CI npm test", stdout: NPM_WORKSPACES_ONE_FAILING, exitCode: 1 });
+
+    expect(result.status).toBe("failed");
+    expect({ total: result.total, passed: result.passed, failed: result.failed }).toEqual({
+      total: 52,
+      passed: 51,
+      failed: 1,
+    });
+  });
+
+  it("names the failing test files in a failed verdict", () => {
+    expect(run({ stdout: JEST_ONE_FAILING, exitCode: 1 }).detail).toMatch(/; failing: tests\/format\.test\.ts$/);
+  });
+
+  it("names the failing npm workspace when the exit is non-zero and no test failed", () => {
+    const result = run({
+      command: "env -u CI npm test",
+      stdout: JEST_ALL_PASSING,
+      stderr: "npm error Lifecycle script `test` failed\nnpm error path /repo/packages/router\n",
+      exitCode: 1,
+    });
+
+    expect(result.status).toBe("inconclusive");
+    expect(result.detail).toMatch(/; stderr: npm error path \/repo\/packages\/router$/);
+  });
+});
+
 describe("verifyOutput distinguishes no-evidence from counter-evidence", () => {
   /**
    * A timeout says the harness ran out of patience, not that the code is

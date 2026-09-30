@@ -61,19 +61,26 @@ interface FrameworkAdapter {
 const JEST: FrameworkAdapter = {
   name: "jest",
   parse(text) {
-    // Jest prints a `Tests:` summary. Matching the labelled line rather than
-    // any "N passed" avoids attributing another tool's output to jest.
-    const line = /^\s*Tests:\s+(.+)$/m.exec(text);
-    if (!line) return undefined;
-    const failed = /(\d+)\s+failed/.exec(line[1]);
-    const passed = /(\d+)\s+passed/.exec(line[1]);
-    const total = /(\d+)\s+total/.exec(line[1]);
-    if (!total) return undefined;
-    return {
-      total: Number(total[1]),
-      failed: failed ? Number(failed[1]) : 0,
-      passed: passed ? Number(passed[1]) : 0,
-    };
+    // Jest prints a `Tests:` summary PER RUN, and `npm test` across workspaces
+    // runs it once per workspace, so every summary is summed. Reading only the
+    // first graded a monorepo by whichever workspace printed first: a failure
+    // in a later one surfaced as an unattributed non-zero exit rather than as
+    // the failed test it was (4f1b1f0). Matching the labelled line, anchored
+    // to a line start, avoids attributing another tool's output -- or a test
+    // NAMED "Tests: ..." -- to jest.
+    let counts: Counts | undefined;
+    for (const [, line] of text.matchAll(/^[ \t]*Tests:[ \t]+(.+)$/gm)) {
+      const total = /(\d+)\s+total/.exec(line);
+      if (!total) continue;
+      const failed = /(\d+)\s+failed/.exec(line);
+      const passed = /(\d+)\s+passed/.exec(line);
+      counts = {
+        total: (counts?.total ?? 0) + Number(total[1]),
+        failed: (counts?.failed ?? 0) + (failed ? Number(failed[1]) : 0),
+        passed: (counts?.passed ?? 0) + (passed ? Number(passed[1]) : 0),
+      };
+    }
+    return counts;
   },
 };
 
@@ -195,6 +202,35 @@ export function findUnloadableSuites(text: string): string[] {
   return [...found].sort();
 }
 
+/**
+ * Names the failing test files (b64ad4b). A count says the candidate broke
+ * something; the file says what, which is what the reviewer of a proposal
+ * needs to tell a real regression from an unrelated flake.
+ */
+function failingFiles(text: string, max = 5): string {
+  const files = [...new Set([...text.matchAll(/^[ \t]*FAIL[ \t]+(\S+)/gm)].map((m) => m[1]))];
+  if (files.length === 0) return "";
+  const more = files.length > max ? ` (+${files.length - max} more)` : "";
+  return `; failing: ${files.slice(0, max).join(", ")}${more}`;
+}
+
+/**
+ * Names what failed when no test did (2896e8f). `npm test` across workspaces
+ * reports the failing workspace as `npm error workspace ...` / `npm error
+ * path ...`; anything else falls back to the last stderr line. Without it the
+ * detail shows only passing counts -- observed on dev, a missing pytest under
+ * CI=true read as "the fix broke something".
+ */
+function failureHint(stderr: string): string {
+  const lines = stderr
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const npm = lines.filter((l) => /^npm error (workspace|path) /.test(l));
+  const hint = (npm.length > 0 ? npm : lines.slice(-1)).join("; ").slice(0, 300);
+  return hint ? `; stderr: ${hint}` : "";
+}
+
 export interface VerifyInput extends RunnerOutput {
   /** The command that produced this output, for the detail line. */
   readonly command: string;
@@ -289,7 +325,7 @@ export function verifyOutput(input: VerifyInput): VerificationResult {
   if (counts.failed > 0) {
     return {
       status: "failed",
-      detail: `${framework}: ${counts.passed} passed, ${counts.failed} failed, ${counts.total} total`,
+      detail: `${framework}: ${counts.passed} passed, ${counts.failed} failed, ${counts.total} total${failingFiles(text)}`,
       framework,
       ...counts,
       unloadableSuites,
@@ -333,7 +369,7 @@ export function verifyOutput(input: VerifyInput): VerificationResult {
       status: "inconclusive",
       detail:
         `${framework} reported ${counts.passed}/${counts.total} passing but the command exited ` +
-        `${String(input.exitCode)}; the discrepancy is unattributed`,
+        `${String(input.exitCode)}; the discrepancy is unattributed${failureHint(input.stderr)}`,
       framework,
       ...counts,
       unloadableSuites,
