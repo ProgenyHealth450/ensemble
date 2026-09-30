@@ -34,6 +34,13 @@ jest.setTimeout(30_000);
 
 const dirs: string[] = [];
 const originalCwd = process.cwd();
+// Every held run is released after each test, so a failing assertion cannot
+// leave a dispatch pending and hang the worker.
+const gates: EventEmitter[] = [];
+afterEach(async () => {
+  gates.splice(0).forEach((g) => g.emit("release"));
+  await drainDispatches();
+});
 afterAll(() => {
   process.chdir(originalCwd);
   dirs.forEach((d) => rmSync(d, { recursive: true, force: true }));
@@ -115,6 +122,7 @@ function start() {
 
   // The behavior's agent step blocks until released, so the window stays open.
   const gate = new EventEmitter();
+  gates.push(gate);
   const agent: AgentPort = {
     async invoke() {
       await once(gate, "release");
