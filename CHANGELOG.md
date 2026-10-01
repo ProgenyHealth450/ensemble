@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.9.5] - 2026-10-01
+
+### Added
+
+- **development, product:** `new-feature` command adopts a PRD, orchestrating
+  `create → refine → create → refine → implement` end to end, replacing
+  `implement-trd` (#113, #114).
+
+### Fixed
+
+- **agent-core:** `isRestorationToHistory()` in the write-boundary guard now recognizes
+  a path-scoped restore (`git checkout <good-sha> -- <path>`) as a revert instead of a
+  fresh violation, so an agent can correct a bad protected-path commit without the guard
+  reverting its own correction (br-suoh, #109). Bumps `ensemble-agent-core` 0.1.0 → 0.1.1.
+- **core, git, router, codex:** OMP command discovery fix and parameters-rendering fix
+  for the new-feature workflow (#114). Bumps `ensemble-core` 5.6.1 → 5.6.2,
+  `ensemble-git` 5.3.0 → 5.3.1, `ensemble-router` 5.2.1 → 5.2.2,
+  `ensemble-codex` 5.3.2 → 5.3.3, `ensemble-product` 5.6.1 → 5.6.2,
+  `ensemble-development` 6.0.6 → 6.0.7.
+- **opencode:** version sync restored between `package.json`/`plugin.json` and the
+  plugin's own `ENSEMBLE_META` constant, which had drifted from the package's
+  hardcoded-scaffolding version. Bumps `ensemble-opencode` 5.3.0 → 5.3.1.
+- **pi-extension:** `ensemble-pi-extension` 0.1.0 → 0.1.1, carrying the accumulated
+  isolation, consent, and dispatch hardening already merged to `dev` since v6.9.4.
+
+### Removed
+
+- **development, product:** `implement-trd` command, superseded by `new-feature` (#114).
+
+`ensemble-full` 6.9.4 → 6.9.5.
+
 ## [6.9.4] - 2026-09-26
 
 ### Fixed
@@ -14,12 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **core:** the `init-project` constitution template emits Article-style headings (#68).
   Bumps `ensemble-core` 5.6.0 → 5.6.1.
 - **development:** `create-trd-foreman` runs the Constitution Gate (#67), and `create-trd`
-  makes the gate observable on every run (#69). Bumps `ensemble-development` 6.0.5 → 6.0.6.
+  makes the gate observable on every run (#69). Bumps `ensemble-development` 6.0.5 → 6.0.6;
+  regenerating the Pi output for these prompts bumps `ensemble-pi` 1.6.9 → 1.6.10.
 - **product:** `create-prd` makes the Constitution Gate observable on every run (#69).
   Bumps `ensemble-product` 5.6.0 → 5.6.1.
 - **pi:** generated agents keep an explicitly declared `Task` as native `task`, so OMP
   orchestrators can delegate, without granting delegation to agents that don't declare it (#71).
-  Bumps `ensemble-pi` 1.6.9 → 1.6.10.
 - **codex:** regenerated `create-prd`, `create-trd` and `create-trd-foreman` skills for the
   changes above. Bumps `ensemble-codex` 5.3.1 → 5.3.2.
 

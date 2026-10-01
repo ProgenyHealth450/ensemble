@@ -36,6 +36,33 @@ Comparing Ensemble to other AI-driven development frameworks? See our comprehens
 
 ---
 
+## Ensemble/Foreman Ownership Boundary
+
+Ensemble is the portable behavior-definition, packaging, validation, and local
+agent-harness project. It describes, validates, packages, simulates, and
+locally runs behavior — it does not activate, govern, schedule, execute,
+recover, or audit production behavior. That is Foreman's job, in a separate
+repository:
+
+```text
+Ensemble = describe, validate, package, simulate, and locally run behavior
+Foreman  = activate, govern, schedule, execute, recover, and audit production behavior
+Pi/OMP   = provide the agent loop and invocation substrate
+```
+
+Ensemble explicitly does **not** own: durable production event ingestion,
+durable activation decisions, deduplication leases or cooldown state,
+production retries/recovery/execution scheduling, durable causal history,
+approval enforcement for production mutations, or a second dispatcher
+competing with Foreman.
+
+This repository also contains an existing Elixir activation runner
+(`packages/core`). **That runner is not a Pi/OMP adapter** and must not be
+treated as the local agent-harness integration point; the Pi/OMP-facing
+integration is implemented as a TypeScript Pi extension (see
+`docs/architecture/ensemble-behavior-runtime-plan.md`).
+
+
 
 ## Architecture
 
@@ -151,7 +178,6 @@ Commands are provided by specific plugins:
 
 - `/create-prd` - Product requirements (ensemble-product)
 - `/create-trd` - Technical requirements (ensemble-core)
-- `/implement-trd` - TRD implementation (ensemble-development)
 - `/ensemble:implement-trd-beads` - Beads-backed TRD implementation; accepts multiple TRD paths for combined workstream mode with a release train bead, one TRD epic per source TRD, cross-TRD dependency edges, and `bv --robot-*` validation
 - `/ensemble:refine-beads` - Approval-gated Beads graph refinement before execution; detects hierarchy/dependency/traceability/PR-boundary gaps, proposes `br` repairs, and validates with `bv --robot-*`
 - `/fold-prompt` - Project optimization (ensemble-core)
