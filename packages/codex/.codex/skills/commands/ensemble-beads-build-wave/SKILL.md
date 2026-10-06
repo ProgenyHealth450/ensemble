@@ -56,7 +56,7 @@ settles, regardless of remaining work. Callers re-invoke it themselves.
 **3. Working Directory Verification**
    Confirm clean working directory; branch intent is owned by the caller (beads-build.yaml or implement-trd-beads.yaml Feature Branch Creation)
 
-   - Run: git status --porcelain -- HALT if output non-empty (dirty working directory).
+   - Run: git status --porcelain -- . ':(exclude).beads' and HALT if output non-empty (dirty working directory). .beads/ is br's own state and is ignored.
    - Note: this command does NOT create or switch branches. The caller is responsible for branch setup. This file is branch-mutation-free.
 
 **4. Epic and TRD Resolution**

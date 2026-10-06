@@ -52,7 +52,7 @@ Verify br is installed and functional; bv is required (no graceful degradation)
 Confirm clean working directory; branch intent is owned by the caller (beads-build.yaml or implement-trd-beads.yaml Feature Branch Creation)
 
 **Actions:**
-1. Run: git status --porcelain -- HALT if output non-empty (dirty working directory).
+1. Run: git status --porcelain -- . ':(exclude).beads' and HALT if output non-empty (dirty working directory). .beads/ is br's own state and is ignored.
 2. Note: this command does NOT create or switch branches. The caller is responsible for branch setup. This file is branch-mutation-free.
 
 ### Step 4: Epic and TRD Resolution
