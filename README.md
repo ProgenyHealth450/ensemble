@@ -148,11 +148,11 @@ is almost always this. TEAM-SETUP.md carries a check.
 **Compiled output**, which only matters if you cloned the repo. `dist/` is gitignored, so
 `git pull` never refreshes it. Exactly one script in the monorepo executes anything from a
 gitignored build directory — `packages/pi`'s `generate` runs `node dist/index.js` — and
-until upstream PR #64 lands it does not build first. A stale `dist/` there fails silently
-and plausibly: on 2026-09-03 a nine-day-old build ran against current sources and wrote 44
-files into a namespace upstream had deleted, then bumped a version off that output. It
-exits 0. `packages/opencode` also compiles, but nothing ever runs its `dist/`, so it needs
-no pre-build.
+since upstream PR #64 it runs `npm run build` first, so there is no pre-build step to
+remember. Before that, a stale `dist/` failed silently and plausibly: on 2026-09-03 a
+nine-day-old build ran against current sources and wrote 44 files into a namespace upstream
+had deleted, then bumped a version off that output. It exited 0. `packages/opencode` also
+compiles, but nothing ever runs its `dist/`, so it needs no pre-build.
 
 Dependencies are the ordinary third case: when a pull moves `package-lock.json`,
 `node_modules` is stale, and the symptom is test failures that look unrelated to the pull.

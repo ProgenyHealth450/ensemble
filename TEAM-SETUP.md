@@ -202,17 +202,8 @@ npm ci --legacy-peer-deps
 
 Skipping it shows up as test failures that look unrelated to the pull.
 
-**Compiled output.** Before `npm run generate:pi`:
-
-```
-npm run build --workspace=packages/pi
-```
-
-`packages/pi/dist` is gitignored, so a pull never refreshes it and `generate:pi` runs
-whatever build is sitting on disk. That produces wrong output silently. Upstream PR #64
-makes `generate:pi` build itself; once it merges, drop this step.
-
-Nothing else in the repo needs a build before use.
+Nothing in the repo needs a build before use: `npm run generate:pi` builds `packages/pi`
+itself.
 
 ## Don't
 
