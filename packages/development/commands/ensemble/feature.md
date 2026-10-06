@@ -1,22 +1,11 @@
 ---
-name: ensemble-feature
-description: Dispatch to the feature-lifecycle workflow by keyword (new, resume, status, abandon) (Codex skill for /ensemble:feature)
-user-invocable: true
-argument-hint: <new|resume|status|abandon> [args...]
+name: "ensemble:feature"
+description: "Dispatch to the feature-lifecycle workflow by keyword (new, resume, status, abandon)"
+version: "1.0.0"
+category: "implementation"
+last-updated: "2026-10-06"
+argument-hint: "<new|resume|status|abandon> [args...]"
 ---
-
-# Ensemble Command: /ensemble:feature
-
-This Codex skill mirrors the Ensemble slash command `/ensemble:feature`.
-Follow the workflow below, adapt to the current repository, and keep outputs structured.
-
-## Subcommands
-
-- **`new`** - Start a new feature run from an idea. see the `ensemble-new-feature` skill (`packages/codex/.codex/skills/commands/ensemble-new-feature/SKILL.md`).
-- **`resume`** - Resume the project's active/paused run from its last recorded checkpoint. see the `ensemble-new-feature` skill (`packages/codex/.codex/skills/commands/ensemble-new-feature/SKILL.md`).
-- **`status`** - Show the active/most-recent run's stage, outcome, and references without advancing it (read-only). see the `ensemble-new-feature` skill (`packages/codex/.codex/skills/commands/ensemble-new-feature/SKILL.md`).
-- **`abandon`** - Abandon the project's active/paused run after explicit confirmation. see the `ensemble-new-feature` skill (`packages/codex/.codex/skills/commands/ensemble-new-feature/SKILL.md`).
-
 <!-- DO NOT EDIT - Generated from feature.yaml -->
 <!-- To modify this file, edit the YAML source and run: npm run generate -->
 
@@ -30,6 +19,13 @@ invocation matching that command's own existing idea/status/abandon argument
 convention, then reads and follows its generated file for this runtime unchanged --
 no PRD/TRD authoring, bead planning, implementation, or PR stage logic is
 re-implemented here.
+
+## Subcommands
+
+- **`new`** - Start a new feature run from an idea. Invoke `/ensemble:new-feature` directly, or read and follow `packages/development/commands/ensemble/new-feature.md`, passing the remaining arguments through as its $ARGUMENTS.
+- **`resume`** - Resume the project's active/paused run from its last recorded checkpoint. Invoke `/ensemble:new-feature` directly, or read and follow `packages/development/commands/ensemble/new-feature.md`, passing the remaining arguments through as its $ARGUMENTS.
+- **`status`** - Show the active/most-recent run's stage, outcome, and references without advancing it (read-only). Invoke `/ensemble:new-feature` directly, or read and follow `packages/development/commands/ensemble/new-feature.md`, passing the remaining arguments through as its $ARGUMENTS.
+- **`abandon`** - Abandon the project's active/paused run after explicit confirmation. Invoke `/ensemble:new-feature` directly, or read and follow `packages/development/commands/ensemble/new-feature.md`, passing the remaining arguments through as its $ARGUMENTS.
 
 ## Workflow
 
