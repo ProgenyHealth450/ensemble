@@ -2,7 +2,7 @@
 name: ensemble-beads-build-wave
 description: Run a single beads-build wave (one bv --robot-plan + concurrent Task() dispatch + barrier) and emit a JSON summary suitable for the parent loop (Codex skill for /ensemble:beads-build-wave)
 user-invocable: true
-argument-hint: '--epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--team-roles <json>]'
+argument-hint: '--epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--team-roles <json>]'
 model: gpt-5.1-codex
 ---
 
@@ -43,6 +43,7 @@ settles, regardless of remaining work. Callers re-invoke it themselves.
    - Parse --max-parallel N from $ARGUMENTS (default 3). Set MAX_PARALLEL.
    - Parse --trd <path> from $ARGUMENTS (optional); if present set TRD_MODE=true and TRD_PATH=<path>.
    - Parse --strategy <value> from $ARGUMENTS (optional); valid: tdd, characterization, bug-fix, refactor, test-after, flexible.
+   - Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes the bv plan to one TRD.
    - Parse --team-roles <json> from $ARGUMENTS (optional); if present parse as TEAM_ROLES. If absent, parse deprecated --builder <agent> and synthesize compatibility TEAM_ROLES={lead:{agents:["tech-lead-orchestrator"],owns:["planning","escalation"]},builder:{agents:[<builder>],owns:["implementation"]},architect:{agents:["architect"],owns:["task-design"]},documentation:{agents:["documentation-specialist"],owns:["pr-boundary-doc-maintenance"]}}. If neither flag is present, set TEAM_ROLES={} and continue.
 
 **2. Tool Availability Check**
@@ -55,7 +56,7 @@ settles, regardless of remaining work. Callers re-invoke it themselves.
 **3. Working Directory Verification**
    Confirm clean working directory; branch intent is owned by the caller (beads-build.yaml or implement-trd-beads.yaml Feature Branch Creation)
 
-   - Run: git status --porcelain -- HALT if output non-empty (dirty working directory).
+   - Run: git status --porcelain -- . ':(exclude).beads' and HALT if output non-empty (dirty working directory). .beads/ is br's own state and is ignored.
    - Note: this command does NOT create or switch branches. The caller is responsible for branch setup. This file is branch-mutation-free.
 
 **4. Epic and TRD Resolution**
@@ -92,11 +93,12 @@ The caller owns the loop. Lowering the per-iteration decision cost
 
 
    - Step 1 (sync): run br sync --flush-only (ensure JSONL is current before any bv call).
-   - Step 2 (plan): run bv --robot-plan --format toon. Treat non-zero exit OR malformed TOON as HARD FAILURE: print "ERROR: bv --robot-plan failed" with captured diagnostics and HALT. There is no br ready fallback -- bv is the only scheduler. SCHEDULING SOURCE LOCK: do NOT derive scheduling decisions from .beads/*.jsonl directly; the persisted bead graph is opaque to this command and must only be read through bv.
+   - Step 2 (plan): run bv --robot-plan --label <LABEL> --format toon when LABEL is set, otherwise bv --robot-plan --format toon. Treat non-zero exit OR malformed TOON as HARD FAILURE: print "ERROR: bv --robot-plan failed" with captured diagnostics and HALT. There is no br ready fallback -- bv is the only scheduler. SCHEDULING SOURCE LOCK: do NOT derive scheduling decisions from .beads/*.jsonl directly; the persisted bead graph is opaque to this command and must only be read through bv.
    - Step 3 (parse tracks): parse the TOON output to extract the parallel tracks (up to MAX_PARALLEL). Each track is an ordered list of bead IDs. If zero tracks returned: skip to Step 7 (empty-plan edge).
+   - Step 3b (scope check, only when LABEL is set; this verifies bv's output and never replaces it as the scheduler): LABEL_IDS = the .id of every entry in the issue list of br list --all --label <LABEL> --json. If LABEL_IDS is empty, or any bead ID in the tracks is not in LABEL_IDS: print "ERROR: bv returned beads outside label <LABEL> (bv ignores an unknown label and returns the unscoped plan). Refusing to dispatch." and HALT; do not dispatch any track.
    - Step 4 (build payload per track): for each track, construct an immutable track payload with the following fields:
    -   goal: free-text from parent invocation.
-   -   scope: { ROOT_EPIC_ID, EPIC_SLUG, TRD_PATH (or null), STRATEGY }.
+   -   scope: { ROOT_EPIC_ID, EPIC_SLUG, LABEL (or null), TRD_PATH (or null), STRATEGY }.
    -   team_roles: TEAM_ROLES object parsed from --team-roles or synthesized from deprecated --builder.
    -   track_beads: ordered string[] of bead IDs for this track only.
    -   lifecycle_contract: literal br command sequence - claim via 'br update <BEAD_ID> --status=in_progress', close via 'br close <BEAD_ID>' after subagent success, sync via 'br sync --flush-only' between operations.
@@ -120,5 +122,5 @@ The caller owns the loop. Lowering the per-iteration decision cost
 ## Usage
 
 ```
-/ensemble:beads-build-wave --epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--team-roles <json>]
+/ensemble:beads-build-wave --epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--team-roles <json>]
 ```
