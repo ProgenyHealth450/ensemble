@@ -1,0 +1,45 @@
+name: Generated Drift
+
+# Runs the full generate chain once and fails if anything tracked or untracked
+# changes. Complements the per-target checks in pi-generate, codex-generate,
+# opencode-generate and validate by catching cross-target drift in one place.
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: generated-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: generate:pi's postgenerate hook computes a merge-base against origin/main
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Build packages/pi
+        run: npm run build --workspace=packages/pi
+      - name: Run generate chain
+        run: npm run generate && npm run generate:pi && npm run generate:codex && npm run generate:opencode
+      - name: Fail on drift
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Generated output differs from committed files. Run the generate chain locally and commit the result."
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "Generated output is up to date."
