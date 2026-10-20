@@ -76,8 +76,11 @@ const runningChildren = new Set();
  * no recursive removal can ever reach through it.
  */
 function removeTempDir(dir) {
+  const root = path.resolve(dir, '..', '..');
   fs.rmSync(path.join(dir, 'node_modules'), { force: true });
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(path.join(root, 'scripts'), { force: true });
+  fs.rmSync(path.join(root, 'packages', 'agent-core'), { force: true });
+  fs.rmSync(root, { recursive: true, force: true });
   tempDirs.delete(dir);
 }
 
@@ -99,7 +102,11 @@ const firstLine = (text) => (String(text || '').split('\n').find((line) => line.
  * failure part-way through never leaks it.
  */
 function buildTempTree(relEntries) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
+  // Nested as <root>/packages/development so a contract test's `../../../scripts/lib/...` and `../../agent-core/...`
+  // requires resolve exactly as in the real repo; those two repo siblings are symlinked in, never copied or mutated.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
+  const dir = path.join(root, 'packages', 'development');
+  fs.mkdirSync(dir, { recursive: true });
   tempDirs.add(dir);
   for (const rel of relEntries) {
     const src = path.join(DEV_ROOT, rel);
@@ -112,6 +119,8 @@ function buildTempTree(relEntries) {
     }
   }
   fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(dir, 'node_modules'), 'dir');
+  fs.symlinkSync(path.join(REPO_ROOT, 'scripts'), path.join(root, 'scripts'), 'dir');
+  fs.symlinkSync(path.join(REPO_ROOT, 'packages', 'agent-core'), path.join(root, 'packages', 'agent-core'), 'dir');
   return dir;
 }
 
@@ -280,22 +289,6 @@ function assertWellFormed(id, targetRel, text) {
 // throws an error naming the guard, the file and the anchor.
 // ---------------------------------------------------------------------------
 
-/** The numbered items ("4. ...") of one literal block: { start, end, text } = a line range plus its whitespace-normalised text. */
-function numberedItems(lines, from, to) {
-  const marker = /^(\s+)\d+\. \S/;
-  const first = lines.findIndex((line, index) => index >= from && index < to && marker.test(line));
-  if (first < 0) return [];
-  const indent = lines[first].match(marker)[1];
-  const starts = [];
-  for (let index = first; index < to; index += 1) {
-    const match = lines[index].match(marker);
-    if (match && match[1] === indent) starts.push(index);
-  }
-  return starts.map((start, at) => {
-    const end = at + 1 < starts.length ? starts[at + 1] : to;
-    return { start, end, text: lines.slice(start, end).join(' ').replace(/\s+/g, ' ').trim() };
-  });
-}
 
 function anchorsFor(id, targetRel) {
   const fail = (anchor, problem) =>
@@ -534,11 +527,11 @@ describe('Guard 4: review-before-publication ordering (fix-issue.yaml)', () => {
   proveGuardMutationIsCaught({
     id: 'Guard 4',
     label:
-      'Scenario: swapping the Local Review and PR Creation step blocks reverses publication order -- "review runs after tests and before commit" fails against the mutant',
-    files: ['commands/fix-issue.yaml', 'tests/fix-issue-command.test.js'],
+      'Scenario: swapping the Local Review and PR Creation step blocks reverses publication order -- "Validation & Delivery step order puts the local review before PR creation and the remote review after" fails against the mutant',
+    files: ['commands/fix-issue.yaml', 'skills/pr-review-cycle', 'tests/fix-issue-command.test.js'],
     targetRel: 'commands/fix-issue.yaml',
     testFileRel: 'tests/fix-issue-command.test.js',
-    testTitle: 'review runs after tests and before commit',
+    testTitle: 'Validation & Delivery step order puts the local review before PR creation and the remote review after',
     mutate(text, a) {
       const lines = text.split('\n');
       const review = a.stepStart(lines, 'Local Review and Batch Fix');
@@ -547,14 +540,12 @@ describe('Guard 4: review-before-publication ordering (fix-issue.yaml)', () => {
       if (!(review < creation && creation < remote)) {
         throw a.fail('the steps Local Review and Batch Fix, PR Creation, Remote Review Disposition', 'are no longer in that order');
       }
-      // Swap the two whole step blocks, each from its own `- order:` line to the next step's: PR Creation now
-      // physically precedes Local Review and Batch Fix, with every line keeping its indentation.
-      return [
-        ...lines.slice(0, review),
-        ...lines.slice(creation, remote),
-        ...lines.slice(review, creation),
-        ...lines.slice(remote),
-      ].join('\n');
+      // Swap the two whole step blocks so PR Creation physically precedes Local Review and Batch Fix, then put the
+      // `- order: N` lines back in their slots so sequential numbering (a different test's contract) still holds.
+      const swapped = [...lines.slice(creation, remote), ...lines.slice(review, creation)];
+      swapped[0] = lines[review];
+      swapped[remote - creation] = lines[creation];
+      return [...lines.slice(0, review), ...swapped, ...lines.slice(remote)].join('\n');
     },
   });
 });
@@ -569,31 +560,29 @@ describe('Guard 5: Foreman artifact written before the HALT (fix-issue.yaml)', (
   proveGuardMutationIsCaught({
     id: 'Guard 5',
     label:
-      'Scenario: moving the artifact-write item after the HALT item -- "artifact written to the exact path" fails against the mutant',
-    files: ['commands/fix-issue.yaml', 'tests/fix-issue-command.test.js'],
+      'Scenario: moving the Foreman artifact paragraph after the HALT paragraph -- "the Foreman artifact is written before the pending/blocked halt in Remote Review Disposition" fails against the mutant',
+    files: ['commands/fix-issue.yaml', 'skills/pr-review-cycle', 'tests/fix-issue-command.test.js'],
     targetRel: 'commands/fix-issue.yaml',
     testFileRel: 'tests/fix-issue-command.test.js',
-    testTitle: 'artifact written to the exact path',
+    testTitle: 'the Foreman artifact is written before the pending/blocked halt in Remote Review Disposition',
     mutate(text, a) {
       const lines = text.split('\n');
       const first = a.stepStart(lines, 'Remote Review Disposition');
       const end = a.stepEnd(lines, first);
-      const instructionsAt = a.findLine(lines, /^\s*instructions:\s*\|\s*$/, {
+      const artifact = a.findLine(lines, /^\s*Foreman artifact, for EVERY status/, {
         from: first,
         to: end,
-        label: 'the `instructions: |` line of the Remote Review Disposition step',
+        label: 'the "Foreman artifact, for EVERY status" paragraph of the Remote Review Disposition description',
       });
-      const items = numberedItems(lines, instructionsAt + 1, end);
-      const artifact = items.findIndex((item) => item.text.includes('FOREMAN_ARTIFACT_PATH is non-empty'));
-      if (artifact < 0) throw a.fail('the numbered item containing "FOREMAN_ARTIFACT_PATH is non-empty"', 'not found');
-      // Move the artifact item behind the last item, the pending/blocked HALT branch. Every item travels with its own
-      // lines (and blank separator), so each keeps its indentation and the YAML stays valid.
-      const moved = [...items.slice(0, artifact), ...items.slice(artifact + 1), items[artifact]];
-      return [
-        ...lines.slice(0, items[0].start),
-        ...moved.flatMap((item) => lines.slice(item.start, item.end)),
-        ...lines.slice(end),
-      ].join('\n');
+      const halt = a.findLine(lines, /^\s*Only exactly REVIEW_COMPLETE proceeds/, {
+        from: first,
+        to: end,
+        label: 'the "Only exactly REVIEW_COMPLETE proceeds" paragraph of the Remote Review Disposition description',
+      });
+      // Each paragraph is one line of the literal block, so exchanging the two lines puts the HALT paragraph ahead of
+      // the artifact write while both keep their indentation and the YAML stays valid.
+      [lines[artifact], lines[halt]] = [lines[halt], lines[artifact]];
+      return lines.join('\n');
     },
   });
 });
@@ -668,17 +657,16 @@ describe('Guard 8: fix-issue local review gate is keyed on exactly LOCAL_REVIEW_
   proveGuardMutationIsCaught({
     id: 'Guard 8',
     label:
-      'Scenario: letting a PENDING local review proceed -- "Scenario: only exactly LOCAL_REVIEW_COMPLETE proceeds" fails against the mutant',
-    files: ['commands/fix-issue.yaml', 'tests/fix-issue-command.test.js'],
+      'Scenario: letting a PENDING local review proceed -- "only exactly LOCAL_REVIEW_COMPLETE passes the local review gate" fails against the mutant',
+    files: ['commands/fix-issue.yaml', 'skills/pr-review-cycle', 'tests/fix-issue-command.test.js'],
     targetRel: 'commands/fix-issue.yaml',
     testFileRel: 'tests/fix-issue-command.test.js',
-    // The describe block shares the bare phrase, so the title carries its "Scenario: " prefix to select this one test.
-    testTitle: 'Scenario: only exactly LOCAL_REVIEW_COMPLETE proceeds',
+    testTitle: 'only exactly LOCAL_REVIEW_COMPLETE passes the local review gate',
     mutate: (text, a) =>
       a.replace(
         text,
-        "IF LOCAL_PHASE == 'LOCAL_REVIEW_COMPLETE':",
-        "IF LOCAL_PHASE == 'LOCAL_REVIEW_COMPLETE' or LOCAL_PHASE == 'LOCAL_REVIEW_PENDING':"
+        "'LOCAL_REVIEW_COMPLETE' (exact match) proceeds",
+        "'LOCAL_REVIEW_COMPLETE' or 'LOCAL_REVIEW_PENDING' (exact match) proceeds"
       ),
   });
 });
@@ -888,10 +876,10 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy A',
-          files: ['commands/fix-issue.yaml', 'tests/fix-issue-command.test.js'],
+          files: ['commands/fix-issue.yaml', 'skills/pr-review-cycle', 'tests/fix-issue-command.test.js'],
           targetRel: 'commands/fix-issue.yaml',
           testFileRel: 'tests/fix-issue-command.test.js',
-          testTitle: 'artifact written to the exact path',
+          testTitle: 'the Foreman artifact is written before the pending/blocked halt in Remote Review Disposition',
           mutate: (text) => `metadata: [broken\n${text}`,
         })
       ).rejects.toThrow(/Decoy A: the mutated commands\/fix-issue\.yaml does not parse/);

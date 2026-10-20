@@ -8,6 +8,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { checkFrontmatter } = require('./lib/frontmatter-check');
 const promptBudget = require('./lib/prompt-budget');
+const { checkStepKeys } = require('./lib/step-keys-check');
+const yamlLib = require('js-yaml');
 
 const PACKAGES_DIR = path.join(__dirname, '..', 'packages');
 
@@ -262,6 +264,29 @@ function findDeSymlinkedMirrors() {
   return found.sort();
 }
 
+/**
+ * Every command YAML step may carry only keys the command transformer renders.
+ * Source packages only: pi/codex/opencode are generated output.
+ *
+ * @returns {string[]} One message per unrendered step key
+ */
+function validateStepKeys() {
+  const failures = [];
+  let checked = 0;
+  for (const pkg of fs.readdirSync(PACKAGES_DIR)) {
+    if (pkg === 'pi' || pkg === 'codex' || pkg === 'opencode') continue;
+    const dir = path.join(PACKAGES_DIR, pkg, 'commands');
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.yaml'))) {
+      const rel = path.join('packages', pkg, 'commands', file);
+      failures.push(...checkStepKeys(yamlLib.load(fs.readFileSync(path.join(dir, file), 'utf8')), rel));
+      checked++;
+    }
+  }
+  console.log(`  ✓ ${checked} command YAML file(s) checked for unrendered step keys`);
+  return failures;
+}
+
 function safeLstatExists(p) {
   try {
     fs.lstatSync(p);
@@ -452,6 +477,12 @@ function main() {
     console.log('  ✓ packages/full/ mirrors resolve to real content');
   }
 
+  console.log('\nValidating command step keys are rendered...');
+  validateStepKeys().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
   // Prompt word-budget ratchet (see scripts/lib/prompt-budget.js)
   console.log('\nValidating prompt word budgets...');
   const sizes = promptBudget.collectSizes(PACKAGES_DIR);
@@ -491,4 +522,5 @@ module.exports = {
   findDeSymlinkedMirrors,
   validateFullSkillsMirror,
   validateFullLibMirror,
+  validateStepKeys,
 };
