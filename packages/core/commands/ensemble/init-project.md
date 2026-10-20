@@ -198,7 +198,7 @@ The following changes require explicit user approval before implementation:
 When delegating implementation work:
 1. Use framework-specific specialists when available (e.g., `rails-backend-expert`, `react-component-architect`)
 2. Fall back to general specialists (`backend-developer`, `frontend-developer`)
-3. Use `general-purpose` only for research, not implementation
+3. Use generic built-in agents only for research, not implementation
 
 ### Quality Validation
 Every implementation must pass through:
