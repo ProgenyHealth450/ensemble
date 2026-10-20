@@ -1,0 +1,9 @@
+{
+  "description": "No-model baseline: a known-good TRD must parse with trd-cli (guards the TRD format contract the commands depend on)",
+  "type": "cli",
+  "graders": [
+    { "type": "trdParses", "path": "docs/TRD", "minTasks": 5 },
+    { "type": "commandOutputMatches", "command": "node {{repo}}/packages/development/lib/trd-cli.js parse docs/TRD/TRD-2026-023.md", "pattern": "\"ok\":true" },
+    { "type": "commandOutputMatches", "command": "node {{repo}}/packages/development/lib/trd-cli.js parse docs/TRD/missing.md", "pattern": "\"error\"" }
+  ]
+}

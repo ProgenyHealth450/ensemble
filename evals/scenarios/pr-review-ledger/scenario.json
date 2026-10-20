@@ -1,0 +1,8 @@
+{
+  "description": "No-model: pr-review-cli ledger validation accepts a complete finding and rejects one missing required fields",
+  "type": "cli",
+  "graders": [
+    { "type": "commandOutputMatches", "command": "node {{repo}}/packages/development/lib/pr-review-cli.js ledger", "stdin": "{\"action\":\"validate\",\"findings\":[{\"id\":\"F1\"}]}", "pattern": "\"ok\":false" },
+    { "type": "commandOutputMatches", "command": "node {{repo}}/packages/development/lib/pr-review-cli.js ledger", "stdin": "{\"action\":\"validate\",\"findings\":[]}", "pattern": "\"ok\":true" }
+  ]
+}
