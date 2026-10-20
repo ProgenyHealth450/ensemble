@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `protected-branch` now tracks `git checkout`/`switch` (incl. `-b/-B/-c/-C`) earlier in a chained command, so `git checkout main && git commit` is blocked; unknown targets fail open.
+
 ### Added
 - `PreToolUse` (Bash) guards: commit/push on protected branches, force push to protected branches, `--no-verify`/`--no-gpg-sign` bypass flags, `br close` without `--reason`.
 - Opt-in `Stop`/`SubagentStop` Definition-of-Done gate configured in `.ensemble/guards.json`.

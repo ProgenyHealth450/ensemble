@@ -4,7 +4,7 @@ Hooks that enforce rules prompts only request. Any internal error fails open (ex
 
 | Rule | Blocks |
 |---|---|
-| `protected-branch` | `git commit`/`push` on main, master, production; force push to them |
+| `protected-branch` | `git commit`/`push` on main, master, production (including after `git checkout`/`switch` earlier in the same command); force push to them |
 | `bypass-flags` | `--no-verify`, `--no-gpg-sign` on git commands |
 | `br-close-reason` | `br close` without non-empty `--reason` |
 | `dod` | Stop/SubagentStop when your command fails (opt-in) |

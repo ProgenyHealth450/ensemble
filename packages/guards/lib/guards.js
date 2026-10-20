@@ -61,9 +61,47 @@ function pushTargets(args, cur) {
   }).filter(Boolean);
 }
 
+function refExists(dir, ref) {
+  const r = spawnSync('git', ['-C', dir, 'show-ref', '--verify', '--quiet', ref], { timeout: 3000 });
+  return r.status === 0;
+}
+
+// Branch HEAD points at after `git checkout|switch args` in dir.
+// undefined = not a branch switch; null = switched but target unknown (fail open); string = branch.
+function switchedBranch(sub, args, dir, prot) {
+  const valueOpts = sub === 'switch' ? ['-c', '-C', '--create', '--force-create'] : ['-b', '-B'];
+  let create = false, detach = false, branch = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') break;
+    if (valueOpts.includes(a)) { create = true; branch = args[i + 1] === undefined ? null : args[i + 1]; break; }
+    const eq = valueOpts.find((o) => o.startsWith('--') && a.startsWith(o + '='));
+    if (eq) { create = true; branch = a.slice(eq.length + 1); break; }
+    if (a === '--detach' || a === '-d') { detach = true; continue; }
+    if (a === '--orphan') { create = true; branch = args[i + 1] === undefined ? null : args[i + 1]; break; }
+    if (a.startsWith('-') && a !== '-') continue;
+    if (branch === null) branch = a; // first positional: branch (or start-point/path)
+    break;
+  }
+  if (detach) return null;
+  if (branch === null) return undefined;
+  if (branch === '-' || /[$`]/.test(branch)) return null; // unknown at parse time
+  if (create) return branch;
+  if (sub === 'checkout') {
+    if (branch.includes(':')) return undefined; // <tree-ish>:path
+    if (args.includes('--')) return undefined; // `checkout <tree-ish> -- path`
+    const known = prot.includes(branch) || refExists(dir, `refs/heads/${branch}`) ||
+      spawnSync('git', ['-C', dir, 'for-each-ref', '--format=x', `refs/remotes/*/${branch}`], { encoding: 'utf8', timeout: 3000 }).stdout.trim() !== '';
+    if (!known) return undefined; // path, tag, sha...: not a branch switch
+  }
+  return branch;
+}
+
 function checkBash(command, cfg, cwd) {
   const prot = protectedBranches(cfg);
   let dir = cwd;
+  const sim = new Map(); // dir -> simulated branch (null = unknown)
+  const branchOf = (d) => (sim.has(d) ? sim.get(d) : currentBranch(d));
   for (const w of commandsOf(command)) {
     const base = w[0].split('/').pop();
     if (base === 'cd' && w[1]) { dir = path.resolve(dir, w[1]); continue; }
@@ -94,14 +132,19 @@ function checkBash(command, cfg, cwd) {
         return block('bypass-flags', `git ${sub} with ${long || '-n (--no-verify)'} bypasses hooks/signing. Fix the failing hook or signing problem instead of skipping it.`);
       }
     }
+    if (sub === 'checkout' || sub === 'switch') {
+      const sb = switchedBranch(sub, args, g.dir, prot);
+      if (sb !== undefined) sim.set(g.dir, sb);
+      continue;
+    }
     if (sub === 'commit' && ruleOn(cfg, 'protected-branch')) {
-      const b = currentBranch(g.dir);
+      const b = branchOf(g.dir);
       if (b && prot.includes(b)) {
         return block('protected-branch', `git commit on protected branch "${b}". Create a feature branch first (git switch -c <name>) and commit there.`);
       }
     }
     if (sub === 'push') {
-      const b = currentBranch(g.dir);
+      const b = branchOf(g.dir);
       const all = args.includes('--all') || args.includes('--mirror');
       const force = args.some((a) => a === '--force' || a === '-f' || a.startsWith('--force-with-lease') || a === '--force-if-includes' || /^-[A-Za-z]*f[A-Za-z]*$/.test(a)) ||
         args.some((a) => a.startsWith('+'));

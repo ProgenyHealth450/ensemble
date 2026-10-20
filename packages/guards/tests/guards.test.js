@@ -91,6 +91,33 @@ describe('git guards', () => {
     expect(bash("git commit -m 'git push origin main'").status).toBe(0);
     expect(bash('git log main').status).toBe(0);
   });
+  test('branch switch earlier in the chain is tracked', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    for (const c of ['git checkout main && git commit -m x', 'git switch main; git commit -m x',
+      'git checkout -B main && git push', 'git switch -C main && git push origin HEAD',
+      `git -C ${proj} checkout main && git -C ${proj} commit -m x`]) {
+      const r = bash(c);
+      expect([c, r.status]).toEqual([c, 2]);
+      expect(r.stderr).toMatch(/protected-branch/);
+    }
+    expect(bash('git checkout feat/x && git commit -m x').status).toBe(0);
+    expect(bash('git checkout main && git checkout feat/x && git commit -m x').status).toBe(0);
+    expect(bash('git checkout main -- . && git commit -m x').status).toBe(0);
+    expect(bash('git checkout -b feat/y && git commit -m x').status).toBe(0);
+  });
+  test('switching away from main before commit is allowed; file checkouts are not switches', () => {
+    git('branch', 'feature');
+    expect(bash('git checkout feature && git commit -m x').status).toBe(0);
+    expect(bash('git switch -c new && git push origin HEAD').status).toBe(0);
+    expect(bash('git checkout -- file && git commit -m x').status).toBe(2);
+    expect(bash('git checkout HEAD:file && git commit -m x').status).toBe(2);
+    expect(bash('git checkout $B && git commit -m x').status).toBe(0);
+    expect(bash('echo "git checkout main" && git commit -m x').status).toBe(2);
+  });
+  test('quoted checkout mention does not switch branch', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    expect(bash('git commit -m "git checkout main"').status).toBe(0);
+  });
   test('config: custom protected branches and disabled rules', () => {
     config({ protectedBranches: ['release'] });
     expect(bash('git commit -m x').status).toBe(0);
