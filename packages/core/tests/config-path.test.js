@@ -95,8 +95,8 @@ describe('config-path', () => {
 
     it('should return plugin-specific cache path', () => {
       fs.existsSync.mockReturnValue(false);
-      const result = configPath.getCachePath('context-fetcher');
-      expect(result).toBe(path.join(mockHomeDir, '.ensemble', 'cache', 'context-fetcher'));
+      const result = configPath.getCachePath('example-cache');
+      expect(result).toBe(path.join(mockHomeDir, '.ensemble', 'cache', 'example-cache'));
     });
   });
 

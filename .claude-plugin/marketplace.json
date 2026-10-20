@@ -155,22 +155,6 @@
       }
     },
     {
-      "name": "ensemble-metrics",
-      "version": "6.0.0",
-      "source": "./packages/metrics",
-      "description": "Development metrics and analytics",
-      "category": "utilities",
-      "tags": [
-        "metrics",
-        "analytics",
-        "productivity"
-      ],
-      "author": {
-        "name": "Sunstone Partners",
-        "url": "https://github.com/Sunstone-Partners"
-      }
-    },
-    {
       "name": "ensemble-react",
       "version": "6.0.0",
       "source": "./packages/react",
@@ -378,24 +362,6 @@
         "perplexity",
         "weaviate",
         "langgraph"
-      ],
-      "author": {
-        "name": "Sunstone Partners",
-        "url": "https://github.com/Sunstone-Partners"
-      }
-    },
-    {
-      "name": "ensemble-router",
-      "version": "5.2.3",
-      "source": "./packages/router",
-      "description": "UserPromptSubmit routing hook for intelligent agent delegation and skill invocation",
-      "category": "core",
-      "tags": [
-        "router",
-        "hooks",
-        "delegation",
-        "orchestration",
-        "agent-routing"
       ],
       "author": {
         "name": "Sunstone Partners",

@@ -47,7 +47,7 @@ integrationProtocols:
     - agent: tech-lead-orchestrator
       context: Technical requirements, architecture decisions, and development workflow needs
       acceptanceCriteria: []
-    - agent: qa-orchestrator
+    - agent: test-runner
       context: Testing requirements, quality gates, and validation criteria
       acceptanceCriteria: []
   handoffTo:
@@ -57,6 +57,6 @@ integrationProtocols:
     - agent: infrastructure-orchestrator
       deliverables: Build environment requirements and resource provisioning needs
       qualityGates: []
-    - agent: qa-orchestrator
+    - agent: test-runner
       deliverables: Triggers automated testing and provides build artifacts for validation
       qualityGates: []

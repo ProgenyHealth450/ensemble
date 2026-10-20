@@ -32,7 +32,6 @@ Each hit was opened and classified. Counts are `toContain`/`toMatch` calls in th
 | implement-trd-beads | beads-scaffold-specialist.test.js | agents/beads-scaffold-specialist.yaml, implement-trd-beads.yaml | 7 (mixed) |
 | implement-trd-beads, beads-build | subagent-dispatch-resolvable.test.js | beads-build.yaml, implement-trd-beads.yaml | 5 |
 | create-trd | create-trd-command.test.js | commands/create-trd.yaml | 99 |
-| create-trd | create-trd-foreman-command.test.js | commands/create-trd-foreman.yaml | 24 |
 | refine-trd | refine-trd-command.test.js | commands/refine-trd.yaml | 19 |
 | new-feature / feature | new-feature-command.test.js | commands/new-feature.yaml (+ md, pi output) | 78 (mixed) |
 | new-feature / feature | feature-command.test.js | commands/feature.yaml + generated md | 24 (mixed) |

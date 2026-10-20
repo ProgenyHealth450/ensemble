@@ -96,7 +96,7 @@ mission:
     - Execute 4-phase workflow - Entry Point Resolution, Analysis & Planning, Execution, Validation & Delivery
     - Resolve the entry point from description/issue/no-arg/--status/--abandon, mirroring ensemble:new-feature's own entry-point resolution pattern (AC-019-2)
     - Checkpoint progress via issue-run-index.ts after each of the 3 named phases completes, enabling resume/--status/--abandon across sessions (REQ-019)
-    - Delegate codebase analysis to general-purpose agent (Haiku for speed)
+    - Delegate codebase analysis to tech-lead-orchestrator (low model for speed)
     - Assemble 4-agent team for collaborative planning (Sonnet for quality)
     - Conduct user interview only if description is ambiguous or --interactive flag set (never when --foreman is set)
     - When --foreman is set, run fully non-interactively - skip the user interview, never pause for confirmation, and always auto-commit and open a PR
@@ -255,7 +255,7 @@ workflow:
           description: |
             Explore codebase to identify affected files, patterns, and scope.
             Use Grep, Glob, and Read tools to understand context.
-          agent: general-purpose
+          agent: tech-lead-orchestrator
           model: low
           instructions: |
             1. Extract keywords from issue description
@@ -289,7 +289,7 @@ workflow:
                - Identify dependencies and integration points
                - Assess scalability and maintainability
 
-            4. Task(qa-orchestrator)
+            4. Task(test-runner)
                - Define test coverage requirements
                - Create test strategy
                - Identify quality gates
@@ -408,7 +408,7 @@ workflow:
                - Backend code → backend-developer
                - Frontend code → frontend-developer
                - Infrastructure → infrastructure-developer
-               - Generic → general-purpose
+               - Generic → tech-lead-orchestrator
 
             3. Delegate task:
                Task(agent-type, prompt=task.content)
@@ -920,17 +920,14 @@ validation:
     - TodoWrite
 
   required_agents:
-    - general-purpose
     - product-management-orchestrator
     - tech-lead-orchestrator
     - infrastructure-orchestrator
-    - qa-orchestrator
     - backend-developer
     - frontend-developer
     - infrastructure-developer
     - test-runner
     - git-workflow
-    - github-specialist
 
   required_external:
     - git (version 2.0+)

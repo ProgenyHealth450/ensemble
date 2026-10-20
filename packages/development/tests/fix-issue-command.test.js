@@ -264,7 +264,7 @@ describe('Fix-Issue Command', () => {
       // Step 1: Codebase Analysis
       const step1 = phase.steps[0];
       expect(step1.title).toBe('Codebase Analysis');
-      expect(step1.agent).toBe('general-purpose');
+      expect(step1.agent).toBe('tech-lead-orchestrator');
       expect(step1.model).toBe('low');
       expect(step1.instructions).toContain('Extract keywords');
       expect(step1.instructions).toContain('Search codebase');
@@ -276,7 +276,7 @@ describe('Fix-Issue Command', () => {
       expect(step2.instructions).toContain('product-management-orchestrator');
       expect(step2.instructions).toContain('tech-lead-orchestrator');
       expect(step2.instructions).toContain('infrastructure-orchestrator');
-      expect(step2.instructions).toContain('qa-orchestrator');
+      expect(step2.instructions).toContain('test-runner');
 
       // Step 3: User Interview
       const step3 = phase.steps[2];
@@ -427,17 +427,16 @@ describe('Fix-Issue Command', () => {
       expect(commandYaml.validation.required_agents).toBeInstanceOf(Array);
 
       const agents = commandYaml.validation.required_agents;
-      expect(agents).toContain('general-purpose');
       expect(agents).toContain('product-management-orchestrator');
       expect(agents).toContain('tech-lead-orchestrator');
       expect(agents).toContain('infrastructure-orchestrator');
-      expect(agents).toContain('qa-orchestrator');
+      expect(agents).toContain('test-runner');
       expect(agents).toContain('backend-developer');
       expect(agents).toContain('frontend-developer');
       expect(agents).toContain('infrastructure-developer');
       expect(agents).toContain('test-runner');
       expect(agents).toContain('git-workflow');
-      expect(agents).toContain('github-specialist');
+      expect(agents).toContain('git-workflow');
     });
 
     test('specifies required external tools', () => {
@@ -576,7 +575,7 @@ describe('Fix-Issue Command', () => {
       expect(planningStep.instructions).toContain('Task(product-management-orchestrator)');
       expect(planningStep.instructions).toContain('Task(tech-lead-orchestrator)');
       expect(planningStep.instructions).toContain('Task(infrastructure-orchestrator)');
-      expect(planningStep.instructions).toContain('Task(qa-orchestrator)');
+      expect(planningStep.instructions).toContain('Task(test-runner)');
     });
 
     test('execution phase routes to specialized developers', () => {

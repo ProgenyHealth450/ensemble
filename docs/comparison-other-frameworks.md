@@ -28,7 +28,7 @@
 
 **Philosophy:** Full-lifecycle orchestration platform with a specialized agent mesh.
 
-Ensemble is a Claude Code plugin ecosystem organized into 4 tiers across 24 npm packages. It provides 38 specialized agents (backend-developer, frontend-developer, code-reviewer, qa-orchestrator, etc.) orchestrated through YAML-defined workflow commands. The primary pipeline: `create-prd` → `refine-prd` → `create-trd` → `refine-trd` → `implement-trd-beads`, driven by persistent beads (`br`/`bv`) task management with cross-session resumability.
+Ensemble is a Claude Code plugin ecosystem organized into 4 tiers across 24 npm packages. It provides 38 specialized agents (backend-developer, frontend-developer, code-reviewer, test-runner, etc.) orchestrated through YAML-defined workflow commands. The primary pipeline: `create-prd` → `refine-prd` → `create-trd` → `refine-trd` → `implement-trd-beads`, driven by persistent beads (`br`/`bv`) task management with cross-session resumability.
 
 Key architectural elements:
 - **Plugin tiers:** Core (ensemble-core) → Workflow (product, development, quality, infrastructure) → Framework Skills (React, NestJS, Rails, Phoenix, Blazor) → Test Frameworks (Jest, Pytest, RSpec, xUnit, ExUnit)
@@ -132,7 +132,7 @@ Key architectural elements:
 
 ### 6. Operational Breadth
 
-**Ensemble** includes: conventional commits enforcement, git-town workflow management, release orchestration, CI/CD infrastructure templates, productivity metrics dashboard, E2E testing with Playwright, security scanning (OWASP-aware), and MCP server integration. These are entirely out of scope for Spec-Kit.
+**Ensemble** includes: conventional commits enforcement, git-town workflow management, release orchestration, CI/CD infrastructure templates, E2E testing with Playwright, security scanning (OWASP-aware), and MCP server integration. These are entirely out of scope for Spec-Kit.
 
 **Spec-Kit** focuses exclusively on the spec-first development cycle. Infrastructure, testing, and release concerns are the team's responsibility.
 
@@ -182,7 +182,7 @@ Key architectural elements:
 - Dependency-aware execution via `bv --robot-plan` with graph-aware triage (PageRank, critical path)
 - Full pipeline in one command: `/ensemble:feature` or `implement-trd-beads`
 - Framework-specific skills for React, NestJS, Rails, Phoenix, Blazor, Jest, Pytest, RSpec, xUnit, ExUnit
-- Operational breadth: release orchestration, conventional commits, CI/CD templates, metrics, E2E testing, security scanning
+- Operational breadth: release orchestration, conventional commits, CI/CD templates, E2E testing, security scanning
 - MCP server integration for optional TRD workflow enhancement
 - Foreman dispatch for fully automated orchestration pipelines
 - Collaborative PRD/TRD review via `--collab` browser UI
@@ -321,7 +321,6 @@ All numeric and capability claims in this document have been verified against au
 
 **False positives removed during audit:**
 - `configure-team`: Does NOT provide named governance presets; performs auto-sizing by task count
-- `manager-dashboard`: Does NOT provide beads dependency visualization; shows git/test/sprint metrics  
 - `create-prd`: Does NOT support branching (create-prd has zero branching code); feature branching is provided by `implement-trd` and `implement-trd-beads`
 
 **Lessons learned:** Keyword substring matching on command names is insufficient for capability verification. Each claim requires reading the actual command description and workflow definition.

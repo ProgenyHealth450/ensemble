@@ -903,9 +903,9 @@ describe('OC-S1-SK: real packages integration', () => {
 
       const result = await copier.execute();
 
-      // We know there are at least 10 SKILL.md files and 7 REFERENCE.md files
+      // Real packages still ship many SKILL.md files; lean framework skills no longer carry REFERENCE.md
       expect(result.skillsCopied).toBeGreaterThanOrEqual(10);
-      expect(result.referencesConverted).toBeGreaterThanOrEqual(7);
+      expect(result.referencesConverted).toBeGreaterThanOrEqual(1);
       expect(result.errors).toHaveLength(0);
 
       fs.rmSync(tmpDir, { recursive: true, force: true });

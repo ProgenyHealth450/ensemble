@@ -34,7 +34,7 @@ const FULL_TEAM_CONFIG = {
     },
     {
       name: 'qa',
-      agent: 'qa-orchestrator',
+      agent: 'test-runner',
       owns: ['quality-assurance'],
     },
     {
@@ -141,7 +141,7 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
 
     test('parses qa role with single agent', () => {
       expect(result.teamRoles.qa).toBeDefined();
-      expect(result.teamRoles.qa.agents).toEqual(['qa-orchestrator']);
+      expect(result.teamRoles.qa.agents).toEqual(['test-runner']);
     });
 
     test('parses architect role', () => {
@@ -476,7 +476,7 @@ describe('Team YAML Parser (parseTeamConfig)', () => {
           { name: 'builder', agent: 'backend-developer' },
           { name: 'architect', agent: 'architect' },
           { name: 'documentation', agent: 'documentation-specialist' },
-          { name: 'qa', agent: 'qa-orchestrator' },
+          { name: 'qa', agent: 'test-runner' },
         ],
       };
       const result = parseTeamConfig(config);

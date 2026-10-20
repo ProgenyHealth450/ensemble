@@ -21,8 +21,8 @@ const yaml = require('js-yaml');
 //  - prd.yaml itself, plus every ref in its own dispatch.subcommands[] (2:
 //    create-prd and refine-prd; the meeting-sourced variants are
 //    `--from-meeting` flags on those two, not separate commands)
-//  - the 4 standalone beads-* command YAMLs that actually exist as commands:
-//    refine-beads, beads-plan, beads-build, beads-build-wave.
+//  - the 3 standalone beads-* command YAMLs that actually exist as commands:
+//    refine-beads, beads-build, beads-build-wave.
 // beads-scaffold-specialist (an agent:
 // packages/development/agents/beads-scaffold-specialist.yaml), complete-beads
 // (a skill: packages/development/skills/complete-beads/SKILL.md), and
@@ -31,8 +31,8 @@ const yaml = require('js-yaml');
 // commands/ensemble/*.md) are not command-YAML specialist commands, so they
 // are intentionally not enumerated here -- they stay covered by their own
 // existing tests, run as part of this package's full suite.
-// generate-api-docs.yaml, configure-team.yaml, and implement-bead.yaml
-// (development), and analyze-product.yaml, check-feature-drift.yaml,
+// configure-team.yaml and implement-bead.yaml
+// (development), and check-feature-drift.yaml,
 // check-binding-drift.yaml, generate-feature-tests.yaml,
 // generate-reqnroll-bindings.yaml, and reqnroll-tdd.yaml (product) are real
 // command YAMLs but are not PRD/TRD/beads document specialists under
@@ -57,7 +57,6 @@ const SPECIALIST_COMMANDS = [
   ['requirement-status', DEV_COMMANDS_DIR],
   ['trd-dependency-graph', DEV_COMMANDS_DIR],
   ['refine-beads', DEV_COMMANDS_DIR],
-  ['beads-plan', DEV_COMMANDS_DIR],
   ['beads-build', DEV_COMMANDS_DIR],
   ['beads-build-wave', DEV_COMMANDS_DIR],
   ['prd', PRODUCT_COMMANDS_DIR],

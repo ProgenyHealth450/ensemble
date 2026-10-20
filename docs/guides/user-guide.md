@@ -25,14 +25,13 @@ The repository is an npm monorepo under `packages/`. Each package is both an npm
 
 | Plugin | Version | Contents |
 | --- | --- | --- |
-| `ensemble-core` | 6.0.0 | `detect-stack` skill, `/ensemble:standards`, `/ensemble:fold-prompt`, `/ensemble:sessionlog`, `/ensemble:reinstall-plugins`, general-purpose agents |
-| `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher, `analyze-product` |
+| `ensemble-core` | 6.0.0 | `detect-stack` skill, `/ensemble:standards`, `/ensemble:fold-prompt`, `/ensemble:sessionlog`, `/ensemble:reinstall-plugins`, `ensemble-orchestrator` agent |
+| `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher |
 | `ensemble-development` | 7.0.0 | TRD, beads, feature and issue workflows, language skills, orchestrator agents |
-| `ensemble-quality` | 6.0.0 | `pr-review-remediation` skill, `code-reviewer`, `deep-debugger`, `qa-orchestrator`, `test-runner` agents |
+| `ensemble-quality` | 6.0.0 | `pr-review-remediation` skill, `code-reviewer`, `deep-debugger`, `test-runner` agents |
 | `ensemble-infrastructure` | 6.0.0 | Cloud and vendor skills (`aws`, `kubernetes`, `jira`, ...), infrastructure agents |
-| `ensemble-git` | 6.0.0 | `/ensemble:pr-merge`, `/ensemble:release`, git skills, `git-workflow` and `github-specialist` agents |
+| `ensemble-git` | 6.0.0 | `/ensemble:pr-merge`, `/ensemble:release`, git skills, `git-workflow` agent |
 | `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`, `smoke-test-runner`, `writing-playwright-tests`, `playwright-tester` agent |
-| `ensemble-metrics` | 6.0.0 | `/ensemble:manager-dashboard`, `manager-dashboard-agent` |
 | `ensemble-assessment` | 1.1.0 | `/ensemble:assess` and 22 assessment skills |
 | `ensemble-ai` | 6.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
 | `ensemble-react`, `ensemble-nestjs`, `ensemble-rails`, `ensemble-phoenix`, `ensemble-blazor`, `ensemble-dotnet` | 6.0.0, 5.1.1, 5.1.1, 5.1.1, 6.0.0, 1.1.0 | One framework skill each (`react`, `nestjs`, `rails`, `phoenix`, `blazor`, `dotnet`) |
@@ -40,13 +39,13 @@ The repository is an npm monorepo under `packages/`. Each package is both an npm
 | `ensemble-full` | 7.0.0 | Bundle that depends on the plugins above |
 | `ensemble-pi`, `ensemble-codex`, `ensemble-opencode` | 1.6.16, 6.0.0, 5.3.1 | Runtime adapters that translate the Ensemble sources for Pi/OMP, Codex and OpenCode |
 
-`ensemble-router`, `ensemble-permitter` and the other support packages ship hooks and plumbing rather than workflow content. Versions come from `marketplace.json`; each package is versioned independently, so `ensemble-pi` is at 1.6.16 while the bundle is at 7.0.0.
+`ensemble-permitter` and the other support packages ship hooks and plumbing rather than workflow content. Versions come from `marketplace.json`; each package is versioned independently, so `ensemble-pi` is at 1.6.16 while the bundle is at 7.0.0.
 
 ### Skills, commands and agents
 
 | Kind | What it is | How it runs |
 | --- | --- | --- |
-| Skill | A `SKILL.md` that teaches the model a technology or a procedure (`typescript`, `jira`, `detect-stack`, `assess-security`) | Loaded by name, automatically by agents or when you ask for it |
+| Skill | A `SKILL.md` that teaches the model a technology or a procedure (`jira`, `detect-stack`, `assess-security`) | Loaded by name, automatically by agents or when you ask for it |
 | Command | A workflow defined in YAML under `packages/<pkg>/commands/*.yaml`, with phases, gates and expected outputs | You type `/ensemble:<name>` (Claude Code) or the runtime-specific form in section 2 |
 | Agent | A role definition (`backend-developer`, `code-reviewer`, ...) that commands and orchestrators delegate to | Dispatched by commands; you rarely invoke one directly |
 
@@ -440,7 +439,7 @@ An unknown dimension prints the dimension table; `--only` with any other keyword
 
 Expected behavior:
 
-- Each failing or pending CI check and each unresolved change request becomes a finding, classified by root cause and dispatched concurrently, one subagent per finding, through the orchestrator that owns that domain (`tech-lead-orchestrator`, `qa-orchestrator`, `build-orchestrator`, `infrastructure-orchestrator`, `github-specialist`).
+- Each failing or pending CI check and each unresolved change request becomes a finding, classified by root cause and dispatched concurrently, one subagent per finding, through the orchestrator that owns that domain (`tech-lead-orchestrator`, `test-runner`, `build-orchestrator`, `infrastructure-orchestrator`, `git-workflow`).
 - After every round the command re-reads live CI and review state; a finding counts as resolved only after the fix is pushed and independently re-verified.
 - Rounds are bounded by `--max-rounds` (default 5). Exceeding it halts with a report of every open finding.
 - It never deletes, skips or weakens a test to get green, never force-pushes over others' commits, and never bypasses branch protection. It merges only when every required check passes and no review requests changes.
@@ -508,7 +507,6 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:prd` | `<create\|refine> [args...]` | Dispatcher: PRD authoring and refinement | `ensemble-product` |
 | `/ensemble:create-prd` | `[product-description] [--foreman]` or `--from-meeting <meeting-summary-or-path>` | Create a PRD with elicitation, readiness gate and constitution gate | `ensemble-product` |
 | `/ensemble:refine-prd` | `<prd-path> [--from-meeting <summary-or-path> \| --foreman \| --collab [--tunnel=quick] [--reviewers N] [--no-open] \| --long-lived [--ttl <duration>]]` | Refine a PRD with feedback, re-score and lock it | `ensemble-product` |
-| `/ensemble:analyze-product` | none | Analyze a brownfield project and produce an improvement roadmap | `ensemble-product` |
 | `/ensemble:reqnroll` | `<features\|feature-drift\|bindings\|binding-drift\|tdd> [args...]` | Dispatcher: PRD to Reqnroll acceptance tests | `ensemble-product` |
 | `/ensemble:trd` | `<create\|refine\|implement\|analyze\|complexity\|validate\|verify\|status\|graph> [args...]` | Dispatcher: TRD authoring, analysis and implementation | `ensemble-development` |
 | `/ensemble:create-trd` | `[prd-path] [--team] [--foundational] [--list] [--foreman] [--parser-tables]` | Create a TRD from a PRD | `ensemble-development` |
@@ -530,7 +528,6 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:issue` | `<fix\|list\|resume\|status\|abandon> [args...]` | Dispatcher: issue workflows | `ensemble-development` |
 | `/ensemble:fix-issue` | `[description] [--issue <n>] [--branch <name>] [--skip-tests] [--draft-pr] [--interactive] [--foreman] [--status] [--abandon]` | Lightweight bug-fix workflow ending in a PR | `ensemble-development` |
 | `/ensemble:list-issue` | `[--ranked \| --robot-triage]` | List open Beads issues for triage | `ensemble-development` |
-| `/ensemble:generate-api-docs` | none | Generate OpenAPI/Swagger documentation from the codebase | `ensemble-development` |
 | `/ensemble:standards` | `<discover\|inject\|fold> [args...]` | Dispatcher: coding standards | `ensemble-core` |
 | `/ensemble:fold-prompt` | none | Optimize `CLAUDE.md` for token efficiency and progressive loading | `ensemble-core` |
 | `/ensemble:init-project` | `minimal`, `force` | Scaffold `docs/standards/constitution.md`, `docs/PRD/`, `docs/TRD/` and `.gitignore` entries; hand-authored Markdown with no YAML source, so it is not counted among the 43 generated commands | `ensemble-core` |
@@ -540,7 +537,6 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:pr-merge` | `[pr-number-or-url] [--max-rounds=N] [--dry-run]` | Drive an open PR to green and merged | `ensemble-git` |
 | `/ensemble:release` | `--version X.Y.Z [--type standard\|hotfix\|rollback] [--from <b>] [--to <b>] [--rollback] [--draft] [--dry-run]` | Release workflow with quality gates and rollback | `ensemble-git` |
 | `/ensemble:author-playwright-tests` | `[story-or-pr-reference]` | Interactive Playwright test authoring grounded in shipped code and PRD acceptance criteria | `ensemble-e2e-testing` |
-| `/ensemble:manager-dashboard` | none | Generate productivity metrics and team analytics dashboard | `ensemble-metrics` |
 
 That is 35 typable commands.
 
@@ -559,7 +555,7 @@ Hidden commands are not typable. Each is reached through one dispatcher keyword 
 | `inject-standards` | `/ensemble:standards inject` | Inject task-relevant standards into context | `ensemble-core` |
 | `beads-build-wave` | `/ensemble:beads-build` (dispatched per wave to the `beads-build-wave` agent) | Run one `bv --robot-plan` wave and emit a JSON summary | `ensemble-development` |
 
-`/ensemble:fold-prompt` stays typable because the `directory-monitor` agent invokes it by name; `/ensemble:standards fold` reaches it as well.
+`/ensemble:fold-prompt` stays typable; `/ensemble:standards fold` reaches it as well.
 
 Together the 35 typable and 8 hidden commands make the 43 generated commands.
 
@@ -577,10 +573,6 @@ There are 68 source skills. Skills are loaded by name; the "When to use" column 
 
 | Skill | When to use |
 | --- | --- |
-| `typescript`, `python`, `php`, `laravel`, `flutter` | Writing code in that language or framework |
-| `tailwind` | Styling with Tailwind CSS 3.x |
-| `prisma` | Prisma schema, migrations and typed queries |
-| `celery` | Celery tasks, Beat schedules and workflows |
 | `complete-beads` | Driving scoped beads to closed or a truthful terminal state; the shared execution engine behind `implement-trd-beads` and `beads-build` |
 | `completion-verification` | Independently re-checking a TRD before declaring it done |
 | `staleness-gate` | Checking a TRD is not stale before implementation; invokes `/ensemble:refine-trd` if it is |
@@ -667,26 +659,17 @@ There are 35 agents. Orchestrators and commands dispatch them; the table lists w
 | Package | Agent | Role |
 | --- | --- | --- |
 | `ensemble-core` | `ensemble-orchestrator` | Agent mesh coordination, delegation and conflict resolution |
-| `ensemble-core` | `general-purpose` | Research and analysis for ambiguous or multi-domain tasks |
-| `ensemble-core` | `context-fetcher` | Pull authoritative references into plans and specs |
-| `ensemble-core` | `file-creator` | Template-based scaffolding with project conventions |
-| `ensemble-core` | `directory-monitor` | File-system change monitoring; invokes `/ensemble:fold-prompt` |
-| `ensemble-core` | `agent-meta-engineer` | Design and improve agents and commands |
 | `ensemble-development` | `tech-lead-orchestrator` | Plan, architect, break down, build, review and test loop |
 | `ensemble-development` | `architect` | Design the technical approach before the builder starts |
 | `ensemble-development` | `advisor` | Monitor implementation for shortcuts and silent requirement bypasses |
-| `ensemble-development` | `pm` | Answer requirements questions and resolve scope disputes |
 | `ensemble-development` | `backend-developer` | Server-side implementation |
 | `ensemble-development` | `frontend-developer` | Front-end implementation with accessibility and performance focus |
-| `ensemble-development` | `mobile-developer` | Flutter, React Native and native mobile |
 | `ensemble-development` | `documentation-specialist` | Technical documentation and guides |
-| `ensemble-development` | `api-documentation-specialist` | OpenAPI/Swagger documentation |
 | `ensemble-development` | `beads-scaffold-specialist` | Design, audit and repair Beads hierarchies from PRD/TRD artifacts |
 | `ensemble-development` | `beads-build-wave` | Run exactly one beads-build wave and emit a JSON summary |
 | `ensemble-product` | `product-management-orchestrator` | Requirements, prioritization and roadmap coordination |
 | `ensemble-quality` | `code-reviewer` | Security-aware code review and Definition of Done enforcement |
 | `ensemble-quality` | `deep-debugger` | Bug reproduction, root cause analysis and test-driven fixes |
-| `ensemble-quality` | `qa-orchestrator` | Quality assurance and test coordination |
 | `ensemble-quality` | `test-runner` | Run unit and integration tests and triage failures |
 | `ensemble-infrastructure` | `infrastructure-developer` | Cloud-agnostic infrastructure automation |
 | `ensemble-infrastructure` | `infrastructure-orchestrator` | Environment provisioning and cloud resource planning |
@@ -696,13 +679,11 @@ There are 35 agents. Orchestrators and commands dispatch them; the table lists w
 | `ensemble-infrastructure` | `postgresql-specialist` | PostgreSQL administration and SQL optimization |
 | `ensemble-infrastructure` | `helm-chart-specialist` | Deprecated; delegates to `infrastructure-developer` |
 | `ensemble-git` | `git-workflow` | Conventional commits and git-town workflows |
-| `ensemble-git` | `github-specialist` | Branches, pull requests and repository operations with `gh` |
 | `ensemble-e2e-testing` | `playwright-tester` | Playwright E2E tests with traces and screenshots |
-| `ensemble-metrics` | `manager-dashboard-agent` | Team productivity metrics and analytics |
 | `ensemble-dotnet` | `dotnet-backend-expert` | ASP.NET Core, Wolverine CQRS, MartenDB and C# |
 | `ensemble-reqnroll` | `reqnroll-binding-specialist` | Fill generated Reqnroll step bodies test-first |
 
-`/ensemble:pr-merge` dispatches the orchestrators in the table, `/ensemble:release` uses `deployment-orchestrator` and `github-specialist`, and `/ensemble:author-playwright-tests` pairs with `playwright-tester`. The `release-agent` and `test-reader-agent` agents were removed in 7.0.0.
+`/ensemble:pr-merge` dispatches the orchestrators in the table, `/ensemble:release` uses `deployment-orchestrator` and `git-workflow`, and `/ensemble:author-playwright-tests` pairs with `playwright-tester`. The `release-agent` and `test-reader-agent` agents were removed in 7.0.0.
 
 ## 8. Configuration and environment
 
@@ -806,7 +787,7 @@ Common causes: `bv` or `br` missing (no fallback exists); a Design Readiness sco
 | `inject-standards` | `/ensemble:standards inject` |
 | `claude-changelog` | Removed; use the `changelog-generator` skill |
 | `sprint-status` | Removed |
-| `web-metrics-dashboard` | Removed; `/ensemble:manager-dashboard` remains |
+| `web-metrics-dashboard` | Removed |
 | `playwright-test` | Removed; use `/ensemble:author-playwright-tests` or the `playwright-tester` agent |
 | none | New: `/ensemble:assess`, `/ensemble:reqnroll`, `/ensemble:standards` |
 
@@ -816,12 +797,11 @@ The hidden commands keep working as dispatcher targets, but their old typable na
 
 | 6.x | 7.0.0 |
 | --- | --- |
-| `developing-with-typescript`, `developing-with-python`, `developing-with-php`, `developing-with-laravel`, `developing-with-flutter` | `typescript`, `python`, `php`, `laravel`, `flutter` |
-| `styling-with-tailwind` | `tailwind` |
+| `developing-with-typescript`, `developing-with-python`, `developing-with-php`, `developing-with-laravel`, `developing-with-flutter`, `styling-with-tailwind`, `using-prisma`, `using-celery` | Removed (generic tutorial skills) |
 | `managing-jira-issues`, `managing-linear-issues` | `jira`, `linear` |
 | `managing-railway`, `managing-vercel`, `managing-supabase` | `railway`, `vercel`, `supabase` |
 | `aws-cloud` | `aws` |
-| `using-prisma`, `using-celery`, `using-weaviate` | `prisma`, `celery`, `weaviate` |
+| `using-weaviate` | `weaviate` |
 | `using-anthropic-platform`, `using-openai-platform`, `using-perplexity-platform` | `anthropic`, `openai`, `perplexity` |
 | `building-langgraph-agents` | `langgraph` |
 | `developing-with-react` | Folded into `react` (now also in `ensemble-full`) |
@@ -833,7 +813,7 @@ Anything that loaded a skill by its old name, including custom agents and the `e
 
 ### Agents
 
-The `release-agent` and `test-reader-agent` agents were removed. Use `/ensemble:release`, which delegates to `git-workflow`, `github-specialist` and `deployment-orchestrator`.
+The `release-agent` and `test-reader-agent` agents were removed. Use `/ensemble:release`, which delegates to `git-workflow` and `deployment-orchestrator`.
 
 ### Other behavior changes
 

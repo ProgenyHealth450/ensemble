@@ -31,7 +31,7 @@ describe('wholeDirMirrorTarget', () => {
   });
 
   test('returns null for a per-skill link, which is not a whole-dir mirror', () => {
-    const target = ['..', '..', 'development', 'skills', 'developing-with-flutter'].join(path.sep);
+    const target = ['..', '..', 'development', 'skills', 'staleness-gate'].join(path.sep);
     expect(wholeDirMirrorTarget(target)).toBeNull();
   });
 

@@ -36,7 +36,6 @@ Defined in `packages/full/hooks/hooks.json`:
 
 | Event | Script | Purpose |
 |-------|--------|---------|
-| `UserPromptSubmit` | `hooks/router.py` (3s timeout) | Routes prompts to Ensemble commands/agents |
 | `PermissionRequest` (Bash) | `hooks/permitter.js` (100s timeout) | Permission decisions for Bash commands |
 
-Sources live in `packages/router/` and `packages/permitter/`.
+Source lives in `packages/permitter/`.

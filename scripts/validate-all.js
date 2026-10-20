@@ -88,7 +88,7 @@ function validateFullLibMirror() {
 /**
  * Parse a packages/full/skills/<entry> symlink target into the source package
  * it mirrors wholesale (`../../git/skills` -> `git`), or null for a per-skill
- * link like `../../development/skills/developing-with-flutter`.
+ * link like `../../development/skills/staleness-gate`.
  *
  * Separators are normalized because fs.readlinkSync returns the target in the
  * platform's own form: `../../git/skills` on POSIX but `..\..\git\skills` on
@@ -112,8 +112,8 @@ function wholeDirMirrorTarget(target) {
 /**
  * Ensure every skill under packages/<pkg>/skills/<skill>/ (excluding pi and
  * full themselves) is reachable from packages/full/skills/. packages/full
- * mirrors source packages either per-skill (e.g. `developing-with-flutter ->
- * ../../development/skills/developing-with-flutter`) or via a whole-package
+ * mirrors source packages either per-skill (e.g. `staleness-gate ->
+ * ../../development/skills/staleness-gate`) or via a whole-package
  * symlink (e.g. `git -> ../../git/skills`, which implicitly covers every
  * skill underneath it, like `git/git-town`). A skill reachable through
  * neither shape means packages/full silently lacks something a command

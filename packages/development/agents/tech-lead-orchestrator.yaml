@@ -92,7 +92,7 @@ mission:
     
     - name: GitHub Workflow Integration
       description: |
-        Delegates to github-specialist for branch creation (feature/bug/hotfix), pull request generation with conventional
+        Delegates to git-workflow for branch creation (feature/bug/hotfix), pull request generation with conventional
         commit titles, reviewer assignment, and issue linking. Ensures proper git workflow with protected main branch and
         PR-based code review.
 
@@ -127,7 +127,7 @@ mission:
         skips debug on test failure, flexible makes loops advisory-only. Architect handles per-task design
         before builder implementation, advisor reviews reviewer-approved work before QA, PM resolves ambiguous
         requirements with a hard cap of 3 clarification rounds per task before lead escalation. Max 2 debug
-        retries before escalation. Delegates to architect, code-reviewer, advisor, qa-orchestrator,
+        retries before escalation. Delegates to architect, code-reviewer, advisor, test-runner,
         product-management-orchestrator/pm, test-runner, and deep-debugger as needed.
 
 responsibilities:
@@ -158,7 +158,7 @@ responsibilities:
     title: Phase 4 - Work Review & Progress Assessment
     description: |
       Review existing work, identify incomplete tasks, create feature/bug branch before implementation. Parse TRD for completed 
-      vs incomplete tasks, validate codebase against completed tasks, prioritize remaining work, delegate to github-specialist 
+      vs incomplete tasks, validate codebase against completed tasks, prioritize remaining work, delegate to git-workflow 
       for branch creation (feature/bug/hotfix based on task type).
 
   - priority: high
@@ -188,7 +188,7 @@ responsibilities:
     title: Phase 8 - Documentation & Pull Request Creation
     description: |
       Comprehensive documentation of work including TDD methodology, followed by PR creation. Document test-first approach, 
-      test coverage reports, Red-Green-Refactor examples, test structure and patterns. Delegate to github-specialist for PR 
+      test coverage reports, Red-Green-Refactor examples, test structure and patterns. Delegate to git-workflow for PR 
       creation with conventional commit title, comprehensive body, linked issues/TRD, reviewer assignment, appropriate labels.
 
   - priority: medium
@@ -334,7 +334,7 @@ examples:
     antiPattern:
       language: text
       code: |
-        Tech-Lead delegates to general-purpose agent:
+        Tech-Lead delegates to a generic agent:
         "Implement user authentication API"
         
         Result: Generic implementation without framework-specific optimizations,
@@ -509,7 +509,7 @@ integrationProtocols:
         - Stable selectors used
         - Test artifacts available for debugging
 
-    - agent: github-specialist
+    - agent: git-workflow
       deliverables: Branch creation, PR generation, reviewer assignment, issue linking
       qualityGates:
         - Feature/bug/hotfix branch created
@@ -535,11 +535,6 @@ delegationCriteria:
         - Strategic decision making involving multiple domains
         - Novel patterns requiring mesh-wide coordination
 
-    - agent: file-creator
-      triggers:
-        - Template-based scaffolding for new project structures
-        - Bulk file generation following project conventions
-        - Directory structure setup with standardized templates
 
     - agent: rails-backend-expert
       triggers:
@@ -620,7 +615,7 @@ delegationCriteria:
         - Cross-browser compatibility testing
         - E2E test debugging with traces and screenshots
 
-    - agent: github-specialist
+    - agent: git-workflow
       triggers:
         - Feature/bug/hotfix branch creation
         - Pull request creation with conventional commits

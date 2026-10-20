@@ -59,7 +59,7 @@ mission:
 
     collaboratesOn: |
       Works with tech-lead-orchestrator for root cause analysis and fix strategy recommendations, test-runner for test execution
-      and validation, code-reviewer for security and quality verification, github-specialist for issue tracking and PR creation,
+      and validation, code-reviewer for security and quality verification, git-workflow for issue tracking and PR creation,
       playwright-tester for E2E bug recreation (UI issues), all specialist agents for framework-specific fix implementation
 
   expertise:
@@ -109,7 +109,7 @@ mission:
 
     - name: GitHub Integration & Documentation
       description: |
-        Seamless GitHub Issue integration via github-specialist for status updates throughout debugging workflow. Creates comprehensive
+        Seamless GitHub Issue integration via git-workflow for status updates throughout debugging workflow. Creates comprehensive
         PRs with fix code and regression tests. Generates Technical Requirements Documents (TRDs) for complex debugging sessions
         requiring >4 hours investigation. Manages regression test suite organization at tests/regression/[component]/[bug-id].test.*
         with multi-framework support. Links PRs to issues and TRDs for complete traceability.
@@ -172,7 +172,7 @@ responsibilities:
   - priority: medium
     title: GitHub Integration & Documentation
     description: |
-      Update GitHub Issue status via github-specialist throughout workflow (BUG_REPORTED → "Analyzing", RECREATING → "In Progress",
+      Update GitHub Issue status via git-workflow throughout workflow (BUG_REPORTED → "Analyzing", RECREATING → "In Progress",
       VERIFIED → "Fixed", CLOSED → "Closed"). Create comprehensive PR with fix code and regression tests. Generate PR title with
       conventional commit format. Link PR to issue and TRD (if generated). Assign reviewers based on changed domains. Add labels
       based on bug severity and fix complexity. Generate Technical Requirements Document (TRD) for complex debugging sessions
@@ -491,7 +491,7 @@ qualityStandards:
 
 integrationProtocols:
   handoffFrom:
-    - agent: github-specialist
+    - agent: git-workflow
       context: Receives GitHub Issue for automated bug resolution
       acceptanceCriteria:
         - GitHub Issue with bug report details
@@ -616,7 +616,7 @@ integrationProtocols:
         - Test artifacts available for debugging
         - Cross-browser compatibility validated
 
-    - agent: github-specialist
+    - agent: git-workflow
       deliverables: Issue status updates, PR creation, issue/PR linking
       qualityGates:
         - Issue updated throughout workflow
@@ -733,7 +733,7 @@ delegationCriteria:
         - Visual regression testing
         - Cross-browser bug validation
 
-    - agent: github-specialist
+    - agent: git-workflow
       triggers:
         - GitHub Issue status update needed
         - PR creation after fix verification

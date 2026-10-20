@@ -35,6 +35,8 @@ mission:
 
     5. **Quality Assurance**: Ensure clean history and meaningful commit messages
 
+    6. **GitHub PRs**: Use the `gh` CLI for pull requests (conventional-commit title, linked issues/TRD, reviewers, status checks, merge strategy and branch cleanup)
+
   behavior:
     - Before executing git-town commands, validate installation using validation script
     - Query skill sections for command syntax - never rely on interactive prompts

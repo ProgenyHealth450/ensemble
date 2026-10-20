@@ -5,7 +5,7 @@
  * versions and prints `{ issues: [...], total, limit, offset, has_more }` since
  * br 0.2.x (`br ready --json` still prints a bare array). Command snippets that
  * assumed the bare array threw (`data.filter is not a function`) or, worse, quietly
- * counted zero beads. And beads-build/beads-plan only recognised an epic id that
+ * counted zero beads. And beads-build only recognised an epic id that
  * looked like `beads-NNN`, so a repo with any other prefix got a false "no epic found".
  */
 
@@ -72,7 +72,7 @@ describe('trd-cli getBeadCounts (used by list and status)', () => {
 });
 
 describe('command prose does not assume a bare array', () => {
-  const FILES = ['implement-trd-beads', 'beads-build', 'beads-plan', 'requirement-status', 'verify-requirements'];
+  const FILES = ['implement-trd-beads', 'beads-build', 'requirement-status', 'verify-requirements'];
 
   test.each(FILES)('%s.yaml never tells the reader to parse a "JSON array"', (name) => {
     expect(read(`${name}.yaml`)).not.toMatch(/parse (a )?json array/i);
@@ -82,13 +82,13 @@ describe('command prose does not assume a bare array', () => {
     expect(read('requirement-status.yaml')).not.toMatch(/starts with '\['/);
   });
 
-  test.each(['beads-build', 'beads-plan'])('%s.yaml states the .issues unwrap rule', (name) => {
+  test.each(['beads-build'])('%s.yaml states the .issues unwrap rule', (name) => {
     expect(read(`${name}.yaml`)).toMatch(/otherwise its `?\.issues`? (array|property)/);
   });
 });
 
-describe('beads-build and beads-plan epic id detection', () => {
-  test.each(['beads-build', 'beads-plan'])(
+describe('beads-build epic id detection', () => {
+  test.each(['beads-build'])(
     '%s.yaml confirms an epic id with br show, not a "beads-NNN" pattern',
     (name) => {
       const text = read(`${name}.yaml`);

@@ -7,7 +7,7 @@
  * Background: when configure-team is run from a consumer repo (for example foreman,
  * which only vendors 3 local agents) without this fallback, it returns a skeleton team
  * roster of planner/reviewer/worker and never sees the 30-agent registry installed via
- * the OMP plugin, so tech-lead-orchestrator / code-reviewer / qa-orchestrator / test-runner
+ * the OMP plugin, so tech-lead-orchestrator / code-reviewer / test-runner
  * are incorrectly treated as missing.
  */
 

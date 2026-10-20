@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **packages/router, packages/metrics:** the `ensemble-router` and `ensemble-metrics` packages (routing hook; dashboard hooks and `/ensemble:manager-dashboard` with `manager-dashboard-agent`). The router hook registration is dropped from `packages/full/hooks/hooks.json`; `ensemble-permitter` stays. Telemetry lives in `packages/telemetry`.
+- **Commands:** `/ensemble:generate-api-docs` and `/ensemble:analyze-product`. (`claude-changelog` and `create-trd-foreman` were already removed in 7.0.0.)
+- **Agents:** `general-purpose`, `file-creator`, `context-fetcher`, `agent-meta-engineer`, `directory-monitor`, `pm`, `api-documentation-specialist`, `mobile-developer`, `qa-orchestrator` (use `test-runner`), `test-reader-agent` and `github-specialist` (merged into `git-workflow`).
+- **Skills:** the generic tutorial skills `typescript`, `python`, `php`, `laravel`, `flutter`, `tailwind`, `prisma` and `celery` (formerly `developing-with-*`, `styling-with-tailwind`, `using-prisma`, `using-celery`) from `ensemble-development`.
+
 ## [7.0.0] - 2026-10-18
 
 ### Changed

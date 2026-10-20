@@ -165,7 +165,6 @@ function buildCodexAgentsMd(commandCount, agentCount, skillCount) {
     '- Application code: `backend-developer`, `frontend-developer`, `tech-lead-orchestrator`',
     '- Quality: `code-reviewer`, `deep-debugger`, `test-runner`, `playwright-tester`',
     '- Infra/release: `infrastructure-developer`, `build-orchestrator`, `deployment-orchestrator`',
-    '- Research/general tasks: `general-purpose`, `context-fetcher`',
     '',
     '## Key Skills',
     '',
