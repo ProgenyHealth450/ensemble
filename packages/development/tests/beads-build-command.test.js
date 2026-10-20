@@ -212,7 +212,7 @@ describe('beads-build team-roles delegation contract', () => {
   });
 
   test('beads-build-wave payload includes team_roles roster (moved from inline Track Orchestrator)', () => {
-    const wavePath = path.join(__dirname, '../agents/beads-build-wave.yaml');
+    const wavePath = path.join(__dirname, '../commands/beads-build-wave.yaml');
     const text = fs.readFileSync(wavePath, 'utf8');
     expect(text).toMatch(/team_roles/);
     expect(text).toMatch(/lifecycle_contract/);
@@ -245,7 +245,7 @@ describe('beads-build PM clarification guard contract', () => {
   const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
 
   test('beads-build-wave payload documents a 3-round PM clarification cap (moved from inline Track Orchestrator)', () => {
-    const wavePath = path.join(__dirname, '../agents/beads-build-wave.yaml');
+    const wavePath = path.join(__dirname, '../commands/beads-build-wave.yaml');
     const text = fs.readFileSync(wavePath, 'utf8');
     expect(text).toMatch(/pm_clarification_guard/);
     expect(text).toMatch(/maximum 3 PM clarification rounds per task/);

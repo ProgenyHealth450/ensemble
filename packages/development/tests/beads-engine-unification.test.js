@@ -1,6 +1,6 @@
 /**
  * One beads execution engine: implement-trd-beads (TRD orchestrator) -> beads-build
- * (wave loop) -> beads-build-wave agent (one wave). implement-bead is a thin
+ * (wave loop) -> beads-build-wave command (one wave, loaded by the thin beads-build-wave agent). implement-bead is a thin
  * single-bead entry that follows the same branching / PR_BACKEND / commit policy.
  *
  * These checks read the source YAML and assert policy that has to hold across all of
@@ -17,6 +17,7 @@ const ENGINE_FILES = [
   'commands/implement-trd-beads.yaml',
   'commands/beads-build.yaml',
   'commands/implement-bead.yaml',
+  'commands/beads-build-wave.yaml',
   'agents/beads-build-wave.yaml',
 ];
 
@@ -43,8 +44,8 @@ describe('beads engine sources', () => {
     expect(text).not.toMatch(/never a fallback dispatcher/);
   });
 
-  test('the wave agent and beads-build both define the br-only scheduling fallback', () => {
-    expect(read('agents/beads-build-wave.yaml')).toMatch(/br-only: `br ready --json`/);
+  test('the wave command and beads-build both define the br-only scheduling fallback', () => {
+    expect(read('commands/beads-build-wave.yaml')).toMatch(/br-only: `br ready --json`/);
     expect(read('commands/beads-build.yaml')).toMatch(/bv is OPTIONAL/);
     expect(read('commands/implement-trd-beads.yaml')).toMatch(/bv is OPTIONAL/);
   });
@@ -91,13 +92,17 @@ describe('implement-bead shares the engine policy', () => {
 describe('removed duplicates stay removed', () => {
   const GONE = [
     'commands/beads-plan.yaml',
-    'commands/beads-build-wave.yaml',
     'skills/complete-beads/SKILL.md',
     'lib/complete-beads-cli.js',
     'lib/complete-beads-planner.js',
   ];
   test.each(GONE)('%s does not exist', (rel) => {
     expect(fs.existsSync(path.join(ROOT, rel))).toBe(false);
+  });
+
+  test('the single wave definition is the hidden wave command', () => {
+    expect(fs.existsSync(path.join(ROOT, 'commands/beads-build-wave.yaml'))).toBe(true);
+    expect(read('commands/beads-build-wave.yaml')).toMatch(/visibility: hidden/);
   });
 
   test('no command or agent source still names a removed component', () => {
@@ -109,7 +114,7 @@ describe('removed duplicates stay removed', () => {
         if (e.isDirectory()) {
           if (e.name !== 'ensemble') walk(p);
         } else if (/\.yaml$/.test(e.name) || e.name === 'SKILL.md') {
-          if (/complete-beads|ensemble:beads-plan|ensemble:beads-build-wave/.test(fs.readFileSync(p, 'utf8'))) hits.push(p);
+          if (/complete-beads|ensemble:beads-plan/.test(fs.readFileSync(p, 'utf8'))) hits.push(p);
         }
       }
     };

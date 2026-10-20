@@ -51,8 +51,7 @@ workflow:
 
         - order: 4
           title: Changelog Generation
-          description: Generate changelog from git history
-          skill: changelog-generator
+          description: Generate changelog from git history (use the changelog-generator skill)
           actions:
             - Parse commits since last release
             - Categorize changes (breaking, new, enhancement, bugfix)
@@ -68,9 +67,6 @@ workflow:
           delegation:
             agent: code-reviewer
             context: Release branch, security scan operation
-          timing:
-            target: 3 minutes
-            timeout: 10 minutes
           actions:
             - Scan for OWASP Top 10 vulnerabilities
             - Check for critical and high-severity issues
@@ -83,9 +79,6 @@ workflow:
           delegation:
             agent: code-reviewer
             context: Release branch, DoD validation operation
-          timing:
-            target: 2 minutes
-            timeout: 10 minutes
           actions:
             - Validate all 8 DoD categories
             - Check test coverage targets (unit ≥80%, integration ≥70%)
@@ -98,9 +91,6 @@ workflow:
           delegation:
             agent: test-runner
             context: Release branch, unit tests operation
-          timing:
-            target: 5 minutes
-            timeout: 15 minutes
           actions:
             - Run unit test suite with coverage
             - Require ≥80% coverage
@@ -113,9 +103,6 @@ workflow:
           delegation:
             agent: test-runner
             context: Release branch, integration tests operation
-          timing:
-            target: 5 minutes
-            timeout: 15 minutes
           actions:
             - Run integration test suite with coverage
             - Require ≥70% coverage
@@ -124,11 +111,7 @@ workflow:
 
         - order: 5
           title: Pre-Release Smoke Tests
-          description: Execute smoke test suite before deployment
-          skill: smoke-test-runner
-          timing:
-            target: up to 15 minutes
-            timeout: 15 minutes
+          description: Execute smoke test suite before deployment (use the smoke-test-runner skill)
           actions:
             - Execute 5-category smoke test suite against the project's smoke-tests.json (up to 15 minutes)
             - Proceed only when the runner verdict is passed; failed or incomplete (a required category NOT CONFIGURED) blocks
@@ -146,9 +129,6 @@ workflow:
           delegation:
             agent: playwright-tester
             context: Release branch, staging environment
-          timing:
-            target: 5 minutes
-            timeout: 10 minutes
           actions:
             - Execute critical user journey tests
             - Capture trace artifacts for all journeys
@@ -165,9 +145,6 @@ workflow:
           delegation:
             agent: deployment-orchestrator
             context: Release version, staging environment, deployment strategy
-          timing:
-            target: 2 minutes
-            timeout: 15 minutes
           actions:
             - Execute blue-green or rolling deployment
             - Verify health checks
@@ -175,11 +152,7 @@ workflow:
 
         - order: 2
           title: Post-Staging Smoke Tests
-          description: Verify staging deployment with smoke tests
-          skill: smoke-test-runner
-          timing:
-            target: up to 15 minutes
-            timeout: 15 minutes
+          description: Verify staging deployment with smoke tests (use the smoke-test-runner skill)
           actions:
             - Execute full 5-category smoke test suite
             - Use staging-specific configuration
@@ -195,9 +168,6 @@ workflow:
           delegation:
             agent: deployment-orchestrator
             context: Release version, production environment, canary strategy
-          timing:
-            target: 5 minutes
-            timeout: 15 minutes
           actions:
             - Deploy to canary infrastructure
             - Route 5% traffic to canary
@@ -209,11 +179,7 @@ workflow:
 
         - order: 2
           title: Post-Production Smoke Tests
-          description: Final verification of production deployment
-          skill: smoke-test-runner
-          timing:
-            target: up to 15 minutes
-            timeout: 15 minutes
+          description: Final verification of production deployment (use the smoke-test-runner skill)
           actions:
             - Execute full 5-category smoke test suite
             - Use production-specific configuration
@@ -292,9 +258,6 @@ workflow:
           delegation:
             agent: deployment-orchestrator
             context: Rollback operation, previous version
-          timing:
-            target: 2 minutes
-            timeout: 5 minutes
           actions:
             - Route all traffic to previous version
             - Verify previous version health checks
@@ -302,11 +265,7 @@ workflow:
 
         - order: 3
           title: Post-Rollback Smoke Tests
-          description: Verify rollback success with smoke tests
-          skill: smoke-test-runner
-          timing:
-            target: up to 15 minutes
-            timeout: 15 minutes
+          description: Verify rollback success with smoke tests (use the smoke-test-runner skill)
           actions:
             - Execute full 5-category smoke test suite
             - Verify error rate normalized
@@ -316,8 +275,6 @@ workflow:
         - order: 4
           title: Health Validation
           description: Monitor system health post-rollback
-          timing:
-            target: 5 minutes
           actions:
             - Monitor error rate (<1% target)
             - Verify all health checks passing

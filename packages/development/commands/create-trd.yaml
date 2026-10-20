@@ -244,7 +244,7 @@ workflow:
             - "Do NOT print /ensemble:implement-trd-beads, /ensemble:implement-trd or /ensemble:configure-team as a next step; implementation is offered by refine-trd's closing go/no-go."
             - "If --team was passed, run /ensemble:configure-team on the saved TRD path after the save."
 
-        - order: 5
+        - order: 4
           title: Foreman TRD Document Generation (--parser-tables)
           description: Generate a Foreman-native TRD document with parser-compatible sections
           actions:
@@ -253,7 +253,7 @@ workflow:
             - "Sections: Architecture Decision (approach and alternatives), Master Task List (all parser-compatible task tables), Sprint Planning (dependency-ordered phases). Preserve the sprint/story/table structure exactly; never prose checklists or `### PR N:` sections."
             - "File: docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md, NO `-foreman` suffix. Write exactly one primary parser-compatible TRD file (no -data-model.md/-research.md); auxiliary summaries must not replace or redefine the task tables."
 
-        - order: 6
+        - order: 5
           title: Foreman Traceability Validation (--parser-tables)
           description: Generate traceability and validate the parser-compatible tables, dependencies and coverage
           actions:
@@ -263,7 +263,7 @@ workflow:
             - "With a full PRD: warn (do NOT halt) if any PRD REQ-NNN has zero task references in the traceability section."
             - "Print: Foreman compatibility check: parser-safe=<yes/no>, dependency-orphans=N, uncovered-reqs=M"
 
-        - order: 7
+        - order: 6
           title: Foreman File Save and Next Steps (--parser-tables)
           description: Save the TRD and print the Foreman next step
           actions:

@@ -588,29 +588,6 @@ describe('Guard 5: Foreman artifact written before the HALT (fix-issue.yaml)', (
 });
 
 // ---------------------------------------------------------------------------
-// Guard 6 -- closure gating in skills/complete-beads/SKILL.md: a blocking
-// local review finding on any owned PR must keep the epic open.
-// ---------------------------------------------------------------------------
-
-describe('Guard 6: closure gating (complete-beads/SKILL.md)', () => {
-  proveGuardMutationIsCaught({
-    id: 'Guard 6',
-    label:
-      'Scenario: removing the "keeps the epic open" guarantee -- "blocking finding keeps the epic open" fails against the mutant',
-    files: ['skills/complete-beads/SKILL.md', 'tests/complete-beads-skill.test.js'],
-    targetRel: 'skills/complete-beads/SKILL.md',
-    testFileRel: 'tests/complete-beads-skill.test.js',
-    testTitle: 'blocking finding keeps the epic open',
-    mutate: (text, a) =>
-      a.replace(
-        text,
-        'a blocking local finding on any owned PR keeps the epic open regardless of task/story closure',
-        'a blocking local finding on any owned PR is logged but the epic still closes regardless of task/story closure'
-      ),
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Guard 7 -- commands/implement-trd-beads.yaml:
 //   7a) the stacked-story `br close` is deferred until after the PR Review
 //       Gate returns LOCAL_REVIEW_COMPLETE.
@@ -668,47 +645,6 @@ describe('Guard 8: fix-issue local review gate is keyed on exactly LOCAL_REVIEW_
         "'LOCAL_REVIEW_COMPLETE' (exact match) proceeds",
         "'LOCAL_REVIEW_COMPLETE' or 'LOCAL_REVIEW_PENDING' (exact match) proceeds"
       ),
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Guard 9 -- epic closure fails closed in skills/complete-beads/SKILL.md: the
-// root epic closes only on a recorded LOCAL_REVIEW_COMPLETE, and a missing
-// record is not one. The mutant is the fail-open form this step used to have
-// ("close ... UNLESS ... BLOCKED"), under which an epic with no recorded
-// review closes.
-// ---------------------------------------------------------------------------
-
-const FAIL_OPEN_EPIC_CLOSE =
-  '7. When no scoped descendants remain open: close root epic (project-wide mode skips this), UNLESS any PR the run owns ' +
-  '(every stacked-mode phase PR, or the single-PR mode `completion` PR) has `local_review == LOCAL_REVIEW_BLOCKED` -- ' +
-  'a blocking local finding on any owned PR keeps the epic open regardless of task/story closure. ' +
-  'When every owned PR is `LOCAL_REVIEW_COMPLETE`, close the epic regardless of `remote_review` (each PR is reported ' +
-  '`REMOTE_REVIEW_PENDING` until the remote service responds; epic closure is never gated on it). ' +
-  "Steps 1-5 above already integrated every bead's work onto the integration branch unconditionally -- " +
-  'integration is never held for local or remote review (REQ-016, AC-016-5).';
-
-describe('Guard 9: epic closure fails closed (complete-beads/SKILL.md)', () => {
-  proveGuardMutationIsCaught({
-    id: 'Guard 9',
-    label:
-      'Scenario: reverting ProcessResults step 7 to the fail-open "UNLESS ... BLOCKED" form -- "an epic with no recorded local_review does not close" fails against the mutant',
-    files: ['skills/complete-beads/SKILL.md', 'tests/complete-beads-skill.test.js'],
-    targetRel: 'skills/complete-beads/SKILL.md',
-    testFileRel: 'tests/complete-beads-skill.test.js',
-    testTitle: 'an epic with no recorded local_review does not close',
-    mutate(text, a) {
-      const lines = text.split('\n');
-      const from = a.findLine(lines, /^### ProcessResults\(results\)/, { label: '### ProcessResults(results)' });
-      const to = a.findLine(lines, /^## Result Sentinel/, { from: from + 1, label: '## Result Sentinel' });
-      const step = a.findLine(lines, /^7\. /, {
-        from,
-        to,
-        label: 'the step starting "7. " between ### ProcessResults(results) and ## Result Sentinel',
-      });
-      lines[step] = FAIL_OPEN_EPIC_CLOSE;
-      return lines.join('\n');
-    },
   });
 });
 

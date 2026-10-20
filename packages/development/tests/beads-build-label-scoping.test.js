@@ -17,7 +17,8 @@ const path = require('path');
 const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
 const itb = read('commands/implement-trd-beads.yaml');
 const build = read('commands/beads-build.yaml');
-const wave = read('agents/beads-build-wave.yaml');
+const wave = read('commands/beads-build-wave.yaml');
+const waveAgent = read('agents/beads-build-wave.yaml');
 
 describe('implement-trd-beads labels the beads it scaffolds', () => {
   test('br create passes --labels from the plan entry for every bead kind', () => {
@@ -66,7 +67,7 @@ describe('beads-build', () => {
   });
 });
 
-describe('beads-build-wave agent', () => {
+describe('beads-build-wave', () => {
   test('scopes the plan with bv --label when LABEL is set', () => {
     expect(wave).toMatch(/bv --robot-plan --label <LABEL> --format toon/);
   });
@@ -82,5 +83,9 @@ describe('beads-build-wave agent', () => {
 
   test('br-only scheduling is label-scoped too', () => {
     expect(wave).toMatch(/br ready --json` \(add `--label <LABEL>` when LABEL is set/);
+  });
+
+  test('the runner agent maps the payload LABEL to --label', () => {
+    expect(waveAgent).toMatch(/LABEL\s+-> --label/);
   });
 });
