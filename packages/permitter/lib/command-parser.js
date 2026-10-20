@@ -97,6 +97,10 @@ function tokenize(command) {
         } else if ((char === '>' || char === '<') && /^(>>?|<)&(\d+|-)/.test(command.slice(i))) {
           // fd duplication/close such as 2>&1, >&2, <&0, 2>&-: no file involved
           const m = /^(>>?|<)&(\d+|-)/.exec(command.slice(i));
+          if (m[2] !== '-' && !/^[012]$/.test(m[2])) {
+            // fd N>2 may be an inherited open file; its target is not analyzable
+            throw new Error('Redirection to an arbitrary file descriptor not supported');
+          }
           const prefix = /^\d+$/.test(current) ? current : '';
           if (current && !prefix) {
             tokens.push(current);

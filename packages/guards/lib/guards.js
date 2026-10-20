@@ -8,8 +8,22 @@ const DEFAULT_PROTECTED = ['main', 'master', 'production'];
 // git global options that consume a value
 const GIT_VALUE_OPTS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix']);
 
+function realOr(p) {
+  try { return fs.realpathSync(p); } catch { return path.resolve(p); }
+}
+
+// Config root: CLAUDE_PROJECT_DIR when set and containing the payload cwd, else the
+// payload cwd's repository root (git state is evaluated at the payload cwd).
 function projectDir(input) {
-  return process.env.CLAUDE_PROJECT_DIR || (input && input.cwd) || process.cwd();
+  const env = process.env.CLAUDE_PROJECT_DIR;
+  const cwd = input && typeof input.cwd === 'string' && input.cwd ? input.cwd : null;
+  if (!cwd) return env || process.cwd();
+  if (env) {
+    const rel = path.relative(realOr(env), realOr(cwd));
+    if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) return env;
+  }
+  const r = spawnSync('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 3000 });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : cwd;
 }
 
 function loadConfig(dir) {
@@ -41,7 +55,7 @@ function parseGit(words, dir) {
     if (GIT_VALUE_OPTS.has(w)) { i += 2; continue; }
     i++;
   }
-  return { dir, sub: words[i], args: words.slice(i + 1) };
+  return { dir, sub: words[i], args: words.slice(i + 1), exp: (words.exp || []).slice(i + 1) };
 }
 
 const block = (rule, msg) => ({
@@ -56,7 +70,7 @@ function pushTargets(args, cur) {
   return refs.map((r) => {
     let dst = r.replace(/^\+/, '');
     if (dst.includes(':')) dst = dst.split(':').pop();
-    dst = dst.replace(/^refs\/heads\//, '');
+    dst = dst.replace(/^(refs\/)?heads\//, ''); // git also resolves `heads/<b>` to refs/heads/<b>
     return dst === 'HEAD' || dst === '' ? cur : dst;
   }).filter(Boolean);
 }
@@ -102,7 +116,11 @@ function checkBash(command, cfg, cwd) {
   let dir = cwd;
   const sim = new Map(); // dir -> simulated branch (null = unknown)
   const branchOf = (d) => (sim.has(d) ? sim.get(d) : currentBranch(d));
-  for (const w of commandsOf(command)) {
+  const cmds = commandsOf(command);
+  if (cmds.truncated && /\b(git|br)\b/.test(command) && ruleOn(cfg, 'protected-branch')) {
+    return block('protected-branch', 'command nests more than 200 substitutions / `bash -c` / `eval` bodies, so it cannot be analyzed and is blocked because it mentions git/br. Split it into simpler commands.');
+  }
+  for (const w of cmds) {
     const base = w[0].split('/').pop();
     if (base === 'cd' && w[1]) { dir = path.resolve(dir, w[1]); continue; }
 
@@ -113,7 +131,8 @@ function checkBash(command, cfg, cwd) {
         let reason = null;
         rest.forEach((x, i) => {
           if (x.startsWith('--reason=')) reason = x.slice(9);
-          else if (x === '--reason' || x === '-r') reason = rest[i + 1] === undefined ? '' : rest[i + 1];
+          else if (x.startsWith('--bypass-reason=')) reason = x.slice(16);
+          else if (x === '--reason' || x === '-r' || x === '--bypass-reason') reason = rest[i + 1] === undefined ? '' : rest[i + 1];
         });
         if (reason === null || !reason.trim()) {
           return block('br-close-reason', '`br close` requires a non-empty --reason citing evidence (commit, PR, test run). Re-run as: br close <id> --reason "<evidence>".');
@@ -144,6 +163,12 @@ function checkBash(command, cfg, cwd) {
       }
     }
     if (sub === 'push') {
+      // A real expansion ($VAR, ${..}, $(..), backticks) in the remote/refspec cannot be proven
+      // not to name a protected branch. Single-quoted / escaped `$` is a literal and is fine.
+      const unresolved = args.filter((a, i) => g.exp[i] && (!a.startsWith('-') || a === '-'));
+      if (unresolved.length && ruleOn(cfg, 'protected-branch')) {
+        return block('protected-branch', `git push target "${unresolved[0]}" contains a shell expansion ($VAR, \${...}, $(...) or backticks), so it cannot be proven not to be a protected branch. Spell the branch name literally.`);
+      }
       const b = branchOf(g.dir);
       const all = args.includes('--all') || args.includes('--mirror');
       const force = args.some((a) => a === '--force' || a === '-f' || a.startsWith('--force-with-lease') || a === '--force-if-includes' || /^-[A-Za-z]*f[A-Za-z]*$/.test(a)) ||

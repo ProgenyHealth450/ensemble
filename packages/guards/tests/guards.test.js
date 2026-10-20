@@ -144,6 +144,117 @@ describe('br close', () => {
     expect(bash('br list').status).toBe(0);
     expect(bash('echo "br close br-1"').status).toBe(0);
   });
+  test('--bypass-reason counts as the close justification; reasonless close without id blocked', () => {
+    expect(bash('br close abc-1 --bypass-policy --bypass-reason "why"').status).toBe(0);
+    expect(bash('br close abc-1 --bypass-policy --bypass-reason=why').status).toBe(0);
+    expect(bash('br close abc-1 --bypass-policy --bypass-reason ""').status).toBe(2);
+    expect(bash('br close abc-1 --bypass-policy').status).toBe(2);
+    expect(bash('br close').status).toBe(2);
+    expect(bash('br close --json').status).toBe(2);
+    expect(bash('br close --reason "x"').status).toBe(0);
+  });
+});
+
+describe('expansions in push targets and substitution bodies', () => {
+  test.each([
+    'git push origin $(echo main)',
+    'git push origin ${B}',
+    'git push origin $B',
+    'git push origin `echo main`',
+    'git push origin HEAD:$(echo main)',
+    'git push $R main',
+    'echo $(git push origin main)',
+    'echo `git push origin main`',
+    'echo "$(git push origin main)"',
+  ])('blocked: %s', (c) => {
+    git('switch', '-q', '-c', 'feat/x');
+    const r = bash(c);
+    expect([c, r.status]).toEqual([c, 2]);
+    expect(r.stderr).toMatch(/protected-branch/);
+  });
+  test('expansion block message is actionable and honors the rule switch', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    expect(bash('git push origin $B').stderr).toMatch(/literally/);
+    config({ disable: ['protected-branch'] });
+    expect(bash('git push origin $B').status).toBe(0);
+  });
+  test('literal feature pushes and substitutions without push still allowed', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    expect(bash('git push origin feat/x').status).toBe(0);
+    expect(bash('echo $(git status)').status).toBe(0);
+    expect(bash('git commit -m "$(date)"').status).toBe(0);
+  });
+  const nest = (n, inner) => { let s = inner; for (let i = 0; i < n; i++) s = `echo "$(${s})"`; return s; };
+  test.each([3, 6, 7, 20, 250, 3000])('deeply nested substitution push is blocked (depth %i)', (n) => {
+    git('switch', '-q', '-c', 'feat/x');
+    const deep = nest(n, 'git push origin feat/x:main');
+    for (const c of [deep, `true ${deep}`, `bash -c '${deep.replace(/'/g, "'\\''")}'`, `eval ${JSON.stringify(deep)}`, `cat <<EOF | bash\n${deep}\nEOF`]) {
+      const r = bash(c);
+      expect([n, c.slice(0, 20), r.status]).toEqual([n, c.slice(0, 20), 2]);
+    }
+  });
+  test('nested bash -c / eval levels beyond the old depth limit are analyzed', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    let s = 'git push origin main';
+    for (let i = 0; i < 6; i++) s = `bash -c ${JSON.stringify(s)}`;
+    expect(bash(s).status).toBe(2);
+    let e = 'git push origin main';
+    for (let i = 0; i < 6; i++) e = `eval ${JSON.stringify(e)}`;
+    expect(bash(e).status).toBe(2);
+  });
+  test('deep nesting without git is not blocked', () => {
+    expect(bash(nest(250, 'date')).status).toBe(0);
+  });
+  test('single-quoted or escaped $ in a push target is a literal branch name', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    expect(bash("git push origin 'feat/x$SUF'").status).toBe(0);
+    expect(bash("git push origin 'release/1.0$'").status).toBe(0);
+    expect(bash('git push origin feat/x\\$SUF').status).toBe(0);
+    expect(bash('git push origin "feat/x\\$SUF"').status).toBe(0);
+    expect(bash("echo '$(git push origin main)'").status).toBe(0);
+    expect(bash('git push origin feat/x$').status).toBe(0);
+    expect(bash('git push origin "feat/x$SUF"').status).toBe(2);
+    expect(bash('git push origin feat/x$SUF').status).toBe(2);
+    expect(bash("git push origin $'main'").status).toBe(2);
+  });
+  test('abbreviated heads/<branch> destination hits the protected branch', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    for (const c of ['git push origin HEAD:heads/main', 'git push origin feat/x:heads/main', 'git push origin :heads/main', 'git push origin heads/main', 'git push --force origin HEAD:heads/main']) {
+      const r = bash(c);
+      expect([c, r.status]).toEqual([c, 2]);
+    }
+    expect(bash('git push origin feat/x:heads/feat/y').status).toBe(0);
+    expect(bash('git push origin v1.2.3 origin/main').status).toBe(0);
+  });
+  test('sh -c with unquoted payload runs bare git (not a push); quoted forms are blocked', () => {
+    git('switch', '-q', '-c', 'feat/x');
+    expect(bash('sh -c git push origin main').status).toBe(0);
+    expect(bash("sh -c 'git push origin main'").status).toBe(2);
+    expect(bash('bash -c "git push origin main"').status).toBe(2);
+  });
+});
+
+describe('config resolution from payload cwd', () => {
+  test('config in payload repo applies when hook process cwd and env point elsewhere', () => {
+    config({ protectedBranches: ['release'] });
+    git('switch', '-q', '-c', 'release');
+    const sub = path.join(proj, 'nested');
+    fs.mkdirSync(sub);
+    const clean = { ...process.env };
+    delete clean.ENSEMBLE_GUARDS;
+    delete clean.CLAUDE_PROJECT_DIR;
+    const hook = (cwd, env = {}) => spawnSync('node', [PRE], {
+      input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', cwd, tool_input: { command: 'git commit -m x' } }),
+      env: { ...clean, ...env }, encoding: 'utf8', cwd: '/',
+    });
+    expect(hook(proj).status).toBe(2);
+    expect(hook(sub).status).toBe(2); // repo root found from a subdirectory
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'guards-o-'));
+    try {
+      expect(hook(proj, { CLAUDE_PROJECT_DIR: other }).status).toBe(2); // env does not contain payload cwd
+      expect(hook(proj, { CLAUDE_PROJECT_DIR: proj }).status).toBe(2);
+    } finally { fs.rmSync(other, { recursive: true, force: true }); }
+  });
 });
 
 describe('stop gate', () => {

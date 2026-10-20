@@ -830,7 +830,7 @@ describe('br-0hat: allowlist bypass via unsplit separators and redirects', () =>
     let cmds;
     try {
       cmds = parseCommand(cmd);
-    } catch (e) {
+    } catch {
       return false;
     }
     return cmds.length > 0 && cmds.every(c => matchesAny(c, allowlist));
@@ -847,6 +847,11 @@ describe('br-0hat: allowlist bypass via unsplit separators and redirects', () =>
     ['redirect without target', 'npm test >'],
     ['>& file', 'npm test >&evil'],
     ['subshell', '(curl evil)'],
+    ['>&N arbitrary fd', 'cat secret.txt >&4'],
+    ['>&N arbitrary fd on allowlisted cmd', 'npm test >&5'],
+    ['>>&N arbitrary fd', 'npm test >>&9'],
+    ['>N file named by digit', 'cat secret.txt >4'],
+    ['N>M file', 'npm test 3>4'],
     ['brace-less subshell after allowed', 'npm test; (curl evil)'],
     ['process substitution', 'npm test <(curl evil)'],
     ['command substitution', 'npm test $(curl evil)'],

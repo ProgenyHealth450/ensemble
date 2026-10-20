@@ -1,25 +1,74 @@
 'use strict';
 // Minimal shell splitter: commands on && || ; | & newline outside quotes; words with quotes removed.
 
-function splitCommands(src) {
+// Index of the char that closes the substitution opening at src[i] ('$(' -> ')', '`' -> '`'), or -1.
+function substitutionEnd(src, i) {
+  if (src[i] === '`') {
+    for (let j = i + 1; j < src.length; j++) {
+      if (src[j] === '\\') j++;
+      else if (src[j] === '`') return j;
+    }
+    return -1;
+  }
+  let depth = 1;
+  let q = null;
+  for (let j = i + 2; j < src.length; j++) {
+    const c = src[j];
+    if (q === "'") { if (c === "'") q = null; continue; }
+    if (c === '\\') { j++; continue; }
+    if (q === '"') { if (c === '"') q = null; continue; }
+    if (c === "'" || c === '"') q = c;
+    else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return j;
+  }
+  return -1;
+}
+
+// `subs` (optional) collects the bodies of $(...) / `...` substitutions; the raw
+// substitution text stays part of its enclosing word. Each returned command array carries
+// `.exp`: per word, true when it contains a real shell expansion ($VAR, ${..}, $(..), `..`,
+// $'..', $"..") outside single quotes / backslash escapes.
+const EXP_NEXT = /[A-Za-z0-9_{(@*#?!$'"-]/;
+function splitCommands(src, subs = []) {
   const cmds = [];
   let words = [];
+  let wexp = [];
   let cur = '';
   let has = false; // current word started (allows empty quoted words)
+  let exp = false;
   let q = null;
-  const endWord = () => { if (has) words.push(cur); cur = ''; has = false; };
-  const endCmd = () => { endWord(); if (words.length) cmds.push(words); words = []; };
+  const endWord = () => { if (has) { words.push(cur); wexp.push(exp); } cur = ''; has = false; exp = false; };
+  const endCmd = () => { endWord(); if (words.length) { words.exp = wexp; cmds.push(words); } words = []; wexp = []; };
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
     if (q === "'") { if (c === "'") q = null; else cur += c; continue; }
     if (q === '"') {
       if (c === '"') q = null;
       else if (c === '\\' && i + 1 < src.length) { cur += src[++i]; }
-      else cur += c;
+      else if (c === '`' || (c === '$' && src[i + 1] === '(')) {
+        exp = true;
+        const end = substitutionEnd(src, i);
+        if (end >= 0) {
+          subs.push(src.slice(i + (c === '`' ? 1 : 2), end));
+          cur += src.slice(i, end + 1); i = end;
+        } else cur += c;
+      } else {
+        if (c === '$' && i + 1 < src.length && src[i + 1] !== '"' && EXP_NEXT.test(src[i + 1])) exp = true;
+        cur += c;
+      }
       continue;
     }
     if (c === "'" || c === '"') { q = c; has = true; continue; }
     if (c === '\\') { if (i + 1 < src.length) { cur += src[++i]; has = true; } continue; }
+    if (c === '`' || (c === '$' && src[i + 1] === '(')) {
+      exp = true;
+      const end = substitutionEnd(src, i);
+      if (end >= 0) {
+        subs.push(src.slice(i + (c === '`' ? 1 : 2), end));
+        cur += src.slice(i, end + 1); has = true; i = end; continue;
+      }
+    }
+    if (c === '$' && i + 1 < src.length && EXP_NEXT.test(src[i + 1])) exp = true;
     if (c === '#' && !has) { while (i < src.length && src[i] !== '\n') i++; endCmd(); continue; }
     if (c === ' ' || c === '\t') { endWord(); continue; }
     if (c === '\n' || c === '\r' || c === ';' || c === '&' || c === '|' || c === '(' || c === ')' || c === '`') {
@@ -44,24 +93,37 @@ function stripPrefix(words) {
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || WRAPPERS.has(w)) i++;
     else break;
   }
-  return words.slice(i);
+  const out = words.slice(i);
+  if (words.exp) out.exp = words.exp.slice(i);
+  return out;
 }
 
-// Recursively expand `bash -c "..."` / `sh -c "..."` / `eval "..."`.
-function commandsOf(src, depth = 0) {
+// Max substitution / `bash -c` / `eval` bodies analyzed per command. Beyond it the
+// result is flagged `truncated` and callers MUST fail closed (never silently ignore the rest).
+const MAX_NODES = 200;
+
+// Expands $(...) / backtick bodies and `bash -c "..."` / `sh -c "..."` / `eval "..."` payloads
+// (nested, in execution order). `out.truncated` is true when MAX_NODES was exceeded.
+function commandsOf(src) {
   const out = [];
-  for (const raw of splitCommands(src)) {
-    const w = stripPrefix(raw);
-    if (!w.length) continue;
-    out.push(w);
-    if (depth < 3) {
+  let nodes = 0;
+  const walk = (s) => {
+    if (nodes++ >= MAX_NODES) { out.truncated = true; return; }
+    const subs = [];
+    const cmds = splitCommands(s, subs);
+    for (const body of subs) walk(body);
+    for (const raw of cmds) {
+      const w = stripPrefix(raw);
+      if (!w.length) continue;
+      out.push(w);
       const base = w[0].split('/').pop();
       if (/^(bash|sh|zsh)$/.test(base)) {
         const ci = w.findIndex((x) => /^-[A-Za-z]*c$/.test(x));
-        if (ci >= 0 && w[ci + 1]) out.push(...commandsOf(w[ci + 1], depth + 1));
-      } else if (base === 'eval' && w[1]) out.push(...commandsOf(w.slice(1).join(' '), depth + 1));
+        if (ci >= 0 && w[ci + 1]) walk(w[ci + 1]);
+      } else if (base === 'eval' && w[1]) walk(w.slice(1).join(' '));
     }
-  }
+  };
+  walk(src);
   return out;
 }
 

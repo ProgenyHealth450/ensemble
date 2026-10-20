@@ -16,4 +16,8 @@ Configure `.ensemble/guards.json`:
   "dod": { "command": "npm test", "timeoutSec": 300 } }
 ```
 
+`protectedBranches` replaces the default list (main, master, production) wholesale; list every branch you want protected.
+
+A `git push` whose remote/refspec contains an unresolved shell expansion (`$VAR`, `${VAR}`, `$(...)`, backticks) is blocked under `protected-branch`, because it cannot be proven not to target a protected branch; spell the branch literally. Commands nesting more than 200 substitution / `bash -c` / `eval` bodies that mention git or br are blocked for the same reason.
+
 `ENSEMBLE_GUARDS=0` disables all guards. Not implemented: test-first guard.
