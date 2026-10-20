@@ -50,4 +50,3 @@ Ensemble reads these standard variables from the environment to detect the activ
 Related documentation:
 
 - `packages/permitter/README.md` — permitter hook details and allowlist format
-- `packages/full/HOOKS.md` — full hook system reference

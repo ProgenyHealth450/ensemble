@@ -331,7 +331,6 @@ All numeric and capability claims in this document have been verified against au
 
 - Ensemble GitHub: `github.com/Sunstone-Partners/ensemble`
 - Spec-Kit GitHub: `github.com/github/spec-kit`
-- Ensemble spec-kit comparison (prior analysis): `docs/spec-kit-comparison.md`
 - Competitive landscape (Ensemble, AgentOS, GSD, Superpowers, BMAD): `docs/research/competitive-analysis-2026-03-28.md`
 - Ensemble README: `README.md`
 - Ensemble commands: `packages/development/commands/`
