@@ -65,11 +65,17 @@ function runCommand(command, { timeout = 30000, cwd, env } = {}) {
     if (typeof command !== 'string' || !command.trim()) {
       return resolve({ code: null, signal: null, timedOut: false, errorCode: 'EINVAL', stdout: '', stderr: '', ms: 0 });
     }
-    const child = spawn(command, { shell: true, cwd, env: { ...process.env, ...env } });
+    // Own process group (POSIX) so a timeout kills the shell AND its children: killing only the shell
+    // leaves a grandchild holding the output pipes open and the promise pending until it exits.
+    const group = process.platform !== 'win32';
+    const child = spawn(command, { shell: true, cwd, env: { ...process.env, ...env }, detached: group });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeout);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { if (group) process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { child.kill('SIGKILL'); }
+    }, timeout);
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
     child.on('error', e => { clearTimeout(timer); resolve({ code: null, signal: null, timedOut: false, errorCode: e.code || 'ERROR', stdout, stderr, ms: Date.now() - start }); });
