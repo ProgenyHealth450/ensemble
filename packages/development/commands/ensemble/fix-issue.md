@@ -10,20 +10,8 @@ model: "sonnet"
 <!-- To modify this file, edit the YAML source and run: npm run generate -->
 
 
-Orchestrate a complete bug fix workflow from analysis to PR creation,
-assembling a virtual team of specialized agents (Product Manager, Tech Lead,
-Architect, QA Lead) to ensure high-quality fixes with minimal user intervention.
-Resumable and checkpointed (REQ-019): a run's stage and outcome are
-recorded via issue-run-index.ts after each of the 3 named phases, so a
-later invocation can resume, report status, or abandon it instead of
-re-deriving progress from conversation history.
---foreman also carries an artifact contract: when FOREMAN_ARTIFACT_PATH is set
-and non-empty, write the phase report to that exact path (creating parent
-directories as needed) IN ADDITION TO any repo-local report this command
-already writes -- Foreman computes that path and reads it back to confirm the
-phase produced an artifact. Never invent, alter, or relocate the path, and
-never treat an unset FOREMAN_ARTIFACT_PATH as an error (outside Foreman
-dispatch it is simply absent and behavior is unchanged).
+Orchestrate a bug fix workflow from analysis to PR, delegating to specialized agents.
+Resumable and checkpointed: a run's stage and outcome are recorded via issue-run-index.ts after each of the 3 named phases, so a later invocation can resume, report status, or abandon it instead of re-deriving progress from conversation history.
 
 ## Arguments
 
@@ -33,7 +21,7 @@ dispatch it is simply absent and behavior is unchanged).
 - **`skip-tests`** (boolean, optional, default: `false`): Skip test validation (not recommended)
 - **`draft-pr`** (boolean, optional, default: `false`): Create draft PR instead of ready-for-review
 - **`interactive`** (boolean, optional, default: `false`): Enable detailed user interviews during planning
-- **`foreman`** (boolean, optional, default: `false`): Run in Foreman-native non-interactive mode -- skip the user interview step and always auto-commit + create the PR without pausing for confirmation (for automated Foreman orchestration). When --foreman is present and the FOREMAN_ARTIFACT_PATH environment variable is set and non-empty, write the phase report to that exact path (creating parent directories as needed) IN ADDITION TO any repo-local report this command already writes. Foreman computes that path and reads it back to confirm the phase produced an artifact; writing only to a repo-local convention leaves Foreman with no artifact. Never invent, alter, or relocate the path. Never treat an unset FOREMAN_ARTIFACT_PATH as an error — outside Foreman dispatch it is simply absent, and behavior must be unchanged.
+- **`foreman`** (boolean, optional, default: `false`): Foreman-native non-interactive mode -- skip the user interview and always auto-commit + create the PR without pausing for confirmation. When --foreman is present and FOREMAN_ARTIFACT_PATH is set and non-empty, write the phase report to that exact path (creating parent directories) in addition to any repo-local report. Never invent or alter the path; an unset FOREMAN_ARTIFACT_PATH is not an error.
 - **`status`** (boolean, optional, default: `false`): Show the active/most-recent issue run's stage, outcome, and references without advancing it.
 - **`abandon`** (boolean, optional, default: `false`): Abandon the project's active/paused issue run after explicit confirmation.
 
@@ -59,69 +47,53 @@ instead of restarting.
 
 
 **2. --status -- Read-Only Run Report**
-   Report the active/most-recent run's stage, outcome, and
-references without advancing it. No stage executes and no
-mutate() call is made regardless of what is found (AC-019-3).
+   Report the active/most-recent run's stage, outcome, and references without advancing it. No stage executes and no mutate() call is made.
 
 
 **3. --abandon -- Explicit Confirmation Required**
-   Terminate the project's active/paused run after explicit
-confirmation; the run reaches a terminal abandoned state
-with its history retained (AC-019-4, AC-007-3).
+   Terminate the project's active/paused run after explicit confirmation; history is retained.
 
 
 ### Phase 2: Analysis & Planning
 
 **1. Codebase Analysis**
-   Explore codebase to identify affected files, patterns, and scope.
-Use Grep, Glob, and Read tools to understand context.
-
+   Identify affected files, related tests, framework, and scope (Grep, Glob, Read).
 
 **2. Collaborative Planning**
-   Assemble virtual team of 4 specialized agents to create comprehensive
-fix plan with multiple perspectives.
-
+   Produce the fix plan, consulting the specialist agents the issue actually warrants.
 
 **3. User Interview (Conditional)**
-   If issue description is ambiguous or --interactive flag is set,
-ask clarifying questions ONE AT A TIME (max 5) -- never batch questions.
-Use AskUserQuestion for each. Wait for each answer before asking the next.
+   If the description is ambiguous or --interactive is set, ask clarifying questions ONE AT A TIME (max 5) with AskUserQuestion. Never when --foreman is set.
 
 
 **4. Record Stage Checkpoint**
-   Persist this phase's outcome and advance the run to the next
-stage via issue-run-index.ts (Implementation AC 2, REQ-019).
+   Persist this phase's outcome and advance the run via issue-run-index.ts.
 
 
 ### Phase 3: Execution
 
 **1. Branch Creation**
-   Create git branch with conventional naming
+   Create the fix branch.
 
 **2. Task List Generation**
-   Break down plan into actionable tasks
+   Break the plan into 3-10 specific, testable tasks.
 
 **3. Task Execution**
-   Execute all tasks with appropriate agent delegation and
-real-time progress tracking.
-
+   Execute the tasks with agent delegation and progress tracking.
 
 **4. Record Stage Checkpoint**
-   Persist this phase's outcome and advance the run to the next
-stage via issue-run-index.ts (Implementation AC 2, REQ-019).
+   Persist this phase's outcome and advance the run via issue-run-index.ts.
 
 
 ### Phase 4: Validation & Delivery
 
 **1. Test Validation**
-   Run test suite with auto-fix retry logic. Ensure all tests
-pass before creating PR.
+   Run the test suite with auto-fix retry; all tests must pass before the PR.
 
 
 **2. Local Review and Batch Fix**
    Independent local review of the complete diff, triage, and one
-batched fix pass -- before any commit, push, or PR creation
-(TRD-009, REQ-011). Invokes the shared pr-review-cycle skill,
+batched fix pass -- before any commit, push, or PR creation. Invokes the shared pr-review-cycle skill,
 located at
 "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md",
 in pre-publication (local) mode; that skill composes
@@ -149,7 +121,7 @@ Creation makes -- a different SHA, the same content -- by its
 tree.
 
 **3. PR Creation**
-   Create comprehensive pull request with GitHub CLI
+   Commit, push, and open the pull request with GitHub CLI
 
 **4. Remote Review Disposition**
    After the PR exists: first record its URL once as a
@@ -159,8 +131,7 @@ resume can find the PR; then invoke the shared pr-review-cycle
 skill, located at
 "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md",
 in remote mode to evaluate the head-bound CodeRabbit review and
-decide whether this run may report success (TRD-010, REQ-012,
-REQ-013). Pass it HEAD_SHA (git rev-parse HEAD) and
+decide whether this run may report success. Pass it HEAD_SHA (git rev-parse HEAD) and
 HEAD_TREE_SHA (git rev-parse 'HEAD^{tree}'): PR Creation's real
 commit is not the snapshot Local Review bound its review to, so
 the review is fresh only when HEAD_SHA equals the reviewed head
@@ -186,11 +157,8 @@ is unchanged. Foreman mode never prompts and never waits
 indefinitely.
 
 **5. Record Stage Checkpoint**
-   Persist this phase's outcome and mark the run complete via
-issue-run-index.ts (Implementation AC 2, REQ-019). Only
-reached when Remote Review Disposition's status is
-REVIEW_COMPLETE -- a pending or blocked outcome halts there
-instead (TRD-010, AC-012-1).
+   Persist this phase's outcome and mark the run complete via issue-run-index.ts.
+Only reached when Remote Review Disposition's status is REVIEW_COMPLETE -- a pending or blocked outcome halts there instead.
 
 
 ## Expected Output
@@ -198,9 +166,9 @@ instead (TRD-010, AC-012-1).
 **Format:** Pull Request
 
 **Structure:**
-- **Git Branch**: Feature branch following fix/issue-{num}-{slug} convention
-- **Code Changes**: Implementation fixes with test coverage
-- **Pull Request**: Comprehensive PR with problem, solution, changes, and test plan
+- **Git Branch**: fix/issue-{num}-{slug} branch
+- **Code Changes**: Fix with test coverage
+- **Pull Request**: PR with problem, solution, changes, and test plan
 
 ## Usage
 

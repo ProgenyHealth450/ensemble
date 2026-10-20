@@ -273,10 +273,6 @@ describe('Fix-Issue Command', () => {
       const step2 = phase.steps[1];
       expect(step2.title).toBe('Collaborative Planning');
       expect(step2.model).toBe('medium');
-      expect(step2.instructions).toContain('product-management-orchestrator');
-      expect(step2.instructions).toContain('tech-lead-orchestrator');
-      expect(step2.instructions).toContain('infrastructure-orchestrator');
-      expect(step2.instructions).toContain('test-runner');
 
       // Step 3: User Interview
       const step3 = phase.steps[2];
@@ -568,16 +564,6 @@ describe('Fix-Issue Command', () => {
   });
 
   describe('Agent Delegation', () => {
-    test('planning phase delegates to 4 orchestrators', () => {
-      const analysisPhase = commandYaml.workflow.phases[1];
-      const planningStep = analysisPhase.steps[1];
-
-      expect(planningStep.instructions).toContain('Task(product-management-orchestrator)');
-      expect(planningStep.instructions).toContain('Task(tech-lead-orchestrator)');
-      expect(planningStep.instructions).toContain('Task(infrastructure-orchestrator)');
-      expect(planningStep.instructions).toContain('Task(test-runner)');
-    });
-
     test('execution phase routes to specialized developers', () => {
       const executionPhase = commandYaml.workflow.phases[2];
       const taskExecutionStep = executionPhase.steps[2];
@@ -614,7 +600,7 @@ describe('Fix-Issue Command', () => {
       const testStep = deliveryPhase.steps[0];
 
       expect(testStep.instructions).not.toContain('record.prApprovedAt = now()');
-      expect(testStep.instructions).toMatch(/prApprovedAt stays null, so PR Creation remains denied if\s+ever reached \(TRD-019, AC-014-2\)/);
+      expect(testStep.instructions).toMatch(/prApprovedAt stays null, so PR Creation remains denied if ever reached/);
       expect(testStep.instructions).toContain('Proceed to Local Review and Batch Fix');
     });
 
@@ -637,12 +623,12 @@ describe('Fix-Issue Command', () => {
       const deliveryPhase = commandYaml.workflow.phases[3];
       const prStep = deliveryPhase.steps[2];
 
-      expect(prStep.instructions).toMatch(/Store-persisted-approval precondition \(TRD-019, AC-014-2\)/);
+      expect(prStep.instructions).toMatch(/Store-persisted-approval precondition/);
       expect(prStep.instructions).toContain('IssueRunIndexStore.loadRun(projectRoot,');
       expect(prStep.instructions).toContain('runId)\'s current prApprovedAt directly');
     });
 
-    test('PR Creation precondition denies on null regardless of surrounding prompt text (AC-014-2)', () => {
+    test('PR Creation precondition denies on null regardless of surrounding prompt text ', () => {
       const deliveryPhase = commandYaml.workflow.phases[3];
       const prStep = deliveryPhase.steps[2];
 
