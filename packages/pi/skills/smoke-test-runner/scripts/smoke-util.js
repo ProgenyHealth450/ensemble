@@ -107,7 +107,8 @@ function redact(text) {
 /**
  * Failure reason for a failed runCommand result. NEVER includes raw subprocess output:
  * only exit code / signal / timeout / start failure. With includeOutput === true a REDACTED,
- * 300-char-bounded snippet of stderr and stdout (each masked, then joined and truncated) is appended.
+ * 300-char-bounded snippet of stderr and stdout (joined, then masked as ONE text so a secret split across
+ * the two streams is still caught, then truncated) is appended.
  */
 function describeFailure(out, { includeOutput = false, timeout } = {}) {
   let reason;
@@ -116,7 +117,7 @@ function describeFailure(out, { includeOutput = false, timeout } = {}) {
   else if (out.signal) reason = `killed by signal ${out.signal}`;
   else reason = `exit ${out.code}${out.code === 127 ? ' (command not found)' : ''}`;
   if (includeOutput === true) {
-    const snippet = [out.stderr, out.stdout].filter(Boolean).map(maskSecrets).filter(Boolean).join('\n').slice(0, OUTPUT_LIMIT);
+    const snippet = maskSecrets([out.stderr, out.stdout].filter(Boolean).join('\n')).slice(0, OUTPUT_LIMIT);
     if (snippet) reason += `: ${snippet}`;
   }
   return reason;
