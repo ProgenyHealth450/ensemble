@@ -2,7 +2,7 @@
 
 Command lifecycle hooks run your own code when an Ensemble command starts and when it ends. A project opts in with one file, `.ensemble/hooks.yaml`; a project without that file sees no change.
 
-**Pi is the only supported harness.** It is the only one with the full feature, and the only one with an adapter in the capability table below; every Pi behavior stated in this guide was measured in Pi 1.2.0. Claude Code has a reduced, separately installed plugin that runs the same two events from the same hooks file (see [Claude Code](#claude-code) for what differs). Codex and OpenCode have nothing: there is no adapter for them (see [Per-harness capabilities](#per-harness-capabilities)).
+**Pi has full support; Claude Code is supported through the separate `ensemble-lifecycle` plugin.** Pi is the only harness with the full feature and the only one with an adapter in the capability table below; every Pi behavior stated in this guide was measured in Pi 1.2.0. The Claude Code plugin runs the same two events from the same hooks file with shell handlers only (see [Claude Code](#claude-code) for what differs). Codex and OpenCode have nothing: there is no adapter for them (see [Per-harness capabilities](#per-harness-capabilities)).
 
 ## Table of Contents
 
