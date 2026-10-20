@@ -5,7 +5,7 @@ version: "1.2.0"
 category: "implementation"
 last-updated: "2026-08-19"
 allowed-tools: "Read, Write, Edit, Bash, Grep, Glob, Task"
-argument-hint: "[epic-id|slug-pattern] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [max parallel N]"
+argument-hint: "[epic-id|slug-pattern | --epic <id>] [--max-parallel N | max parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--defer-completion]"
 model: "sonnet"
 ---
 <!-- DO NOT EDIT - Generated from beads-build.yaml -->
@@ -49,14 +49,15 @@ Key behaviors:
 ### Phase 1: Preflight
 
 **1. Argument Parsing**
-   Parse epic-id or slug pattern, --trd path, --strategy, --team-roles, deprecated --builder, and max parallel N
+   Parse epic-id or slug pattern (positional or --epic), --max-parallel (or free-text max parallel N), --trd path, --strategy, --team-roles, deprecated --builder, and --defer-completion
 
-- Parse $ARGUMENTS: take the first token as RAW_INPUT (no epic argument if it is absent or starts with "--"). Run br show <first-token> --json: exit code 0 means it is an existing bead of ANY id prefix (beads-12, cribs-l4pd, ...), so treat it as the direct epic bead ID (EPIC_ID_MODE=true); a non-zero exit means it is not a bead id, so treat it as a slug pattern (EPIC_ID_MODE=false). Never infer this from how the token is spelled.
+- Parse $ARGUMENTS: if --epic <value> is present, RAW_INPUT=<value>; otherwise take the first token as RAW_INPUT (no epic argument if it is absent or starts with "--"). Run br show <RAW_INPUT> --json: exit code 0 means it is an existing bead of ANY id prefix (beads-12, cribs-l4pd, ...), so treat it as the direct epic bead ID (EPIC_ID_MODE=true); a non-zero exit means it is not a bead id, so treat it as a slug pattern (EPIC_ID_MODE=false). Never infer this from how the token is spelled.
 - Parse --trd <path> from $ARGUMENTS (optional); if present set TRD_MODE=true and TRD_PATH=<path>; if absent set TRD_MODE=false
 - Parse --strategy <value> from $ARGUMENTS (optional); valid values: tdd, characterization, bug-fix, refactor, test-after, flexible
 - Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes bv plans and scoped bead counts to one TRD; Epic Discovery resolves and verifies it.
 - Parse --team-roles <json> from $ARGUMENTS (optional); if present parse as TEAM_ROLES object. If absent, parse deprecated --builder <agent> and synthesize compatibility TEAM_ROLES={lead:{agents:[\"tech-lead-orchestrator\"],owns:[\"planning\",\"escalation\"]},builder:{agents:[<builder>],owns:[\"implementation\"]},architect:{agents:[\"architect\"],owns:[\"task-design\"]},documentation:{agents:[\"documentation-specialist\"],owns:[\"pr-boundary-doc-maintenance\"]}}. If neither flag is present, set TEAM_ROLES={} and continue — standalone beads-build may still run without team metadata.
-- Parse "max parallel N" from $ARGUMENTS (e.g., "max parallel 3") — default MAX_PARALLEL=1 if not present
+- Parse --max-parallel <N> from $ARGUMENTS; if absent, also accept the free-text form "max parallel N" (e.g., "max parallel 3"). Set MAX_PARALLEL=N; default MAX_PARALLEL=3 if neither is present
+- Parse --defer-completion from $ARGUMENTS (optional flag, no value): if present set DEFER_COMPLETION=true, else DEFER_COMPLETION=false. A caller that owns completion verification and epic closure (implement-trd-beads) passes it; standalone invocations leave it unset.
 
 **2. Tool Availability Check**
    Verify br is installed and detect bv availability
@@ -203,16 +204,18 @@ depth-1 subagent respects Codex's max_depth=1 constraint.
 ### Phase 4: Completion
 
 **1. Epic Closure**
-   Close the root epic when all children are done
+   Close the root epic when all children are done (skipped when DEFER_COMPLETION=true)
 
+- If DEFER_COMPLETION=true: print "Epic closure: deferred to caller (--defer-completion)" and skip this step entirely; the caller closes the epic only after its own completion verification and PR gate.
 - Verify: br list --status=open --label <LABEL> --json when LABEL is set, otherwise br list --status=open --json filtered by EPIC_SLUG (issue list = the parsed JSON if it is an array, otherwise its `.issues` array), returns no open tasks
 - Run: br close <ROOT_EPIC_ID> --reason='Epic implementation complete'
 - Run: br sync --flush-only
 
 **2. TRD Checkbox Sync**
-   Update TRD file checkboxes to reflect bead closure state (TRD_MODE only)
+   Update TRD file checkboxes to reflect bead closure state (TRD_MODE only; skipped when DEFER_COMPLETION=true)
 
 - If TRD_MODE=false: skip this step
+- If DEFER_COMPLETION=true: print "TRD checkbox sync: deferred to caller (--defer-completion)" and skip this step; the caller syncs checkboxes after its own completion verification.
 - If TRD_MODE=true: for each task in TRD Master Task List: if bead status == 'closed' -> replace "- [ ] **<task.id>**" with "- [x] **<task.id>**"
 - git add <TRD_PATH>; node "$TRD_CLI" beads-stage <STAGE_SCOPE> (skip when STAGE_SCOPE is unset); git commit -m "docs(TRD): sync checkboxes to bead closure state"
 
@@ -256,5 +259,5 @@ depth-1 subagent respects Codex's max_depth=1 constraint.
 ## Usage
 
 ```
-/ensemble:beads-build [epic-id|slug-pattern] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [max parallel N]
+/ensemble:beads-build [epic-id|slug-pattern | --epic <id>] [--max-parallel N | max parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--defer-completion]
 ```

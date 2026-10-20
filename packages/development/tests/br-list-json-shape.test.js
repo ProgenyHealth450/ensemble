@@ -93,7 +93,7 @@ describe('beads-build and beads-plan epic id detection', () => {
     (name) => {
       const text = read(`${name}.yaml`);
       expect(text).not.toMatch(/matches pattern beads-NNN/);
-      expect(text).toMatch(/br show <first-token>/);
+      expect(text).toMatch(/br show <(?:first-token|RAW_INPUT)> --json/);
     }
   );
 });
