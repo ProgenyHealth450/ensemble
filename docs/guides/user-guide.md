@@ -520,7 +520,6 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:trd-dependency-graph` | `[trd-dir\|paths...] [--format json\|mermaid\|dot] [--overlap]` | Dependency graph across TRDs and likely-duplicate work | `ensemble-development` |
 | `/ensemble:implement-trd-beads` | `[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman] [<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]]` | Implement a TRD through a persistent bead hierarchy | `ensemble-development` |
 | `/ensemble:implement-bead` | `<bead-id>` | Implement one bead through analysis, implementation and PR | `ensemble-development` |
-| `/ensemble:beads-plan` | `[epic-id\|slug-pattern] [max parallel N]` | Analyze a bead hierarchy and print wheel instructions without implementing | `ensemble-development` |
 | `/ensemble:beads-build` | `[epic-id\|slug-pattern] [--trd trd-path] [--strategy tdd\|characterization\|bug-fix\|refactor\|test-after\|flexible] [--label <label>] [max parallel N]` | Drive an existing bead hierarchy to completion | `ensemble-development` |
 | `/ensemble:refine-beads` | `[epic-id\|release-train-id\|slug] [--scope project]` | Approval-gated bead graph refinement before execution | `ensemble-development` |
 | `/ensemble:feature` | `<new\|resume\|status\|abandon> [args...]` | Dispatcher: feature lifecycle | `ensemble-development` |
@@ -573,7 +572,6 @@ There are 68 source skills. Skills are loaded by name; the "When to use" column 
 
 | Skill | When to use |
 | --- | --- |
-| `complete-beads` | Driving scoped beads to closed or a truthful terminal state; the shared execution engine behind `implement-trd-beads` and `beads-build` |
 | `completion-verification` | Independently re-checking a TRD before declaring it done |
 | `staleness-gate` | Checking a TRD is not stale before implementation; invokes `/ensemble:refine-trd` if it is |
 | `pr-review-cycle` | Local review, batched fixes and a head-bound remote review gate for a PR |

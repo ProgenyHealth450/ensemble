@@ -369,6 +369,72 @@ function analyzeTrd(parsed, prdContext, prdMarkdown) {
   };
 }
 
+const AC_ID = /^AC-\d+-\d+$/;
+
+function commentText(c) {
+  return typeof c === 'string' ? c : c && typeof c.text === 'string' ? c.text : '';
+}
+
+/** `ac-proven:AC-001-1,AC-001-2` (also tolerates ", " separators) -> ['AC-001-1', ...]. */
+function acTokens(text) {
+  const m = text.match(/ac-proven:\s*([A-Za-z0-9,\s-]+)/i);
+  if (!m) return [];
+  return m[1].split(/[\s,]+/).filter((x) => AC_ID.test(x));
+}
+
+/**
+ * Normalize br comment dumps into evidence. Accepted shapes: a map
+ * `{beadId: [text|{text}]}`, an array of `{beadId|id|issue_id, comments:[...]}`,
+ * or the flat `br comment list --json` array of `{issue_id, text}`.
+ * Tokens (same as the pre-2.0 command): bead comments carry
+ * `status:closed ... verdict:passed|failed req-satisfied:REQ-N ac-proven:AC-N-M,..`;
+ * epic comments carry `req-verified:REQ-N by:TRD-N-TEST qa:<agent> ac-proven:..`.
+ * Latest verdict comment per task wins.
+ *
+ * @param {object|Array} comments
+ * @param {Object<string,string>} [taskIdByBead] bead id -> TRD task id
+ * @returns {{verdictByTask:Object<string,string>, verifiedReqs:string[], acsProvenByReq:Object<string,string[]>}}
+ */
+function evidenceFromComments(comments, taskIdByBead) {
+  const toTask = taskIdByBead || {};
+  const entries = []; // { owner, text }
+  const push = (owner, list) => {
+    for (const c of list || []) entries.push({ owner, text: commentText(c) });
+  };
+  if (Array.isArray(comments)) {
+    for (const e of comments) {
+      if (e && Array.isArray(e.comments)) push(e.beadId || e.id || e.issue_id, e.comments);
+      else if (e) push(e.issue_id || e.beadId, [e]);
+    }
+  } else if (comments && typeof comments === 'object') {
+    for (const [owner, list] of Object.entries(comments)) push(owner, Array.isArray(list) ? list : [list]);
+  }
+  const verdictByTask = {};
+  const verified = new Set();
+  const acs = {};
+  const addAcs = (req, ids) => {
+    if (!acs[req]) acs[req] = [];
+    for (const id of ids) if (!acs[req].includes(id)) acs[req].push(id);
+  };
+  for (const { owner, text } of entries) {
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const task = toTask[owner] || owner;
+      const verdict = line.match(/verdict:\s*(passed|failed)/i);
+      if (verdict && /status:\s*closed/i.test(line)) verdictByTask[task] = verdict[1].toLowerCase();
+      const ids = acTokens(line);
+      const sat = line.match(/req-(?:satisfied|verified):\s*(REQ-\d+)/i);
+      if (sat) {
+        if (/req-verified:/i.test(line)) verified.add(sat[1].toUpperCase());
+        addAcs(sat[1].toUpperCase(), ids);
+      }
+      const by = line.match(/\bby:\s*(TRD-[A-Za-z0-9-]+)/i);
+      if (by && verdictByTask[by[1]] === undefined && sat && /req-verified:/i.test(line)) verdictByTask[by[1]] = 'passed';
+    }
+  }
+  return { verdictByTask, verifiedReqs: [...verified].sort(), acsProvenByReq: acs };
+}
+
 function pct(done, total) {
   return total === 0 ? null : Math.round((done / total) * 1000) / 10;
 }
@@ -381,6 +447,8 @@ function pct(done, total) {
  * @param {object} [opts.prdContext]
  * @param {Object<string,string>} [opts.beadStatusByTask] task id -> open|in_progress|closed
  * @param {string[]} [opts.verifiedReqs] REQ ids carrying a req-verified token (null = unknown)
+ * @param {object} [opts.evidence] evidenceFromComments() result; when present a closed test
+ *   task counts only with a PASSED verdict (evidence 'verdict-verified'), else 'closed-only'
  */
 function requirementStatus(parsed, opts) {
   const o = opts || {};
@@ -388,6 +456,8 @@ function requirementStatus(parsed, opts) {
   const tasksById = parsed.tasksById || {};
   const beadStatus = o.beadStatusByTask || {};
   const verified = Array.isArray(o.verifiedReqs) ? new Set(o.verifiedReqs) : null;
+  const ev = o.evidence || null;
+  const evidence = ev ? 'verdict-verified' : 'closed-only';
 
   const stateOf = (id) => {
     if (beadStatus[id]) return beadStatus[id];
@@ -412,12 +482,20 @@ function requirementStatus(parsed, opts) {
       if (t.isTest) testIds.add(t.id);
       else if (tasksById[`${t.id}-TEST`]) testIds.add(`${t.id}-TEST`);
     }
-    const tests = [...testIds].sort().map((id) => ({ id, state: stateOf(id) }));
+    const tests = [...testIds].sort().map((id) => {
+      const t = { id, state: stateOf(id) };
+      if (ev) t.verdict = ev.verdictByTask[id] || null;
+      return t;
+    });
     let status;
     let note = null;
     if (tests.length === 0) status = 'NOT_PLANNED';
     else if (tests.every((x) => x.state === 'closed')) {
-      if (verified && !verified.has(req)) {
+      const unproven = ev ? tests.filter((x) => x.verdict !== 'passed') : [];
+      if (unproven.length > 0) {
+        status = 'IN_PROGRESS';
+        note = `closed without PASSED verdict: ${unproven.map((x) => `${x.id}${x.verdict ? ` (${x.verdict})` : ''}`).join(', ')}`;
+      } else if (verified && !verified.has(req)) {
         status = 'IN_PROGRESS';
         note = 'test tasks closed but no req-verified token found';
       } else status = 'SATISFIED';
@@ -430,6 +508,8 @@ function requirementStatus(parsed, opts) {
       note,
       tests,
       acs: prdReqs[req] ? prdReqs[req].acIds : [],
+      acsProven: ev && ev.acsProvenByReq[req] ? ev.acsProvenByReq[req] : [],
+      evidence,
     };
   });
 
@@ -440,6 +520,7 @@ function requirementStatus(parsed, opts) {
     checklist: { total: tasks.length, done: doneAll, pct: pct(doneAll, tasks.length), phases },
     requirements,
     summary,
+    evidence,
     totalRequirements: requirements.length,
   };
 }
@@ -448,6 +529,7 @@ module.exports = {
   validateTrd,
   analyzeTrd,
   requirementStatus,
+  evidenceFromComments,
   traceabilityFindings,
   findCycles,
   dependencyDepths,

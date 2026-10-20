@@ -199,7 +199,6 @@ Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 40 
 | Command | Arguments | Package | Purpose |
 |---------|-----------|---------|---------|
 | `/ensemble:implement-trd-beads` | `[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman]`, or `<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]` | development | TRD implementation on a persistent bead hierarchy |
-| `/ensemble:beads-plan` | `[epic-id\|slug-pattern] [max parallel N]` | development | Analyze an existing hierarchy and print `bv` analysis; no implementation |
 | `/ensemble:beads-build` | `[epic-id\|slug-pattern] [--trd trd-path] [--strategy <name>] [--label <label>] [max parallel N]` | development | Drive an existing hierarchy to completion through builder, review and close |
 | `/ensemble:refine-beads` | `[epic-id\|release-train-id\|slug] [--scope project]` | development | Approval-gated Beads graph refinement before execution |
 | `/ensemble:implement-bead` | `<bead-id>` | development | Implement one bead through analysis, implementation and PR |
@@ -348,7 +347,7 @@ Skill directories use the bare technology name. The tree has 61 source skill dir
 | Package | Skills |
 |---------|--------|
 | core | `detect-stack` |
-| development | `complete-beads`, `completion-verification`, `pr-review-cycle`, `staleness-gate`, `tool-path-resolution` |
+| development | `completion-verification`, `pr-review-cycle`, `staleness-gate`, `tool-path-resolution` |
 | infrastructure | `aws`, `kubernetes`, `helm`, `flyio`, `railway`, `supabase`, `vercel`, `jira`, `linear` |
 | git | `git-town`, `changelog-generator`, `act-local-ci` |
 | quality | `pr-review-remediation` |
@@ -457,6 +456,7 @@ Anything that loads a skill by name must use the new name.
 | `/ensemble:discover-standards`, `inject-standards` | `/ensemble:standards discover`, `inject` |
 | `assess-repo` / `assess-team` / `assess-config` / report skills invoked directly | `/ensemble:assess repo`, `team`, `config`, `report` (leaf skills remain invocable) |
 | `/ensemble:claude-changelog` (removed) | Use the `changelog-generator` skill |
+| `/ensemble:beads-plan` | `/ensemble:beads-build --plan` (read-only plan mode) |
 | `/ensemble:generate-api-docs`, `/ensemble:analyze-product`, `/ensemble:manager-dashboard` (removed) | None |
 | `/ensemble:sprint-status`, `/ensemble:web-metrics-dashboard` (removed) | None |
 | `/ensemble:playwright-test` (removed) | `/ensemble:author-playwright-tests` or the `playwright-tester` agent |

@@ -28,10 +28,11 @@ Resolve TRD_CLI per the tool-path-resolution skill (packages/development/lib/trd
 ### Step 2: Gather optional bead evidence
 
 If `br` exists: merge `br list --json` for open, in_progress and closed (a list, or an object whose `.issues` is the list) into file ISSUES.
-From `br comment list <epic-id>` (epic titled `[trd:<slug>]`) collect `req-verified:REQ-NNN` ids into VERIFIED (comma-separated).
+Per test bead and the epic (`[trd:<slug>]`) run `br comment list <id> --json`; merge the arrays into file COMMENTS as `[{"beadId":"<id>","comments":["<text>",...]}]`.
+Verdicts come from `status:closed ... verdict:passed` comments; `req-verified:`/`ac-proven:` tokens are read when present (nothing guarantees they were written, so do not claim ACs proven without them).
 On br failure warn and use checkboxes only.
 
 ### Step 3: Run and report
 
-Run `node "$TRD_CLI" req-status "$TRD_PATH" [--issues-json ISSUES --verified VERIFIED]`; on `{"error":...}` print it and stop.
-Print `checklist` per phase, a REQ | title | status | tests | note table, and `summary` counts.
+Run `node "$TRD_CLI" req-status "$TRD_PATH" [--issues-json ISSUES --comments-json COMMENTS]`; on `{"error":...}` print it and stop.
+Print `checklist` per phase, a REQ | title | status | tests | ACs proven (`acsProven`) | note table, `summary` counts, and the `evidence` level (`verdict-verified` or `closed-only`).
