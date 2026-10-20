@@ -124,7 +124,8 @@ workflow:
         - order: 2
           title: Content Refinement
           description: |
-            Apply changes ONLY for SELECTED_ITEMS; leave unselected sections alone. Fix what the findings identified: missing `[satisfies]`/TRD-NNN-TEST tasks, AC references, unclear details, error handling, targets, architecture justification, integration contracts, oversized tasks, dependency chains, stale references. (PR_FORMAT=true) insert missing `**Shippable State:**` lines, rewrite infrastructure-only ones with a user-observable capability, move tasks to resolve forward dependencies, and place new tasks inside the correct `### PR N:` section. (PR_FORMAT=false, conversion confirmed) convert Phase/Sprint headings in the Master Task List to `### PR N:` with Shippable State lines; leave `## Sprint Planning` unchanged.
+            Apply changes ONLY for SELECTED_ITEMS; leave unselected sections alone. Fix what the findings identified: missing `[satisfies]`/TRD-NNN-TEST tasks, AC references, architecture justification, integration contracts, oversized tasks, dependency chains, stale references. (PR_FORMAT=true) insert missing `**Shippable State:**` lines, rewrite infrastructure-only ones with a user-observable capability, move tasks to resolve forward dependencies, and place new tasks inside the correct `### PR N:` section. (PR_FORMAT=false, conversion confirmed) convert Phase/Sprint headings in the Master Task List to `### PR N:` with Shippable State lines; leave `## Sprint Planning` unchanged.
+            If the PRD touches auth, PII, payments, file upload, external network exposure or new third-party integrations and the TRD lacks `## Threat Model`, invoke the `threat-model` skill.
 
         - order: 3
           title: Validation

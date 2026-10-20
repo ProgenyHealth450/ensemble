@@ -34,7 +34,6 @@ Foreman subject contract (--foreman): FOREMAN_TASK_TITLE / FOREMAN_TASK_DESCRIPT
 
 - Unless --foundational with a brief: verify the PRD has Product Summary, User Analysis, Goals, Technical Requirements, Acceptance Criteria; REQ-NNN numbering is consistent; acceptance criteria are testable Given/When/Then with AC-NNN-M sub-items; constraints and non-goals are documented. Build the REQ registry for traceability.
 - Flag any functional REQ-NNN with fewer than 3 AC-NNN-M sub-items (happy path, edge, error) as insufficient BDD coverage in the readiness scorecard.
-- Do not validate TRD traceability here; the TRD does not exist yet.
 
 **3. Implementation Readiness Gate Check**
    Check the PRD's own readiness gate and review history
@@ -68,6 +67,7 @@ Foreman subject contract (--foreman): FOREMAN_TASK_TITLE / FOREMAN_TASK_DESCRIPT
    Design the chosen approach
 
 - Define component boundaries, data flow, integration points, and technology choices with rationale; describe the component relationships.
+- If the PRD touches auth, PII, payments, file upload, external network exposure or new third-party integrations, invoke the `threat-model` skill and add its `## Threat Model` section.
 
 ### Phase 3: Task Breakdown and Planning
 
@@ -75,7 +75,7 @@ Foreman subject contract (--foreman): FOREMAN_TASK_TITLE / FOREMAN_TASK_DESCRIPT
    Generate task list with TRD-NNN IDs and traceability annotations
 
 - Generate sequential TRD-NNN IDs.
-- Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**. Omitting the checkbox prefix makes the task invisible to trd-cli.js's TASK_LINE_RE parser and to implement-trd-beads, which will then create zero task beads for this TRD.
+- Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**; without it trd-cli.js and implement-trd-beads create zero task beads.
 - Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation (use [satisfies INFRA] or [satisfies ARCH] when there is no direct REQ), a `Validates PRD ACs:` field listing the AC-NNN-M items covered, and an `Implementation AC:` checklist of Given/When/Then items.
 
 **2. Test Task Generation (BDD)**
