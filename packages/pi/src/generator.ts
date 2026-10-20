@@ -373,125 +373,125 @@ function validateCommandYaml(data: unknown, filePath: string): CommandYaml {
 // AGENTS.md generator (TRD-009)
 // ---------------------------------------------------------------------------
 
-/**
- * Sections from CLAUDE.md that are relevant to Pi agents.
- * These section headings (prefix-matched at the ## level) will be INCLUDED.
- */
-const INCLUDED_SECTION_PREFIXES = [
-  '## Agent Mesh',
-  '## Agent Delegation Protocol',
-  '## Architecture Overview',
-];
+/** Generated runtime packages: translation layers, not part of the agent/package mesh. */
+const RUNTIME_PACKAGES = new Set(['ensemble-pi', 'ensemble-pi-extension', 'ensemble-codex', 'ensemble-opencode']);
 
-/**
- * Keywords that mark a section or sub-section as Claude Code-specific.
- * Any ## or ### heading containing one of these terms will be EXCLUDED,
- * along with all content until the next same-or-higher-level heading.
- */
-const EXCLUDED_SECTION_KEYWORDS = [
-  'hook',
-  'plugin install',
-  'plugin uninstall',
-  'settings.local.json',
-  'claude code permissions',
-  'claude plugin',
-  'permission',
-];
+/** Static delegation protocol; deliberately free of counts so it cannot go stale. */
+const DELEGATION_PROTOCOL = `Delegate through the Task tool with an explicit agent type, e.g. \`Task(subagent_type="backend-developer", prompt="...")\`.
 
-/** Return true if a heading line should be excluded based on Claude Code-specific keywords. */
-function isExcludedHeading(line: string): boolean {
-  const lower = line.toLowerCase();
-  return EXCLUDED_SECTION_KEYWORDS.some((kw) => lower.includes(kw));
+- Route cross-cutting or multi-domain work through an orchestrator (\`ensemble-orchestrator\`, \`tech-lead-orchestrator\`); route single-domain work straight to the specialist.
+- Pass file paths and requirements explicitly: delegates do not inherit your conversation.
+- One responsibility per delegation; independent tasks run in parallel.
+- Delegates report results back to the delegator; unresolved issues escalate up to the orchestrator.
+- Verify delegated claims (files changed, tests passed) before reporting done.`;
+
+interface PackageEntry {
+  name: string;
+  description: string;
 }
 
-/** Return the heading level of a markdown heading line (1-6), or 0 if not a heading. */
-function headingLevel(line: string): number {
-  const match = line.match(/^(#{1,6})\s/);
-  return match ? match[1].length : 0;
+interface AgentEntry {
+  name: string;
+  description: string;
 }
 
-/**
- * Parse CLAUDE.md content and extract only sections relevant to Pi agents,
- * stripping Claude Code-specific sections (hooks, permissions, plugin install).
- */
-function extractAgentSections(claudeMdContent: string): string {
-  const lines = claudeMdContent.split('\n');
-  const output: string[] = [];
+/** Collapse whitespace so a YAML description fits on one markdown line. */
+function oneLine(text: unknown): string {
+  return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+}
 
-  let inIncludedSection = false;
-  let inExcludedSubsection = false;
-  let excludedLevel = 0;
+/** List packages/<pkg>/<subdir>/<file> paths (sorted) whose file name satisfies `match`. */
+function listPackageFiles(sourceRoot: string, subdir: string[], match: (fileName: string) => boolean): string[] {
+  const packagesDir = path.join(sourceRoot, 'packages');
+  const out: string[] = [];
+  for (const pkg of readDirSorted(packagesDir)) {
+    const dir = path.join(packagesDir, pkg, ...subdir);
+    for (const file of readDirSorted(dir)) {
+      if (match(file)) out.push(path.join(dir, file));
+    }
+  }
+  return out;
+}
 
-  output.push(
+/** Sorted directory entries; empty when the directory is absent or unreadable. */
+function readDirSorted(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir).sort();
+  } catch {
+    return [];
+  }
+}
+
+/** Read packages/*\/.claude-plugin/plugin.json (name + description), sorted by name. */
+function collectPackages(sourceRoot: string): PackageEntry[] {
+  const files = listPackageFiles(sourceRoot, ['.claude-plugin'], (f) => f === 'plugin.json');
+  const entries: PackageEntry[] = [];
+  for (const file of files) {
+    try {
+      const json = JSON.parse(fs.readFileSync(file, 'utf-8')) as { name?: unknown; description?: unknown };
+      if (typeof json.name !== 'string' || RUNTIME_PACKAGES.has(json.name)) continue;
+      entries.push({ name: json.name, description: oneLine(json.description) });
+    } catch {
+      // Unparseable manifest: omit from the overview.
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Read packages/*\/agents/*.yaml grouped by package directory name. */
+function collectAgentsByPackage(sourceRoot: string): Map<string, AgentEntry[]> {
+  const files = listPackageFiles(sourceRoot, ['agents'], (f) => f.endsWith('.yaml'));
+  const byPackage = new Map<string, AgentEntry[]>();
+  for (const file of files) {
+    try {
+      const raw = yaml.load(fs.readFileSync(file, 'utf-8')) as { metadata?: { name?: unknown; description?: unknown } };
+      const name = raw?.metadata?.name;
+      if (typeof name !== 'string' || name === '') continue;
+      const pkg = path.basename(path.dirname(path.dirname(file)));
+      const list = byPackage.get(pkg) ?? [];
+      list.push({ name, description: oneLine(raw.metadata?.description) });
+      byPackage.set(pkg, list);
+    } catch {
+      // Unparseable agent YAML: omit from the mesh list.
+    }
+  }
+  return new Map([...byPackage.entries()].sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function renderAgentsMd(packages: PackageEntry[], agentsByPackage: Map<string, AgentEntry[]>): string {
+  const out: string[] = [
     '# Ensemble Agent Mesh',
     '',
-    '> Extracted from CLAUDE.md — relevant sections for Pi agent runtime.',
-    ''
-  );
-
-  for (const line of lines) {
-    const level = headingLevel(line);
-
-    if (level === 2) {
-      // Top-level section boundary (##)
-      inExcludedSubsection = false;
-      excludedLevel = 0;
-
-      const matchesIncluded = INCLUDED_SECTION_PREFIXES.some((prefix) =>
-        line.startsWith(prefix)
-      );
-
-      if (matchesIncluded && !isExcludedHeading(line)) {
-        inIncludedSection = true;
-        output.push(line);
-      } else {
-        inIncludedSection = false;
-      }
-      continue;
-    }
-
-    if (!inIncludedSection) continue;
-
-    if (level > 0) {
-      // Sub-section heading inside an included section
-      if (inExcludedSubsection && level > excludedLevel) {
-        // Still inside excluded sub-section — skip
-        continue;
-      }
-      // End of excluded sub-section at same or higher level
-      inExcludedSubsection = false;
-      excludedLevel = 0;
-
-      if (isExcludedHeading(line)) {
-        inExcludedSubsection = true;
-        excludedLevel = level;
-        continue;
-      }
-    } else {
-      // Non-heading line
-      if (inExcludedSubsection) continue;
-    }
-
-    output.push(line);
+    '> Generated from packages/*/.claude-plugin/plugin.json and packages/*/agents/*.yaml.',
+    '',
+    '## Architecture Overview',
+    '',
+    'Ensemble is a monorepo of plugin packages under `packages/`. Runtime packages (pi, codex, opencode) are generated translations of these sources.',
+    '',
+  ];
+  for (const pkg of packages) {
+    out.push(pkg.description ? `- \`${pkg.name}\` - ${pkg.description}` : `- \`${pkg.name}\``);
   }
 
-  // Trim trailing blank lines and add a single trailing newline
-  while (output.length > 0 && output[output.length - 1].trim() === '') {
-    output.pop();
+  const total = [...agentsByPackage.values()].reduce((n, list) => n + list.length, 0);
+  out.push('', '## Agent Mesh', '', `${total} agents, grouped by package.`);
+  for (const [pkg, agents] of agentsByPackage) {
+    out.push('', `### ${pkg}`, '');
+    for (const agent of agents) {
+      out.push(agent.description ? `- \`${agent.name}\` - ${agent.description}` : `- \`${agent.name}\``);
+    }
   }
-  output.push('');
 
-  return output.join('\n');
+  out.push('', '## Agent Delegation Protocol', '', DELEGATION_PROTOCOL, '');
+  return out.join('\n');
 }
 
 /**
- * Generate packages/pi/AGENTS.md by extracting agent-relevant sections from
- * the monorepo's root CLAUDE.md (sourceRoot/CLAUDE.md).
+ * Generate packages/pi/AGENTS.md from the real package and agent inventory:
+ * packages/*\/.claude-plugin/plugin.json and packages/*\/agents/*.yaml under
+ * sourceRoot. Independent of CLAUDE.md contents.
  *
- * Claude Code-specific content (hooks, permissions, plugin install/uninstall)
- * is stripped from the output.
- *
- * @param sourceRoot  Monorepo root path (where CLAUDE.md lives).
+ * @param sourceRoot  Monorepo root path.
  * @param outputRoot  packages/pi path (where AGENTS.md will be written).
  * @param options     { dryRun, verbose }
  * @returns           TransformResult describing the generated artifact.
@@ -503,16 +503,8 @@ export function generateAgentsMd(
 ): TransformResult {
   const { dryRun = false, verbose = false } = options;
 
-  // Primary source: root CLAUDE.md (the canonical agent mesh document).
-  // Note: packages/CLAUDE.md does not exist; the TRD reference is to this file.
-  const sourcePath = path.join(sourceRoot, 'CLAUDE.md');
-
-  if (!fs.existsSync(sourcePath)) {
-    throw new Error(`generateAgentsMd: source file not found: ${sourcePath}`);
-  }
-
-  const rawContent = fs.readFileSync(sourcePath, 'utf-8');
-  const content = extractAgentSections(rawContent);
+  const sourcePath = path.join(sourceRoot, 'packages');
+  const content = renderAgentsMd(collectPackages(sourceRoot), collectAgentsByPackage(sourceRoot));
   const outputPath = path.join(outputRoot, 'AGENTS.md');
 
   if (verbose) {
