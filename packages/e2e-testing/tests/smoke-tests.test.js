@@ -287,4 +287,9 @@ describe('includeOutput covers both streams, masks before truncating', () => {
     const r = await new SmokeTestDatabase({ command: cmd, includeOutput: true }).executeTests();
     expect(r.reason).not.toMatch(/hunter|secretvalue/);
   });
+  test('a secret whose keyword ends stderr and whose value starts stdout is masked', async () => {
+    const cmd = "printf 'connecting with password=' >&2; printf 'hunter2value'; exit 3";
+    const r = await new SmokeTestDatabase({ command: cmd, includeOutput: true }).executeTests();
+    expect(r.reason).not.toMatch(/hunter2value/);
+  });
 });
