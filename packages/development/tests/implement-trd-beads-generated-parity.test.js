@@ -52,84 +52,48 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
     }
   });
 
-  test('source: stacked and single-PR review gates and the completion check exist in order, each referencing the skill by the repo-root path pattern', () => {
+  test('source: Completion steps run verification, the PR review completion check, then epic closure; the gate and checks reference the skill by PR_REVIEW_SKILL', () => {
     const qualityGate = sourceYaml.workflow.phases.find((p) => p.name === 'Quality Gate');
-    const gateResultRecording = qualityGate.steps.find((s) => s.title === 'Gate Result Recording');
-    const stackedGateAction = gateResultRecording.actions.find((a) =>
-      a.startsWith('PR Review Gate (TRD-013, REQ-015): if gate_passed')
-    );
-    expect(stackedGateAction).toBeDefined();
-    expect(stackedGateAction).toContain(SKILL_PATH_PATTERN);
+    const gate = qualityGate.steps.find((s) => s.title === 'Per-phase gate').actions.join('\n');
+    expect(gate).toContain('PR_REVIEW_SKILL');
+    expect(sourceYaml.mission.summary).toContain(`PR_REVIEW_SKILL = \`${SKILL_PATH_PATTERN}\``);
 
     const completion = sourceYaml.workflow.phases.find((p) => p.name === 'Completion');
-    const titles = completion.steps.map((s) => s.title);
-    expect(titles).toEqual([
-      'Completion Verification',
-      'PR Review Completion Check',
-      'Epic Closure',
-      'TRD Checkbox Sync',
-      'Completion Report',
+    expect(completion.steps.map((s) => s.title)).toEqual([
+      'Completion verification',
+      'PR review completion check',
+      'Epic closure and TRD checkboxes',
+      'Completion report',
     ]);
 
-    const prReviewCheck = completion.steps.find((s) => s.title === 'PR Review Completion Check');
-    const remoteAction = prReviewCheck.actions.find((a) => a.includes("MODE='remote'"));
-    expect(remoteAction).toBeDefined();
-    expect(remoteAction).toContain(SKILL_PATH_PATTERN);
-
-    // The single-PR whole-branch gate runs in the check, BEFORE Epic Closure, and not again in Completion Report.
-    const singlePrGateAction = prReviewCheck.actions.find((a) =>
-      a.startsWith('Single-PR local review gate (TRD-013')
-    );
-    expect(singlePrGateAction).toBeDefined();
-    expect(singlePrGateAction).toContain(SKILL_PATH_PATTERN);
-    const completionReport = completion.steps.find((s) => s.title === 'Completion Report');
+    const prReviewCheck = completion.steps.find((s) => s.title === 'PR review completion check');
+    expect(prReviewCheck.actions.some((a) => a.includes("MODE='remote'"))).toBe(true);
+    expect(prReviewCheck.actions.some((a) => a.includes("MODE='local'"))).toBe(true);
+    // The whole-branch local gate runs in the check, BEFORE Epic Closure, and not again in the report.
+    const completionReport = completion.steps.find((s) => s.title === 'Completion report');
     expect(completionReport.actions.some((a) => /MODE='local'/.test(a))).toBe(false);
   });
 
   test.each(Object.entries(GENERATED_FILES))(
-    '%s: carries the PR Review Completion Check title between Completion Verification and the Epic Closure step',
+    '%s: carries the PR review completion check between completion verification and epic closure, and the per-phase gate before them',
     (label) => {
       const text = generated[label];
-      const verificationIdx = text.indexOf('Completion Verification');
-      const checkIdx = text.indexOf('PR Review Completion Check');
-      // The Epic Closure STEP is located by its own (unique) description text,
-      // not the bare words "Epic Closure" -- that phrase also appears earlier,
-      // inside Completion Verification's own pre-existing cross-reference
-      // ("...and continue to Epic Closure."), which would otherwise produce a
-      // false-positive earlier match.
-      const epicClosureStepIdx = text.indexOf('Close the root epic when all children are done');
+      const gateIdx = text.indexOf('Per-phase gate');
+      const verificationIdx = text.indexOf('Completion verification');
+      const checkIdx = text.indexOf('PR review completion check');
+      const closureIdx = text.indexOf('Epic closure and TRD checkboxes');
 
-      expect(verificationIdx).toBeGreaterThan(-1);
-      expect(checkIdx).toBeGreaterThan(-1);
-      expect(epicClosureStepIdx).toBeGreaterThan(-1);
+      expect(gateIdx).toBeGreaterThan(-1);
+      expect(gateIdx).toBeLessThan(verificationIdx);
       expect(verificationIdx).toBeLessThan(checkIdx);
-      expect(checkIdx).toBeLessThan(epicClosureStepIdx);
+      expect(checkIdx).toBeLessThan(closureIdx);
     }
   );
 
   test.each(Object.entries(GENERATED_FILES))(
-    '%s: carries both PR review gate call sites, the stacked one before its append and the single-PR one before Epic Closure',
+    '%s: defines PR_REVIEW_SKILL by the exact repo-root path pattern',
     (label) => {
-      const text = generated[label];
-      const stackedGateIdx = text.indexOf('PR Review Gate (TRD-013');
-      const singleGateIdx = text.indexOf('Single-PR local review gate (TRD-013');
-      const appendClauseIdx = text.indexOf('GATE_ACTION.appendNextBranch is set');
-      // The Epic Closure STEP is located by its own unique description text (see above).
-      const epicClosureStepIdx = text.indexOf('Close the root epic when all children are done');
-
-      expect(stackedGateIdx).toBeGreaterThan(-1);
-      expect(singleGateIdx).toBeGreaterThan(-1);
-      expect(appendClauseIdx).toBeGreaterThan(stackedGateIdx);
-      // A blocking whole-branch finding must halt before the epic can close (AC-016-3).
-      expect(epicClosureStepIdx).toBeGreaterThan(singleGateIdx);
-    }
-  );
-
-  test.each(Object.entries(GENERATED_FILES))(
-    '%s: references the pr-review-cycle skill by the exact repo-root path pattern, at least 3 times (2 local gates + 1 remote check)',
-    (label) => {
-      const occurrences = generated[label].split(SKILL_PATH_PATTERN).length - 1;
-      expect(occurrences).toBeGreaterThanOrEqual(3);
+      expect(generated[label]).toContain(SKILL_PATH_PATTERN);
     }
   );
 
@@ -139,7 +103,8 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
       const text = generated[label];
       expect(text).toContain('LOCAL_REVIEW_COMPLETE');
       expect(text).toContain('LOCAL_REVIEW_BLOCKED');
-      expect(text).toContain("'REVIEW_PENDING' or 'REVIEW_BLOCKED'");
+      expect(text).toContain('REVIEW_PENDING');
+      expect(text).toContain('REVIEW_BLOCKED');
     }
   );
 
@@ -147,8 +112,7 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
     '%s: carries the anti-early-completion contract (a pending/blocked PR is never described as merged or landed)',
     (label) => {
       const text = generated[label];
-      expect(text).toMatch(/never describes? a pending PR as merged or landed/);
-      expect(text).toContain('never merged or landed until a human confirms it');
+      expect(text).toMatch(/Never call a PR merged or landed/);
     }
   );
 

@@ -87,43 +87,27 @@ describe('beads-build Preflight resolve-sdlc rewiring (TRD-013)', () => {
     expect(stepBlock).toMatch(/INTERACTIVE=false, or INTERACTIVE detection is itself uncertain[\s\S]*HALT/);
   });
 
-  test('behavioral equivalence with implement-trd-beads.yaml TRD-008 Preflight pattern', () => {
+  test('beads-build and the implement-trd-beads reference skill consume the same resolve-sdlc contract', () => {
     const beadsBuildText = fs.readFileSync(yamlPath, 'utf8');
-    const implPath = path.join(__dirname, '../commands/implement-trd-beads.yaml');
-    const implText = fs.readFileSync(implPath, 'utf8');
+    const implText = fs.readFileSync(
+      path.join(__dirname, '../skills/implement-trd-beads-reference/SKILL.md'),
+      'utf8'
+    );
+    const beadsBuildStep = beadsBuildText
+      .slice(
+        beadsBuildText.indexOf('title: Git-Town and Working Directory Verification'),
+        beadsBuildText.indexOf('title: Epic Discovery')
+      )
+      .replace(/''/g, "'");
 
-    const extractStep = (text, startMarker, endMarker) => {
-      const s = text.indexOf(startMarker);
-      const e = text.indexOf(endMarker);
-      return text.slice(s, e);
-    };
-
-    // Normalize YAML single-quote escaping (''->') so markers compare equally
-    // regardless of which file's quoting style (single- vs double-quoted scalars) is used.
-    const normalize = (s) => s.replace(/''/g, "'");
-
-    const beadsBuildStep = normalize(extractStep(
-      beadsBuildText,
-      'title: Git-Town and Working Directory Verification',
-      'title: Epic Discovery'
-    ));
-    const implStep = normalize(extractStep(
-      implText,
-      'title: Git-Town and Working Directory Verification',
-      'title: TRD Selection and Validation'
-    ));
-
-    // Same resolution logic markers present in both — same HALT/prompt/consolidated-message shape.
-    for (const marker of [
-      'resolve-sdlc --git-town-exit-code',
-      'RESOLVE_SDLC_RESULT',
-      "branchingStrategy.action == 'halt'",
-      'prBackend.needsResolution == true',
-      'prBackend.needsResolution == false',
-      'consolidatedMessage',
+    for (const [buildMarker, implMarker] of [
+      ['resolve-sdlc --git-town-exit-code', 'resolve-sdlc --git-town-exit-code'],
+      ["branchingStrategy.action == 'halt'", "branchingStrategy.action=='halt'"],
+      ['prBackend.needsResolution == false', 'prBackend.needsResolution==false'],
+      ['consolidatedMessage', 'consolidatedMessage'],
     ]) {
-      expect(beadsBuildStep).toContain(marker);
-      expect(implStep).toContain(marker);
+      expect(beadsBuildStep).toContain(buildMarker);
+      expect(implText).toContain(implMarker);
     }
   });
 

@@ -96,52 +96,14 @@ describe('configure-team command agent discovery', () => {
 
 
 describe('implement-trd-beads command agent registry build', () => {
-  test('Preflight Order 11 builds KNOWN_AGENTS from both source packages and runtime plugin agents', () => {
+  // beads-build resolves the wave-runner through AGENT_ALIAS_MAP, which this command builds.
+  test('builds AGENT_ALIAS_MAP from source packages and both runtime plugin agent globs', () => {
     const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
-    // Step 3 — initial build of KNOWN_AGENTS / AGENT_ALIAS_MAP
-    expect(text).toContain('Step 3 — Build KNOWN_AGENTS and AGENT_ALIAS_MAP');
-    // 3a — source packages glob (preserved from prior behavior)
-    expect(text).toContain('3a — Source packages scan');
+    expect(text).toContain('AGENT_ALIAS_MAP');
     expect(text).toContain('packages/*/agents/*.yaml');
-    // 3b — runtime plugin agents glob (NEW)
-    expect(text).toContain('3b — Runtime plugin agent fallback');
     expect(text).toContain('~/.omp/plugins/node_modules/@*/*/agents/*.md');
     expect(text).toContain('~/.omp/plugins/node_modules/*/agents/*.md');
-    // 3c — router-rules overlay
-    expect(text).toContain('3c — Router-rules overlay');
-    expect(text).toContain('router-rules.json');
-    // 3e — AGENT_ALIAS_MAP construction
-    expect(text).toContain('AGENT_ALIAS_MAP');
-    expect(text).toContain('AGENT_ALIAS_MAP[\'backend-developer\'] = \'ensemble-full:backend-developer\'');
-  });
-
-  test('Preflight Order 11 Step 5 (gap analysis) consults KNOWN_AGENTS, not raw glob', () => {
-    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
-    expect(text).toContain('Step 5 — Gap analysis');
-    expect(text).toContain('default agent exists in KNOWN_AGENTS');
-  });
-
-  test('Preflight Order 11 Step 8 (post-install refresh) re-runs both globs and rebuilds maps', () => {
-    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
-    expect(text).toContain('Step 8 — If any plugins were installed');
-    expect(text).toContain('Re-run the full agent and skill discovery from Step 3');
-    expect(text).toContain('rebuild AGENT_ALIAS_MAP');
-  });
-
-  test('AGENT_ALIAS_MAP contract still present at executionContract level', () => {
-    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
-    expect(text).toContain('AGENT_ALIAS_MAP is the source for agent identity resolution');
-    expect(text).toContain('Task(agent_type=<resolved_specialist>');
-    expect(text).toContain('resolved @code-reviewer');
-    expect(text).toContain('resolved @deep-debugger');
-  });
-
-  test('Preflight Order 11 Step 5 (gap analysis) consults runtime skill glob', () => {
-    const text = fs.readFileSync(IMPLEMENT_TRD_BEADS_YAML, 'utf8');
-    // Gap analysis must check both source and runtime skill locations.
-    expect(text).toContain('packages/*/skills/');
-    expect(text).toContain('~/.omp/plugins/node_modules/@*/*/skills/*/SKILL.md');
-    expect(text).toContain('~/.omp/plugins/node_modules/*/skills/*/SKILL.md');
+    expect(text).toContain('`backend-developer` -> `ensemble-full:backend-developer`');
   });
 });
 

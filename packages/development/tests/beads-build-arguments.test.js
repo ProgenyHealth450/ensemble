@@ -32,9 +32,9 @@ describe('beads-build argument grammar matches its callers', () => {
   });
 
   test('every flag implement-trd-beads passes to beads-build is parsed by beads-build', () => {
-    const calls = JSON.stringify(caller).match(/invoke \/ensemble:beads-build with arguments: ([^"]*?)\.? --defer|invoke \/ensemble:beads-build with arguments: ([^"]*)/);
+    const calls = JSON.stringify(caller).match(/\/ensemble:beads-build <ROOT_EPIC_ID>([^`]*--defer-completion)`/);
     expect(calls).not.toBeNull();
-    const passed = (calls[0].match(/--[a-z-]+/g) || []);
+    const passed = (calls[1].match(/--[a-z-]+/g) || []);
     expect(passed).toEqual(expect.arrayContaining(['--trd', '--max-parallel', '--team-roles', '--label']));
     for (const flag of new Set(passed)) {
       expect(parsing).toContain(flag);

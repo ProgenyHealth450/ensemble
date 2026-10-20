@@ -634,27 +634,27 @@ describe('Guard 7: stacked-close deferral and single-PR gate ordering (implement
     id: 'Guard 7a',
     label:
       'Scenario 7a: swapping which branch runs the deferred story close -- "a stacked story is not closed until its PR review gate returns LOCAL_REVIEW_COMPLETE" fails against the mutant',
-    files: ['commands/implement-trd-beads.yaml', 'tests/implement-trd-beads-command.test.js', 'lib'],
+    files: ['commands/implement-trd-beads.yaml', 'skills/implement-trd-beads-reference', 'tests/implement-trd-beads-command.test.js', 'lib'],
     targetRel: 'commands/implement-trd-beads.yaml',
     testFileRel: 'tests/implement-trd-beads-command.test.js',
     testTitle: 'a stacked story is not closed until its PR review gate returns LOCAL_REVIEW_COMPLETE',
     // Swap just the two branch labels in place: the deferred `br close` prose now hangs off the BLOCKED branch and
     // the stays-OPEN prose now hangs off the COMPLETE branch -- the story closes exactly when it must stay open.
     mutate: (text, a) =>
-      a.swap(text, "If PHASE_LOCAL_REVIEW=='LOCAL_REVIEW_BLOCKED':", "If PHASE_LOCAL_REVIEW=='LOCAL_REVIEW_COMPLETE':"),
+      a.swap(text, 'BLOCKED -> print the reasons', 'COMPLETE -> close the story'),
   });
 
   proveGuardMutationIsCaught({
     id: 'Guard 7b',
     label:
       'Scenario 7b: swapping the Epic Closure and PR Review Completion Check step titles -- "completion-verification stays authoritative" fails against the mutant',
-    files: ['commands/implement-trd-beads.yaml', 'tests/implement-trd-beads-command.test.js', 'lib'],
+    files: ['commands/implement-trd-beads.yaml', 'skills/implement-trd-beads-reference', 'tests/implement-trd-beads-command.test.js', 'lib'],
     targetRel: 'commands/implement-trd-beads.yaml',
     testFileRel: 'tests/implement-trd-beads-command.test.js',
     testTitle: 'completion-verification stays authoritative',
     // Swap just the two titles in place: the Completion phase's step order now reads ['Completion Verification',
     // 'Epic Closure', 'PR Review Completion Check', ...] -- the whole-branch local gate no longer precedes epic closure.
-    mutate: (text, a) => a.swap(text, 'title: PR Review Completion Check', 'title: Epic Closure'),
+    mutate: (text, a) => a.swap(text, 'title: PR review completion check', 'title: Epic closure and TRD checkboxes'),
   });
 });
 

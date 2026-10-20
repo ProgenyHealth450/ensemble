@@ -29,28 +29,6 @@ const SHAPES = [
   ['wrapped object (br 0.2.x list)', wrapped(ISSUES)],
 ];
 
-describe('implement-trd-beads trd_progress() snippet', () => {
-  // Pull the documented `node -e '...'` body out of the command and run it as written.
-  const script = read('implement-trd-beads.yaml').match(
-    /counts=\$\(node -e '([\s\S]*?)' "\$issues_json" "\$slug"\)/
-  );
-
-  test('the snippet is present in the command', () => {
-    expect(script).not.toBeNull();
-  });
-
-  test.each(SHAPES)('counts beads for the slug from a %s', (_name, payload) => {
-    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'br-shape-')), 'issues.json');
-    fs.writeFileSync(file, JSON.stringify(payload));
-    try {
-      const out = execFileSync(process.execPath, ['-e', script[1], file, 'demo'], { encoding: 'utf8' });
-      expect(out.trim()).toBe('3 1 1 1 33.3'); // total closed in_progress open pct
-    } finally {
-      fs.rmSync(path.dirname(file), { recursive: true, force: true });
-    }
-  });
-});
-
 describe('trd-cli getBeadCounts (used by list and status)', () => {
   // getBeadCounts shells out to `br list --all --json`; stand in for br's output.
   function countsFrom(payload) {

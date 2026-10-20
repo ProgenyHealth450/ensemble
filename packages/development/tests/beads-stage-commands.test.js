@@ -20,7 +20,9 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const lines = (text) => text.split('\n');
 
 const COMMANDS = {
-  'implement-trd-beads.yaml': read('commands/implement-trd-beads.yaml'),
+  // the dirty-tree status capture lives in the on-demand reference skill, not the command body
+  'implement-trd-beads.yaml':
+    read('commands/implement-trd-beads.yaml') + '\n' + read('skills/implement-trd-beads-reference/SKILL.md'),
   'beads-build.yaml': read('commands/beads-build.yaml'),
   'beads-build-wave.yaml': read('commands/beads-build-wave.yaml'),
 };
@@ -32,7 +34,7 @@ describe('dirty-tree gates ignore br\'s own state under .beads/', () => {
   test.each(GATES)('%s excludes .beads from `git status --porcelain`', (file) => {
     // the status reading: a HALT line in beads-build-wave.yaml, a WORKTREE_STATUS capture in the
     // other two (their clean-tree gate moved after resume detection and decides on that capture)
-    const gate = lines(COMMANDS[file]).find((l) => l.includes('Run: git status --porcelain'));
+    const gate = lines(COMMANDS[file]).find((l) => l.includes('git status --porcelain'));
     expect(gate).toBeDefined();
     // a single-quoted YAML string stores a literal ' as ''
     expect(gate.replace(/''/g, "'")).toContain(PATHSPEC);
