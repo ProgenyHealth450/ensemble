@@ -17,8 +17,7 @@ const path = require('path');
 const read = (rel) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
 const itb = read('commands/implement-trd-beads.yaml');
 const build = read('commands/beads-build.yaml');
-const wave = read('commands/beads-build-wave.yaml');
-const waveAgent = read('agents/beads-build-wave.yaml');
+const wave = read('agents/beads-build-wave.yaml');
 
 describe('implement-trd-beads labels the beads it scaffolds', () => {
   test.each(['epic', 'stories[i]', 'tasks[j]', 'synthesizedTests[k]'])(
@@ -44,13 +43,10 @@ describe('implement-trd-beads labels the beads it scaffolds', () => {
   });
 });
 
-describe.each([
-  ['beads-build.yaml', build],
-  ['beads-build-wave.yaml', wave],
-])('%s', (_name, text) => {
+describe('beads-build.yaml', () => {
   test('advertises and parses --label', () => {
-    expect(text).toMatch(/argument_hint: .*--label <label>/);
-    expect(text).toMatch(/Parse --label <L> from \$ARGUMENTS/);
+    expect(build).toMatch(/argument_hint: .*--label <label>/);
+    expect(build).toMatch(/Parse --label <L> from \$ARGUMENTS/);
   });
 });
 
@@ -77,7 +73,7 @@ describe('beads-build', () => {
   });
 });
 
-describe('beads-build-wave', () => {
+describe('beads-build-wave agent', () => {
   test('scopes the plan with bv --label when LABEL is set', () => {
     expect(wave).toMatch(/bv --robot-plan --label <LABEL> --format toon/);
   });
@@ -91,7 +87,7 @@ describe('beads-build-wave', () => {
     expect(wave).toMatch(/scope: \{ ROOT_EPIC_ID, EPIC_SLUG, LABEL \(or null\),/);
   });
 
-  test('the runner agent maps the payload LABEL to --label', () => {
-    expect(waveAgent).toMatch(/LABEL\s+-> --label/);
+  test('br-only scheduling is label-scoped too', () => {
+    expect(wave).toMatch(/br ready --json` \(add `--label <LABEL>` when LABEL is set/);
   });
 });

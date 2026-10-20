@@ -160,7 +160,7 @@ mission:
     - Execution: bv --robot-plan is the only scheduler; tracks partitioned and dispatched concurrently (max N parallel); br sync --flush-only before every bv call; barrier-and-replan between waves
     - Quality gates: phase completion triggers test delegation; results recorded as br comments
     - Sync: br sync --flush-only exports JSONL before every bv call
-    - Hard requirement: bv is required. There is no graceful-degradation path — if bv is missing, installation is a precondition. br ready is never a fallback dispatcher; bv --robot-plan is the only scheduler.
+    - bv is OPTIONAL. With bv, scheduling uses bv --robot-plan; without it, beads-build schedules from br ready (one bead per track). Never read .beads/*.jsonl to schedule.
     - Quickstart generation: beads-backed quickstart.md generation is unsupported in v1. No standalone command currently generates this artifact for a beads-backed run.
     - --foreman forces non-interactive mode without changing safety HALT behavior (branch-intent-required, PR-backend-unresolved, and completion-verification-failed still HALT unchanged).
     - When --foreman is present and FOREMAN_ARTIFACT_PATH is set and non-empty, write the phase report to that exact path (creating parent directories as needed) IN ADDITION TO any repo-local report this command already writes -- Foreman computes that path and reads it back to confirm the phase produced an artifact. Never invent, alter, or relocate the path, and never treat an unset FOREMAN_ARTIFACT_PATH as an error (outside Foreman dispatch it is simply absent and behavior is unchanged).
@@ -347,9 +347,9 @@ workflow:
           actions:
             - "which br || { echo 'ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust'; exit 1; }"
             - "br list --status=open > /dev/null 2>&1 || { echo 'ERROR: br not functional'; exit 1; }"
-            - "which bv >/dev/null 2>&1 && BV_AVAILABLE=true || { echo 'ERROR: bv (beads_viewer) is required (contract: bv is required, line 122 of this skill; installation is a precondition, no graceful-degradation path). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.'; exit 1; }"
+            - "which bv >/dev/null 2>&1 && BV_AVAILABLE=true || BV_AVAILABLE=false"
             - "Resolve TRD_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/trd-cli.js. If none of the 4 tiers resolve OR 'which node' fails: print 'ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required for deterministic TRD parsing. Ensure Node.js is installed and the ensemble-development plugin is present.' and exit 1. Smoke-check: node \"$TRD_CLI\" parse \"<any TRD path once known>\" is used later; for now just confirm the file exists and node runs."
-            - "If BV_AVAILABLE=false: print 'ERROR: bv (beads_viewer) is required for graph-aware task scheduling in all modes (--plan, --execute, full). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.' and exit 1"
+            - "If BV_AVAILABLE=false: print 'WARNING: bv (beads_viewer) not installed; graph-aware planning is skipped and execution schedules from br ready. Install from https://github.com/Dicklesworthstone/beads_viewer for parallel tracks.' and continue."
             - "If PLAN_ONLY is not true (the Execute phase will run, in full and --execute modes): verify the wave-runner agent is registered in this session. Execute delegates to /ensemble:beads-build, which dispatches Task(subagent_type=beads-build-wave), so beads-build-wave (listed as ensemble-development:beads-build-wave) must be among the subagent types the Task tool currently accepts. An agent file on disk, or an entry in AGENT_ALIAS_MAP, does not prove the plugin registered it. If it is not available: print 'ERROR: agent beads-build-wave is not registered in this session, so execution cannot start. The installed ensemble-development plugin is out of date or was loaded before this agent shipped. Run /ensemble:reinstall-plugins, start a new Claude Code session, and re-run.' and exit 1 before any bead is scaffolded."
 
         - order: 4
@@ -509,7 +509,7 @@ workflow:
             - "Step 2 — Domain scan: identify TRD task domains using same keyword matching as /create-trd Phase 4 Step 3"
             - "Step 3 — Build KNOWN_AGENTS and AGENT_ALIAS_MAP (initial agent registry). This is the binding contract the executionContract.agentResolution rules refer to. Without this step the alias map is undefined and every Task() delegation fails."
             - "  3a — Source packages scan: Use Glob to scan packages/*/agents/*.yaml relative to CWD. For each file extract basename without .yaml extension as the unqualified agent name."
-            - "  3b — Runtime plugin agent fallback (REQUIRED): Use Glob to scan BOTH '~/.omp/plugins/node_modules/@*/*/agents/*.md' (scoped npm packages, e.g. @sunstone-partners/ensemble-pi/agents/*.md) AND '~/.omp/plugins/node_modules/*/agents/*.md' (unscoped fallback). The two-pattern glob is required because the @*/agents/*.md shorthand misses the package segment; without it only the project's local agents are visible and the full team roster (tech-lead-orchestrator, code-reviewer, qa-orchestrator, test-runner, etc.) is incorrectly absent. For each discovered agent markdown file derive a runtime agent identifier of the form '<plugin>:<agent_name>' by combining the plugin directory name (e.g. ensemble-pi -> 'ensemble-full' when the plugin's marketplace name is ensemble-full, otherwise the raw plugin directory name) with the basename without .md extension. Add the runtime identifier to KNOWN_AGENTS and also add the unqualified basename as an alias."
+            - "  3b — Runtime plugin agent fallback (REQUIRED): Use Glob to scan BOTH '~/.omp/plugins/node_modules/@*/*/agents/*.md' (scoped npm packages, e.g. @sunstone-partners/ensemble-pi/agents/*.md) AND '~/.omp/plugins/node_modules/*/agents/*.md' (unscoped fallback). The two-pattern glob is required because the @*/agents/*.md shorthand misses the package segment; without it only the project's local agents are visible and the full team roster (tech-lead-orchestrator, code-reviewer, test-runner, etc.) is incorrectly absent. For each discovered agent markdown file derive a runtime agent identifier of the form '<plugin>:<agent_name>' by combining the plugin directory name (e.g. ensemble-pi -> 'ensemble-full' when the plugin's marketplace name is ensemble-full, otherwise the raw plugin directory name) with the basename without .md extension. Add the runtime identifier to KNOWN_AGENTS and also add the unqualified basename as an alias."
             - "  3c — Router-rules overlay: If .claude/router-rules.json exists in CWD, read it and merge any custom agent names defined there into KNOWN_AGENTS (these are user-defined aliases the runtime resolves)."
             - "  3d — Build KNOWN_AGENTS as a sorted set of every discovered name (both unqualified and runtime-namespaced)."
             - "  3e — Build AGENT_ALIAS_MAP: for every namespaced entry of the form '<plugin>:<name>' where no exact unqualified '<name>' is also present, map '<name>' to '<plugin>:<name>'. Example: if only 'ensemble-full:backend-developer' is present, AGENT_ALIAS_MAP['backend-developer'] = 'ensemble-full:backend-developer'. If 'backend-developer' is present both qualified and unqualified, the unqualified entry wins (no alias needed)."
@@ -652,13 +652,13 @@ workflow:
             - "  Run: PLAN_OUTPUT=$(bv --robot-plan --format toon) — capture parallel execution tracks"
             - "  Parse PLAN_OUTPUT to extract parallel tracks (track numbers, task lists per track)"
             - "  Store PARALLEL_TRACKS for use in wheel instructions"
-            - "  On bv failure (non-zero exit OR malformed TOON output): print 'ERROR: bv --robot-plan failed' with captured diagnostics and HALT — bv is the required scheduler, there is no sequential-fallback path (contract: bv is required, line 122 of this skill; install bv from https://github.com/Dicklesworthstone/beads_viewer)."
+            - "  On bv failure (non-zero exit OR malformed TOON output): print 'WARNING: bv --robot-plan failed' with captured diagnostics, set BV_AVAILABLE=false and continue br-only (beads-build schedules from br ready)."
             - "  Run: INSIGHTS_OUTPUT=$(bv --robot-insights --format toon) — capture graph health. Parse INSIGHTS_OUTPUT with explicit text patterns: cycles if /cycle|cycles/i and not /cycles:\\s*none/i; unexpected blockers if /unexpected blocker|stale blocker|blocked by closed|missing blocker/i; priority/order mismatches if /priority.*mismatch|order.*mismatch|contradict|inversion/i. If cycles are detected: print the matching lines and HALT before execution until the user fixes dependencies or reruns refine-beads. If only unexpected blockers or priority/order mismatches are detected: print matching lines and ask user to continue, run /ensemble:refine-beads, or abort; continue only on explicit user approval. Never invoke bare bv; only --robot-* flags."
             - "  Run: TRIAGE_OUTPUT=$(bv --robot-triage --format toon) — capture triage analysis"
             - "  Parse TRIAGE_OUTPUT to extract: quick_ref, recommendations (ranked list with scores), quick_wins, blockers_to_clear"
             - "  Store TRIAGE_RECOMMENDATIONS for use in wheel instructions"
             - "  On bv failure: echo 'WARNING: bv --robot-triage failed.'; continue without triage data"
-            - "If BV_AVAILABLE == false: print 'ERROR: bv (beads_viewer) is required (contract: bv is required, line 122 of this skill). Install bv from https://github.com/Dicklesworthstone/beads_viewer and retry.' and HALT — the no-fallback contract forbids br-only sequential execution order."
+            - "If BV_AVAILABLE == false: print 'WARNING: bv (beads_viewer) not installed - continuing br-only (beads-build schedules from br ready, one bead per track). Install bv from https://github.com/Dicklesworthstone/beads_viewer for graph-aware scheduling.' and continue."
             - "If --foreman is present in arguments (and only then), mark the executable beads for Foreman dispatch. Run this ONLY after every bead and dependency edge exists and the bv --robot-plan call above succeeded, so a bead is never tagged before its dependencies are wired. Foreman and the iterate jobsite pick up only beads labeled foreman-exec."
             - "  Tag task-level beads only: every bead id in TRD_TO_BEAD_MAP, plus any synthesized test task beads. NEVER tag the root epic or story beads -- they are containers that bv surfaces as actionable once their children close, and an agent dispatched on one would re-plan instead of implementing."
             - "  For each task bead id run: br update <BEAD_ID> --add-label foreman-exec. NEVER use --labels or --set-labels: they replace the whole label set and would drop the TRD scope label."
@@ -679,7 +679,7 @@ workflow:
             - "  Print TRIAGE RECOMMENDATIONS with top recommendations from TRIAGE_OUTPUT"
             - "  Print QUICK WINS from TRIAGE_OUTPUT quick_wins section"
             - "  Print BLOCKERS TO CLEAR from TRIAGE_OUTPUT blockers_to_clear section"
-            - "If BV_AVAILABLE == false: print 'BV analysis unavailable. Install bv from https://github.com/Dicklesworthstone/beads_viewer — the no-fallback contract (bv is required, line 122) forbids br-only execution order.'"
+            - "If BV_AVAILABLE == false: print 'BV analysis unavailable (optional). Execution falls back to br ready via beads-build; install bv from https://github.com/Dicklesworthstone/beads_viewer for graph-aware parallel tracks.'"
 
         - order: 10
           title: Wheel Instructions Output
@@ -712,7 +712,7 @@ workflow:
             - "  ================================================================"
             - "If BV_AVAILABLE == true: also print the BV analysis from Scaffold Step 7 (parallel tracks and triage recommendations) above the execution instructions as planning context."
             - "If PLAN_ONLY=true: print 'Plan complete. Bead hierarchy created. Run /ensemble:implement-trd-beads --execute to begin implementation.' and EXIT. Do not enter Execute phase."
-            - "TIP: You can also run /ensemble:beads-plan <ROOT_EPIC_ID> at any time to regenerate bv analysis and execution instructions without re-running TRD scaffold."
+            - "TIP: You can also run /ensemble:beads-build <ROOT_EPIC_ID> --plan at any time to regenerate the bv/br analysis without re-running TRD scaffold."
 
     - name: Execute
       order: 3

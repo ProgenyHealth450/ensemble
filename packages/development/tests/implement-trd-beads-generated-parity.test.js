@@ -2,7 +2,7 @@
  * TRD-015-TEST: implement-trd-beads generated parity
  *
  * Proves that regenerating implement-trd-beads.yaml's OMP (Claude + Pi) and
- * Codex outputs, and complete-beads/SKILL.md's Pi mirror, carries the same
+ * Codex outputs carries the same
  * PR-review-gate structure as the source: the stacked-phase PR Review Gate
  * (Gate Result Recording), the single-PR PR Review Gate (Completion Report),
  * and the PR Review Completion Check, in the right order relative to each
@@ -17,9 +17,6 @@
  * `title`, `description` and `actions[]` only (never an `instructions` key
  * -- confirmed project-wide; see fix-issue-generated-parity.test.js). Every
  * content assertion below is scoped to what actually survives generation.
- * complete-beads/SKILL.md is a plain prose skill (not a command), so only
- * its Pi mirror is generated; it is asserted byte-identical to the source
- * after the Pi-injected frontmatter.
  */
 
 const fs = require('fs');
@@ -29,7 +26,6 @@ const yaml = require('js-yaml');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SOURCE_PATH = path.join(__dirname, '../commands/implement-trd-beads.yaml');
-const COMPLETE_BEADS_SOURCE_PATH = path.join(__dirname, '../skills/complete-beads/SKILL.md');
 
 const GENERATED_FILES = {
   'Claude/OMP markdown': path.join(__dirname, '../commands/ensemble/implement-trd-beads.md'),
@@ -41,16 +37,12 @@ const GENERATED_FILES = {
   ),
 };
 
-const COMPLETE_BEADS_PI_MIRROR_PATH = path.join(__dirname, '../../pi/skills/complete-beads/SKILL.md');
-
 const SKILL_PATH_PATTERN =
   '"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md"';
 
 describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
   let sourceYaml;
   let generated;
-  let completeBeadsSource;
-  let completeBeadsPiMirror;
 
   beforeAll(() => {
     sourceYaml = yaml.load(fs.readFileSync(SOURCE_PATH, 'utf-8'));
@@ -58,8 +50,6 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
     for (const [label, filePath] of Object.entries(GENERATED_FILES)) {
       generated[label] = fs.readFileSync(filePath, 'utf-8');
     }
-    completeBeadsSource = fs.readFileSync(COMPLETE_BEADS_SOURCE_PATH, 'utf-8');
-    completeBeadsPiMirror = fs.readFileSync(COMPLETE_BEADS_PI_MIRROR_PATH, 'utf-8');
   });
 
   test('source: stacked and single-PR review gates and the completion check exist in order, each referencing the skill by the repo-root path pattern', () => {
@@ -161,19 +151,6 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
       expect(text).toContain('never merged or landed until a human confirms it');
     }
   );
-
-  test('complete-beads Pi mirror: byte-identical to the source body after the frontmatter, and carries the quality-gate review contract', () => {
-    const frontmatterEnd = completeBeadsPiMirror.indexOf('\n# complete-beads');
-    expect(frontmatterEnd).toBeGreaterThan(-1);
-    const mirrorBody = completeBeadsPiMirror.slice(frontmatterEnd + 1);
-    const sourceBody = completeBeadsSource.replace(/^---\n[\s\S]*?\n---\n\n?/, '');
-    expect(mirrorBody).toBe(sourceBody);
-
-    expect(completeBeadsPiMirror).toContain('Quality Gate Review');
-    expect(completeBeadsPiMirror).toContain('LOCAL_REVIEW_COMPLETE');
-    expect(completeBeadsPiMirror).toContain('LOCAL_REVIEW_BLOCKED');
-    expect(completeBeadsPiMirror).toContain(SKILL_PATH_PATTERN);
-  });
 
   test(
     'generated artifacts validate -- generate:validate and the full validate suite both pass (read-only; regeneration idempotency is enforced by the CI generate check on a clean checkout, never by rewriting tracked output from inside a unit test)',

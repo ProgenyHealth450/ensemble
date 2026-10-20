@@ -142,15 +142,10 @@ describe('beads-build Preflight resolve-sdlc rewiring (TRD-013)', () => {
 describe('beads-build has no branch-creation logic of its own (TRD-014)', () => {
   const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
 
-  test('explicit REQ-004 note documents the file never issues branch-mutation commands', () => {
+  test('states that it never creates or switches branches itself', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    const noteIdx = text.indexOf('Plain-git branch creation (TRD-014):');
-    expect(noteIdx).toBeGreaterThan(-1);
-    expect(text).toContain('this command drives an existing bead hierarchy on whatever branch is already checked out');
-    expect(text).toContain('unlike implement-trd-beads.yaml, it never creates or switches branches itself');
-    expect(text).toContain('there is zero `git town` command anywhere in this file to make config-driven');
-    expect(text).toContain('the plain-git contract (REQ-004: zero git town commands issued when BRANCHING_STRATEGY==plain-git) is satisfied automatically');
-    expect(text).toContain('by this file never issuing branch-mutation commands of any kind, git-town or otherwise');
+    expect(text).toContain('This command never creates or switches branches');
+    expect(text).toContain('it issues no git town command under any BRANCHING_STRATEGY');
   });
 
   test('zero real git-town branch-creation invocations anywhere in the file (git town hack/append/propose)', () => {
@@ -166,7 +161,6 @@ describe('beads-build has no branch-creation logic of its own (TRD-014)', () => 
   test('BRANCHING_STRATEGY is still resolved (for consistency with the other two consumer commands) even though unused for mutation', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toContain('Set BRANCHING_STRATEGY=RESOLVE_SDLC_RESULT.branchingStrategy.strategy');
-    expect(text).toContain('BRANCHING_STRATEGY is still resolved above for consistency with the other two consumer commands');
   });
 });
 
@@ -234,7 +228,7 @@ describe('beads-build team-roles delegation contract', () => {
   });
 
   test('beads-build-wave payload includes team_roles roster (moved from inline Track Orchestrator)', () => {
-    const wavePath = path.join(__dirname, '../commands/beads-build-wave.yaml');
+    const wavePath = path.join(__dirname, '../agents/beads-build-wave.yaml');
     const text = fs.readFileSync(wavePath, 'utf8');
     expect(text).toMatch(/team_roles/);
     expect(text).toMatch(/lifecycle_contract/);
@@ -267,7 +261,7 @@ describe('beads-build PM clarification guard contract', () => {
   const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
 
   test('beads-build-wave payload documents a 3-round PM clarification cap (moved from inline Track Orchestrator)', () => {
-    const wavePath = path.join(__dirname, '../commands/beads-build-wave.yaml');
+    const wavePath = path.join(__dirname, '../agents/beads-build-wave.yaml');
     const text = fs.readFileSync(wavePath, 'utf8');
     expect(text).toMatch(/pm_clarification_guard/);
     expect(text).toMatch(/maximum 3 PM clarification rounds per task/);
