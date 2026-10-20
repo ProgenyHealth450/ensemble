@@ -9,7 +9,7 @@ description: Generate an AI Readiness Diagnostic Excel report from prior assess-
 
 Generate a completed AI Readiness Diagnostic workbook from:
 
-- Template workbook: resolved via `local_output.template_path` in `.assessment/external-systems.yaml` (see `skill://assess-config`), or an explicit `--template` the user supplies. There is no built-in default — ask the user for the template location if neither is configured.
+- Template workbook: **not shipped with this package** (prerequisite). Resolve via `local_output.template_path` in `.assessment/external-systems.yaml` (see `skill://assess-config`) or an explicit `--template` the user supplies; there is no built-in default, so if neither exists stop and ask the user for it. The helper also requires `python3` with `openpyxl`.
 - Current repo/directory contents
 - Prior `assess-repo` artifacts, typically under `docs/assessment/`
 
@@ -20,7 +20,6 @@ Output goes under the reports directory selected/created by the user (`local_out
 - Do **not** modify template layout or styling.
 - Only write cell values into existing editable cells.
 - Preserve formulas, merged cells, row/column sizes, fills, fonts, borders, and workbook structure.
-- Be thorough.
 - Provide evidence: file paths, line numbers, assessment artifact references, and confidence notes.
 - Copy/update `docs/assessment` evidence files into the selected reports output folder and hyperlink workbook results to copied evidence/index locations.
 - Do not invent unsupported findings. If evidence is missing, write `No evidence found in local repo/assessment artifacts` and lower confidence/score.
@@ -31,7 +30,7 @@ Output goes under the reports directory selected/created by the user (`local_out
 
 Before building the workbook:
 
-1. Resolve the template path: read `local_output.template_path` from `.assessment/external-systems.yaml` if present; otherwise ask the user where the assessment template workbook lives (or whether to create one from scratch is out of scope — a template is required).
+1. Resolve the template path from `local_output.template_path` in `.assessment/external-systems.yaml`, else ask the user; creating a template from scratch is out of scope.
 2. Confirm the resolved template exists and is readable.
 3. Confirm `openpyxl` is importable; it is required.
 4. Resolve the reports output root: read `local_output.reports_root` from `.assessment/external-systems.yaml` if present; otherwise ask the user for the directory (existing or to be created).
@@ -68,15 +67,7 @@ Resolve the reports root per Preflight step 4. List existing subdirectories unde
 
 Create a JSON payload matching `references/fill-schema.md`. Scores must be numeric 1.0-5.0 on `skill://assessment-report-suite`'s shared Scoring Scale — never write a bare letter grade into the fill JSON. **Important:** provide a real numeric score for every Summary scorecard dimension where there is enough evidence. The helper also computes R&D dimension averages from Assessment subdimension scores, but company-wide Summary rows require explicit scorecard scores unless they cleanly map to an R&D dimension.
 
-Upstream sources (`assess-repo`, `assess-team`, `normalized-score-justifications.json`) now emit numeric scores directly per the shared Scoring Scale — read `final_score`/`score` fields as-is; do not reverse-derive a number from a letter when a numeric value is already present. The whole-integer table below is a **legacy-fallback approximation only**, for the rare case where a source document has nothing but a bare letter (e.g. an un-migrated older report) and no numeric value can be recovered. It intentionally has no `+`/`-` granularity and must never be used to override a numeric score that already exists — when both are available, the numeric score wins.
-
-| Letter (legacy fallback only) | Approx. numeric | Level | Definition |
-|---|---:|---|---|
-| A | 4.75 | Advanced | Automated, optimized, continuously improved, and differentiated. |
-| B | 4.0 | Established | Standardized, broadly adopted, measured, and governed. |
-| C | 3.0 | Developing | Structured capability exists but is inconsistent or incomplete. |
-| D | 2.0 | Nascent | Ad hoc, partial, isolated, or material gaps remain. |
-| F | 1.0 | Absent | No meaningful capability or evidence. |
+Upstream sources (`assess-repo`, `assess-team`, `normalized-score-justifications.json`) emit numeric scores: read `final_score`/`score` as-is and never reverse-derive a number from a letter. Only for an un-migrated report with a bare letter and no recoverable number, use the midpoint of that letter's band in the Scoring Scale table of `skill://assessment-report-suite` and lower confidence; a numeric score always wins. Levels for narrative text: A Advanced (automated, optimized, differentiated), B Established (standardized, measured, governed), C Developing (structured but inconsistent), D Nascent (ad hoc, material gaps), F Absent (no meaningful capability or evidence).
 
 Dimension mapping hints:
 

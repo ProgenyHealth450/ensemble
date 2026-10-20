@@ -33,16 +33,7 @@ const EXPECTED_DISPATCH = {
     'assess-ai-readiness',
     'assess-cicd',
   ],
-  'assess-team': [
-    'assess-team-commit-volume',
-    'assess-team-commit-messages',
-    'assess-team-code-quality',
-    'assess-team-test-coverage',
-    'assess-team-ai-adoption',
-    'assess-team-documentation',
-    'assess-team-incidents',
-    'assess-team-code-review',
-  ],
+  'assess-team': ['assess-team-dimension'],
 };
 const ORCHESTRATORS = Object.keys(EXPECTED_DISPATCH);
 
@@ -162,5 +153,25 @@ describe('skill:// references (c)', () => {
     }
     expect(references).toBeGreaterThan(0);
     expect(unresolved).toEqual([]);
+  });
+});
+
+describe('assess-team dimension dispatch', () => {
+  // assess-team names its dimensions in a table (first column, backticked); the
+  // dimension skill must carry exactly one `# Dimension: <name>` section for each.
+  const tableDimensions = [...readSkill('assess-team').matchAll(/^\| `([a-z-]+)` \|/gm)].map((m) => m[1]);
+  const sectionDimensions = [...readSkill('assess-team-dimension').matchAll(/^# Dimension: (\S+)$/gm)].map(
+    (m) => m[1]
+  );
+
+  test('every dimension assess-team dispatches has a section in the dimension skill, and vice versa', () => {
+    expect(tableDimensions.length).toBeGreaterThan(0);
+    expect(sectionDimensions.sort()).toEqual([...tableDimensions].sort());
+  });
+
+  test('the dimension skill lists the same names in its Inputs contract', () => {
+    const inputs = /`Dimension`: one of ([^\n]*?)\./.exec(readSkill('assess-team-dimension'));
+    const listed = [...inputs[1].matchAll(/`([a-z-]+)`/g)].map((m) => m[1]);
+    expect(listed.sort()).toEqual([...tableDimensions].sort());
   });
 });

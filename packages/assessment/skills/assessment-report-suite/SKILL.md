@@ -72,21 +72,7 @@ If subagents fail or are unavailable, switch to inline fallback mode, but the sa
 
 ## Tool Guidance
 
-Use your runtime's current, dedicated tools rather than legacy shell equivalents or
-superseded tool names:
-
-- File discovery: a dedicated glob/find tool, not shell `find`.
-- Text search: a dedicated grep/search tool, not shell `grep`, `rg`, or `awk`.
-- File reads: a dedicated read tool with line ranges, not `cat`, `head`, or `tail`.
-- Code intelligence: language-server tooling for definitions/references/renames/code actions
-  when available.
-- Structural rewrites: a dedicated AST-aware edit tool when available, not ad hoc text
-  substitution.
-- Edits: a dedicated surgical-edit tool for existing files; a dedicated write tool for new
-  files/whole-file replacement.
-
-Assessment instructions in downstream skills that mention specific legacy tool names are
-superseded by this guidance — use whatever your runtime's equivalent capability is.
+Use your runtime's dedicated glob/search/read/edit tools rather than shell `find`/`grep`/`cat`; legacy tool names in downstream skills are superseded by your runtime's equivalent.
 
 ## Inputs to determine
 
@@ -125,20 +111,12 @@ Derive `<portco>` deterministically from the current working directory name, pre
 
 ## Phase 1.5 — Baseline metrics before active work
 
-Before any remediation roadmap, AI rollout, SDLC change, tooling change, or “active work” recommendation is allowed, lay down the measurement baseline that will prove whether the work improved outcomes. This is mandatory even when metrics coverage is partial.
+Before any remediation roadmap, AI rollout, SDLC or tooling change is recommended, lay down the measurement baseline (mandatory even when coverage is partial):
 
 1. Write `docs/assessment/baseline-metrics-<YYYY-MM-DD>.json` and include it in `normalized-metrics.json`.
-2. Baseline each applicable metric with value, unit, window, source, coverage, confidence, and explicit missing-data reason:
-   - delivery flow: lead time, cycle time, throughput, WIP, PR age, review latency, deploy frequency, change failure rate, rollback/incident rate when available;
-   - quality: automated test coverage or test presence, defect/rework signals, static-analysis/security findings, escaped defects when available;
-   - AI adoption and impact: active AI users, AI-touched repos/work items, accepted AI changes, AI-related incidents, productivity/quality impact measures when available;
-   - platform/operability: build duration, CI pass rate, flaky tests, observability coverage, cost/budget signals when available;
-   - product/value: completed work items, aging backlog, blocked work, outcome/business metrics when available.
-3. If a metric is unavailable, record the instrumentation gap and make establishing the baseline the first 30-day action before scaling related work.
-4. Do not claim improvement potential, ROI, velocity lift, quality lift, or AI productivity gains without naming the baseline metric and the remeasurement cadence.
-5. Reports, workbook recommendations, tech debt/risk, and slides must distinguish “baseline exists” from “baseline must be created first.”
-
-Baseline-first rule: a roadmap may include remediation work only after the baseline and measurement owner/cadence are defined for that workstream. If not defined, the roadmap’s first action is instrumentation/baseline capture, not implementation.
+2. Baseline each applicable metric with value, unit, window, source, coverage, confidence, and missing-data reason. Families: delivery flow (lead/cycle time, throughput, WIP, PR age, review latency, deploy frequency, change failure rate); quality (test coverage or presence, defect/rework, static-analysis/security findings); AI adoption and impact (active users, AI-touched repos/work items, accepted AI changes, AI-related incidents); platform/operability (build duration, CI pass rate, flaky tests, observability, cost); product/value (completed/aging/blocked work, outcome metrics).
+3. If a metric is unavailable, record the instrumentation gap; establishing that baseline is the first 30-day action before scaling related work.
+4. Do not claim improvement, ROI, velocity or AI productivity gains without naming the baseline metric and remeasurement cadence. Reports, workbook and slides must distinguish "baseline exists" from "baseline must be created first".
 
 ## Phase 2 — Run repository assessments
 
@@ -206,16 +184,9 @@ If evidence is sampled or concentrated in a few repos/teams, cap portfolio-wide 
 
 PR/review governance rule:
 
-- Treat non-merge commit volume as an activity signal only, not proof of reviewed delivery, shipped value, or healthy cycle time.
-- If completed PR exports, reviewer approvals, branch-policy enforcement, bypasses, review latency, and cycle-time data are missing, cap PR-dependent dimensions conservatively:
-  - Code Review / Static Analysis: ≤ 2.0 and coverage `missing`.
-  - Current Value Creation / Delivery Throughput / Cycle Time: ≤ 2.0.
-  - Product Management / Workflow / Organizational Agility: ≤ 2.0 unless portfolio-wide flow evidence exists beyond sampled work-item states.
-  - QA / Release Validation / CI quality gates: ≤ 2.0 when PR-required build/test/security gates are unverified.
-  - Team collaboration / R&D People claims: ≤ 2.5 when peer-review participation and reviewer distribution are unverified.
-  - Technology/System Foundation claims that rely on delivery governance: ≤ 2.5 until protected-branch and required-check controls are proven.
-- Lack of PR governance must appear in Recommendations, Technical Debt/Risk, the 30/60/90 roadmap, and score justifications. It is not merely a limitation.
-- A score above these caps must cite representative or complete PR/review/branch-policy evidence; local git commit counts alone cannot justify it.
+- Non-merge commit volume is an activity signal only, not proof of reviewed delivery, shipped value, or healthy cycle time.
+- When completed-PR exports, reviewer approvals, branch-policy enforcement, bypasses, review latency or cycle-time data are missing, apply the caps in the "Score caps and evidence gates" table of `skill://ai-readiness-diagnostic-report` (the single definition; do not restate or loosen them here).
+- Lack of PR governance must appear in Recommendations, Technical Debt/Risk, the 30/60/90 roadmap and score justifications, not only as a limitation. A score above a cap must cite representative or complete PR/review/branch-policy evidence.
 
 ## Phase 4 — Generate Excel AI Readiness Diagnostic
 
@@ -231,9 +202,8 @@ Use `skill://ai-readiness-diagnostic-report`.
 5. Run the helper from the `ai-readiness-diagnostic-report` skill with `--evidence-root` set to the assessment root and `--output-dir` set to the configured reports directory.
 6. Copy/link evidence into the workbook evidence folder under the same reports directory.
 7. Do not score Future-scope Summary rows unless the user explicitly requests future-state scoring.
-8. Build the fill JSON from `normalized-findings.json`, `normalized-metrics.json`, markdown assessment artifacts, and current evidence. Do not build scores directly from prose when normalized artifacts exist.
-9. Include `normalized-score-justifications.json` in the fill inputs. Workbook scorecard entries and assessment subdimensions must match the adversarial final scores, not the pre-review proposed scores.
-10. Keep score justifications out of Summary narrative cells. Put justification details in Assessment contexts, Recommendations, Tech Debt, markdown reports, evidence index, and the score-justification sidecar.
+8. Prefer normalized artifacts over prose, and include `normalized-score-justifications.json` in the fill inputs: workbook scores must equal the adversarial final scores, not the pre-review proposals.
+9. Keep score justifications out of Summary narrative cells; put them in Assessment contexts, Recommendations, Tech Debt, markdown reports, the evidence index and the justification sidecar.
 
 Expected workbook output:
 
@@ -368,10 +338,8 @@ Required checks:
 6. Every file:line evidence ref resolves, or the ref is explicitly marked external/raw.
 7. PowerPoint file exists and is a valid `.pptx` zip containing `ppt/presentation.xml` and 8-12 slide files.
 8. Published markdown executive summary exists in the configured reports directory.
-9. `docs/assessment/`, raw exports, copied evidence, and the configured reports directory contain no raw secret values from `.assessment/secrets.env`.
-10. Unpacked `.xlsx` and `.pptx` XML parts contain no raw secret values from `.assessment/secrets.env`.
-11. If `.assessment/secrets.env` exists, verify it is ignored and not tracked.
-12. Consistency lint passes:
+9. No raw values from `.assessment/secrets.env` appear in `docs/assessment/`, raw exports, copied evidence, the reports directory, or unpacked `.xlsx`/`.pptx` XML; the file itself is ignored and untracked.
+10. Consistency lint passes:
     - no stale “no API access” claim when external systems were used,
     - percentages are 0-100,
     - active weeks do not exceed weeks in the evidence window,
@@ -380,12 +348,9 @@ Required checks:
     - non-merge commit counts are labeled as activity, not reviewed delivery, unless backed by PR/review/deploy evidence,
     - `baseline-metrics-<YYYY-MM-DD>.json` exists, or every missing baseline is explicitly represented as an instrumentation gap and first roadmap action,
     - roadmap/remediation entries name the baseline metric, owner, and remeasurement cadence before active work begins,
-
-    - missing PR review/branch-policy data appears in recommendations, technical debt/risk, roadmap, and score justifications when it caps scores,
+    - missing PR review/branch-policy data appears in recommendations, technical debt/risk, roadmap and justifications when it caps scores,
     - future-scope workbook scores are blank unless explicitly requested, and Phase II/III workbook Summary scores are `N/A` unless explicitly requested,
-    - every non-empty workbook/report score has a matching score justification,
-    - each score justification includes evidence for, counter-evidence or missing evidence, caps considered, final score, confidence, and coverage,
-    - final scores do not exceed applicable caps unless the justification explicitly cites representative/complete coverage,
+    - every non-empty workbook/report score has a matching justification (evidence for, counter-evidence or missing evidence, caps considered, final score, confidence, coverage), and no final score exceeds an applicable cap unless the justification cites representative/complete coverage,
     - `adversarial-review-<YYYY-MM-DD>.md` exists and contains at least one challenged score or an explicit “no downgrade after challenge” rationale.
 
 Do not run broad external API calls during verification; use narrow read-only checks already required by the underlying assessment skills.
