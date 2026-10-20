@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { checkFrontmatter } = require('./lib/frontmatter-check');
+const promptBudget = require('./lib/prompt-budget');
 
 const PACKAGES_DIR = path.join(__dirname, '..', 'packages');
 
@@ -451,6 +452,19 @@ function main() {
     console.log('  ✓ packages/full/ mirrors resolve to real content');
   }
 
+  // Prompt word-budget ratchet (see scripts/lib/prompt-budget.js)
+  console.log('\nValidating prompt word budgets...');
+  const sizes = promptBudget.collectSizes(PACKAGES_DIR);
+  const budget = promptBudget.checkBudgets(sizes, promptBudget.loadBaseline());
+  budget.advisories.forEach(message => console.warn(`⚠ ${message}`));
+  budget.failures.forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+  if (budget.failures.length === 0) {
+    console.log(`  ✓ ${Object.keys(sizes).length} prompt file(s) within word budgets`);
+  }
+
   if (errors > 0) {
     console.error(`\n✗ Validation failed with ${errors} error(s)`);
     process.exit(1);
@@ -461,7 +475,13 @@ function main() {
 
 // Guarded so scripts/tests can require this module without running validation.
 if (require.main === module) {
-  main();
+  if (process.argv.includes('--update-prompt-baseline')) {
+    const baseline = promptBudget.buildBaseline(promptBudget.collectSizes(PACKAGES_DIR));
+    promptBudget.writeBaseline(baseline);
+    console.log(`Wrote ${Object.keys(baseline).length} entries to scripts/prompt-budget-baseline.json`);
+  } else {
+    main();
+  }
 }
 
 module.exports = {
