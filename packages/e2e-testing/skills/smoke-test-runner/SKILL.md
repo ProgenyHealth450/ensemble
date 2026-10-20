@@ -24,6 +24,11 @@ Exit code 0 only when the verdict is `passed`. Copy `templates/smoke-tests.examp
 - `incomplete`: nothing failed, but a required category was NOT CONFIGURED or not run. This is **not** a pass and blocks promotion.
 - `required` (config key) lists the category ids that must execute; default is every selected category. A non-required unconfigured category is reported NOT CONFIGURED and ignored.
 - Per-category `results[id].status` is `passed`, `failed`, `not-configured` or `not-run`.
+- A config file that is missing (explicit `--config`) or unparseable yields a `failed` verdict with a reason naming the file; no stack trace.
+
+## Failure reasons and secrets
+
+Verdict reasons never contain raw subprocess output, so secrets that a failing command prints (connection strings, tokens) cannot reach reports pasted into PRs, beads or CI. A failed command is reported as exit code, signal, timeout, `command not found`, or `expected output not found`. To see output, set `"includeOutput": true` (top-level, or inside a category section): a snippet of stderr and stdout is appended after masking each stream URL credentials, `Authorization`/`Bearer` values, `key=`/`token=`/`password=`/`secret=` values and long token-like strings, bounded to 300 characters. Masking is best effort; leave it off for sensitive systems.
 
 ## Timing
 

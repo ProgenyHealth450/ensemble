@@ -155,3 +155,130 @@ describe('runner CLI exit codes', () => {
     expect(r.stdout).toMatch(/NOT CONFIGURED/);
   });
 });
+
+describe('S1: failure reasons never leak subprocess output', () => {
+  const leaky = "echo 'FATAL postgres://u:hunter2@host/db password=s3cr3tpw' >&2; exit 2";
+  const { SmokeTestAPI } = require(`${scripts}/execute-health-checks.js`);
+  const { redact } = require(`${scripts}/smoke-util.js`);
+
+  test('database reason omits output by default', async () => {
+    const r = await new SmokeTestDatabase({ command: leaky }).executeTests();
+    expect(r.passed).toBe(false);
+    expect(JSON.stringify(r)).not.toMatch(/hunter2|s3cr3tpw/);
+    expect(r.reason).toMatch(/exit 2/);
+  });
+  test('critical-path command step omits output by default', async () => {
+    const r = await new SmokeTestCriticalPaths({ journeys: [{ name: 'j', steps: [{ command: leaky }] }] }).executeTests();
+    expect(JSON.stringify(r)).not.toMatch(/hunter2|s3cr3tpw/);
+    expect(r.reason).toMatch(/exit 2/);
+  });
+  test('includeOutput masks credentials and bounds the snippet', async () => {
+    const r = await new SmokeTestDatabase({ command: leaky, includeOutput: true }).executeTests();
+    expect(JSON.stringify(r)).not.toMatch(/hunter2|s3cr3tpw/);
+    expect(r.reason).toMatch(/postgres:\/\/\[REDACTED\]@host\/db/);
+  });
+  test('redact masks bearer, auth headers, key=value, long tokens; bounded to 300', () => {
+    const out = redact('Authorization: Bearer abc.def token=xyz API_KEY: k123 ' + 'A1b2'.repeat(12) + ' ' + 'z'.repeat(500));
+    expect(out).not.toMatch(/abc\.def|xyz|k123|A1b2A1b2/);
+    expect(redact('x'.repeat(20) + ' y'.repeat(400)).length).toBeLessThanOrEqual(300);
+  });
+  test('runner propagates no output into the verdict, top-level includeOutput masks it', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const off = await new SmokeTestRunner({ smokeConfig: { database: { command: leaky } }, categories: ['database'] }).executeAll();
+      expect(JSON.stringify(off)).not.toMatch(/hunter2|s3cr3tpw/);
+      const on = await new SmokeTestRunner({ smokeConfig: { includeOutput: true, database: { command: leaky } }, categories: ['database'] }).executeAll();
+      expect(JSON.stringify(on)).not.toMatch(/hunter2|s3cr3tpw/);
+      expect(on.reason).toMatch(/REDACTED/);
+    } finally { spy.mockRestore(); }
+  });
+  test('missing binary and timeout are described without output', async () => {
+    const r = await new SmokeTestDatabase({ command: 'definitely-not-a-db-cli' }).executeTests();
+    expect(r.reason).toMatch(/exit 127 \(command not found\)/);
+    const t = await new SmokeTestDatabase({ command: 'sleep 5', timeout: 100 }).executeTests();
+    expect(t.reason).toMatch(/timeout after 100ms/);
+  });
+  test('API health checks report a status key and survive malformed endpoints', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const ok = await new SmokeTestAPI({ baseUrl: base, retries: 0 }).executeHealthChecks({ environment: 't', endpoints: [{ path: '/health', method: 'GET', expectedStatus: 200 }] });
+      expect(ok.status).toBe('passed');
+      const bad = await new SmokeTestAPI({ baseUrl: base, retries: 0 }).executeHealthChecks({ environment: 't', endpoints: [{ path: '/broken', method: 'GET', expectedStatus: 200 }, null] });
+      expect(bad.status).toBe('failed');
+      expect(bad.passed).toBe(false);
+    } finally { spy.mockRestore(); }
+  });
+});
+
+describe('S2: malformed check entries yield structured failures', () => {
+  test('database entry without command fails naming the check', async () => {
+    const r = await new SmokeTestDatabase({ checks: [{ name: 'ping' }] }).executeTests();
+    expect(r.status).toBe('failed');
+    expect(r.reason).toMatch(/check ping has no command/);
+  });
+  test('database: null / string / wrong-typed entries never throw', async () => {
+    const r = await new SmokeTestDatabase({ checks: [null, 'psql', { command: 42 }, { name: 'ok', command: 'true' }] }).executeTests();
+    expect(r.status).toBe('failed');
+    expect(r.details).toMatchObject({ total: 4, failed: 3 });
+    expect((await new SmokeTestDatabase({ checks: 'psql' }).executeTests()).status).toBe('failed');
+  });
+  test('external services: malformed entries fail, never throw', async () => {
+    const r = await new SmokeTestExternalServices({ services: [null, 'x', { name: 'nourl' }, { name: 'ok', url: `${base}/health` }] }).executeTests();
+    expect(r.status).toBe('failed');
+    expect(r.details).toMatchObject({ total: 4, failed: 3 });
+    expect(r.reason).toMatch(/service nourl has no url/);
+    expect((await new SmokeTestExternalServices({ services: {} }).executeTests()).status).toBe('failed');
+  });
+  test('critical paths: malformed journeys/steps fail, never throw or get skipped', async () => {
+    const r = await new SmokeTestCriticalPaths({ journeys: [null, { name: 'empty' }, { name: 's', steps: [null] }, { name: 'c', steps: [{ command: 5 }] }] }).executeTests();
+    expect(r.status).toBe('failed');
+    expect(r.details).toMatchObject({ total: 4, failed: 4 });
+    expect((await new SmokeTestCriticalPaths({ journeys: 'x' }).executeTests()).status).toBe('failed');
+  });
+  test('auth: malformed sections are not-configured, never throw', async () => {
+    expect((await new SmokeTestAuth({ baseUrl: base, login: 'x', protected: 5 }).executeTests()).status).toBe('not-configured');
+    expect((await new SmokeTestAuth({ baseUrl: base, login: null, protected: null }).executeTests()).status).toBe('not-configured');
+  });
+});
+
+describe('S3: unloadable config still yields a verdict envelope', () => {
+  const cli = path.join(skills, 'smoke-test-runner/scripts/orchestrate-smoke-tests.js');
+  const verdict = stdout => JSON.parse(stdout.slice(stdout.indexOf('{'), stdout.lastIndexOf('}') + 1));
+  test('missing explicit --config', () => {
+    const r = spawnSync('node', [cli, '--config', '/nonexistent/smoke-tests.json'], { encoding: 'utf8' });
+    expect(r.status).toBe(1);
+    const v = verdict(r.stdout);
+    expect(v.status).toBe('failed');
+    expect(v.passed).toBe(false);
+    expect(v.reason).toMatch(/smoke config not found/);
+    expect(r.stdout + r.stderr).not.toMatch(/\n\s+at /);
+  });
+  test('unparseable config does not echo its content', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-bad-'));
+    const file = path.join(dir, 'smoke-tests.json');
+    fs.writeFileSync(file, '{ "password": "hunter2", ');
+    const r = spawnSync('node', [cli, '--config', file], { encoding: 'utf8' });
+    expect(r.status).toBe(1);
+    const v = verdict(r.stdout);
+    expect(v.status).toBe('failed');
+    expect(v.reason).toMatch(/could not be parsed/);
+    expect(r.stdout + r.stderr).not.toMatch(/hunter2|\n\s+at /);
+  });
+});
+
+describe('includeOutput covers both streams, masks before truncating', () => {
+  test('stderr noise + stdout secret is masked, never leaked', async () => {
+    const cmd = "echo 'warn ok' >&2; echo 'password=hunter2'; exit 3";
+    const on = await new SmokeTestDatabase({ command: cmd, includeOutput: true }).executeTests();
+    expect(on.reason).not.toMatch(/hunter2/);
+    expect(on.reason).toMatch(/warn ok/);
+    expect(on.reason).toMatch(/password=\[REDACTED\]/);
+    const off = await new SmokeTestDatabase({ command: cmd }).executeTests();
+    expect(off.reason).not.toMatch(/hunter2|warn ok/);
+  });
+  test('secret straddling the 300-char boundary is not partially exposed', async () => {
+    const cmd = `printf '%0250d' 0 | tr 0 x >&2; echo; echo 'password=hunter2secretvalue'; exit 3`;
+    const r = await new SmokeTestDatabase({ command: cmd, includeOutput: true }).executeTests();
+    expect(r.reason).not.toMatch(/hunter|secretvalue/);
+  });
+});

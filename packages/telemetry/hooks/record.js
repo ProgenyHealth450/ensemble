@@ -49,16 +49,16 @@ function projectDir(payload) {
 }
 
 function main() {
-  let raw = '';
+  let raw;
   try {
     raw = fs.readFileSync(0, 'utf8');
-  } catch (_) {
+  } catch {
     return;
   }
   let payload;
   try {
     payload = JSON.parse(raw);
-  } catch (_) {
+  } catch {
     return;
   }
   if (!payload || typeof payload !== 'object') return;
@@ -79,7 +79,7 @@ function main() {
 
 try {
   main();
-} catch (_) {
+} catch {
   // never block the session
 }
 process.exit(0);

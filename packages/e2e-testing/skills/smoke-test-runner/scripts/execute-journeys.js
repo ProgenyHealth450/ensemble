@@ -5,7 +5,7 @@
  *   { command, expectExit? = 0, expectOutput? }
  *   | { path|url, method? = 'GET', body?, headers?, expectedStatus? = 200, expectBodyContains? } ] }] }
  */
-const { notConfigured, summarize, request, runCommand } = require('../../smoke-test-runner/scripts/smoke-util.js');
+const { notConfigured, summarize, request, runCommand, redact, describeFailure } = require('../../smoke-test-runner/scripts/smoke-util.js');
 
 class SmokeTestCriticalPaths {
   constructor(config = {}) {
@@ -13,11 +13,18 @@ class SmokeTestCriticalPaths {
   }
 
   async runStep(step) {
-    if (step.command) {
+    if (step === null || typeof step !== 'object' || Array.isArray(step)) return 'step is not an object';
+    if (step.command !== undefined) {
+      if (typeof step.command !== 'string' || !step.command.trim()) return 'step has an empty or non-string command';
+      const includeOutput = this.config.includeOutput === true;
       const out = await runCommand(step.command, { timeout: this.config.timeout });
       const want = step.expectExit === undefined ? 0 : step.expectExit;
-      if (out.code !== want) return `command "${step.command}" exit ${out.code} (expected ${want}): ${(out.stderr || out.stdout).trim().slice(0, 150)}`;
-      if (step.expectOutput !== undefined && !out.stdout.includes(String(step.expectOutput))) return `output missing "${step.expectOutput}"`;
+      if (out.code !== want) {
+        const why = describeFailure(out, { includeOutput, timeout: this.config.timeout })
+          .replace(/^exit (\d+)/, `exit $1 (expected ${want})`);
+        return `command "${redact(step.command)}" ${why}`;
+      }
+      if (step.expectOutput !== undefined && !out.stdout.includes(String(step.expectOutput))) return `expected output not found: "${step.expectOutput}"`;
       return null;
     }
     const url = step.url || (this.config.baseUrl && step.path ? this.config.baseUrl + step.path : null);
@@ -31,19 +38,32 @@ class SmokeTestCriticalPaths {
   }
 
   async executeTests() {
-    const journeys = (this.config.journeys || []).filter(j => j && Array.isArray(j.steps) && j.steps.length);
+    const journeys = this.config.journeys === undefined || this.config.journeys === null ? [] : this.config.journeys;
+    if (!Array.isArray(journeys)) {
+      return summarize('critical path', [{ name: 'journeys', passed: false, reason: 'criticalPaths.journeys must be an array' }]);
+    }
     if (!journeys.length) {
       return notConfigured('critical paths', 'set criticalPaths.journeys[] with steps in smoke-tests.json');
     }
     const results = [];
-    for (const journey of journeys) {
+    for (let i = 0; i < journeys.length; i++) {
+      const journey = journeys[i];
+      if (journey === null || typeof journey !== 'object' || Array.isArray(journey)) {
+        results.push({ name: `journey #${i + 1}`, passed: false, reason: `journey #${i + 1} is not an object` });
+        continue;
+      }
+      const name = typeof journey.name === 'string' && journey.name ? journey.name : `journey #${i + 1}`;
+      if (!Array.isArray(journey.steps) || !journey.steps.length) {
+        results.push({ name, passed: false, reason: `journey ${name} has no steps` });
+        continue;
+      }
       const start = Date.now();
       let failure = null;
-      for (let i = 0; i < journey.steps.length && !failure; i++) {
-        const err = await this.runStep(journey.steps[i]);
-        if (err) failure = `step ${i + 1}: ${err}`;
+      for (let s = 0; s < journey.steps.length && !failure; s++) {
+        const err = await this.runStep(journey.steps[s]);
+        if (err) failure = `step ${s + 1}: ${err}`;
       }
-      results.push({ name: journey.name || 'journey', passed: !failure, reason: failure || `ok (${Date.now() - start}ms)` });
+      results.push({ name, passed: !failure, reason: failure || `ok (${Date.now() - start}ms)` });
     }
     return summarize('critical path', results);
   }

@@ -41,7 +41,7 @@ function readUsage(dir) {
     let rec;
     try {
       rec = JSON.parse(line);
-    } catch (_) {
+    } catch {
       continue;
     }
     if (!rec || !counts[rec.kind] || typeof rec.name !== 'string') continue;
@@ -73,7 +73,7 @@ function walkSkills(dir, out) {
   let entries;
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch (_) {
+  } catch {
     return;
   }
   for (const e of entries) {

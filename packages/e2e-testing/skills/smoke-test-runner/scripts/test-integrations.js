@@ -11,15 +11,28 @@ class SmokeTestExternalServices {
   }
 
   async executeTests() {
-    const services = this.config.services || [];
+    const services = this.config.services === undefined || this.config.services === null ? [] : this.config.services;
+    if (!Array.isArray(services)) {
+      return summarize('external service', [{ name: 'services', passed: false, reason: 'externalServices.services must be an array' }]);
+    }
     if (!services.length) {
       return notConfigured('external services', 'set externalServices.services[] with name and url in smoke-tests.json');
     }
     const results = [];
-    for (const svc of services) {
+    for (let i = 0; i < services.length; i++) {
+      const svc = services[i];
+      if (svc === null || typeof svc !== 'object' || Array.isArray(svc)) {
+        results.push({ name: `service #${i + 1}`, passed: false, reason: `service #${i + 1} is not an object` });
+        continue;
+      }
+      const hasUrl = typeof svc.url === 'string' && svc.url !== '';
+      const name = typeof svc.name === 'string' && svc.name ? svc.name : (hasUrl ? svc.url : `service #${i + 1}`);
+      if (!hasUrl) {
+        results.push({ name, passed: false, reason: `service ${name} has no url` });
+        continue;
+      }
       const expected = [].concat(svc.expectedStatus === undefined ? 200 : svc.expectedStatus);
       const res = await request(svc.url, { method: svc.method || 'GET', headers: svc.headers, timeout: svc.timeout || this.config.timeout });
-      const name = svc.name || svc.url;
       if (res.status === null) results.push({ name, passed: false, reason: `request failed: ${res.error}` });
       else if (!expected.includes(res.status)) results.push({ name, passed: false, reason: `HTTP ${res.status} (expected ${expected.join('/')})` });
       else results.push({ name, passed: true, reason: `HTTP ${res.status} (${res.ms}ms)` });

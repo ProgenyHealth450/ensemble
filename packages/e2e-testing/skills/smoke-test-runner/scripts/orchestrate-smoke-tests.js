@@ -84,7 +84,12 @@ class SmokeTestRunner {
     };
   }
 
-  async runCategory(category, cfg) {
+  async runCategory(category, rawCfg) {
+    if (typeof rawCfg !== 'object' || Array.isArray(rawCfg)) {
+      return { passed: false, status: 'failed', reason: `"${category.configKey}" section in smoke-tests.json must be an object`, details: {}, results: [] };
+    }
+    // top-level includeOutput applies to every category unless the category sets its own
+    const cfg = { includeOutput: this.smokeConfig.includeOutput, ...rawCfg };
     const context = { environment: this.config.environment };
     switch (category.id) {
       case 'api': {
@@ -138,17 +143,38 @@ class SmokeTestRunner {
   }
 }
 
-module.exports = { SmokeTestRunner, SMOKE_TEST_CATEGORIES };
+/** Standard verdict envelope for a config that could not be loaded (no stack trace, no categories run). */
+function configFailureVerdict(message) {
+  return {
+    status: 'failed',
+    passed: false,
+    reason: message,
+    totalDuration: 0,
+    categoriesExecuted: 0,
+    categoriesPassed: 0,
+    categoriesFailed: 0,
+    categoriesNotConfigured: 0,
+    results: {}
+  };
+}
+
+module.exports = { SmokeTestRunner, SMOKE_TEST_CATEGORIES, configFailureVerdict };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const opt = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-  new SmokeTestRunner({ configPath: opt('--config'), environment: opt('--environment'), stopOnFirstFailure: !args.includes('--no-stop') })
-    .executeAll()
-    .then(r => {
-      console.log(JSON.stringify(r, null, 2));
-      console.log(r.passed ? '[OK] Smoke tests passed' : `[${r.status.toUpperCase()}] ${r.reason}`);
-      process.exit(r.passed ? 0 : 1);
-    })
+  const emit = r => {
+    console.log(JSON.stringify(r, null, 2));
+    console.log(r.passed ? '[OK] Smoke tests passed' : `[${r.status.toUpperCase()}] ${r.reason}`);
+    process.exit(r.passed ? 0 : 1);
+  };
+  let runner;
+  try {
+    runner = new SmokeTestRunner({ configPath: opt('--config'), environment: opt('--environment'), stopOnFirstFailure: !args.includes('--no-stop') });
+  } catch (e) {
+    emit(configFailureVerdict(e.message));
+  }
+  runner.executeAll()
+    .then(emit)
     .catch(e => { console.error(e.message); process.exit(2); });
 }

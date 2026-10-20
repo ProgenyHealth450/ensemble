@@ -25,7 +25,7 @@ class SmokeTestAuth {
     if (res.status === null) record('login', false, `request failed: ${res.error}`);
     else if (res.status < 200 || res.status >= 300) record('login', false, `HTTP ${res.status}`);
     else {
-      try { token = JSON.parse(res.body)[login.tokenField || 'token']; } catch (e) { /* not JSON */ }
+      try { token = JSON.parse(res.body)[login.tokenField || 'token']; } catch { /* not JSON */ }
       record('login', Boolean(token), token ? `token received (${res.ms}ms)` : `no "${login.tokenField || 'token'}" in login response`);
     }
 

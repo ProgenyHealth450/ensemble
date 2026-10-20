@@ -40,7 +40,7 @@ function request(url, { method = 'GET', headers = {}, body, timeout = 10000 } = 
   return new Promise(resolve => {
     const start = Date.now();
     let target;
-    try { target = new URL(url); } catch (e) { return resolve({ status: null, body: '', ms: 0, error: `invalid URL: ${url}` }); }
+    try { target = new URL(url); } catch { return resolve({ status: null, body: '', ms: 0, error: `invalid URL: ${url}` }); }
     const payload = body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body));
     const h = { ...headers };
     if (payload !== undefined && !Object.keys(h).some(k => k.toLowerCase() === 'content-type')) h['Content-Type'] = 'application/json';
@@ -58,10 +58,13 @@ function request(url, { method = 'GET', headers = {}, body, timeout = 10000 } = 
   });
 }
 
-/** Run a shell command; never throws. Resolves { code, stdout, stderr, ms }. */
+/** Run a shell command; never throws. Resolves { code, signal, timedOut, errorCode, stdout, stderr, ms }. */
 function runCommand(command, { timeout = 30000, cwd, env } = {}) {
   return new Promise(resolve => {
     const start = Date.now();
+    if (typeof command !== 'string' || !command.trim()) {
+      return resolve({ code: null, signal: null, timedOut: false, errorCode: 'EINVAL', stdout: '', stderr: '', ms: 0 });
+    }
     const child = spawn(command, { shell: true, cwd, env: { ...process.env, ...env } });
     let stdout = '';
     let stderr = '';
@@ -69,12 +72,48 @@ function runCommand(command, { timeout = 30000, cwd, env } = {}) {
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeout);
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
-    child.on('error', e => { clearTimeout(timer); resolve({ code: null, stdout, stderr: e.message, ms: Date.now() - start }); });
-    child.on('close', code => {
+    child.on('error', e => { clearTimeout(timer); resolve({ code: null, signal: null, timedOut: false, errorCode: e.code || 'ERROR', stdout, stderr, ms: Date.now() - start }); });
+    child.on('close', (code, signal) => {
       clearTimeout(timer);
-      resolve({ code: timedOut ? null : code, stdout, stderr: timedOut ? `timeout after ${timeout}ms` : stderr, ms: Date.now() - start });
+      resolve({ code: timedOut ? null : code, signal: timedOut ? null : signal, timedOut, errorCode: null, stdout, stderr, ms: Date.now() - start });
     });
   });
+}
+
+const OUTPUT_LIMIT = 300;
+
+/** Mask secrets in text (unbounded). Always mask BEFORE truncating so a secret cannot be cut mid-pattern. */
+function maskSecrets(text) {
+  return String(text)
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/]*@/gi, '$1[REDACTED]@')
+    .replace(/\b(authorization\s*[:=]\s*)(?:(bearer|basic|token)\s+)?[^\s,;"']+/gi, (m, p, scheme) => `${p}${scheme ? `${scheme} ` : ''}[REDACTED]`)
+    .replace(/\b(bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]')
+    .replace(/\b([\w.-]*(?:key|token|password|passwd|pwd|secret)[\w.-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s&;,"']+)/gi, '$1$2[REDACTED]')
+    .replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, '[REDACTED]')
+    .trim();
+}
+
+/** Mask secrets in text, then bound it to 300 chars. */
+function redact(text) {
+  return maskSecrets(text).slice(0, OUTPUT_LIMIT);
+}
+
+/**
+ * Failure reason for a failed runCommand result. NEVER includes raw subprocess output:
+ * only exit code / signal / timeout / start failure. With includeOutput === true a REDACTED,
+ * 300-char-bounded snippet of stderr and stdout (each masked, then joined and truncated) is appended.
+ */
+function describeFailure(out, { includeOutput = false, timeout } = {}) {
+  let reason;
+  if (out.errorCode) reason = out.errorCode === 'EINVAL' ? 'no command to run' : `could not start command (${out.errorCode})`;
+  else if (out.timedOut) reason = `timeout after ${timeout}ms`;
+  else if (out.signal) reason = `killed by signal ${out.signal}`;
+  else reason = `exit ${out.code}${out.code === 127 ? ' (command not found)' : ''}`;
+  if (includeOutput === true) {
+    const snippet = [out.stderr, out.stdout].filter(Boolean).map(maskSecrets).filter(Boolean).join('\n').slice(0, OUTPUT_LIMIT);
+    if (snippet) reason += `: ${snippet}`;
+  }
+  return reason;
 }
 
 /** Load smoke-tests.json|yaml from an explicit path or cwd. Returns null when absent. */
@@ -86,10 +125,15 @@ function loadSmokeConfig(explicitPath, cwd = process.cwd()) {
       continue;
     }
     const text = fs.readFileSync(file, 'utf8');
-    if (file.endsWith('.json')) return JSON.parse(text);
-    return require('js-yaml').load(text);
+    try {
+      return file.endsWith('.json') ? JSON.parse(text) : require('js-yaml').load(text);
+    } catch {
+      // parser messages can quote config content (which may hold secrets): name the file only
+      throw new Error(`smoke config could not be parsed: ${file}`);
+    }
   }
   return null;
 }
 
-module.exports = { notConfigured, summarize, request, runCommand, loadSmokeConfig, CONFIG_FILENAMES };
+module.exports = { notConfigured, summarize, request, runCommand, redact, describeFailure, loadSmokeConfig, CONFIG_FILENAMES };
+
