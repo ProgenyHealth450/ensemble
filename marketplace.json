@@ -403,6 +403,22 @@
       }
     },
     {
+      "name": "ensemble-lifecycle",
+      "version": "7.0.0",
+      "source": "./packages/lifecycle-claude",
+      "description": "Run .ensemble/hooks.yaml command.start / command.end lifecycle hooks in Claude Code",
+      "category": "utilities",
+      "tags": [
+        "lifecycle",
+        "hooks",
+        "command"
+      ],
+      "author": {
+        "name": "Sunstone Partners",
+        "url": "https://github.com/Sunstone-Partners"
+      }
+    },
+    {
       "name": "ensemble-telemetry",
       "version": "5.2.1",
       "source": "./packages/telemetry",
