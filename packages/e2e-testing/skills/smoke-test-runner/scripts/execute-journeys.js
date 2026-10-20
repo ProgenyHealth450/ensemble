@@ -1,135 +1,61 @@
 /**
- * Critical Path Journey Execution Script
+ * Critical path smoke test: runs configured journeys; each step is a command or an HTTP call.
  *
- * Executes comprehensive critical user journey smoke tests.
- *
- * @module execute-journeys
- * @version 1.0.0
+ * Config: { baseUrl?, timeout?, journeys: [{ name, steps: [
+ *   { command, expectExit? = 0, expectOutput? }
+ *   | { path|url, method? = 'GET', body?, headers?, expectedStatus? = 200, expectBodyContains? } ] }] }
  */
+const { notConfigured, summarize, request, runCommand } = require('../../smoke-test-runner/scripts/smoke-util.js');
 
-const { performance } = require('perf_hooks');
-
-/**
- * Critical Paths Smoke Test Executor
- */
 class SmokeTestCriticalPaths {
   constructor(config = {}) {
-    this.config = {
-      baseUrl: config.baseUrl || 'http://localhost:3000',
-      journeys: config.journeys || ['registration', 'checkout', 'search'],
-      timeout: config.timeout || 30000,
-      ...config
-    };
-
-    this.results = [];
+    this.config = { timeout: 30000, journeys: [], ...config };
   }
 
-  /**
-   * Execute all critical path tests
-   */
-  async executeTests(context) {
-    const startTime = performance.now();
+  async runStep(step) {
+    if (step.command) {
+      const out = await runCommand(step.command, { timeout: this.config.timeout });
+      const want = step.expectExit === undefined ? 0 : step.expectExit;
+      if (out.code !== want) return `command "${step.command}" exit ${out.code} (expected ${want}): ${(out.stderr || out.stdout).trim().slice(0, 150)}`;
+      if (step.expectOutput !== undefined && !out.stdout.includes(String(step.expectOutput))) return `output missing "${step.expectOutput}"`;
+      return null;
+    }
+    const url = step.url || (this.config.baseUrl && step.path ? this.config.baseUrl + step.path : null);
+    if (!url) return 'step needs command, url, or path (+ baseUrl)';
+    const res = await request(url, { method: step.method || 'GET', headers: step.headers, body: step.body, timeout: this.config.timeout });
+    const want = step.expectedStatus === undefined ? 200 : step.expectedStatus;
+    if (res.status === null) return `request failed: ${res.error}`;
+    if (res.status !== want) return `${step.method || 'GET'} ${url} -> HTTP ${res.status} (expected ${want})`;
+    if (step.expectBodyContains !== undefined && !res.body.includes(String(step.expectBodyContains))) return `body missing "${step.expectBodyContains}"`;
+    return null;
+  }
 
-    console.log(`🛤️  Executing critical path smoke tests...`);
-    console.log(`   Environment: ${context.environment}`);
-    console.log('');
-
-    try {
-      for (const journey of this.config.journeys) {
-        const result = await this.executeJourney(journey);
-        this.results.push(result);
-
-        if (result.passed) {
-          console.log(`✅ ${result.name}: Completed (${result.duration}ms)`);
-        } else {
-          console.log(`❌ ${result.name}: ${result.reason}`);
-        }
+  async executeTests() {
+    const journeys = (this.config.journeys || []).filter(j => j && Array.isArray(j.steps) && j.steps.length);
+    if (!journeys.length) {
+      return notConfigured('critical paths', 'set criticalPaths.journeys[] with steps in smoke-tests.json');
+    }
+    const results = [];
+    for (const journey of journeys) {
+      const start = Date.now();
+      let failure = null;
+      for (let i = 0; i < journey.steps.length && !failure; i++) {
+        const err = await this.runStep(journey.steps[i]);
+        if (err) failure = `step ${i + 1}: ${err}`;
       }
-
-      const executionTime = Math.round(performance.now() - startTime);
-
-      return {
-        passed: this.results.every(r => r.passed),
-        details: {
-          totalJourneys: this.results.length,
-          passed: this.results.filter(r => r.passed).length,
-          failed: this.results.filter(r => !r.passed).length,
-          executionTime
-        },
-        reason: this.results.every(r => r.passed)
-          ? `All ${this.results.length} critical paths passed`
-          : `${this.results.filter(r => !r.passed).length} critical paths failed`,
-        results: this.results
-      };
-
-    } catch (error) {
-      return {
-        passed: false,
-        reason: `Critical path tests failed: ${error.message}`,
-        error: error.stack
-      };
+      results.push({ name: journey.name || 'journey', passed: !failure, reason: failure || `ok (${Date.now() - start}ms)` });
     }
-  }
-
-  /**
-   * Execute a single journey
-   */
-  async executeJourney(journeyName) {
-    const startTime = performance.now();
-
-    try {
-      // Mock journey execution
-      await this.delay(Math.random() * 1000 + 500);  // 500-1500ms
-
-      const duration = Math.round(performance.now() - startTime);
-      const sla = this.getJourneySLA(journeyName);
-      const passed = duration <= sla;
-
-      return {
-        journey: journeyName,
-        name: this.getJourneyDisplayName(journeyName),
-        passed,
-        duration,
-        sla,
-        reason: passed ? 'Journey completed successfully' : `Journey exceeded SLA`
-      };
-
-    } catch (error) {
-      const duration = Math.round(performance.now() - startTime);
-
-      return {
-        journey: journeyName,
-        name: this.getJourneyDisplayName(journeyName),
-        passed: false,
-        duration,
-        reason: `Journey failed: ${error.message}`
-      };
-    }
-  }
-
-  getJourneySLA(journey) {
-    const slas = {
-      'registration': 5000,
-      'checkout': 8000,
-      'search': 3000,
-      'profile': 4000
-    };
-    return slas[journey] || 10000;
-  }
-
-  getJourneyDisplayName(journey) {
-    const names = {
-      'registration': 'User Registration',
-      'checkout': 'Checkout Flow',
-      'search': 'Search Journey',
-      'profile': 'Profile Management'
-    };
-    return names[journey] || journey;
-  }
-
-  delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return summarize('critical path', results);
   }
 }
 
 module.exports = { SmokeTestCriticalPaths };
+
+if (require.main === module) {
+  const { loadSmokeConfig } = require('../../smoke-test-runner/scripts/smoke-util.js');
+  const cfg = (loadSmokeConfig(process.argv[2]) || {}).criticalPaths || {};
+  new SmokeTestCriticalPaths(cfg).executeTests().then(r => {
+    console.log(JSON.stringify(r, null, 2));
+    process.exit(r.passed ? 0 : 1);
+  });
+}
