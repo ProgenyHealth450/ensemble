@@ -422,11 +422,17 @@ function readDirSorted(dir: string): string[] {
   }
 }
 
+/** Self-contained packages ship as their own Pi package; ensemble-pi's AGENTS.md must not mention them. */
+function isSelfContainedPackageDir(packageDir: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SELF_CONTAINED_PI_PACKAGES, packageDir);
+}
+
 /** Read packages/*\/.claude-plugin/plugin.json (name + description), sorted by name. */
 function collectPackages(sourceRoot: string): PackageEntry[] {
   const files = listPackageFiles(sourceRoot, ['.claude-plugin'], (f) => f === 'plugin.json');
   const entries: PackageEntry[] = [];
   for (const file of files) {
+    if (isSelfContainedPackageDir(path.basename(path.dirname(path.dirname(file))))) continue;
     try {
       const json = JSON.parse(fs.readFileSync(file, 'utf-8')) as { name?: unknown; description?: unknown };
       if (typeof json.name !== 'string' || RUNTIME_PACKAGES.has(json.name)) continue;
@@ -443,6 +449,7 @@ function collectAgentsByPackage(sourceRoot: string): Map<string, AgentEntry[]> {
   const files = listPackageFiles(sourceRoot, ['agents'], (f) => f.endsWith('.yaml'));
   const byPackage = new Map<string, AgentEntry[]>();
   for (const file of files) {
+    if (isSelfContainedPackageDir(path.basename(path.dirname(path.dirname(file))))) continue;
     try {
       const raw = yaml.load(fs.readFileSync(file, 'utf-8')) as { metadata?: { name?: unknown; description?: unknown } };
       const name = raw?.metadata?.name;

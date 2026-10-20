@@ -1,0 +1,76 @@
+---
+name: ensemble-retro
+description: >-
+  Close the feedback loop after a release - compare what was planned with what
+  happened, and turn the gaps into follow-ups.
+disable-model-invocation: true
+---
+<!-- Command: ensemble-retro | Version: 1.0.0 -->
+<!-- Description: Post-release retrospective - estimate accuracy, PRD success-metric status, incidents, and proposed follow-ups -->
+
+# ensemble-retro
+
+> **Mission:** Close the feedback loop after a release - compare what was planned with what happened, and turn the gaps into follow-ups.
+
+> **Constraints:**
+> - Writes only docs/retros/<date>-<release>.md; proposes but never creates beads or edits PRD/TRD without explicit user approval
+> - Every number comes from a command you ran; if a source (gh, br, error tracker) is unavailable say so in the report instead of guessing
+> - Mark each success metric met, not met, or unmeasured - never infer a measurement that has no evidence
+
+## Phase 1: Gather
+
+### Step 1: Resolve the Range
+
+Establish the starting ref and release label
+
+**Actions:**
+1. --release vX.Y.Z: the range is the previous tag (git describe --tags --abbrev=0 vX.Y.Z^) to vX.Y.Z, and the release date is the tag date. --since <ref>: the range is <ref>..HEAD and the label is the ref. With neither, HALT and ask. If the ref does not resolve, HALT and say so
+
+### Step 2: Collect What Shipped
+
+List merged PRs and closed beads in the range
+
+**Actions:**
+1. git log <range> --merges --oneline plus gh pr list --state merged --search "merged:>=<start-date>" --json number,title,mergedAt,url (skip gh if unavailable)
+2. br list --all --json > a temp file; closed beads with closed_at inside the range are the shipped beads
+
+### Step 3: Compute Estimate vs Actual
+
+Run the estimate-actual library over the beads export
+
+**Actions:**
+1. Resolve ESTIMATE_ACTUAL (RELATIVE_PATH packages/development/lib/estimate-actual.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md), then run: node $ESTIMATE_ACTUAL --issues-json <file>
+2. Narrow its beads to the shipped set. Report count, median ratio, p90 ratio, and the beads with the largest ratio (actual/estimate) in either direction. Report withoutEstimate as a coverage gap. Actual time is created-to-closed wall clock, so state that it overstates effort
+
+### Step 4: Compare Against PRD Success Metrics
+
+Find the PRD and score each success metric
+
+**Actions:**
+1. Find the TRD for the release (docs/TRD/, from bead labels or titles). Read its frontmatter key prd_reference (also accepted: prd, source_prd) to locate the PRD. If none, say the PRD is unknown and list every metric as unmeasured
+2. Extract the PRD's success metrics. For each, find evidence (analytics, test or benchmark output, issue data, error tracker). Status: met (evidence meets the target), not met (evidence misses it), unmeasured (no evidence; say what would measure it)
+
+### Step 5: Collect Incidents
+
+Find problems opened since the release
+
+**Actions:**
+1. gh issue list --state all --search "created:>=<release-date>" --json number,title,state,labels,createdAt,url; flag bug/incident-labelled or regression-looking issues
+2. Query an error-tracker MCP tool ONLY if one is configured in this session; otherwise note that none was queried
+
+## Phase 2: Report
+
+### Step 1: Write the Retro
+
+Write docs/retros/<YYYY-MM-DD>-<release>.md (create docs/retros/ if missing; overwrite the same file on rerun)
+
+**Actions:**
+1. Sections: What Shipped (PRs, beads), Estimate Accuracy (the metrics above), Success Metrics (met / not met / unmeasured table with evidence), Incidents, Follow-ups
+
+### Step 2: Propose Follow-ups
+
+Propose, do not create
+
+**Actions:**
+1. List proposed beads (title, rationale, source: missed metric, incident, or estimate outlier) and proposed PRD/TRD refinements (what to change and why)
+2. Ask for approval. Only for approved items run br create, or hand the PRD changes to /ensemble-refine-prd. Print the retro path and what was created

@@ -30,10 +30,15 @@
  *   beads-stage --match <title-substring> [--label <l>] [--check] [--dry-run]
  *   quickstart <trd-path> --out <path> [--json]
  *   resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>
+ *   validate     <trd-path> [--prd path]
+ *   analyze      <trd-path> [--prd path]
+ *   req-status   <trd-path> [--prd path] [--issues-json file] [--verified REQ-001,...]
+ *   verify       <trd-path> [--prd path] [--mode m] [--beads-evidence file] [--run-tests] [--report-path p]
  */
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 let yaml = null;
 try { yaml = require('js-yaml'); } catch { yaml = null; }
@@ -52,6 +57,8 @@ const {
   isPhaseComplete,
   selectNextTasks,
 } = require('./phase-tracker');
+const { validateTrd, analyzeTrd, requirementStatus, isChecked } = require('./trd-checks');
+const { buildChain } = require('./verify-requirements-evidence');
 const { buildScaffoldPlan } = require('./scaffold-planner');
 const { buildWorkstreamPlan, validateWorkstream } = require('./workstream-planner');
 const { resolveCrossTrdDeps } = require('./cross-trd-deps');
@@ -979,7 +986,206 @@ function runChoicesWrite(argv) {
 }
 
 // ---------------------------------------------------------------------------
-// CLI dispatch
+// Requirement checks: validate / analyze / req-status / verify
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the TRD and its PRD. `--prd <path>` wins over the TRD's own PRD
+ * reference; an explicit `--prd` that cannot be read is an error, an
+ * unresolvable TRD reference degrades to "no PRD" (prdPath null).
+ */
+function loadWithPrd(positionals, flags) {
+  const trdPath = positionals[0];
+  const markdown = readTrd(trdPath);
+  const parsed = parseTRD(markdown);
+  let prdPath = null;
+  if (flags.prd) {
+    prdPath = resolvePrd(String(flags.prd), trdPath);
+    if (!prdPath) throw new Error(`PRD file not found: ${flags.prd}`);
+  } else if (parsed.prdReference) {
+    prdPath = resolvePrd(parsed.prdReference, trdPath);
+  }
+  const prdMarkdown = prdPath ? fs.readFileSync(prdPath, 'utf8') : '';
+  const prdContext = prdPath
+    ? extractPrdContext(prdMarkdown)
+    : { requirements: {}, acs: {} };
+  return { trdPath, slug: deriveSlug(trdPath), parsed, prdPath, prdMarkdown, prdContext };
+}
+
+/**
+ * `validate <trd-path> [--prd <path>]` -> { ok, errors[], warnings[], passed[], skipped[], stats }
+ * `ok` is false when any error exists (callers translate that to a CI exit).
+ */
+function runValidate(argv) {
+  const { positionals, flags } = parseArgs(argv, new Set(['prd']));
+  const { slug, parsed, prdPath, prdContext } = loadWithPrd(positionals, flags);
+  return Object.assign({ slug, prdPath }, validateTrd(parsed, prdContext));
+}
+
+/**
+ * `analyze <trd-path> [--prd <path>]` -> consistency/coverage statistics + verdict.
+ */
+function runAnalyze(argv) {
+  const { positionals, flags } = parseArgs(argv, new Set(['prd']));
+  const { slug, parsed, prdPath, prdMarkdown, prdContext } = loadWithPrd(positionals, flags);
+  return Object.assign({ ok: true, slug, prdPath }, analyzeTrd(parsed, prdContext, prdMarkdown));
+}
+
+/** Read a `br list --json` result (bare array or {issues:[...]}) into task id -> status. */
+function beadStatusFromIssuesJson(file, slug) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new Error(`Cannot read issues JSON '${file}': ${err.message}`);
+  }
+  const issues = Array.isArray(data) ? data : data && Array.isArray(data.issues) ? data.issues : null;
+  if (!issues) throw new Error(`Issues JSON '${file}' is neither an array nor an object with an "issues" array`);
+  const out = {};
+  const re = new RegExp(`\\[trd:${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:task:([^\\]]+)\\]`);
+  for (const issue of issues) {
+    const m = String(issue.title || '').match(re);
+    if (m) out[m[1]] = String(issue.status || 'open');
+  }
+  return out;
+}
+
+/**
+ * `req-status <trd-path> [--prd <path>] [--issues-json <file>] [--verified REQ-001,REQ-002]`
+ *   -> { checklist:{total,done,pct,phases[]}, requirements[], summary }
+ * Checkbox state is the baseline; bead statuses from --issues-json (merged
+ * `br list --json` output) override it per task. `--verified` is the list of
+ * REQ ids that carry a req-verified comment token.
+ */
+function runReqStatus(argv) {
+  const { positionals, flags } = parseArgs(argv, new Set(['prd', 'issues-json', 'verified']));
+  const { slug, parsed, prdContext } = loadWithPrd(positionals, flags);
+  const beadStatusByTask = flags['issues-json'] ? beadStatusFromIssuesJson(flags['issues-json'], slug) : {};
+  const verifiedReqs = flags.verified !== undefined ? splitList(flags.verified) : null;
+  return Object.assign(
+    { ok: true, slug, beadsConsulted: Boolean(flags['issues-json']) },
+    requirementStatus(parsed, { prdContext, beadStatusByTask, verifiedReqs })
+  );
+}
+
+function gitLines(args, cwd) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * `verify <trd-path> [--prd <path>] [--mode auto|beads|checkbox|both] [--beads-evidence <file>]
+ *   [--run-tests] [--report-path <path>]`
+ * Builds the REQ->AC->code chain: checkbox leg (TRD checkboxes + git log +
+ * target-file existence) and optional beads leg (JSON map task id ->
+ * {status, verdict, req_satisfied, acs_proven, qa_agent, commit_sha} collected
+ * by the caller). Writes a markdown report only when --report-path is given.
+ */
+function runVerify(argv) {
+  const { positionals, flags } = parseArgs(
+    argv,
+    new Set(['prd', 'mode', 'beads-evidence', 'report-path'])
+  );
+  const { trdPath, slug, parsed, prdPath, prdContext } = loadWithPrd(positionals, flags);
+  if (parsed.warnings.includes('No tasks found in the TRD')) {
+    throw new Error('TRD parse failed: no tasks found');
+  }
+
+  const beadsEvidence = flags['beads-evidence']
+    ? JSON.parse(fs.readFileSync(flags['beads-evidence'], 'utf8'))
+    : {};
+  const hasBeads = Object.keys(beadsEvidence).length > 0;
+  const mode = flags.mode || 'auto';
+  if (!['auto', 'beads', 'checkbox', 'both'].includes(mode)) {
+    throw new Error(`Invalid --mode '${mode}' (expected auto|beads|checkbox|both)`);
+  }
+  if (mode === 'beads' && !hasBeads) throw new Error('--mode beads requires --beads-evidence with data');
+  const modeEffective = mode === 'auto' ? (hasBeads ? 'both' : 'checkbox') : mode;
+
+  const cwd = process.cwd();
+  const checkboxEvidence = {};
+  if (modeEffective !== 'beads') {
+    for (const t of Object.values(parsed.tasksById)) {
+      if (t.syntheticKind) continue;
+      const commits = gitLines(
+        ['log', '--all', '--fixed-strings', '--pretty=format:%H\t%s\t%aI', `--grep=feat(${slug}): ${t.id}`],
+        cwd
+      ).map((l) => {
+        const [sha, subject, date] = l.split('\t');
+        return { sha, subject, date };
+      });
+      const files = t.targetFiles.map((p) => {
+        const [sha, date] = (gitLines(['log', '-1', '--pretty=format:%H\t%aI', '--', p], cwd)[0] || '').split('\t');
+        return {
+          path: p,
+          exists: fs.existsSync(path.resolve(cwd, p)),
+          commit_sha: sha || null,
+          commit_date: date || null,
+        };
+      });
+      checkboxEvidence[t.id] = {
+        complete: isChecked(t),
+        file_evidence: files,
+        commit_evidence: commits,
+      };
+    }
+  }
+
+  const prdRequirements = Object.keys(prdContext.requirements).length
+    ? Object.fromEntries(
+        Object.values(prdContext.requirements).map((r) => [r.id, { description: r.title, acs: r.acIds }])
+      )
+    : null;
+
+  const result = buildChain({
+    trd_path: trdPath,
+    trd_slug: slug,
+    prd_path: prdPath,
+    mode,
+    mode_effective: modeEffective,
+    parsed_trd_json: { ok: true, trd: Object.assign({}, parsed, { slug }) },
+    prd_requirements: prdRequirements,
+    checkbox_evidence: checkboxEvidence,
+    beads_evidence: beadsEvidence,
+    helper_options: { run_tests: Boolean(flags['run-tests']), cwd },
+  });
+
+  let reportPath = null;
+  if (flags['report-path']) {
+    reportPath = path.resolve(String(flags['report-path']));
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, renderVerifyReport(result, { slug, modeEffective, prdPath }), 'utf8');
+  }
+  return Object.assign({ prdPath, warnings: parsed.warnings, reportPath }, result);
+}
+
+function renderVerifyReport(result, meta) {
+  const lines = [
+    `# Requirement Traceability: ${meta.slug}`,
+    '',
+    `Generated: ${new Date().toISOString()}`,
+    `Mode: ${meta.modeEffective}`,
+    `PRD: ${meta.prdPath || 'none'}`,
+    '',
+    `**Overall verdict: ${result.verdict}**`,
+    '',
+    '| REQ | Status | Impl | Test | Files | Commits | Tests |',
+    '|-----|--------|------|------|-------|---------|-------|',
+  ];
+  for (const c of result.chain) {
+    lines.push(
+      `| ${c.req_id} | ${c.status_icon} | ${c.primary_impl_task_id || '-'} | ${c.primary_test_task_id || '-'} | ${c.target_files.length} | ${c.commit_evidence.length} | ${c.test_result} |`
+    );
+  }
+  lines.push('', '## Summary', '', '```json', JSON.stringify(result.summary, null, 2), '```', '');
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // CLI dispatch
 // ---------------------------------------------------------------------------
@@ -1003,6 +1209,10 @@ const HANDLERS = {
   list: (argv) => runList(argv),
   status: (argv) => runStatus(argv),
   'migrate-frontmatter': (argv) => runMigrateFrontmatter(argv),
+  validate: (argv) => runValidate(argv),
+  analyze: (argv) => runAnalyze(argv),
+  'req-status': (argv) => runReqStatus(argv),
+  verify: (argv) => runVerify(argv),
 };
 
 /**
@@ -1022,7 +1232,7 @@ function main(argv) {
     process.stdout.write(
       JSON.stringify({
         error:
-          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|resolve-sdlc|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|beads-label|beads-stage|quickstart|list|status|migrate-frontmatter|choices-read|choices-write> <trd-path> [...]',
+          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|resolve-sdlc|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|beads-label|beads-stage|quickstart|list|status|migrate-frontmatter|choices-read|choices-write|validate|analyze|req-status|verify> <trd-path> [...]',
       }) + '\n'
     );
     return 1;
@@ -1072,6 +1282,10 @@ module.exports = {
   runList,
   runStatus,
   runMigrateFrontmatter,
+  runValidate,
+  runAnalyze,
+  runReqStatus,
+  runVerify,
   // exported for unit testing of the helpers
   deriveSlug,
   parseArgs,

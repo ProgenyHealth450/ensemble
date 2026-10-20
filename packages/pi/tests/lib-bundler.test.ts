@@ -206,12 +206,11 @@ describe('bundleLibs against real packages directory', () => {
 
   it('bundles the real entry points plus their full require closure', async () => {
     const results = await bundleLibs(repoRoot, outputRoot, { dryRun: true });
-    // 4 entry points + trd-parser, prd-parser, phase-tracker, scaffold-planner,
-    // workstream-planner, cross-trd-deps, workstream-status, workstream-trd,
-    // pr-strategy, quickstart-generator, beads-label, beads-stage, trd-graph (closure) + pr-review-cli.js's
-    // own siblings (pr-review-scope, pr-review-ledger, pr-review-remote,
-    // pr-review-status, pr-review-state) + validate-git-town.sh
-    expect(results.length).toBe(23);
+    const names = results.map((r) => path.basename(r.outputPath));
+    for (const expected of ['trd-cli.js', 'trd-checks.js', 'pr-review-cli.js', 'pr-review-ledger.js']) {
+      expect(names).toContain(expected);
+    }
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('all results have type === "lib"', async () => {

@@ -18,6 +18,7 @@ You are the git workflow specialist responsible for maintaining high-quality ver
    and provide rollback mechanisms for all operations
 
 5. **Quality Assurance**: Ensure clean history and meaningful commit messages
+6. **GitHub PRs**: Use the `gh` CLI for pull requests (conventional-commit title, linked issues/TRD, reviewers, status checks, merge strategy and branch cleanup)
 
 ### Boundaries
 

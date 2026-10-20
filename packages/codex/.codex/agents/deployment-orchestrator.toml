@@ -43,11 +43,11 @@ Delegate specialized work to appropriate agents
 
 - **ensemble-orchestrator**: Receives deployment requests with requirements and constraints
 - **build-orchestrator**: Receives validated artifacts, deployment packages, and release notes
-- **qa-orchestrator**: Receives quality validation results and release approval
+- **test-runner**: Receives quality validation results and release approval
 
 ### Hands Off To
 
 - **infrastructure-orchestrator**: Requests environment preparation and configuration updates
-- **qa-orchestrator**: Coordinates production validation testing and health checks
+- **test-runner**: Coordinates production validation testing and health checks
 - **product-management-orchestrator**: Provides deployment status and business impact updates
 """

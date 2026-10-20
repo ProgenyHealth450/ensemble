@@ -4,34 +4,29 @@ description: >-
   Drive an existing bead hierarchy (epic -> stories -> tasks) to completion
   through the full builder -> code-review -> close pipeline. This is the
   canonical build engine — works for raw beads with no TRD required.
-  implement-trd-beads --execute is effectively a TRD-augmented version of this
-  command. Loop architecture (v1.2.0): the WAVE LOOP is a two-tier non-recursive
-  dispatch loop. The parent (this command) checks bead-graph state and
-  dispatches a fresh Task(subagent_type=beads-build-wave, prompt=...) subagent
-  for each wave. The wave-runner subagent runs ONE wave (bv --robot-plan +
-  concurrent Task() track dispatch + barrier) and emits a JSON summary line. The
-  parent then decides whether to dispatch another wave based on the summary
-  remaining_scoped_count. No recursion - wave-runners are depth-1 subagents of
-  this command, and tracks are depth-1 subagents of the wave-runner. This shape
-  respects Codex max_depth=1 constraint and works uniformly on
-  claude/pi/codex/opencode. Uses bv --robot-plan as the ONLY scheduler. Each
-  wave partitions the ready set into parallel tracks (up to --max-parallel;
-  default 3) and dispatches each track concurrently to a tech-lead-orchestrator
-  Bead-Track subagent. A barrier sits between waves: every track must complete
-  before the next bv call. Records all state transitions in beads for
-  cross-session resumability. When --trd is provided, enables TRD augmentations:
-  traceability tokens, TRD checkbox sync, and requirement satisfaction report.
-  Key behaviors: - bv --robot-plan is the only scheduler; no br ready fallback.
-  Each wave is a barrier: dispatch all tracks, wait for every track, then
-  re-plan. - The parent loop body is mechanical: read count, dispatch
-  wave-runner, read JSON summary, repeat. No narrative reasoning happens between
-  iterations. - Quality gates: phase completion triggers test delegation;
-  results recorded as br comments - Sync: br sync --flush-only before every bv
-  call - Hard requirement: bv is required for orchestration. There is no
-  graceful-degradation path — if bv is missing, install it before invocation. br
-  ready is never a fallback dispatcher; bv --robot-plan is the only scheduler. -
-  TRD mode: optional --trd flag enables traceability tokens, checkbox sync,
-  requirement report
+  implement-trd-beads and implement-bead delegate to it; --plan prints the
+  analysis without executing. Loop: the parent (this command) checks bead-graph
+  state and dispatches a fresh Task(subagent_type=beads-build-wave, prompt=...)
+  per wave. The wave-runner agent runs ONE wave (plan + concurrent Task() track
+  dispatch + barrier) and emits a JSON summary line; the parent decides on
+  remaining_scoped_count whether to dispatch another. No recursion (Codex
+  max_depth=1): wave-runners are depth-1 subagents. Scheduler: bv --robot-plan
+  when bv is installed, else br ready. Each wave partitions the ready set into
+  parallel tracks (up to --max-parallel; default 3) and dispatches each track
+  concurrently to a tech-lead-orchestrator Bead-Track subagent. A barrier sits
+  between waves: every track must complete before the next bv call. Records all
+  state transitions in beads for cross-session resumability. When --trd is
+  provided, enables TRD augmentations: traceability tokens, TRD checkbox sync,
+  and requirement satisfaction report. Key behaviors: - Each wave is a barrier:
+  dispatch all tracks, wait for every track, then re-plan. - The parent loop
+  body is mechanical: read count, dispatch wave-runner, read JSON summary,
+  repeat. No narrative reasoning happens between iterations. - Quality gates:
+  phase completion triggers test delegation; results recorded as br comments -
+  Sync: br sync --flush-only before every bv call - bv is OPTIONAL. With bv, the
+  wave-runner schedules from bv --robot-plan (graph-aware parallel tracks);
+  without it, from br ready (one single-bead track per ready bead, up to
+  --max-parallel). Never read .beads/*.jsonl to schedule. - TRD mode: optional
+  --trd flag enables traceability tokens, checkbox sync, requirement report
 disable-model-invocation: true
 ---
 <!-- Command: ensemble-beads-build | Version: 1.2.0 -->
@@ -39,21 +34,23 @@ disable-model-invocation: true
 
 # ensemble-beads-build
 
-> **Mission:** Drive an existing bead hierarchy (epic -> stories -> tasks) to completion through the full builder -> code-review -> close pipeline. This is the canonical build engine — works for raw beads with no TRD required. implement-trd-beads --execute is effectively a TRD-augmented version of this command. Loop architecture (v1.2.0): the WAVE LOOP is a two-tier non-recursive dispatch loop. The parent (this command) checks bead-graph state and dispatches a fresh Task(subagent_type=beads-build-wave, prompt=...) subagent for each wave. The wave-runner subagent runs ONE wave (bv --robot-plan + concurrent Task() track dispatch + barrier) and emits a JSON summary line. The parent then decides whether to dispatch another wave based on the summary remaining_scoped_count. No recursion - wave-runners are depth-1 subagents of this command, and tracks are depth-1 subagents of the wave-runner. This shape respects Codex max_depth=1 constraint and works uniformly on claude/pi/codex/opencode. Uses bv --robot-plan as the ONLY scheduler. Each wave partitions the ready set into parallel tracks (up to --max-parallel; default 3) and dispatches each track concurrently to a tech-lead-orchestrator Bead-Track subagent. A barrier sits between waves: every track must complete before the next bv call. Records all state transitions in beads for cross-session resumability. When --trd is provided, enables TRD augmentations: traceability tokens, TRD checkbox sync, and requirement satisfaction report. Key behaviors: - bv --robot-plan is the only scheduler; no br ready fallback. Each wave is a barrier: dispatch all tracks, wait for every track, then re-plan. - The parent loop body is mechanical: read count, dispatch wave-runner, read JSON summary, repeat. No narrative reasoning happens between iterations. - Quality gates: phase completion triggers test delegation; results recorded as br comments - Sync: br sync --flush-only before every bv call - Hard requirement: bv is required for orchestration. There is no graceful-degradation path — if bv is missing, install it before invocation. br ready is never a fallback dispatcher; bv --robot-plan is the only scheduler. - TRD mode: optional --trd flag enables traceability tokens, checkbox sync, requirement report
+> **Mission:** Drive an existing bead hierarchy (epic -> stories -> tasks) to completion through the full builder -> code-review -> close pipeline. This is the canonical build engine — works for raw beads with no TRD required. implement-trd-beads and implement-bead delegate to it; --plan prints the analysis without executing. Loop: the parent (this command) checks bead-graph state and dispatches a fresh Task(subagent_type=beads-build-wave, prompt=...) per wave. The wave-runner agent runs ONE wave (plan + concurrent Task() track dispatch + barrier) and emits a JSON summary line; the parent decides on remaining_scoped_count whether to dispatch another. No recursion (Codex max_depth=1): wave-runners are depth-1 subagents. Scheduler: bv --robot-plan when bv is installed, else br ready. Each wave partitions the ready set into parallel tracks (up to --max-parallel; default 3) and dispatches each track concurrently to a tech-lead-orchestrator Bead-Track subagent. A barrier sits between waves: every track must complete before the next bv call. Records all state transitions in beads for cross-session resumability. When --trd is provided, enables TRD augmentations: traceability tokens, TRD checkbox sync, and requirement satisfaction report. Key behaviors: - Each wave is a barrier: dispatch all tracks, wait for every track, then re-plan. - The parent loop body is mechanical: read count, dispatch wave-runner, read JSON summary, repeat. No narrative reasoning happens between iterations. - Quality gates: phase completion triggers test delegation; results recorded as br comments - Sync: br sync --flush-only before every bv call - bv is OPTIONAL. With bv, the wave-runner schedules from bv --robot-plan (graph-aware parallel tracks); without it, from br ready (one single-bead track per ready bead, up to --max-parallel). Never read .beads/*.jsonl to schedule. - TRD mode: optional --trd flag enables traceability tokens, checkbox sync, requirement report
 
 ## Phase 1: Preflight
 
 ### Step 1: Argument Parsing
 
-Parse epic-id or slug pattern, --trd path, --strategy, --team-roles, deprecated --builder, and max parallel N
+Parse epic-id or slug pattern (positional or --epic), --max-parallel (or free-text max parallel N), --trd path, --strategy, --team-roles, deprecated --builder, and --defer-completion
 
 **Actions:**
-1. Parse $ARGUMENTS: take the first token as RAW_INPUT (no epic argument if it is absent or starts with "--"). Run br show <first-token> --json: exit code 0 means it is an existing bead of ANY id prefix (beads-12, cribs-l4pd, ...), so treat it as the direct epic bead ID (EPIC_ID_MODE=true); a non-zero exit means it is not a bead id, so treat it as a slug pattern (EPIC_ID_MODE=false). Never infer this from how the token is spelled.
+1. Parse $ARGUMENTS: if --epic <value> is present, RAW_INPUT=<value>; otherwise take the first token as RAW_INPUT (no epic argument if it is absent or starts with "--"). Run br show <RAW_INPUT> --json: exit code 0 means it is an existing bead of ANY id prefix (beads-12, cribs-l4pd, ...), so treat it as the direct epic bead ID (EPIC_ID_MODE=true); a non-zero exit means it is not a bead id, so treat it as a slug pattern (EPIC_ID_MODE=false). Never infer this from how the token is spelled.
 2. Parse --trd <path> from $ARGUMENTS (optional); if present set TRD_MODE=true and TRD_PATH=<path>; if absent set TRD_MODE=false
 3. Parse --strategy <value> from $ARGUMENTS (optional); valid values: tdd, characterization, bug-fix, refactor, test-after, flexible
 4. Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes bv plans and scoped bead counts to one TRD; Epic Discovery resolves and verifies it.
 5. Parse --team-roles <json> from $ARGUMENTS (optional); if present parse as TEAM_ROLES object. If absent, parse deprecated --builder <agent> and synthesize compatibility TEAM_ROLES={lead:{agents:[\"tech-lead-orchestrator\"],owns:[\"planning\",\"escalation\"]},builder:{agents:[<builder>],owns:[\"implementation\"]},architect:{agents:[\"architect\"],owns:[\"task-design\"]},documentation:{agents:[\"documentation-specialist\"],owns:[\"pr-boundary-doc-maintenance\"]}}. If neither flag is present, set TEAM_ROLES={} and continue — standalone beads-build may still run without team metadata.
-6. Parse "max parallel N" from $ARGUMENTS (e.g., "max parallel 3") — default MAX_PARALLEL=1 if not present
+6. Parse --max-parallel <N> from $ARGUMENTS; if absent, also accept the free-text form "max parallel N" (e.g., "max parallel 3"). Set MAX_PARALLEL=N; default MAX_PARALLEL=3 if neither is present
+7. Parse --defer-completion from $ARGUMENTS (optional flag, no value): if present set DEFER_COMPLETION=true, else DEFER_COMPLETION=false. A caller that owns completion verification and epic closure (implement-trd-beads) passes it; standalone invocations leave it unset.
+8. Parse --plan from $ARGUMENTS (optional flag, no value): if present set PLAN_ONLY=true, else PLAN_ONLY=false. Plan mode prints bv/br analysis for the epic and never mutates beads, git or files.
 
 ### Step 2: Tool Availability Check
 
@@ -63,27 +60,27 @@ Verify br is installed and detect bv availability
 1. "which br || { echo 'ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust'; exit 1; }"
 2. "br list --status=open > /dev/null 2>&1 || { echo 'ERROR: br not functional'; exit 1; }"
 3. "which bv && BV_AVAILABLE=true || { echo 'WARNING: bv (beads_viewer) not installed. Graph-aware triage will be unavailable. Install from https://github.com/Dicklesworthstone/beads_viewer'; BV_AVAILABLE=false; }"
-4. Verify the wave-runner agent is registered in this session. The Execute phase dispatches Task(subagent_type=beads-build-wave), so beads-build-wave (listed as ensemble-development:beads-build-wave) must be among the subagent types the Task tool currently accepts. An agent file on disk, or an entry in AGENT_ALIAS_MAP, does not prove the plugin registered it. If it is not available: print "ERROR: agent beads-build-wave is not registered in this session, so the wave loop cannot dispatch. The installed ensemble-development plugin is out of date or was loaded before this agent shipped. Run /ensemble-reinstall-plugins, start a new Claude Code session, and re-run." and HALT before any bead is read or changed.
+4. If PLAN_ONLY=true: skip the wave-runner check below and Preflight steps 3-7, skip the Execute, Quality Gate and Completion phases, run only the Plan Mode phase and exit (bv is still optional there).
+5. Verify the wave-runner agent is registered in this session (skip when PLAN_ONLY=true). The Execute phase dispatches Task(subagent_type=beads-build-wave), so beads-build-wave (listed as ensemble-development:beads-build-wave) must be among the subagent types the Task tool currently accepts. An agent file on disk, or an entry in AGENT_ALIAS_MAP, does not prove the plugin registered it. If it is not available: print "ERROR: agent beads-build-wave is not registered in this session, so the wave loop cannot dispatch. The installed ensemble-development plugin is out of date or was loaded before this agent shipped. Run /ensemble-reinstall-plugins, start a new Claude Code session, and re-run." and HALT before any bead is read or changed.
 
 ### Step 3: Git-Town and Working Directory Verification
 
 Verify git-town is installed and the working directory is clean; resolve branching strategy and PR backend via resolve-sdlc
 
 **Actions:**
-1. Resolve VALIDATE_GIT_TOWN_SH in this order: (1) $(git rev-parse --show-toplevel 2>/dev/null)/packages/git/skills/git-town/scripts/validate-git-town.sh (canonical monorepo root); (2) legacy CWD-relative packages/git/skills/git-town/scripts/validate-git-town.sh; (3) Claude Code plugin root ${CLAUDE_PLUGIN_ROOT}/skills/git/git-town/scripts/validate-git-town.sh (note: nested under skills/git/git-town/..., not skills/git-town/..., because git is a whole-directory symlink); (4) Pi/OMP vendor bundle — resolve the ensemble-pi package location (its own declared install location) via: node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}", then join the directory of that output with /vendor/scripts/validate-git-town.sh. If none resolve, HALT with an error.
-2. Resolve TRD_CLI (reusing implement-trd-beads.yaml Preflight's exact convention): first try the canonical monorepo root via `git rev-parse --show-toplevel 2>/dev/null` + `/packages/development/lib/trd-cli.js`; if that fails, fall back to the legacy CWD-relative `packages/development/lib/trd-cli.js`; then check `${CLAUDE_PLUGIN_ROOT}/lib/trd-cli.js`; finally check the Pi/OMP vendor bundle path by resolving the ensemble-pi package's own declared install location via `node -e "try{console.log(require.resolve('@sunstone-partners/ensemble-pi/package.json',{paths:[process.env.ENSEMBLE_PI_INSTALL_ROOT, require('os').homedir()+'/.omp/plugins', process.cwd()].filter(Boolean)}))}catch(e){process.exit(1)}"` and joining the directory of that package.json with `vendor/lib/trd-cli.js`. If none exist OR 'which node' fails: print 'ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required. Ensure Node.js is installed and the ensemble-development or ensemble-pi plugin bundle is present.' and exit 1.
-3. Run: bash "$VALIDATE_GIT_TOWN_SH"; capture its exit code as GIT_TOWN_EXIT_CODE (0-4). Exit codes 3 (version mismatch) and 4 (not a git repo) are unaffected by this feature — HALT on those exactly as before. Exit codes 0 (ok), 1 (not installed), and 2 (not configured) no longer HALT here — they are passed to resolve-sdlc below.
-4. Detect ask availability: set INTERACTIVE=true if available, INTERACTIVE=false otherwise. (This file has no other existing INTERACTIVE detection to reuse, so this is the minimal equivalent of implement-trd-beads.yaml's mechanism — same technique: is ask available.)
-5. Run: REMOTE_URL=$(git remote get-url origin 2>/dev/null); if REMOTE_URL is empty (no origin configured), set REMOTE_URL to the literal string 'none' — resolve-sdlc requires a non-empty --remote-url, and any non-URL string is treated as 'no unsupported host detected'.
-6. Run: node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL"; parse the single JSON object from stdout as RESOLVE_SDLC_RESULT.
-7. If RESOLVE_SDLC_RESULT has an 'error' key (trd-cli.js's shared failure contract — a thrown Error caught by main(), printed as {"error":"<msg>"} with exit 1; NOT {ok:false,error:...}): print the error and HALT. This should not normally happen since GIT_TOWN_EXIT_CODE and REMOTE_URL are always well-formed here, but never swallow it.
-8. If RESOLVE_SDLC_RESULT.branchingStrategy.action == 'halt': print RESOLVE_SDLC_RESULT.branchingStrategy.message and HALT.
-9. If RESOLVE_SDLC_RESULT.prBackend.needsResolution == true: If INTERACTIVE=true, call ask with id='pr_backend', question='This repository''s remote is not supported by git-town''s PR automation. How should pull requests be created?', options=[{label:'ado',description:'Use the azure-devops MCP tool to create the PR (falls back to printing manual az repos/portal steps if the MCP tool is not connected)',preview:'ENSEMBLE_PR_BACKEND=ado'},{label:'manual',description:'Always print manual PR-creation steps instead of automating PR creation',preview:'ENSEMBLE_PR_BACKEND=manual'},{label:'proceed with gh anyway (not recommended)',description:'Use the gh CLI even though the remote host is not GitHub — will likely fail',preview:'ENSEMBLE_PR_BACKEND=gh'},{label:'abort',description:'Stop without resolving a PR backend',preview:'Abort'}], multi=false, recommended=0. Parse the answer: 'ado' -> PR_BACKEND=ado; 'manual' -> PR_BACKEND=manual; 'proceed with gh anyway (not recommended)' -> PR_BACKEND=gh; 'abort' -> print 'Aborted — no git side effects.' and HALT. If INTERACTIVE=false, or INTERACTIVE detection is itself uncertain (always default to this branch when in doubt — never risk a hung prompt): print 'PR backend could not be auto-resolved for this repository''s remote. Set one of the following to proceed non-interactively:', then each of 'ENSEMBLE_PR_BACKEND=ado', 'ENSEMBLE_PR_BACKEND=manual', 'ENSEMBLE_PR_BACKEND=gh' on its own line, then the persistence hint '...set this in your shell profile/CI config to skip this prompt on future invocations.', and HALT.
-10. If RESOLVE_SDLC_RESULT.prBackend.needsResolution == false: set PR_BACKEND=RESOLVE_SDLC_RESULT.prBackend.backend (no prompt, no HALT).
-11. Set BRANCHING_STRATEGY=RESOLVE_SDLC_RESULT.branchingStrategy.strategy. Both BRANCHING_STRATEGY and PR_BACKEND are re-resolved fresh on every invocation, including resumed epics, and are read by later Preflight/Execute/Quality-Gate/Completion steps in this file — never cached across sessions.
-12. If RESOLVE_SDLC_RESULT.consolidatedMessage is non-null: print it. If it is null (the pure-default case — git-town configured and remote is GitHub): print nothing new at all, matching today's exact output for existing git-town+GitHub users.
-13. Plain-git branch creation (TRD-014): this command drives an existing bead hierarchy on whatever branch is already checked out — unlike implement-trd-beads.yaml, it never creates or switches branches itself (the caller, e.g. implement-trd-beads.yaml's Feature Branch Creation step, or the user for a standalone invocation, is responsible for that). BRANCHING_STRATEGY is still resolved above for consistency with the other two consumer commands and for any future branch-mutating step added here, but today there is zero `git town` command anywhere in this file to make config-driven — the plain-git contract (REQ-004: zero git town commands issued when BRANCHING_STRATEGY==plain-git) is satisfied automatically, by this file never issuing branch-mutation commands of any kind, git-town or otherwise.
-14. Run: git status --porcelain -- . ':(exclude).beads' and capture the output as WORKTREE_STATUS. Do NOT decide on it here — the clean-tree gate moved to Epic Discovery (Preflight step 4), because whether a dirty tree is a fault depends on whether this invocation is a resume, and STARTED_COUNT is not known until that step. .beads/ is br's own state: br rewrites a tracked export on every write, so counting it would make this command halt on its own output (see docs/guides/beads-tracked-export.md).
+1. Resolve VALIDATE_GIT_TOWN_SH (RELATIVE_PATH packages/git/skills/git-town/scripts/validate-git-town.sh) and TRD_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). If a path does not resolve print "ERROR: could not locate <tool>" and HALT.
+2. Run: bash "$VALIDATE_GIT_TOWN_SH"; capture its exit code as GIT_TOWN_EXIT_CODE (0-4). Exit codes 3 (version mismatch) and 4 (not a git repo) are unaffected by this feature — HALT on those exactly as before. Exit codes 0 (ok), 1 (not installed), and 2 (not configured) no longer HALT here — they are passed to resolve-sdlc below.
+3. Detect ask availability: INTERACTIVE=true if available, else false.
+4. Run: REMOTE_URL=$(git remote get-url origin 2>/dev/null); if REMOTE_URL is empty (no origin configured), set REMOTE_URL to the literal string 'none' — resolve-sdlc requires a non-empty --remote-url, and any non-URL string is treated as 'no unsupported host detected'.
+5. Run: node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL"; parse the single JSON object from stdout as RESOLVE_SDLC_RESULT.
+6. If RESOLVE_SDLC_RESULT has an 'error' key (trd-cli.js's shared failure contract — a thrown Error caught by main(), printed as {"error":"<msg>"} with exit 1; NOT {ok:false,error:...}): print the error and HALT. This should not normally happen since GIT_TOWN_EXIT_CODE and REMOTE_URL are always well-formed here, but never swallow it.
+7. If RESOLVE_SDLC_RESULT.branchingStrategy.action == 'halt': print RESOLVE_SDLC_RESULT.branchingStrategy.message and HALT.
+8. If RESOLVE_SDLC_RESULT.prBackend.needsResolution == true: If INTERACTIVE=true, call ask with id='pr_backend', question='This repository''s remote is not supported by git-town''s PR automation. How should pull requests be created?', options=[{label:'ado',description:'Use the azure-devops MCP tool to create the PR (falls back to printing manual az repos/portal steps if the MCP tool is not connected)',preview:'ENSEMBLE_PR_BACKEND=ado'},{label:'manual',description:'Always print manual PR-creation steps instead of automating PR creation',preview:'ENSEMBLE_PR_BACKEND=manual'},{label:'proceed with gh anyway (not recommended)',description:'Use the gh CLI even though the remote host is not GitHub — will likely fail',preview:'ENSEMBLE_PR_BACKEND=gh'},{label:'abort',description:'Stop without resolving a PR backend',preview:'Abort'}], multi=false, recommended=0. Parse the answer: 'ado' -> PR_BACKEND=ado; 'manual' -> PR_BACKEND=manual; 'proceed with gh anyway (not recommended)' -> PR_BACKEND=gh; 'abort' -> print 'Aborted — no git side effects.' and HALT. If INTERACTIVE=false, or INTERACTIVE detection is itself uncertain (always default to this branch when in doubt — never risk a hung prompt): print 'PR backend could not be auto-resolved for this repository''s remote. Set one of the following to proceed non-interactively:', then each of 'ENSEMBLE_PR_BACKEND=ado', 'ENSEMBLE_PR_BACKEND=manual', 'ENSEMBLE_PR_BACKEND=gh' on its own line, then the persistence hint '...set this in your shell profile/CI config to skip this prompt on future invocations.', and HALT.
+9. If RESOLVE_SDLC_RESULT.prBackend.needsResolution == false: set PR_BACKEND=RESOLVE_SDLC_RESULT.prBackend.backend (no prompt, no HALT).
+10. Set BRANCHING_STRATEGY=RESOLVE_SDLC_RESULT.branchingStrategy.strategy. Both BRANCHING_STRATEGY and PR_BACKEND are re-resolved fresh on every invocation, including resumed epics, and are read by later Preflight/Execute/Quality-Gate/Completion steps in this file — never cached across sessions.
+11. If RESOLVE_SDLC_RESULT.consolidatedMessage is non-null: print it. If it is null (the pure-default case — git-town configured and remote is GitHub): print nothing new at all, matching today's exact output for existing git-town+GitHub users.
+12. This command never creates or switches branches (the caller or user owns that), so it issues no git town command under any BRANCHING_STRATEGY.
+13. Run: git status --porcelain -- . ':(exclude).beads' and capture the output as WORKTREE_STATUS. Do NOT decide on it here: the clean-tree gate runs in Epic Discovery (Preflight step 4), because a dirty tree is only a fault on a fresh run, not a resume. .beads/ is br's own state (see docs/guides/beads-tracked-export.md).
 
 ### Step 4: Epic Discovery
 
@@ -162,7 +159,7 @@ depth-1 subagent respects Codex's max_depth=1 constraint.
 4. Step 3 (read summary): the subagent emits ONE JSON summary line at the end of stdout. Parse SUMMARY_JSON = { wave_number, tracks_dispatched, tracks_succeeded, tracks_failed, beads_closed_this_wave, remaining_scoped_count, in_progress_scoped_count, terminal_state, elapsed_seconds, next_action_hint }.
 5. Step 4 (decide, then continue or exit):
 6. - If SUMMARY_JSON.terminal_state == "complete": print "=== Execution completed: <beads_closed_this_wave> beads closed in final wave ===". Break the loop and proceed to Quality Gate.
-7. - If SUMMARY_JSON.terminal_state == "blocked": print "=== Execution blocked: <remaining_scoped_count> open scoped beads with no actionable tracks. Run bv --robot-insights for graph details. ===". HALT with "EXECUTION BLOCKED - manual intervention required".
+7. - If SUMMARY_JSON.terminal_state == "blocked": print "=== Execution blocked: <remaining_scoped_count> open scoped beads with no actionable tracks. ===" (when BV_AVAILABLE also run bv --robot-insights for graph details). HALT with "EXECUTION BLOCKED - manual intervention required".
 8. - If SUMMARY_JSON.terminal_state == "in_progress" AND SUMMARY_JSON.remaining_scoped_count > 0 AND SUMMARY_JSON.next_action_hint == "dispatch_another_wave": immediately return to Step 2 with wave_number = SUMMARY_JSON.wave_number + 1. Do NOT print progress, do NOT summarize, do NOT pause between iterations - the JSON summary is the only output between iterations.
 9. - If SUMMARY_JSON.terminal_state == "in_progress" AND SUMMARY_JSON.remaining_scoped_count == 0 AND SUMMARY_JSON.in_progress_scoped_count == 0: print "=== Execution completed: state drain reached zero ===". Break the loop and proceed to Quality Gate.
 10. Step 5 (no re-plan or re-partition at this layer): this command does NOT call bv --robot-plan. The wave-runner does. The next wave is a fresh Task() invocation - no state from a prior wave is reused.
@@ -223,21 +220,23 @@ Record quality gate outcome as br comment and close story on pass
 
 ### Step 1: Epic Closure
 
-Close the root epic when all children are done
+Close the root epic when all children are done (skipped when DEFER_COMPLETION=true)
 
 **Actions:**
-1. Verify: br list --status=open --label <LABEL> --json when LABEL is set, otherwise br list --status=open --json filtered by EPIC_SLUG (issue list = the parsed JSON if it is an array, otherwise its `.issues` array), returns no open tasks
-2. Run: br close <ROOT_EPIC_ID> --reason='Epic implementation complete'
-3. Run: br sync --flush-only
+1. If DEFER_COMPLETION=true: print "Epic closure: deferred to caller (--defer-completion)" and skip this step entirely; the caller closes the epic only after its own completion verification and PR gate.
+2. Verify: br list --status=open --label <LABEL> --json when LABEL is set, otherwise br list --status=open --json filtered by EPIC_SLUG (issue list = the parsed JSON if it is an array, otherwise its `.issues` array), returns no open tasks
+3. Run: br close <ROOT_EPIC_ID> --reason='Epic implementation complete'
+4. Run: br sync --flush-only
 
 ### Step 2: TRD Checkbox Sync
 
-Update TRD file checkboxes to reflect bead closure state (TRD_MODE only)
+Update TRD file checkboxes to reflect bead closure state (TRD_MODE only; skipped when DEFER_COMPLETION=true)
 
 **Actions:**
 1. If TRD_MODE=false: skip this step
-2. If TRD_MODE=true: for each task in TRD Master Task List: if bead status == 'closed' -> replace "- [ ] **<task.id>**" with "- [x] **<task.id>**"
-3. git add <TRD_PATH>; node "$TRD_CLI" beads-stage <STAGE_SCOPE> (skip when STAGE_SCOPE is unset); git commit -m "docs(TRD): sync checkboxes to bead closure state"
+2. If DEFER_COMPLETION=true: print "TRD checkbox sync: deferred to caller (--defer-completion)" and skip this step; the caller syncs checkboxes after its own completion verification.
+3. If TRD_MODE=true: for each task in TRD Master Task List: if bead status == 'closed' -> replace "- [ ] **<task.id>**" with "- [x] **<task.id>**"
+4. git add <TRD_PATH>; node "$TRD_CLI" beads-stage <STAGE_SCOPE> (skip when STAGE_SCOPE is unset); git commit -m "docs(TRD): sync checkboxes to bead closure state"
 
 ### Step 3: Completion Report
 
@@ -264,5 +263,17 @@ Print final summary, requirement satisfaction table (if TRD_MODE), and PR remind
 18. If PR_BACKEND=='ado': remind user: git push -u origin <branch>; az repos pr create --source-branch <branch> --target-branch main --title "<title>"; or via the portal: Repos > Pull Requests > New Pull Request, source=<branch>, target=main; after merge: move any TRD file to docs/TRD/completed/
 19. If PR_BACKEND=='manual': remind user: git push -u origin <branch>; then create the PR yourself via gh pr create --base main (or the ADO CLI/portal equivalent if the remote is Azure DevOps); after merge: move any TRD file to docs/TRD/completed/
 20. Remind user: br sync --flush-only && node "$TRD_CLI" beads-stage <STAGE_SCOPE> && git commit -m "chore: final beads sync" (do not stage the whole .beads/ directory: in a repo that tracks the export the shared beads database can add beads of other TRDs to this commit; see docs/guides/beads-tracked-export.md)
-21. TIP: The execution engine used here is also available via /ensemble-implement-trd-beads <trd-path> for TRD-driven workflows with full scaffold, traceability validation, and Design Readiness gate.
+21. TIP: /ensemble-implement-trd-beads <trd-path> drives this same engine with full scaffold, traceability validation, and the Design Readiness gate; /ensemble-beads-build <epic> --plan prints the plan without executing.
 22. Do NOT auto-create PR — user must create it manually per the PR_BACKEND-specific reminder above
+
+## Phase 5: Plan Mode
+
+### Step 1: Read-only Plan (only when PLAN_ONLY=true)
+
+Print the scope summary and the next wave plan, then exit. Creates, closes, labels, commits and stages nothing.
+
+**Actions:**
+1. Resolve ROOT_EPIC_ID and EPIC_SLUG exactly as Epic Discovery does (br show for an id, else slug match over br list --status=open --json; zero or multiple matches -> print the error and HALT). Do not run the resume, clean-tree or label-backfill actions.
+2. Run: br sync --flush-only. Count open, in_progress and closed beads under the epic (br list --status=<s> --json for each, issue list is the parsed JSON if an array, otherwise its `.issues` array; closed uses --all --limit 0; filter by LABEL when set, else by EPIC_SLUG in .title) and print: "=== EPIC SCOPE: <EPIC_SLUG> (bead: <ROOT_EPIC_ID>) === Open: <n> | In-progress: <n> | Closed: <n>".
+3. If BV_AVAILABLE: run bv --robot-plan --format toon (add --label <LABEL> when set) and bv --robot-triage --format toon; print the parallel tracks, recommendations, quick wins and blockers. On a bv failure print a warning and use the br-only view. If BV_AVAILABLE=false: print "bv unavailable - showing br ready output" followed by br ready --json filtered to the scope.
+4. Print: "Run /ensemble-beads-build <ROOT_EPIC_ID> to execute. For TRD-driven work run /ensemble-implement-trd-beads <trd-path>." Then exit.

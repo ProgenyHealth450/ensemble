@@ -89,7 +89,7 @@ tests, builders, reviewers, branches, commits, or PR creation.
    Show consolidated findings before any mutation
 
 - Group findings by issue type. For each finding print finding ID, severity, affected bead IDs, recommendation, proposed br command(s) from REPAIR_PLAN, and expected graph effect.
-- If no findings are detected: print "Graph is refinement-ready" and suggest /ensemble:beads-plan or /ensemble:beads-build; then run br sync --flush-only and exit.
+- If no findings are detected: print "Graph is refinement-ready" and suggest /ensemble:beads-build <scope> --plan or /ensemble:beads-build; then run br sync --flush-only and exit.
 
 **2. User Approval**
    Apply only explicitly approved fixes
@@ -131,7 +131,7 @@ tests, builders, reviewers, branches, commits, or PR creation.
 
 - Print counts: findings found, fixes approved, fixes applied, fixes skipped, failed fixes, and remaining graph issues.
 - If dependency updates were applied, list each changed dependency edge with source and target bead IDs.
-- Print next steps: /ensemble:beads-plan <scope> or /ensemble:beads-build <scope>.
+- Print next steps: /ensemble:beads-build <scope> --plan or /ensemble:beads-build <scope>.
 - Run: br sync --flush-only before exit.
 
 ## Expected Output

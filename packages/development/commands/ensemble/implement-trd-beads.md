@@ -5,7 +5,7 @@ version: "3.0.0"
 category: "implementation"
 last-updated: "2026-10-20"
 allowed-tools: "Read, Write, Edit, Bash, Grep, Glob, Task"
-argument-hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman]"
+argument-hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman] [<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]]"
 model: "sonnet"
 ---
 <!-- DO NOT EDIT - Generated from implement-trd-beads.yaml -->
@@ -25,13 +25,15 @@ Rules:
 - PR_REVIEW_SKILL = `"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md"`; resolve it from the repo root so it works from any cwd. Every pr-review-cycle invocation below reads that file.
 - In every `br list --json` result the issue list is the parsed JSON if it is an array, otherwise its `.issues` array.
 - Scaffold work is delegated only to @beads-scaffold-specialist (never backend-developer); no product code is written during Scaffold.
-- Detail for branch intent, PR creation per backend, workstream mode and resume/recovery lives in the `implement-trd-beads-reference` skill. Read only the section a step points at.
+- Detail for branch intent, PR creation per backend, workstream mode (incl. generated-TRD contents) and resume/recovery lives in the `implement-trd-beads-reference` skill. Read only the section a step points at.
 
 Terminal states: HALT (error printed, nothing further runs), EXIT (early-exit mode
 finished), COMPLETE (epic closed, report printed).
 
 ## Arguments
 
+- **`workstream`** (boolean, optional, default: `false`): With two or more TRD paths, generate one normalized executable workstream TRD (node "$TRD_CLI" create-workstream-trd) and implement that single TRD. Without --workstream or --legacy-multi, two or more TRD paths HALT.
+- **`generate-only`** (boolean, optional, default: `false`): Only with --workstream and two or more TRD paths (replaces the removed /ensemble:create-workstream-trd). Generate the workstream TRD, report, and EXIT before any br/git/branch/scaffold/commit/PR side effect. Accepts --out <path> and --allow-invalid. Cannot be combined with --plan, --execute, --status, --reset-task, --list, --branch or --use-current-branch.
 - **`foreman`** (boolean, optional, default: `false`): Force non-interactive mode (INTERACTIVE=false) for Foreman orchestration. No HALT behavior changes: unresolved branch intent, unresolved PR backend and failed completion verification still HALT. When FOREMAN_ARTIFACT_PATH is set and non-empty, also write the phase report to that exact path (never alter it; unset is not an error).
 
 ## Workflow
@@ -43,7 +45,11 @@ finished), COMPLETE (epic closed, report printed).
 
 
 - `--plan` with `--execute`: print 'ERROR: --plan and --execute are mutually exclusive.' and EXIT. `--plan` sets PLAN_ONLY (scaffold, then stop); `--execute` sets EXECUTE_ONLY (skip scaffold, requires an existing epic).
-- TRD paths are the `.md` arguments. Two or more without `--workstream`/`--legacy-multi` HALT before any side effect; combined-workstream handling is in the reference skill, section 4.
+- `--generate-only` together with any of `--plan`, `--execute`, `--status`, `--reset-task`, `--list`, `--branch=<name>`, `--use-current-branch`: print 'ERROR: --generate-only only generates the workstream TRD and cannot be combined with --plan, --execute, --status, --reset-task, --list, --branch or --use-current-branch.' and HALT before any br/git/scaffold side effect.
+- TRD paths are the `.md` arguments (excluding the value after `--out`). Two or more without `--workstream`/`--legacy-multi`: print 'ERROR: Multiple TRDs passed directly. Direct multi-TRD execution is deprecated because it can lose fidelity across parser/runtime merge boundaries. Run /ensemble:implement-trd-beads --workstream --generate-only <trd1> <trd2> ... then /ensemble:implement-trd-beads <generated-workstream-trd>, or rerun with --workstream to generate and implement in one step.' and HALT before any br/git/scaffold side effect. `--legacy-multi` handling is reference section 4.
+- `--workstream` with two or more TRD paths: resolve TRD_CLI per the tool-path-resolution skill (unresolvable or no `node` -> print 'ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required to generate the workstream TRD.' and HALT), run `node "$TRD_CLI" create-workstream-trd <TRD_PATHS...>` (with `--generate-only`, also pass `--out <path>` and `--allow-invalid` if given), parse `{ok,path,workstreamSlug,sourceTrds,errors}`. `ok` false, non-zero exit or malformed JSON -> print every error and HALT (no file is written on validation failure unless `--allow-invalid` in generate-only mode). Without `--generate-only`, continue as a single-TRD run on `path`. Generated content and details: reference section 4.
+- `--generate-only` without `--workstream` and two or more TRD paths (or with `--legacy-multi`): print 'ERROR: --generate-only requires --workstream and two or more TRD paths.' and HALT.
+- `--generate-only` after successful generation: print the generated path, the workstream slug, the source TRD count and the next step `/ensemble:implement-trd-beads <generated-path>`, then EXIT here: no later Preflight step runs, nothing is implemented, and no beads, branches, commits or PRs are created.
 - `--list`: `node "$TRD_CLI" list --type trd` -> `{ok,items}`; print a table (ID/Name, Status, Score, Last Modified), ask via AskUserQuestion `id=trd_select` which to implement, and resolve `docs/TRD/<file>.md` by slug suffix/prefix match (unresolvable -> HALT).
 - `--status`: single TRD: `node "$TRD_CLI" status <TRD_SLUG>` and print `completion_pct` and `bead_counts`; EXIT. Workstream form: reference section 4.
 - `--reset-task TRD-XXX`: reference section 5; EXIT.
@@ -168,8 +174,11 @@ finished), COMPLETE (epic closed, report printed).
 
 **Format:** Beads hierarchy in br, feature branch(es) and PR(s), closed beads with quality-gate comments, TRD checkboxes synced, completion verification report and requirement satisfaction report
 
+**Structure:**
+- **Workstream TRD (--workstream --generate-only)**: Generated workstream TRD under docs/TRD/workstreams/ (or the --out path); no beads, branches, commits or PRs are created
+
 ## Usage
 
 ```
-/ensemble:implement-trd-beads [trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman]
+/ensemble:implement-trd-beads [trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman] [<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]]
 ```

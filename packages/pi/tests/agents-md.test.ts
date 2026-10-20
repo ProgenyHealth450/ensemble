@@ -13,6 +13,7 @@
 
 import * as os from 'os';
 import { generateAgentsMd } from '../src/generator';
+import { SELF_CONTAINED_PI_PACKAGES } from '../src/self-contained-packages';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -175,10 +176,33 @@ describe('generateAgentsMd() inventory behavior', () => {
     expect(result.content).toContain('## Agent Delegation Protocol');
   });
 
+  it('excludes self-contained packages from the overview and the mesh', () => {
+    const [selfContained] = Object.keys(SELF_CONTAINED_PI_PACKAGES);
+    write(
+      `packages/${selfContained}/.claude-plugin/plugin.json`,
+      JSON.stringify({ name: `ensemble-${selfContained}`, description: 'Ships as its own Pi package' })
+    );
+    write(
+      `packages/${selfContained}/agents/standalone-agent.yaml`,
+      'metadata:\n  name: standalone-agent\n  description: Lives elsewhere\n'
+    );
+    write('packages/alpha/.claude-plugin/plugin.json', JSON.stringify({ name: 'ensemble-alpha', description: 'Alpha' }));
+    write('packages/alpha/agents/a.yaml', 'metadata:\n  name: a-agent\n  description: A\n');
+
+    const { content } = generateAgentsMd(root, path.join(root, 'out'), { dryRun: true });
+
+    expect(content).toContain('`ensemble-alpha`');
+    expect(content).toContain('`a-agent`');
+    expect(content).not.toContain(`ensemble-${selfContained}`);
+    expect(content).not.toContain('standalone-agent');
+    expect(content).not.toContain(`### ${selfContained}`);
+  });
+
   it('lists every agent YAML in the real repository', () => {
     const repoRoot = path.resolve(__dirname, '..', '..', '..');
     const yamls = fs
       .readdirSync(path.join(repoRoot, 'packages'))
+      .filter((pkg) => !Object.prototype.hasOwnProperty.call(SELF_CONTAINED_PI_PACKAGES, pkg))
       .flatMap((pkg) => {
         const dir = path.join(repoRoot, 'packages', pkg, 'agents');
         return fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.yaml')) : [];

@@ -120,7 +120,7 @@ product strategy. Generate quarterly market intelligence reports with strategic 
 - Strategic decision requiring mesh-wide coordination
 - Complex project requiring product + development + QA orchestration
 
-**qa-orchestrator:**
+**test-runner:**
 - Quality strategy alignment with product requirements
 - Test planning based on acceptance criteria
 - Release validation criteria definition
