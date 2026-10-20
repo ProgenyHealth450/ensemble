@@ -1,8 +1,8 @@
 {
-  "packages/assessment/skills/ai-readiness-diagnostic-report/SKILL.md": 2035,
+  "packages/assessment/skills/ai-readiness-diagnostic-report/SKILL.md": 1930,
   "packages/assessment/skills/assess-config/SKILL.md": 1532,
-  "packages/assessment/skills/assess-repo/SKILL.md": 1822,
-  "packages/assessment/skills/assessment-report-suite/SKILL.md": 3502,
+  "packages/assessment/skills/assess-repo/SKILL.md": 1637,
+  "packages/assessment/skills/assessment-report-suite/SKILL.md": 3177,
   "packages/core/agents/ensemble-orchestrator.yaml": 2862,
   "packages/core/skills/detect-stack/SKILL.md": 3733,
   "packages/development/agents/documentation-specialist.yaml": 2155,

@@ -19,7 +19,7 @@ Ensemble is a monorepo of plugin packages under `packages/`. Runtime packages (p
 - `ensemble-guards` - Enforcement hooks: protected-branch, bypass-flag and br-close-evidence guards plus opt-in DoD stop gate
 - `ensemble-infrastructure` - Infrastructure management for AWS, Kubernetes, Docker, Helm, Fly.io
 - `ensemble-jest` - Jest testing framework integration
-- `ensemble-multiplexer-adapters` - Shared terminal multiplexer adapters for Ensemble plugins
+- `ensemble-lifecycle` - Run .ensemble/hooks.yaml command.start / command.end lifecycle hooks in Claude Code
 - `ensemble-nestjs` - NestJS backend framework skills for Claude Code AI-Augmented Development
 - `ensemble-permitter` - Smart permission expansion hook for Claude Code - semantic command matching
 - `ensemble-phoenix` - Phoenix LiveView framework skills
