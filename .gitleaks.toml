@@ -1,0 +1,15 @@
+title = "ensemble gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional fake secrets used as redaction/telemetry test fixtures"
+paths = [
+  # Fake jwt / private-key / slack-token strings that exercise payload redaction.
+  '''^packages/agent-core/tests/lifecycle-hooks/payload\.test\.ts$''',
+  # Fake aws-style / ghp_ strings that exercise telemetry redaction.
+  '''^packages/core/test/ensemble/behavior/telemetry_test\.exs$''',
+  # Documentation example tokens.
+  '''^docs/guides/refinement-review-collab\.md$''',
+]

@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Full history: generate:pi's postgenerate hook computes a merge-base against origin/main
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
       - name: Install dependencies
