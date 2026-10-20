@@ -1,0 +1,13 @@
+{
+  "name": "ensemble-telemetry",
+  "version": "5.2.1",
+  "description": "Local, opt-in usage telemetry for Ensemble commands, skills and agents",
+  "author": {
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com",
+    "url": "https://github.com/Sunstone-Partners"
+  },
+  "repository": "https://github.com/Sunstone-Partners/ensemble",
+  "license": "MIT",
+  "keywords": ["telemetry", "usage", "hooks", "local", "ensemble"]
+}

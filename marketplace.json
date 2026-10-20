@@ -437,6 +437,23 @@
       }
     },
     {
+      "name": "ensemble-telemetry",
+      "version": "5.2.1",
+      "source": "./packages/telemetry",
+      "description": "Local, opt-in usage telemetry for Ensemble commands, skills and agents",
+      "category": "utilities",
+      "tags": [
+        "telemetry",
+        "usage",
+        "hooks",
+        "local"
+      ],
+      "author": {
+        "name": "Sunstone Partners",
+        "url": "https://github.com/Sunstone-Partners"
+      }
+    },
+    {
       "name": "ensemble-opencode",
       "version": "5.3.1",
       "source": "./packages/opencode",
