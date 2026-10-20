@@ -18,6 +18,8 @@ Configure `.ensemble/guards.json`:
 
 `protectedBranches` replaces the default list (main, master, production) wholesale; list every branch you want protected.
 
-A `git push` whose remote/refspec contains an unresolved shell expansion (`$VAR`, `${VAR}`, `$(...)`, backticks) is blocked under `protected-branch`, because it cannot be proven not to target a protected branch; spell the branch literally. Commands nesting more than 200 substitution / `bash -c` / `eval` bodies that mention git or br are blocked for the same reason.
+A `git push` whose remote/refspec contains an unresolved shell expansion (`$VAR`, `${VAR}`, `$(...)`, backticks, `{a,b}` / `{a..b}` braces) is blocked under `protected-branch`, because it cannot be proven not to target a protected branch; spell the branch literally. Commands nesting more than 200 substitution / `bash -c` / `eval` bodies, exceeding 1 MB of analyzed text, or longer than 1 MB while mentioning `git push`, are blocked for the same reason.
+
+Push-adjacent text fails closed (`protected-branch`): reserved words and function bodies (`do`, `then`, `{`, `f(){`) are stripped so the inner `git` is analyzed; and a command is blocked when (a) `git ... push` appears as separate words under a command that is not git and not an inert printer (`echo`, `grep`, `man`, `cat`...), e.g. `timeout 5 git push`, or (b) the text mentions `git ... push` and is fed to a shell, `xargs`, `eval` or `source` through stdin, a here-string, a process substitution or an expansion (`echo 'git push ...' | sh`). Quoted mentions (`git commit -m "git push"`, `grep "git push" docs/`) and `bash script.sh` stay allowed. If the hook itself errors on text mentioning git push, it blocks instead of failing open.
 
 `ENSEMBLE_GUARDS=0` disables all guards. Not implemented: test-first guard.

@@ -303,3 +303,142 @@ describe('fail open / kill switch', () => {
     expect(stop({}, { ENSEMBLE_GUARDS: '0' }).status).toBe(0);
   });
 });
+
+describe('fail-closed push-adjacent text', () => {
+  const PUSH = 'git push origin HEAD:refs/heads/main';
+  beforeEach(() => { git('switch', '-q', '-c', 'feat/x'); });
+
+  test.each([
+    `for i in 1; do ${PUSH}; done`,
+    `if true; then ${PUSH}; fi`,
+    `while :; do ${PUSH}; break; done`,
+    `until false; do ${PUSH}; break; done`,
+    `if false; then :; else ${PUSH}; fi`,
+    `! ${PUSH}`,
+    `{ ${PUSH}; }`,
+    `f(){ ${PUSH}; }; f`,
+    `f () { ${PUSH}; }; f`,
+    `function f { ${PUSH}; }; f`,
+    `bash -c 'for i in 1; do ${PUSH}; done'`,
+    `bash -c '{ ${PUSH}; }'`,
+    `time ${PUSH}`,
+  ])('control flow / grouping / function bodies are analyzed: %s', (c) => {
+    const r = bash(c);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/protected-branch/);
+  });
+
+  test.each([
+    `bash -c -- "${PUSH}"`,
+    `bash -e -c "${PUSH}"`,
+    `bash -x -c "${PUSH}"`,
+    `bash -O extglob -c "${PUSH}"`,
+    `bash +O extglob -c "${PUSH}"`,
+    `bash --norc -c "${PUSH}"`,
+    `bash --login -c "${PUSH}"`,
+    `bash -o pipefail -c "${PUSH}"`,
+    `dash -c "${PUSH}"`,
+    `ksh -c "${PUSH}"`,
+  ])('shell -c option forms reach the script word: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+
+  test.each([
+    'git --exec-path push origin main',
+    'git --html-path push origin main',
+    'git --no-pager push origin main',
+    'git -p push origin main',
+    'git --bare push origin main',
+    'git --exec-path=/x push origin main',
+    'git -c a=b push origin main',
+    'git --git-dir x push origin main',
+    'git --config-env a=B push origin main',
+  ])('git global options: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+
+  test.each([
+    'git push origin {main,x}',
+    'git push origin {main,}',
+    'git push origin ma{in,}',
+    'git push origin {a..b}',
+    'git push origin {x,y,main}',
+    'git push origin "{a,"{main,x}',
+  ])('brace expansion in push refs is unresolved: %s', (c) => {
+    const r = bash(c);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/protected-branch/);
+  });
+
+  test.each([
+    `echo "${PUSH}" | xargs -I@ sh -c @`,
+    `echo '${PUSH}' | sh`,
+    `echo '${PUSH}' | bash`,
+    `printf '${PUSH}' | bash -s`,
+    `sh <<< "${PUSH}"`,
+    `bash <(echo '${PUSH}')`,
+    `x='${PUSH}'; eval "$x"`,
+    `x='${PUSH}'; sh -c "$x"`,
+    `echo '${PUSH}' | env sh`,
+    `echo '${PUSH}' | sudo -u root bash`,
+    `source <(echo '${PUSH}')`,
+    `echo '${PUSH}' | zsh`,
+  ])('opaque input to an interpreter that mentions git push: %s', (c) => {
+    const r = bash(c);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/protected-branch/);
+  });
+
+  test.each([
+    'timeout 5 git push origin main',
+    'ssh host git push origin main',
+    'find . -exec git push origin main ;',
+    'sudo -u root git push origin main',
+    'nice -n 5 git push origin main',
+  ])('backstop: git ... push as words of another command: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+
+  test('escaped bash -c nesting does not exhaust memory; hook still gives a verdict', () => {
+    let cmd = `${PUSH}`;
+    for (let i = 0; i < 22; i++) cmd = `bash -c "${cmd.replace(/[\\"$`]/g, '\\$&')}"`;
+    const t = Date.now();
+    const r = bash(cmd);
+    expect(r.status).toBe(2);
+    expect(Date.now() - t).toBeLessThan(5000);
+  });
+  test('moderately nested escaped payload over the byte budget is blocked', () => {
+    let cmd = `${PUSH}`;
+    for (let i = 0; i < 16; i++) cmd = `bash -c "${cmd.replace(/[\\"$`]/g, '\\$&')}"`;
+    expect(cmd.length).toBeLessThan(1 << 20);
+    expect(bash(cmd).status).toBe(2);
+  });
+
+  test.each([
+    'git push origin feat/x',
+    'git push -u origin HEAD',
+    'git push origin feat/x:feat/y',
+    "git push origin 'feat/x$SUF'",
+    "git push origin 'feat/{a,b}'",
+    'git push origin v1.2.3',
+    'git commit -m "docs: mention git push in README"',
+    'echo "git push origin main"',
+    'echo git push origin main',
+    'grep -rn "git push" docs/',
+    'man git-push',
+    'bash script.sh',
+    "bash -c 'echo hi'",
+    "sh -c 'ls | wc -l'",
+    'for f in *.js; do echo $f; done',
+    'if [ -f x ]; then cat x; fi',
+    'git status && git log --oneline | head',
+    'xargs -n1 echo < list.txt',
+    'npm test',
+    'git checkout main',
+    'echo hi -',
+    'git --exec-path',
+    'git --no-pager log --oneline',
+  ])('stays allowed: %s', (c) => {
+    expect(bash(c).status).toBe(0);
+  });
+});
