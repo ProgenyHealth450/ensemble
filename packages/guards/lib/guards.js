@@ -1,0 +1,139 @@
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { commandsOf } = require('./shell');
+
+const DEFAULT_PROTECTED = ['main', 'master', 'production'];
+// git global options that consume a value
+const GIT_VALUE_OPTS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix']);
+
+function projectDir(input) {
+  return process.env.CLAUDE_PROJECT_DIR || (input && input.cwd) || process.cwd();
+}
+
+function loadConfig(dir) {
+  try {
+    const c = JSON.parse(fs.readFileSync(path.join(dir, '.ensemble', 'guards.json'), 'utf8'));
+    return c && typeof c === 'object' ? c : {};
+  } catch { return {}; }
+}
+
+function disabled() { return process.env.ENSEMBLE_GUARDS === '0'; }
+
+function ruleOn(cfg, rule) { return !(Array.isArray(cfg.disable) && cfg.disable.includes(rule)); }
+
+function protectedBranches(cfg) {
+  return Array.isArray(cfg.protectedBranches) && cfg.protectedBranches.length ? cfg.protectedBranches : DEFAULT_PROTECTED;
+}
+
+function currentBranch(dir) {
+  const r = spawnSync('git', ['-C', dir, 'symbolic-ref', '--short', '-q', 'HEAD'], { encoding: 'utf8', timeout: 3000 });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+// words: ['git', ...]; returns {dir, sub, args} (global options consumed)
+function parseGit(words, dir) {
+  let i = 1;
+  while (i < words.length && words[i].startsWith('-')) {
+    const w = words[i];
+    if (w === '-C') { dir = path.resolve(dir, words[i + 1] || '.'); i += 2; continue; }
+    if (GIT_VALUE_OPTS.has(w)) { i += 2; continue; }
+    i++;
+  }
+  return { dir, sub: words[i], args: words.slice(i + 1) };
+}
+
+const block = (rule, msg) => ({
+  rule,
+  message: `ensemble-guards [${rule}]: ${msg}\nIf this is intentional, ask the user to approve; they can disable it with {"disable": ["${rule}"]} in .ensemble/guards.json or ENSEMBLE_GUARDS=0.`,
+});
+
+function pushTargets(args, cur) {
+  const pos = args.filter((a) => !a.startsWith('-') || a === '-');
+  const refs = pos.slice(1); // pos[0] is the remote
+  if (!refs.length) return cur ? [cur] : [];
+  return refs.map((r) => {
+    let dst = r.replace(/^\+/, '');
+    if (dst.includes(':')) dst = dst.split(':').pop();
+    dst = dst.replace(/^refs\/heads\//, '');
+    return dst === 'HEAD' || dst === '' ? cur : dst;
+  }).filter(Boolean);
+}
+
+function checkBash(command, cfg, cwd) {
+  const prot = protectedBranches(cfg);
+  let dir = cwd;
+  for (const w of commandsOf(command)) {
+    const base = w[0].split('/').pop();
+    if (base === 'cd' && w[1]) { dir = path.resolve(dir, w[1]); continue; }
+
+    if (base === 'br' && ruleOn(cfg, 'br-close-reason')) {
+      const sub = w.slice(1).find((x) => !x.startsWith('-'));
+      if (sub === 'close') {
+        const rest = w.slice(1);
+        let reason = null;
+        rest.forEach((x, i) => {
+          if (x.startsWith('--reason=')) reason = x.slice(9);
+          else if (x === '--reason' || x === '-r') reason = rest[i + 1] === undefined ? '' : rest[i + 1];
+        });
+        if (reason === null || !reason.trim()) {
+          return block('br-close-reason', '`br close` requires a non-empty --reason citing evidence (commit, PR, test run). Re-run as: br close <id> --reason "<evidence>".');
+        }
+      }
+      continue;
+    }
+    if (base !== 'git') continue;
+
+    const g = parseGit(w, dir);
+    const { sub, args } = g;
+    if (ruleOn(cfg, 'bypass-flags')) {
+      const long = args.find((a) => a === '--no-verify' || a === '--no-gpg-sign');
+      const shortN = sub === 'commit' && args.some((a) => /^-[A-Za-z]*n[A-Za-z]*$/.test(a) && !a.startsWith('--'));
+      if (long || shortN) {
+        return block('bypass-flags', `git ${sub} with ${long || '-n (--no-verify)'} bypasses hooks/signing. Fix the failing hook or signing problem instead of skipping it.`);
+      }
+    }
+    if (sub === 'commit' && ruleOn(cfg, 'protected-branch')) {
+      const b = currentBranch(g.dir);
+      if (b && prot.includes(b)) {
+        return block('protected-branch', `git commit on protected branch "${b}". Create a feature branch first (git switch -c <name>) and commit there.`);
+      }
+    }
+    if (sub === 'push') {
+      const b = currentBranch(g.dir);
+      const all = args.includes('--all') || args.includes('--mirror');
+      const force = args.some((a) => a === '--force' || a === '-f' || a.startsWith('--force-with-lease') || a === '--force-if-includes' || /^-[A-Za-z]*f[A-Za-z]*$/.test(a)) ||
+        args.some((a) => a.startsWith('+'));
+      const hit = all ? ['(all branches)'] : pushTargets(args, b).filter((t) => prot.includes(t));
+      if (hit.length) {
+        if (force && ruleOn(cfg, 'force-push')) return block('force-push', `force push to protected branch "${hit[0]}". Never rewrite shared history; push a feature branch and open a PR.`);
+        if (ruleOn(cfg, 'protected-branch')) return block('protected-branch', `git push to protected branch "${hit[0]}". Push a feature branch and open a PR instead.`);
+      }
+    }
+  }
+  return null;
+}
+
+function readInput() {
+  try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
+}
+
+function tail(s, lines = 60, chars = 4000) {
+  const t = s.split('\n').slice(-lines).join('\n');
+  return t.length > chars ? t.slice(-chars) : t;
+}
+
+function checkStop(input, cfg, dir) {
+  const dod = cfg.dod;
+  if (!dod || typeof dod.command !== 'string' || !dod.command.trim() || !ruleOn(cfg, 'dod')) return null;
+  if (input.stop_hook_active === true) return null;
+  const sec = Number(dod.timeoutSec) > 0 ? Number(dod.timeoutSec) : 300;
+  const r = spawnSync(dod.command, { shell: true, cwd: dir, encoding: 'utf8', timeout: sec * 1000, maxBuffer: 16 * 1024 * 1024 });
+  if (r.error && r.error.code !== 'ETIMEDOUT') return null; // could not run at all: fail open
+  if (!r.error && r.status === 0) return null;
+  const why = r.error ? `timed out after ${sec}s` : `exited ${r.status}`;
+  return block('dod', `Definition-of-Done command \`${dod.command}\` ${why}. Fix the failures before finishing.\n--- output tail ---\n${tail((r.stdout || '') + (r.stderr || ''))}`);
+}
+
+module.exports = { checkBash, checkStop, loadConfig, readInput, projectDir, disabled };

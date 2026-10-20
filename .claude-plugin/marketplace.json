@@ -420,6 +420,23 @@
       }
     },
     {
+      "name": "ensemble-guards",
+      "version": "5.2.1",
+      "source": "./packages/guards",
+      "description": "Enforcement hooks: protected-branch, bypass-flag and br-close-evidence guards plus opt-in DoD stop gate",
+      "category": "utilities",
+      "tags": [
+        "guards",
+        "hooks",
+        "enforcement",
+        "git"
+      ],
+      "author": {
+        "name": "Sunstone Partners",
+        "url": "https://github.com/Sunstone-Partners"
+      }
+    },
+    {
       "name": "ensemble-opencode",
       "version": "5.3.1",
       "source": "./packages/opencode",
