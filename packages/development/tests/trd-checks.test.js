@@ -156,6 +156,60 @@ describe('req-status', () => {
     expect(req1.note).toMatch(/no req-verified token/);
   });
 
+  describe('comment evidence (--comments-json)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'trd-checks-ev-'));
+    const write = (name, payload) => {
+      const file = path.join(tmp, name);
+      fs.writeFileSync(file, JSON.stringify(payload));
+      return file;
+    };
+    const issues = write('issues.json', [
+      { id: 'br-a', title: '[trd:valid:task:TRD-001-TEST] t', status: 'closed' },
+      { id: 'br-b', title: '[trd:valid:task:TRD-002-TEST] t', status: 'closed' },
+    ]);
+    const run = (comments, extra) =>
+      runReqStatus([fx('valid.md'), '--prd', fx('valid-prd.md'), '--issues-json', issues, ...(comments ? ['--comments-json', comments] : []), ...(extra || [])]);
+    const byReq = (r) => Object.fromEntries(r.requirements.map((q) => [q.req, q]));
+
+    test('closed bead with PASSED verdict is SATISFIED; FAILED or missing verdict is not', () => {
+      const comments = write('c1.json', [
+        { beadId: 'br-a', comments: ['status:closed qa:backend verdict:passed req-satisfied:REQ-001 ac-proven:AC-001-1'] },
+        { beadId: 'br-b', comments: ['status:closed qa:backend verdict:failed req-satisfied:REQ-002'] },
+      ]);
+      const r = run(comments);
+      expect(r.evidence).toBe('verdict-verified');
+      expect(byReq(r)['REQ-001'].status).toBe('SATISFIED');
+      expect(byReq(r)['REQ-002'].status).toBe('IN_PROGRESS');
+      expect(byReq(r)['REQ-002'].note).toMatch(/PASSED verdict/);
+
+      const noVerdict = write('c2.json', { 'br-a': ['status:closed done'], 'br-b': [] });
+      const r2 = run(noVerdict);
+      expect(byReq(r2)['REQ-001'].status).toBe('IN_PROGRESS');
+      expect(byReq(r2)['REQ-002'].status).toBe('IN_PROGRESS');
+    });
+
+    test('ac-proven tokens (bead and epic comments, br comment-list shape) populate acsProven', () => {
+      const comments = write('c3.json', [
+        { id: 1, issue_id: 'br-a', author: 'x', text: 'status:closed verdict:passed req-satisfied:REQ-001 ac-proven:AC-001-1, AC-001-2' },
+        { id: 2, issue_id: 'br-epic', author: 'x', text: 'req-verified:REQ-001 by:TRD-001-TEST qa:backend ac-proven:AC-001-3' },
+      ]);
+      const q = byReq(run(comments))['REQ-001'];
+      expect(q.acsProven).toEqual(['AC-001-1', 'AC-001-2', 'AC-001-3']);
+      expect(byReq(run(comments))['REQ-002'].acsProven).toEqual([]);
+    });
+
+    test('without comments the result is labelled closed-only and acsProven is empty', () => {
+      const r = run(null);
+      expect(r.evidence).toBe('closed-only');
+      expect(byReq(r)['REQ-001'].status).toBe('SATISFIED');
+      expect(byReq(r)['REQ-001'].acsProven).toEqual([]);
+    });
+
+    test('unreadable comments file is an error', () => {
+      expect(() => run(path.join(tmp, 'nope.json'))).toThrow(/comments/i);
+    });
+  });
+
   test('requirement with no test task is NOT_PLANNED', () => {
     const r = runReqStatus([fx('unresolved-dep.md')]);
     expect(r.requirements).toEqual([]);

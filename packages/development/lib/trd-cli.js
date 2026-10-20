@@ -32,7 +32,7 @@
  *   resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>
  *   validate     <trd-path> [--prd path]
  *   analyze      <trd-path> [--prd path]
- *   req-status   <trd-path> [--prd path] [--issues-json file] [--verified REQ-001,...]
+ *   req-status   <trd-path> [--prd path] [--issues-json file] [--verified REQ-001,...] [--comments-json file]
  *   verify       <trd-path> [--prd path] [--mode m] [--beads-evidence file] [--run-tests] [--report-path p]
  */
 
@@ -57,7 +57,7 @@ const {
   isPhaseComplete,
   selectNextTasks,
 } = require('./phase-tracker');
-const { validateTrd, analyzeTrd, requirementStatus, isChecked } = require('./trd-checks');
+const { validateTrd, analyzeTrd, requirementStatus, evidenceFromComments, isChecked } = require('./trd-checks');
 const { buildChain } = require('./verify-requirements-evidence');
 const { buildScaffoldPlan } = require('./scaffold-planner');
 const { buildWorkstreamPlan, validateWorkstream } = require('./workstream-planner');
@@ -1042,11 +1042,16 @@ function beadStatusFromIssuesJson(file, slug) {
   const issues = Array.isArray(data) ? data : data && Array.isArray(data.issues) ? data.issues : null;
   if (!issues) throw new Error(`Issues JSON '${file}' is neither an array nor an object with an "issues" array`);
   const out = {};
+  const byBead = {};
   const re = new RegExp(`\\[trd:${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:task:([^\\]]+)\\]`);
   for (const issue of issues) {
     const m = String(issue.title || '').match(re);
-    if (m) out[m[1]] = String(issue.status || 'open');
+    if (m) {
+      out[m[1]] = String(issue.status || 'open');
+      if (issue.id) byBead[issue.id] = m[1];
+    }
   }
+  Object.defineProperty(out, 'taskIdByBead', { value: byBead, enumerable: false });
   return out;
 }
 
@@ -1055,16 +1060,31 @@ function beadStatusFromIssuesJson(file, slug) {
  *   -> { checklist:{total,done,pct,phases[]}, requirements[], summary }
  * Checkbox state is the baseline; bead statuses from --issues-json (merged
  * `br list --json` output) override it per task. `--verified` is the list of
- * REQ ids that carry a req-verified comment token.
+ * REQ ids that carry a req-verified comment token. `--comments-json` is a
+ * map/array of bead comments (`br comment list <id> --json` per bead); with it
+ * a closed test bead counts only with a `verdict:passed` comment and
+ * `ac-proven` tokens fill `acsProven` (output `evidence: verdict-verified`;
+ * without it `evidence: closed-only`).
  */
 function runReqStatus(argv) {
-  const { positionals, flags } = parseArgs(argv, new Set(['prd', 'issues-json', 'verified']));
+  const { positionals, flags } = parseArgs(argv, new Set(['prd', 'issues-json', 'verified', 'comments-json']));
   const { slug, parsed, prdContext } = loadWithPrd(positionals, flags);
   const beadStatusByTask = flags['issues-json'] ? beadStatusFromIssuesJson(flags['issues-json'], slug) : {};
-  const verifiedReqs = flags.verified !== undefined ? splitList(flags.verified) : null;
+  let verifiedReqs = flags.verified !== undefined ? splitList(flags.verified) : null;
+  let evidence = null;
+  if (flags['comments-json']) {
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(flags['comments-json'], 'utf8'));
+    } catch (err) {
+      throw new Error(`Cannot read comments JSON '${flags['comments-json']}': ${err.message}`);
+    }
+    evidence = evidenceFromComments(data, beadStatusByTask.taskIdByBead);
+    if (verifiedReqs) verifiedReqs = [...new Set([...verifiedReqs, ...evidence.verifiedReqs])];
+  }
   return Object.assign(
     { ok: true, slug, beadsConsulted: Boolean(flags['issues-json']) },
-    requirementStatus(parsed, { prdContext, beadStatusByTask, verifiedReqs })
+    requirementStatus(parsed, { prdContext, beadStatusByTask, verifiedReqs, evidence })
   );
 }
 
