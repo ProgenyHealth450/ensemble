@@ -1,3 +1,8 @@
+---
+name: kubernetes
+description: "Kubernetes manifest reference: Deployments, Services, Kustomize, security hardening and production patterns. Use when authoring or reviewing Kubernetes manifests; not for Helm chart templating."
+---
+
 # Kubernetes Quick Reference
 
 **Version**: 1.0.0 | **Target Size**: <100KB | **Purpose**: Fast reference for Kubernetes manifest development and deployment

@@ -1,3 +1,8 @@
+---
+name: tool-path-resolution
+description: Resolve the on-disk path of an internal monorepo CLI or shell script across checkout, legacy, plugin and Pi/OMP bundle installs. Use when a command must locate a repo tool at runtime; not for paths already resolved.
+---
+
 # Tool Path Resolution
 
 Resolve the on-disk path of an internal monorepo tool (a Node.js CLI script or a

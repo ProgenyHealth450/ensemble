@@ -1,3 +1,8 @@
+---
+name: complete-beads
+description: "Drive every scoped bead to closed or a truthful terminal state: recover in-progress work, triage, dispatch parallel isolated workers, integrate serially. Use when completing a bead epic or TRD scope; not for single-task edits."
+---
+
 # complete-beads
 
 Goal-oriented skill that drives every scoped bead to closed or a truthful terminal state. Recovers in-progress work, selects tasks via BV triage/planning, dispatches isolated workers in parallel, integrates serially, and rolls up completed containers. Produces one machine-readable result sentinel.

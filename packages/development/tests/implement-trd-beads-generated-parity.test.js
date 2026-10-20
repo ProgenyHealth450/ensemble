@@ -162,11 +162,12 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
     }
   );
 
-  test('complete-beads Pi mirror: byte-identical to the source after the Pi-injected frontmatter, and carries the quality-gate review contract', () => {
+  test('complete-beads Pi mirror: byte-identical to the source body after the frontmatter, and carries the quality-gate review contract', () => {
     const frontmatterEnd = completeBeadsPiMirror.indexOf('\n# complete-beads');
     expect(frontmatterEnd).toBeGreaterThan(-1);
     const mirrorBody = completeBeadsPiMirror.slice(frontmatterEnd + 1);
-    expect(mirrorBody).toBe(completeBeadsSource);
+    const sourceBody = completeBeadsSource.replace(/^---\n[\s\S]*?\n---\n\n?/, '');
+    expect(mirrorBody).toBe(sourceBody);
 
     expect(completeBeadsPiMirror).toContain('Quality Gate Review');
     expect(completeBeadsPiMirror).toContain('LOCAL_REVIEW_COMPLETE');

@@ -1,3 +1,8 @@
+---
+name: changelog-generator
+description: Generate a categorized changelog from conventional commits with breaking-change detection and version-bump suggestion. Use when preparing release notes from conventional commits; not for repos lacking conventional commit format.
+---
+
 # Changelog Generator Skill
 
 **Quick Reference** - Parse conventional commits and generate categorized changelog

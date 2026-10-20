@@ -1,3 +1,8 @@
+---
+name: aws-cloud
+description: "AWS infrastructure quick reference with Terraform: ECS/Fargate, compute, networking, IAM and security-first patterns. Use when writing or reviewing AWS infrastructure code; not for GCP, Azure or Fly.io."
+---
+
 # AWS Cloud Infrastructure Skill
 
 **Quick reference for AWS infrastructure automation with Terraform, security-first design, and production-ready patterns.**

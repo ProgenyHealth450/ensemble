@@ -1,3 +1,8 @@
+---
+name: flyio
+description: "Fly.io deployment reference: fly.toml configuration, regions, scaling, volumes, secrets and global distribution. Use when deploying or configuring containerized apps on Fly.io; not for Kubernetes or AWS deployments."
+---
+
 # Fly.io Infrastructure Skills
 
 **Version**: 1.0.0 | **Target Size**: <25KB | **Purpose**: Fast reference for Fly.io deployments and global application distribution

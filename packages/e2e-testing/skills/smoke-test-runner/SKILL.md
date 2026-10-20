@@ -1,3 +1,8 @@
+---
+name: smoke-test-runner
+description: Orchestrate all smoke test categories (API, database, external services, auth, critical paths) in dependency order with fail-fast and aggregated results. Use for a full pre-release smoke run; not for a single category.
+---
+
 # Smoke Test Runner Skill
 
 **Quick Reference** - Orchestrates all smoke test categories and contains the per-category smoke test guides (API, Database, External Services, Auth, Critical Paths)

@@ -1,3 +1,8 @@
+---
+name: helm
+description: "Helm chart reference: chart structure, templating, values and deployment patterns. Use when creating, editing or deploying Helm charts; not for raw Kubernetes manifests."
+---
+
 # Helm Chart Quick Reference
 
 **Version**: 1.0.0 | **Target Size**: <100KB | **Purpose**: Fast reference for Helm chart development and deployment
