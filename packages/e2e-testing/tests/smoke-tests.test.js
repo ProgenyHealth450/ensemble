@@ -198,6 +198,12 @@ describe('S1: failure reasons never leak subprocess output', () => {
     const t = await new SmokeTestDatabase({ command: 'sleep 5', timeout: 100 }).executeTests();
     expect(t.reason).toMatch(/timeout after 100ms/);
   });
+  test('a timeout returns promptly even when the command has a child process holding its output', async () => {
+    const started = Date.now();
+    const t = await new SmokeTestDatabase({ command: 'sleep 4; echo done', timeout: 150 }).executeTests();
+    expect(t.reason).toMatch(/timeout after 150ms/);
+    expect(Date.now() - started).toBeLessThan(2500);
+  });
   test('API health checks report a status key and survive malformed endpoints', async () => {
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
     try {
