@@ -21,6 +21,7 @@ parallel, then re-verified against live state until green, then merged.
 ### Phase 1: PR Discovery
 
 **1. Resolve Target PR**
+   Delegate to git-workflow.
 
 - HALT if no PR is found, it is MERGED/CLOSED, or isDraft is true (mark ready for review first; do not operate on drafts).
 - Record PR_NUMBER, PR_URL, HEAD_REF, BASE_REF.
@@ -72,6 +73,7 @@ parallel, then re-verified against live state until green, then merged.
 ### Phase 5: Merge and Report
 
 **1. Merge**
+   Delegate to git-workflow.
 
 - Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision; if not MERGEABLE or CHANGES_REQUESTED, abort and run another verification round.
 - If --dry-run: stop and report merge-readiness without merging.

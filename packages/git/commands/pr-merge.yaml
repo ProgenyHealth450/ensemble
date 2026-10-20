@@ -40,6 +40,7 @@ workflow:
       steps:
         - order: 1
           title: Resolve Target PR
+          description: Delegate to git-workflow.
           delegation:
             agent: git-workflow
             context: "Resolve --pr (number or URL) or, if omitted, the PR for the current branch via gh pr view --json number,url,state,headRefName,baseRefName,mergeable,mergeStateStatus,reviewDecision,isDraft"
@@ -99,6 +100,7 @@ workflow:
       steps:
         - order: 1
           title: Merge
+          description: Delegate to git-workflow.
           delegation:
             agent: git-workflow
             context: "PR is fully green and approved: merge per repo convention and clean up the branch."
