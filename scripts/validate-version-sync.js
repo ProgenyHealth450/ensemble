@@ -75,7 +75,7 @@ for (const name of fs.readdirSync(packagesDir)) {
     const plugin = JSON.parse(fs.readFileSync(pluginPath, 'utf8'));
     sources['.claude-plugin/plugin.json'] = plugin.version;
 
-    // Shared libs (e.g. multiplexer-adapters) are intentionally uncatalogued.
+    // Shared libs (e.g. agent-core) are intentionally uncatalogued.
     const entry = marketplace.plugins.find(p => p.name === plugin.name);
     if (entry) sources['marketplace.json'] = entry.version;
   }

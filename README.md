@@ -157,14 +157,13 @@ Versions below are taken from each package's `package.json`.
 | `ensemble-exunit` | 5.1.1 | `exunit` skill |
 | `ensemble-reqnroll` | 1.0.2 | `reqnroll` skill; `reqnroll-binding-specialist` agent |
 | `ensemble-permitter` | 5.2.1 | Permission-expansion hook with allowlist (opt out with `ENSEMBLE_PERMITTER_DISABLE=1`) |
-| `ensemble-multiplexer-adapters` | 5.2.2 | Terminal multiplexer adapters (WezTerm, Zellij, tmux) |
 | `ensemble-opencode` | 5.3.1 | OpenCode runtime translation layer |
 | `ensemble-pi` | 1.6.16 | Pi runtime translation layer (own version line) |
 | `ensemble-codex` | 6.0.0 | Codex CLI runtime translation layer |
 | `ensemble-agent-core` | 0.1.2 | Shared run-index I/O primitives for the `new-feature` and `fix-issue` workflows (library) |
 | `ensemble-pi-extension` | 0.1.2 | Pi extension providing native command completion for the dispatcher commands (no marketplace entry; installed from a checkout) |
 
-`ensemble-agent-core`, `ensemble-pi-extension`, `ensemble-multiplexer-adapters` and the runtime layers are support packages; day-to-day use needs only the workflow and skill packages.
+`ensemble-agent-core`, `ensemble-pi-extension` and the runtime layers are support packages; day-to-day use needs only the workflow and skill packages.
 
 ## Commands
 
@@ -326,7 +325,7 @@ For .NET projects, `/ensemble:reqnroll` turns PRD acceptance criteria into Gherk
 | Group | Skills |
 |-------|--------|
 | Repository dimensions | `assess-ai-readiness`, `assess-architect`, `assess-cicd`, `assess-code-quality`, `assess-purpose`, `assess-security`, `assess-testing` |
-| Team dimensions | `assess-team-ai-adoption`, `assess-team-code-quality`, `assess-team-code-review`, `assess-team-commit-messages`, `assess-team-commit-volume`, `assess-team-documentation`, `assess-team-incidents`, `assess-team-test-coverage` |
+| Team dimensions | `assess-team-dimension` (commit messages, code quality, test coverage, AI adoption, documentation, code review) |
 | Reports and audits | `ai-readiness-diagnostic-report`, `architecture-overview-report`, `assessment-report-suite`, `assessment-scoring-conflation-audit` |
 | Setup | `assess-config` |
 
