@@ -207,7 +207,7 @@ describe('bundleLibs against real packages directory', () => {
   it('bundles the real entry points plus their full require closure', async () => {
     const results = await bundleLibs(repoRoot, outputRoot, { dryRun: true });
     const names = results.map((r) => path.basename(r.outputPath));
-    for (const expected of ['trd-cli.js', 'trd-checks.js', 'pr-review-cli.js', 'pr-review-ledger.js']) {
+    for (const expected of ['trd-cli.js', 'trd-checks.js', 'pr-review-cli.js', 'pr-review-ledger.js', 'local-ci-cli.js', 'local-ci-record.js', 'local-ci-runner.js']) {
       expect(names).toContain(expected);
     }
     expect(new Set(names).size).toBe(names.length);
@@ -269,7 +269,7 @@ describe('bundleLibs against real packages directory', () => {
     // entry point here — not a fixture — is the only way to catch that.
     await bundleLibs(repoRoot, outputRoot, {});
 
-    for (const entry of ['trd-cli.js', 'trd-graph-cli.js', 'prd-cli.js', 'pr-review-cli.js']) {
+    for (const entry of ['trd-cli.js', 'trd-graph-cli.js', 'prd-cli.js', 'pr-review-cli.js', 'local-ci-cli.js']) {
       const entryPath = path.join(outputRoot, 'vendor', 'lib', entry);
       expect(fs.existsSync(entryPath)).toBe(true);
 

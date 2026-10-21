@@ -1,0 +1,97 @@
+---
+name: local-ci-gate
+description: Run or check the local CI gate for a PR head. Runs ci:local in a clean clone at the exact head SHA via the runner, posts a signed commit status, and decides merge-readiness without waiting for hosted CI. Use before merging a PR in a repo with .ensemble/local-ci.yaml; not for hosted-CI debugging.
+---
+
+# Local CI Gate
+
+Order the steps of the local CI gate for one PR head and report the outcome.
+This skill only sequences, calls `local-ci-cli.js` and reports. It never runs
+CI, never checks out or edits the working tree and never grades results: the
+runner (`local-ci-runner.js`, driven by the CLI) owns the clean clone, the CI
+run and its cleanup, and the CLI computes every verdict. Editable approval set:
+`.ensemble/local-ci.yaml`.
+
+---
+
+## Inputs
+
+| Variable | Type | Description |
+|---|---|---|
+| `MODE` | `'gate'` \| `'check'` | `gate`: run CI and post the status. `check`: only decide whether the PR may merge now. |
+| `HEAD_SHA` | string | Full 40-hex PR head commit, resolved before starting (never a branch name). |
+| `REPO` | string | `owner/name`, needed to post or read statuses. |
+| `DRY_RUN` | boolean | `gate` only. Report merge-readiness and post nothing. |
+
+---
+
+## Locate the CLI
+
+Resolve `LOCAL_CI_CLI` with the `tool-path-resolution` skill
+(`skill://tool-path-resolution`), `RELATIVE_PATH=packages/development/lib/local-ci-cli.js`:
+git top-level, then CWD-relative, then `${CLAUDE_PLUGIN_ROOT}/lib/local-ci-cli.js`,
+then the Pi/OMP bundle `vendor/lib/local-ci-cli.js`. If no tier resolves, stop
+and say the CLI could not be found; never merge on that basis.
+
+Every call is `node "$LOCAL_CI_CLI" <subcommand>` with one JSON payload on
+stdin and one JSON object on stdout. Exit 1, or `ok:false`, or `{error}` is a
+refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
+
+---
+
+## Procedure
+
+### `check` (merge-readiness)
+
+1. Fetch the commit statuses for the PR head and recent commits, for example
+   `gh api repos/$REPO/commits/$HEAD_SHA/status` plus the statuses of earlier
+   PR commits, as `[{context, state, description, sha}]` (`sha` = commit the
+   status is on).
+2. `merge` with `{headSha, statuses, repoRoot}` (add `reviews` when known).
+3. `mergeReady:true`: report ready to merge **without waiting for hosted CI**,
+   quoting the record. `mergeReady:false`: report the CLI `reason` verbatim and
+   refuse. Typical reasons: no local status (name the missing run and tell the
+   user to run `gate` for `HEAD_SHA`); head moved (the reason names both SHAs;
+   run `gate` again for the new head); status not success; blocking review.
+
+### `gate`
+
+1. `gate` with `{repoRoot, headSha, repo, dryRun}`. The CLI orders: prerequisites
+   (Node, git, the configured `scripts/ci-local.js`), run, record, post.
+2. Read the result and report, in this order of precedence:
+   - `prerequisite` set: say which prerequisite is missing and that nothing was
+     run or posted. Do not fall back to merging.
+   - `cannotAttest:true`: say the gate cannot attest (no GitHub App
+     credential), that nothing was published and the merge is refused.
+   - `failures` non-empty: list each with workflow, job, step, node and the
+     exact head SHA (full 40 hex), plus `message`. A failing or unsupported step
+     is never success; at most a failure status was posted.
+   - `error` without failures (unfetchable head, unprovidable Node,
+     malformed config): report it as a refusal.
+   - `dryRun` and `mergeReady:true`: report readiness, state that nothing was
+     posted.
+   - `posted:true`, `mergeReady:true`: report the record and that the PR is
+     mergeable without hosted CI.
+3. Never retry with a different SHA, never post by hand, never edit the config
+   to make a step pass. A step the runner cannot mirror is a gap to report to
+   the user, who may record it in `.ensemble/local-ci.yaml` `excluded_steps`.
+
+---
+
+## Other subcommands
+
+`config` validates the file, `record` builds/parses/verifies the status
+description, `run` runs the runner without posting, `post` posts one status,
+`review` classifies reviews (bots never block), `sweep` lists unrecorded
+findings and CI failures, `timing` checks the enablement note. Use them only
+when a command asks; they carry the same fail-closed rules.
+
+---
+
+## Rules
+
+- Success exists only as a status posted by the CLI on the exact head.
+- Report CLI output as given; do not soften, reinterpret or truncate SHAs.
+- No credential, secret or key is ever printed; the CLI redacts, so do not
+  re-read credential files.
+- Hosted CI is not consulted for readiness; mention it only if asked.
