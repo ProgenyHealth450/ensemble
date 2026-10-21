@@ -8,6 +8,10 @@ date: 2026-10-21
 design_readiness_score: 4.0
 kind: trd
 Constitution compliance: passed
+ensemble_implement_trd_beads:
+  branch_name: feature/trd-2026-8d825f54-tool-abstraction-layer-pr-1
+  use_proposed: true
+  stacked_prs: true
 ---
 
 # TRD-2026-8d825f54: Tool Abstraction Layer for Ensemble
