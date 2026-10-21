@@ -1,0 +1,29 @@
+# Approval set for the local CI gate of THIS repository (Sunstone-Partners/ensemble).
+# Edit this file to change which workflows/jobs gate a merge; no code change needed.
+# Validated by packages/development/lib/local-ci-config.js.
+
+workflows:
+  - file: .github/workflows/validate.yml
+    jobs:
+      - id: validate
+  - file: .github/workflows/test.yml
+    jobs:
+      - id: test
+        matrix:
+          node-version: [22, 24]
+
+# Whole jobs that hosted CI runs but the local gate deliberately does not. None today:
+# both required jobs (validate, test) are run. Steps INSIDE a job that ci:local cannot
+# mirror (the coverage upload, the Windows-filename check, the package.json consistency
+# check) are not job exclusions; the runner (TRD-012) names them and fails the gate.
+excluded: []
+
+# Name of the commit status the gate posts on the PR head.
+status_context: ensemble/local-ci
+
+# GitHub App that posts the status. Placeholder only: set the real numeric App id
+# locally; never put a private key or token in this file.
+app_id: REPLACE_WITH_GITHUB_APP_ID
+
+# No bot reviewers (e.g. CodeRabbit) are required; list logins here to enable bot-review handling.
+bot_reviewers: []
