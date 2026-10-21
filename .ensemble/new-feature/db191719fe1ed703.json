@@ -3,11 +3,11 @@
   "projectRoot": "/Users/ldangelo/Development/Sunstone/ensemble.local-ci",
   "idea": "move the PR approval process from waiting for ci and coderabbit to finish to using act to run the ci locally...  We are waiting WAY too long for PR's to land.",
   "status": "active",
-  "stage": "implementation_approval",
+  "stage": "implementation",
   "stageOutcome": {
     "kind": "approval_wait",
-    "detail": "PRD 1.0.2 (runner-neutral wording) and TRD 1.0.4; 6 beads refreshed; implementation approval deferred by user pending PRD wording fix, now done; awaiting approval",
-    "recordedAt": "2026-10-21T16:27:24.071Z"
+    "detail": "implementation approved by user (explicit) against PRD 1.0.2 and TRD 1.0.4; 31 beads under epic br-0unz",
+    "recordedAt": "2026-10-21T16:31:58.721Z"
   },
   "artifacts": [
     {
@@ -100,9 +100,9 @@
     "br-jwwm",
     "br-8u2c"
   ],
-  "implementationApprovedAt": null,
+  "implementationApprovedAt": "2026-10-21T16:31:58.721Z",
   "prApprovedAt": null,
-  "revision": 7,
+  "revision": 8,
   "createdAt": "2026-10-21T15:30:55.595Z",
-  "updatedAt": "2026-10-21T16:27:24.071Z"
+  "updatedAt": "2026-10-21T16:31:58.721Z"
 }
