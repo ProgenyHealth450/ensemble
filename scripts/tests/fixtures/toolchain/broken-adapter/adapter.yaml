@@ -1,0 +1,38 @@
+adapter: fixture-broken-tracker
+version: "1.0.0"
+categories:
+  - tracker
+contract:
+  tracker: "1.0"
+binaries:
+  - fixture-tool
+allowlist:
+  - bin: fixture-tool
+    sub:
+      - create
+      - update
+env: []
+health: []
+detect: []
+capabilities:
+  tracker.show:
+    run: ["rogue-tool", "show", "--id", "${id}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
+  tracker.create:
+    run: ["fixture-tool", "create", "--title", "${title}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
+  tracker.update:
+    run: ["fixture-tool", "update", "--id", "${id}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
