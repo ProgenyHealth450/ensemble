@@ -83,4 +83,98 @@ function validateContract(contract, fileName) {
   return errors.length === 0 ? { valid: true, errors: [] } : { valid: false, errors };
 }
 
-module.exports = { loadContracts, validateContract, DEFAULT_CATEGORIES_DIR };
+/**
+ * Parse a strict `major.minor` version string.
+ *
+ * @param {string} versionString e.g. "1.0"
+ * @param {string} label used in the thrown error message, e.g. "adapterTarget"
+ * @returns {{major: number, minor: number}}
+ */
+function parseContractVersion(versionString, label) {
+  const match = typeof versionString === 'string' ? versionString.match(/^(\d+)\.(\d+)$/) : null;
+  if (!match) {
+    throw new Error(`${label}: '${versionString}' is not a valid 'major.minor' version string`);
+  }
+  return { major: Number(match[1]), minor: Number(match[2]) };
+}
+
+/**
+ * Check whether an adapter declaring `adapterTarget` can operate against `contract`,
+ * per-category contract versioning (PRD REQ-003, AC-003-1, AC-003-2).
+ *
+ * A major-version mismatch is incompatible: every capability is reported as missing.
+ * Within the same major, capabilities added in a later minor than the adapter targets
+ * are reported as unavailable but the overall result is still ok.
+ *
+ * @param {string} adapterTarget 'major.minor' version the adapter declares it targets
+ * @param {{version: string, capabilities: Record<string, {addedInMinor?: number}>}} contract
+ * @returns {{ok: boolean, unavailableCapabilities: string[], missingCapabilities: string[], errors: string[]}}
+ */
+function checkCompat(adapterTarget, contract) {
+  const adapterVersion = parseContractVersion(adapterTarget, 'adapterTarget');
+  const contractVersion = parseContractVersion(contract.version, 'contract.version');
+  const capabilityNames = Object.keys(contract.capabilities);
+
+  if (adapterVersion.major !== contractVersion.major) {
+    return {
+      ok: false,
+      unavailableCapabilities: [],
+      missingCapabilities: capabilityNames,
+      errors: [
+        `adapterTarget '${adapterTarget}' and contract.version '${contract.version}' differ in major ` +
+          `version; missing capabilities: ${capabilityNames.join(', ')}`
+      ]
+    };
+  }
+
+  const unavailableCapabilities = capabilityNames.filter(
+    (name) => (contract.capabilities[name].addedInMinor || 0) > adapterVersion.minor
+  );
+
+  return { ok: true, unavailableCapabilities, missingCapabilities: [], errors: [] };
+}
+
+/**
+ * Check that `nextContract` only adds to `previousContract` within the same major version:
+ * no capability may be removed, and no capability's `required` flag may change (PRD REQ-003,
+ * AC-003-3).
+ *
+ * A major-version bump is exempt from this rule; that is exactly where breaking changes
+ * (removals, required-ness changes) are allowed.
+ *
+ * @param {{version: string, capabilities: Record<string, {required: boolean}>}} previousContract
+ * @param {{version: string, capabilities: Record<string, {required: boolean}>}} nextContract
+ * @returns {{ok: boolean, errors: string[]}}
+ */
+function checkAdditiveOnly(previousContract, nextContract) {
+  const previousVersion = parseContractVersion(previousContract.version, 'previousContract.version');
+  const nextVersion = parseContractVersion(nextContract.version, 'nextContract.version');
+
+  if (previousVersion.major !== nextVersion.major) {
+    return { ok: true, errors: [] };
+  }
+
+  const errors = [];
+  for (const [capabilityName, previousCapability] of Object.entries(previousContract.capabilities)) {
+    const nextCapability = nextContract.capabilities[capabilityName];
+    if (!nextCapability) {
+      errors.push(`capability '${capabilityName}' was removed within major version ${previousVersion.major}`);
+      continue;
+    }
+    if (previousCapability.required !== nextCapability.required) {
+      errors.push(
+        `capability '${capabilityName}' had its 'required' flag changed within major version ${previousVersion.major}`
+      );
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+module.exports = {
+  loadContracts,
+  validateContract,
+  DEFAULT_CATEGORIES_DIR,
+  checkCompat,
+  checkAdditiveOnly
+};
