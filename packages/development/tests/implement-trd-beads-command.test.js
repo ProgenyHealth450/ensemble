@@ -418,9 +418,9 @@ describe('runChoicesRead / runChoicesWrite', () => {
       expect(result.ok).toBe(true);
       const written = fs.readFileSync(tmp, 'utf8');
       expect(written).toMatch(/^ensemble_implement_trd_beads:/m);
-      expect(written).toMatch(/^  branch_name: feature\/new-branch$/m);
-      expect(written).toMatch(/^  use_proposed: true$/m);
-      expect(written).toMatch(/^  stacked_prs: true$/m);
+      expect(written).toMatch(/^ {2}branch_name: feature\/new-branch$/m);
+      expect(written).toMatch(/^ {2}use_proposed: true$/m);
+      expect(written).toMatch(/^ {2}stacked_prs: true$/m);
     } finally {
       fs.unlinkSync(tmp);
     }
@@ -435,10 +435,10 @@ describe('runChoicesRead / runChoicesWrite', () => {
       // Top-level key check (not indented with 2 spaces)
       expect(written).toMatch(/^ensemble_implement_trd_beads:/m);
       // Previous values gone
-      expect(written).not.toMatch(/^  branch_name: feature\/previous-branch$/m);
-      expect(written).toMatch(/^  branch_name: feature\/replaced$/m);
-      expect(written).toMatch(/^  use_proposed: true$/m);
-      expect(written).toMatch(/^  stacked_prs: false$/m); // was false, not toggled
+      expect(written).not.toMatch(/^ {2}branch_name: feature\/previous-branch$/m);
+      expect(written).toMatch(/^ {2}branch_name: feature\/replaced$/m);
+      expect(written).toMatch(/^ {2}use_proposed: true$/m);
+      expect(written).toMatch(/^ {2}stacked_prs: false$/m); // was false, not toggled
     } finally {
       fs.unlinkSync(tmp);
     }

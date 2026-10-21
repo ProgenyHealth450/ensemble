@@ -134,7 +134,7 @@ function tomlString(value) {
 }
 
 function tomlMultiline(value) {
-  const normalized = normalizeLineEndings(value).replace(/"""/g, '\\\"\\\"\\\"');
+  const normalized = normalizeLineEndings(value).replace(/"""/g, '\\"\\"\\"');
   return `"""\n${normalized.trim()}\n"""`;
 }
 

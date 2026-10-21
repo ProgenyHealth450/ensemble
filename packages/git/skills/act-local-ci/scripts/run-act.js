@@ -382,7 +382,7 @@ async function main() {
 
   switch (command) {
     case 'list':
-    case '-l':
+    case '-l': {
       const workflows = runner.listWorkflows();
       console.log('Available workflows:');
       console.log('Stage\tJob ID\t\tJob Name\tWorkflow\t\tEvents');
@@ -391,6 +391,7 @@ async function main() {
         console.log(`${w.stage}\t${w.jobId}\t\t${w.jobName}\t${w.workflowFile}\t${w.events}`);
       });
       break;
+    }
 
     case 'validate':
       result = await runner.validate();
@@ -414,7 +415,7 @@ async function main() {
       break;
 
     case 'run':
-    default:
+    default: {
       // Parse remaining args for job/workflow selection
       const jobIndex = args.indexOf('-j');
       const workflowIndex = args.indexOf('-W');
@@ -438,6 +439,7 @@ async function main() {
       console.log('');
       console.log(`Completed in ${result.duration}s with exit code ${result.code}`);
       process.exit(result.code);
+    }
   }
 }
 

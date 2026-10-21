@@ -9,7 +9,7 @@
  * the parsed configurations to adapt Ensemble hooks to OpenCode's typed hook API.
  *
  * Responsibilities:
- *   - Discover all packages/*/hooks/hooks.json files (OC-S2-HK-002)
+ *   - Discover all packages/<pkg>/hooks/hooks.json files (OC-S2-HK-002)
  *   - Parse PreToolUse and PostToolUse entries (OC-S2-HK-002)
  *   - Map PreToolUse -> tool.execute.before (OC-S2-HK-003)
  *   - Map PostToolUse -> tool.execute.after (OC-S2-HK-004)
