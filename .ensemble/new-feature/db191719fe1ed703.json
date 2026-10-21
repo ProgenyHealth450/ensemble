@@ -1,0 +1,51 @@
+{
+  "runId": "db191719fe1ed703",
+  "projectRoot": "/Users/ldangelo/Development/Sunstone/ensemble.local-ci",
+  "idea": "move the PR approval process from waiting for ci and coderabbit to finish to using act to run the ci locally...  We are waiting WAY too long for PR's to land.",
+  "status": "active",
+  "stage": "beads_plan",
+  "stageOutcome": {
+    "kind": "success",
+    "recordedAt": "2026-10-21T16:04:58.449Z"
+  },
+  "artifacts": [
+    {
+      "type": "prd",
+      "path": "docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "PRD-2026-4dec59b8",
+      "version": "1.0.0",
+      "producingStage": "prd_create",
+      "recordedAt": "2026-10-21T15:32:49.245Z"
+    },
+    {
+      "type": "prd",
+      "path": "docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "PRD-2026-4dec59b8",
+      "version": "1.0.1",
+      "producingStage": "prd_refine",
+      "recordedAt": "2026-10-21T15:46:56.268Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.0",
+      "producingStage": "trd_create",
+      "recordedAt": "2026-10-21T15:55:13.590Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.1",
+      "producingStage": "trd_refine",
+      "recordedAt": "2026-10-21T16:04:58.449Z"
+    }
+  ],
+  "beadRefs": [],
+  "implementationApprovedAt": null,
+  "prApprovedAt": null,
+  "revision": 4,
+  "createdAt": "2026-10-21T15:30:55.595Z",
+  "updatedAt": "2026-10-21T16:04:58.449Z"
+}
