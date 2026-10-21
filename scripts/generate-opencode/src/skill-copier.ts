@@ -2,7 +2,7 @@
  * SkillCopier - Discovers and copies SKILL.md files to OpenCode paths
  *
  * Responsibilities:
- *   - Discover all SKILL.md files across packages/*/skills/
+ *   - Discover all SKILL.md files across packages/<pkg>/skills/
  *   - Inject frontmatter (name, description) for OpenCode discovery
  *   - Convert REFERENCE.md to SKILL.md format where needed
  *   - Copy validated skills to dist/opencode/.opencode/skill/<framework>/

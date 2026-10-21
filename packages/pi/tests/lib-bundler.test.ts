@@ -277,7 +277,7 @@ describe('bundleLibs against real packages directory', () => {
       // non-zero, but only AFTER its top-level requires resolve successfully.
       // A MODULE_NOT_FOUND would throw before that point, with a distinct
       // stack trace — that's what this test actually guards against.
-      let output = '';
+      let output: string;
       try {
         output = execFileSync('node', [entryPath], { encoding: 'utf-8', stdio: 'pipe' });
       } catch (err) {

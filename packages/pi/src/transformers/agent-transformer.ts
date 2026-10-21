@@ -65,9 +65,9 @@ function normalizeAgentFields(raw: Record<string, unknown>): {
   tools: string[];
   model: string | undefined;
 } {
-  let name = '';
-  let description = '';
-  let tools: string[] = [];
+  let name: string;
+  let description: string;
+  let tools: string[];
   let model: string | undefined;
 
   if (raw.metadata && typeof raw.metadata === 'object') {

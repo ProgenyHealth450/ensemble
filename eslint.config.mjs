@@ -59,6 +59,20 @@ export default tseslint.config(
       '**/*.d.ts',
       '**/fixtures/**',
       '**/__snapshots__/**',
+      // Bundled output of packages/lifecycle-claude (esbuild bundle, see its
+      // package.json `files: bundle/`); not hand-written source.
+      'packages/lifecycle-claude/bundle/**',
+      // Playwright skill templates/examples are copy-paste scaffolds for
+      // downstream repos (placeholder imports and fixtures), not repo code.
+      'packages/e2e-testing/skills/writing-playwright-tests/templates/**',
+      'packages/e2e-testing/skills/writing-playwright-tests/examples/**',
+      // Generated runtime outputs (npm run generate:pi / generate:codex /
+      // generate:opencode); lint the upstream sources instead.
+      'packages/pi/skills/**',
+      'packages/pi/vendor/**',
+      'packages/pi/prompts/**',
+      'packages/pi/agents/**',
+      'packages/pi/commands/**',
     ],
   },
   js.configs.recommended,

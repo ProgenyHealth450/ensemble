@@ -313,7 +313,7 @@ function validatePlugin(pluginDir) {
       { cwd: path.join(__dirname, '..'), stdio: 'inherit' }
     );
   } catch (error) {
-    throw new Error(`Invalid plugin.json for ${pluginName}`);
+    throw new Error(`Invalid plugin.json for ${pluginName}`, { cause: error });
   }
 
   // Check package.json exists
@@ -341,7 +341,7 @@ function validatePlugin(pluginDir) {
         });
         console.log(`  ✓ Valid YAML: ${yamlFile}`);
       } catch (error) {
-        throw new Error(`Invalid YAML: ${yamlPath}`);
+        throw new Error(`Invalid YAML: ${yamlPath}`, { cause: error });
       }
     });
   }

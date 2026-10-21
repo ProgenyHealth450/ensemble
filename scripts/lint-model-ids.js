@@ -64,7 +64,7 @@ function extractModelValue(yamlContent) {
   // Simple regex: match "  model: value" or "model: value" at start of line
   // Return the value string or null if not found
   // Do NOT parse full YAML — just extract the metadata model field
-  const match = yamlContent.match(/^  model:\s+(\S+)\s*$/m) || yamlContent.match(/^model:\s+(\S+)\s*$/m);
+  const match = yamlContent.match(/^ {2}model:\s+(\S+)\s*$/m) || yamlContent.match(/^model:\s+(\S+)\s*$/m);
   return match ? match[1] : null;
 }
 

@@ -747,7 +747,7 @@ export async function generate(options: GeneratorOptions): Promise<GenerateResul
     try {
       raw = yaml.load(fs.readFileSync(filePath, 'utf-8'));
     } catch (err) {
-      throw new Error(`YAML parse error in ${filePath}: ${(err as Error).message}`);
+      throw new Error(`YAML parse error in ${filePath}: ${(err as Error).message}`, { cause: err });
     }
 
     if (!raw || typeof raw !== 'object') {
