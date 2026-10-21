@@ -28,7 +28,8 @@
     "release-notes": "node scripts/generate-release-notes.js",
     "release-notes:codex": "node scripts/generate-codex-release-notes.js",
     "publish:changed": "node scripts/publish-plugin.js",
-    "evals": "node evals/run.js"
+    "evals": "node evals/run.js",
+    "ci:local": "node scripts/ci-local.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
