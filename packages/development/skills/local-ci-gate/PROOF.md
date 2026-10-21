@@ -80,6 +80,32 @@ trusted command list itself and grades only the exit status it observes, under
 (the PR's base branch), never the working tree, the clone or the payload; the
 head cannot be its own base; a workflow that resolves outside the clone is refused.
 
+A second review of the fixed branch found further holes, each reproduced against
+the real modules and now fixed with a test that fails on the old behaviour:
+
+- A PR author could pick a base that is a descendant of the head, and so one whose
+  committed config they control. A base that is the head or a descendant of it is
+  refused.
+- `baseRef` was resolved with `git rev-parse`, so a local branch, a SHA or a
+  reflog spelling could stand in for the PR's base. It must now be a
+  remote-tracking ref (`origin/<branch>` or `refs/remotes/<remote>/<branch>`),
+  checked with `git show-ref --verify`.
+- A step could edit a tracked file, rewrite the index or the clone's git config,
+  or hide changes with `assume-unchanged`/`skip-worktree`, and still pass. The
+  run is voided if tracked content, the index, HEAD or the clone's git config
+  differ afterwards (compared by content, since `git status` can be told to
+  lie). Untracked output is allowed because honest steps write it.
+- The status record bound only 8 hex of the config blob and tolerated its
+  absence. It carries 12 hex and `merge` refuses a record without it.
+- `secret_names` could not actually be configured, so a step that needed a
+  secret had no way to receive it. Names come from the base-ref config only; values
+  from the maintainer's environment or a gitignored file, and are redacted.
+
+Residual trust: `baseRef` is taken from GitHub's `baseRefName` for the PR, which
+an author chooses among existing branches. A branch protected less strictly than
+`dev` and targeted by a PR would be graded by its own config. Branch protection,
+not this gate, decides which branches may be targeted.
+
 This is evidence the gate resists the specific hostile heads above. It is not a
 proof that no other hostile head exists.
 
