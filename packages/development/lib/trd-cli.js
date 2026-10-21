@@ -19,6 +19,7 @@
  * Subcommands:
  *   parse        <trd-path>
  *   scaffold-plan <trd-path>
+ *   bead-context --bead <bead-id> [--trd <path>] [--issue-json <file>]   (read by the bead executors before ANY work)
  *   phase-status <trd-path> [--closed a,b,c]
  *   next-task    <trd-path> --ready a,b [--closed a,b] [--max N]
  *   pr-plan      <trd-path> [--stacked]
@@ -60,6 +61,12 @@ const {
 const { validateTrd, analyzeTrd, requirementStatus, evidenceFromComments, isChecked } = require('./trd-checks');
 const { buildChain } = require('./verify-requirements-evidence');
 const { buildScaffoldPlan } = require('./scaffold-planner');
+const {
+  parseReferencesBlock,
+  parseTitlePrefix,
+  kindFromRefs,
+  UNRESOLVED_SUFFIX,
+} = require('./bead-refs');
 const { buildWorkstreamPlan, validateWorkstream } = require('./workstream-planner');
 const { resolveCrossTrdDeps } = require('./cross-trd-deps');
 const { summarizeWorkstream } = require('./workstream-status');
@@ -178,16 +185,47 @@ function resolvePrd(prdRef, trdPath) {
   const candidates = [
     prdRef,                                             // as-given from cwd
     path.join(path.dirname(path.resolve(trdPath)), prdRef), // relative to TRD dir
+    path.resolve(repoRoot(), prdRef),                   // relative to the repo root
   ];
   for (const c of candidates) {
     try {
       fs.accessSync(c, fs.constants.R_OK);
-      return c;
+      if (fs.statSync(c).isFile()) return c;
     } catch {
       // try next candidate
     }
   }
   return null;
+}
+
+/** Forward-slash a path. */
+function toPosix(p) {
+  return String(p == null ? '' : p).replace(/\\/g, '/');
+}
+
+/** `git rev-parse --show-toplevel` of the cwd, falling back to the cwd (not a git repo / no git). */
+function repoRoot() {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (out) return out;
+  } catch {
+    // fall through
+  }
+  return process.cwd();
+}
+
+/** Repo-root-relative forward-slash form of `p`; stays absolute if `p` lies outside the repo. */
+function toRepoRelative(p, root) {
+  const real = (x) => {
+    try { return fs.realpathSync(x); } catch { return x; }
+  };
+  const abs = real(path.resolve(String(p || '')));
+  const rel = path.relative(real(root), abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return toPosix(abs);
+  return toPosix(rel);
 }
 
 function readTrd(trdPath) {
@@ -244,13 +282,191 @@ function runScaffoldPlan(argv) {
   const { positionals } = parseArgs(argv);
   const trdPath = positionals[0];
   const { slug, parsed, prdContext } = loadParsed(trdPath);
+  const root = repoRoot();
+  // Every path written into a bead is repo-root-relative so it survives worktrees and cwd changes.
+  const prdRef = parsed.prdReference || '';
+  const prdAbs = resolvePrd(prdRef, trdPath);
   const plan = buildScaffoldPlan(parsed, {
     trdSlug: slug,
-    trdFilePath: trdPath,
-    prdFilePath: parsed.prdReference || '',
+    trdFilePath: toRepoRelative(trdPath, root),
+    prdFilePath: prdAbs ? toRepoRelative(prdAbs, root) : toPosix(prdRef),
+    prdUnresolved: !!prdRef && !prdAbs,
     prdContext,
   });
   return { ok: true, slug, plan };
+}
+
+/**
+ * `bead-context --bead <id> [--trd <path>] [--issue-json <file>]`
+ *
+ * Resolves a bead's `## References` block (or, for legacy beads without one, its title
+ * prefix + `--trd`), re-reads the referenced TRD task / PRD requirements LIVE and returns
+ * them. `ok:false` (and exit 1) when anything referenced cannot be resolved, with every
+ * problem listed in `missing`.
+ */
+function runBeadContext(argv) {
+  const { flags } = parseArgs(argv, new Set(['bead', 'trd', 'issue-json']));
+  const beadId = flags.bead && flags.bead !== true ? String(flags.bead) : '';
+  if (!beadId) throw new Error('Missing required --bead <bead-id> argument');
+  const root = repoRoot();
+  const missing = [];
+  const out = {
+    ok: false,
+    beadId,
+    source: null,
+    kind: null,
+    references: { trd: null, trdTask: null, prd: null, prdRequirements: [], prdAcs: [] },
+    context: { trdTask: null, prdRequirements: [], architectureDecision: null, keyTechnicalDecisions: [] },
+    missing,
+  };
+
+  // ---- load the bead -------------------------------------------------------
+  let issue = null;
+  try {
+    let raw;
+    if (flags['issue-json'] && flags['issue-json'] !== true) {
+      raw = fs.readFileSync(String(flags['issue-json']), 'utf8');
+    } else {
+      raw = execFileSync('br', ['show', beadId, '--json'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
+    const data = JSON.parse(raw);
+    issue = Array.isArray(data) ? data[0] : data;
+  } catch (err) {
+    missing.push(`bead ${beadId} could not be loaded: ${err && err.message ? err.message.split('\n')[0] : err}`);
+    return out;
+  }
+  if (!issue || typeof issue !== 'object') {
+    missing.push(`bead ${beadId} not found`);
+    return out;
+  }
+  const title = String(issue.title || '');
+  const description = String(issue.description || '');
+  const titleInfo = parseTitlePrefix(title);
+  const block = parseReferencesBlock(description);
+  const trdFlag = flags.trd && flags.trd !== true ? String(flags.trd) : '';
+
+  // ---- resolve references (description block, else legacy fallback) -----------
+  let trdRel = '';
+  let trdTaskId = '';
+  let prdRel = '';
+  let prdRawUnresolved = false;
+  let reqIds = [];
+  let acIds = [];
+  let prdFallback = false;
+
+  if (block) {
+    out.source = 'description';
+    trdRel = block.trd;
+    trdTaskId = block.trdTask ? block.trdTask.id : '';
+    prdRel = block.prd;
+    prdRawUnresolved = block.prdUnresolved;
+    reqIds = block.prdRequirements.map((r) => r.id.toUpperCase());
+    acIds = block.prdAcs.map((a) => a.toUpperCase());
+    if (!trdRel) missing.push('References block has no TRD line');
+    out.kind = (titleInfo && titleInfo.kind) || kindFromRefs(block);
+  } else {
+    out.source = 'fallback';
+    if (!titleInfo) {
+      missing.push(`bead has no ## References block and its title has no [trd:<slug>...] prefix: '${title}'`);
+    }
+    if (!trdFlag) {
+      missing.push('bead has no ## References block and no --trd <path> was given to fall back on');
+    }
+    if (missing.length) return out;
+    out.kind = titleInfo.kind;
+    trdRel = toRepoRelative(trdFlag, root);
+    trdTaskId = titleInfo.taskId || '';
+    prdFallback = true;
+  }
+  out.references.trd = trdRel || null;
+  if (!trdRel) return out;
+
+  // ---- TRD -------------------------------------------------------------------
+  const trdAbs = path.resolve(root, trdRel);
+  let parsed = null;
+  try {
+    parsed = parseTRD(fs.readFileSync(trdAbs, 'utf8'));
+  } catch (err) {
+    missing.push(`TRD file ${trdRel} cannot be read: ${err.code || err.message}`);
+  }
+
+  let task = null;
+  if (parsed && trdTaskId) {
+    const key = Object.keys(parsed.tasksById || {}).find((k) => k.toLowerCase() === trdTaskId.toLowerCase());
+    task = key ? parsed.tasksById[key] : null;
+    if (!task) missing.push(`TRD task ${trdTaskId} not found in ${trdRel}`);
+  }
+  if (trdTaskId) {
+    out.references.trdTask = `${trdRel}#${trdTaskId.toLowerCase()}`;
+  }
+  if (task) {
+    out.context.trdTask = {
+      id: task.id,
+      description: task.description,
+      targetFiles: task.targetFiles || [],
+      actions: task.actions || [],
+      implementationAc: task.implementationAc || [],
+      testAc: task.testAc || [],
+      dependsOn: task.dependsOn || [],
+    };
+    if (out.kind === 'task' && task.isTest) out.kind = 'test';
+  }
+  if (parsed) {
+    out.context.architectureDecision = parsed.architectureDecision || null;
+    out.context.keyTechnicalDecisions = parsed.keyTechnicalDecisions || [];
+  }
+
+  // ---- PRD -------------------------------------------------------------------
+  if (prdFallback) {
+    const ref = parsed ? parsed.prdReference || '' : '';
+    if (ref) {
+      const abs = resolvePrd(ref, trdAbs);
+      if (abs) prdRel = toRepoRelative(abs, root);
+      else { prdRel = toPosix(ref); prdRawUnresolved = true; }
+    }
+    if (task) {
+      reqIds = (task.satisfies || []).filter((s) => !/^(INFRA|ARCH)$/i.test(String(s).trim())).map((s) => String(s).toUpperCase());
+      acIds = (task.validatesAcs || []).map((a) => String(a).toUpperCase());
+    }
+  }
+  out.references.prd = prdRel ? `${prdRel}${prdRawUnresolved ? UNRESOLVED_SUFFIX : ''}` : null;
+  out.references.prdRequirements = reqIds;
+  out.references.prdAcs = acIds;
+
+  if (prdRawUnresolved) {
+    missing.push(`PRD ${prdRel} is UNRESOLVED (the TRD names a PRD that could not be found)`);
+  } else if (prdRel) {
+    let prdCtx = null;
+    try {
+      prdCtx = extractPrdContext(fs.readFileSync(path.resolve(root, prdRel), 'utf8'));
+    } catch (err) {
+      missing.push(`PRD file ${prdRel} cannot be read: ${err.code || err.message}`);
+    }
+    if (prdCtx) {
+      for (const id of reqIds) {
+        const req = prdCtx.requirements[id];
+        if (!req) {
+          missing.push(`PRD requirement ${id} not found in ${prdRel}`);
+          continue;
+        }
+        const reqAcIds = new Set((req.acIds || []).map((a) => a.toUpperCase()));
+        const acs = [];
+        for (const acId of acIds.length ? acIds : [...reqAcIds]) {
+          const ac = prdCtx.acs[acId];
+          if (ac && ac.reqId === id) acs.push({ id: ac.id, given: ac.given, when: ac.when, then: ac.then, text: ac.text });
+        }
+        out.context.prdRequirements.push({ id: req.id, title: req.title, text: req.text, acs });
+      }
+    }
+  } else if (reqIds.length) {
+    missing.push(`bead references PRD requirement(s) ${reqIds.join(', ')} but no PRD is referenced`);
+  }
+
+  out.ok = missing.length === 0;
+  return out;
 }
 
 /**
@@ -1213,6 +1429,7 @@ function renderVerifyReport(result, meta) {
 const HANDLERS = {
   parse: (argv) => runParse(argv),
   'scaffold-plan': (argv) => runScaffoldPlan(argv),
+  'bead-context': (argv) => runBeadContext(argv),
   'phase-status': (argv) => runPhaseStatus(argv),
   'next-task': (argv) => runNextTask(argv, process.env),
   'pr-plan': (argv) => runPrPlan(argv, process.env),
@@ -1252,7 +1469,7 @@ function main(argv) {
     process.stdout.write(
       JSON.stringify({
         error:
-          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|resolve-sdlc|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|beads-label|beads-stage|quickstart|list|status|migrate-frontmatter|choices-read|choices-write|validate|analyze|req-status|verify> <trd-path> [...]',
+          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|bead-context|phase-status|next-task|pr-plan|resolve-sdlc|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|beads-label|beads-stage|quickstart|list|status|migrate-frontmatter|choices-read|choices-write|validate|analyze|req-status|verify> <trd-path> [...]   (bead-context takes --bead <id> [--trd <path>] [--issue-json <file>] instead of <trd-path>)',
       }) + '\n'
     );
     return 1;
@@ -1274,7 +1491,9 @@ function main(argv) {
       throw new Error('Result was not JSON-serializable');
     }
     process.stdout.write(json + '\n');
-    return 0;
+    // `bead-context` reports an unusable bead as a full JSON object with ok:false; that must
+    // also fail the process so shell callers (`|| stop`) cannot miss it.
+    return subcommand === 'bead-context' && result && result.ok === false ? 1 : 0;
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
     process.stdout.write(JSON.stringify({ error: message }) + '\n');
@@ -1284,6 +1503,7 @@ function main(argv) {
 
 module.exports = {
   runParse,
+  runBeadContext,
   runScaffoldPlan,
   runPhaseStatus,
   runNextTask,

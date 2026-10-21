@@ -89,6 +89,61 @@ describe('implement-bead shares the engine policy', () => {
   });
 });
 
+describe('bead context contract is mandatory before any dispatch', () => {
+  const actionsOf = (rel) => {
+    const d = yaml.load(read(rel));
+    return d.workflow.phases.flatMap((ph) => ph.steps.flatMap((s) => s.actions || []));
+  };
+  const CMD = 'node "$TRD_CLI" bead-context --bead <BEAD_ID>';
+
+  test('beads-build-wave track payload carries context_contract; lifecycle orders claim -> context read -> dispatch -> commit gate', () => {
+    const acts = actionsOf('commands/beads-build-wave.yaml');
+    const lifecycle = acts.find((a) => /^\s*lifecycle_contract:/.test(a));
+    const context = acts.find((a) => /^\s*context_contract:/.test(a));
+    expect(lifecycle).toBeDefined();
+    expect(context).toBeDefined();
+    const order = ['(1) claim via', '(2) CONTEXT READ per context_contract', '(3) dispatch the implementing subagent', '(4) COMMIT GATE'].map((s) => lifecycle.indexOf(s));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    expect(context).toContain(CMD + ' --trd <TRD_PATH>');
+    expect(context).toContain('blocked:missing-references');
+    expect(context).toContain('br update <BEAD_ID> --status=open');
+    expect(context).toContain('context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>');
+    expect(context).toMatch(/ENTIRE bead_context JSON/);
+    expect(context).toMatch(/read the referenced files yourself before editing/);
+    expect(context).toMatch(/PRD ACs in bead_context/);
+  });
+
+  test('implement-bead reads context after claim and before dispatching the orchestrator, and passes bead_context', () => {
+    const acts = actionsOf('commands/implement-bead.yaml');
+    const claim = acts.findIndex((a) => a.includes('--status=in_progress'));
+    const ctx = acts.findIndex((a) => a.includes(CMD));
+    const dispatch = acts.findIndex((a) => a.startsWith('Dispatch Task('));
+    const gate = acts.findIndex((a, i) => i > dispatch && a.includes('git status --porcelain'));
+    expect(claim).toBeGreaterThan(-1);
+    expect(ctx).toBeGreaterThan(claim);
+    expect(dispatch).toBeGreaterThan(ctx);
+    expect(gate).toBeGreaterThan(dispatch);
+    expect(acts[ctx]).toContain('blocked:missing-references');
+    expect(acts[ctx]).toContain('HALT');
+    expect(acts[dispatch]).toContain('bead_context');
+    expect(acts[dispatch]).toMatch(/read the referenced files yourself before editing/);
+  });
+
+  test('tech-lead-orchestrator Bead-Track Mode requires the context read and refuses unresolved beads', () => {
+    const summary = yaml.load(read('agents/tech-lead-orchestrator.yaml')).mission.summary;
+    expect(summary).toContain('`context_contract`');
+    expect(summary).toContain('node "$TRD_CLI" bead-context --bead <BEAD_ID> --trd <TRD_PATH>');
+    expect(summary).toMatch(/NEVER implement that bead/);
+    expect(summary).toMatch(/Never implement a bead whose context read failed/);
+    expect(summary).toMatch(/code-reviewer MUST check the diff against the PRD ACs/);
+  });
+
+  test('beads-build documents that the wave payload carries context_contract', () => {
+    expect(actionsOf('commands/beads-build.yaml').join('\n')).toMatch(/context_contract/);
+  });
+});
+
 describe('removed duplicates stay removed', () => {
   const GONE = [
     'commands/beads-plan.yaml',

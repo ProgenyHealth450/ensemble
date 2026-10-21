@@ -310,6 +310,34 @@ describe('implement-trd-beads completion', () => {
   });
 });
 
+describe('implement-trd-beads bead references contract', () => {
+  test('scaffold passes the plan entry externalRef to br create', () => {
+    const scaffold = actions('Scaffold', 'Plan and create beads');
+    expect(scaffold).toContain("--external-ref='<externalRef>'");
+    expect(scaffold).toContain('## References');
+  });
+
+  test('Execute runs the References health check and epic bead-context before beads-build, HALTing on ok:false', () => {
+    const delegate = actions('Execute', 'Delegate to beads-build');
+    const check = delegate.indexOf('bead-context --bead <ROOT_EPIC_ID> --trd <TRD_FILE_PATH>');
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(delegate.indexOf('/ensemble:beads-build <ROOT_EPIC_ID>'));
+    expect(delegate).toMatch(/warn with the count of open scoped beads lacking a `## References` block/);
+    expect(delegate).toMatch(/`ok:false` or non-zero -> print every `missing` entry and HALT/);
+  });
+
+  test('reference skill documents the block, bead-context, legacy fallback and failure handling', () => {
+    expect(ref).toContain('## 7. Bead references and context contract');
+    for (const key of ['TRD Task', 'PRD Requirement', 'PRD ACs', '--external-ref']) {
+      expect(ref).toContain(key);
+    }
+    expect(ref).toContain('node "$TRD_CLI" bead-context --bead <BEAD_ID> [--trd <path>]');
+    expect(ref).toContain('source:"fallback"');
+    expect(ref).toContain('blocked:missing-references');
+    expect(ref).toContain('context-read:');
+  });
+});
+
 describe('implement-trd-beads source shape', () => {
   test('the dead executionContract/comment-spec prose is gone and the YAML stays thin', () => {
     expect(doc.executionContract).toBeUndefined();
