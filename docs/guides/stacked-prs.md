@@ -4,6 +4,10 @@
 
 **Stacked PRs are opt-in.** Set `ENSEMBLE_USE_STACKED_PRS=true` in your environment to enable the per-PR stacked workflow described in this guide. Without it (the default), `implement-trd-beads` implements all PR sections on a single branch and opens ONE pull request for the whole TRD. Phase ordering is preserved either way.
 
+## When to stack vs split
+
+Stack when the pieces depend on each other (PR 2 needs PR 1's code). Split into independent PRs off `dev` when they do not touch each other's files. Either way, keep each PR under ~400 changed hand-written lines (see [PR Flow](../../CONTRIBUTING.md#pr-flow)), and ship a new component (package, plugin, hook, guard) in its own PR rather than inside a refactor or audit PR.
+
 ## Table of Contents
 
 1. [How to structure your TRD](#1-how-to-structure-your-trd)
@@ -121,6 +125,8 @@ Merge in order — never skip a PR in the stack:
 4. Repeat for all remaining PRs
 
 The retargeting is handled by git-town's parent-tracking system. No manual action is needed between merges.
+
+**After the base moves.** If `dev` changes under the stack (another PR or a version bump merges), run `git town sync` the same day so every branch picks it up. After each merge, confirm the next PR now targets `main`/`dev`, and retarget it by hand if it does not (`gh pr edit <n> --base <branch>`), then wait for its checks to re-run before merging.
 
 After all PRs merge, archive the TRD and flush the bead state:
 
