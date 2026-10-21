@@ -9,8 +9,9 @@ Order the steps of the local CI gate for one PR head and report the outcome.
 This skill only sequences, calls `local-ci-cli.js` and reports. It never runs
 CI, never checks out or edits the working tree and never grades results: the
 runner (`local-ci-runner.js`, driven by the CLI) owns the clean clone, the CI
-run and its cleanup, and the CLI computes every verdict. Editable approval set:
-`.ensemble/local-ci.yaml`.
+run and its cleanup, and the CLI computes every verdict. Editable approval set
+and trusted command list: `.ensemble/local-ci.yaml` as committed at the PR's base
+branch ref (never the working tree).
 
 ---
 
@@ -47,7 +48,9 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
    `gh api repos/$REPO/commits/$HEAD_SHA/status` plus the statuses of earlier
    PR commits, as `[{context, state, description, sha}]` (`sha` = commit the
    status is on).
-2. `merge` with `{headSha, statuses, repoRoot}` (add `reviews` when known).
+2. `merge` with `{headSha, statuses, repoRoot, baseRef}` (add `reviews` when known).
+   `baseRef` is the PR's base branch, fetched fresh first (for example
+   `git fetch origin $BASE_BRANCH`, then `origin/$BASE_BRANCH`); it is required.
 3. `mergeReady:true`: report ready to merge **without waiting for hosted CI**,
    quoting the record. `mergeReady:false`: report the CLI `reason` verbatim and
    refuse. Typical reasons: no local status (name the missing run and tell the
@@ -56,8 +59,9 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
 
 ### `gate`
 
-1. `gate` with `{repoRoot, headSha, repo, dryRun}`. The CLI orders: prerequisites
-   (Node, git, the configured `scripts/ci-local.js`), run, record, post.
+1. `gate` with `{repoRoot, headSha, baseRef, repo, dryRun}` (`baseRef` as for
+   `merge`: the freshly fetched `origin/<baseRefName>`). The CLI orders: prerequisites
+   (Node, git), config, run, record, post.
 2. Read the result and report, in this order of precedence:
    - `prerequisite` set: say which prerequisite is missing and that nothing was
      run or posted. Do not fall back to merging.
@@ -73,15 +77,43 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
    - `posted:true`, `mergeReady:true`: report the record and that the PR is
      mergeable without hosted CI.
 3. Never retry with a different SHA, never post by hand, never edit the config
-   to make a step pass. A step the runner cannot mirror is a gap to report to
+   to make a step pass. Never pass `config`, `path`, `runner` or any key other
+   than the four above: unknown keys are rejected. A step the runner cannot mirror is a gap to report to
    the user, who may record it in `.ensemble/local-ci.yaml` `excluded_steps`.
+
+---
+
+## Trust and provenance
+
+Required commands and the approval set come ONLY from `.ensemble/local-ci.yaml`
+as committed at the PR's BASE branch ref (`git show <baseRef>:.ensemble/local-ci.yaml`),
+the same principle as GitHub's `pull_request_target`. `baseRef` is a required
+payload key for `config`, `run`, `merge` and `gate`; there is no default and no
+fallback to the working tree. Consequence: a PR that edits the gate config or
+its workflows is graded by the PREVIOUS config (its change applies after it
+merges), and the maintainer's working tree, local edits and checked-out branch
+are irrelevant. The CLI refuses when `baseRef` does not resolve, when it
+resolves to the head itself, or when head and base share no history. `steps` lists the exact commands, in order,
+and the runner runs each itself with `bash -c` in the clean clone, once per
+required Node version, under a minimal environment (PATH, HOME, CI, LANG, TERM,
+TMPDIR and a few more, plus configured secrets). PASS/FAIL is the exit status the
+runner observes; nothing in the PR head (`scripts/ci-local.js`, printed tables,
+its own config) is loaded, executed or believed. A head workflow step that
+`steps`/`equivalents` do not cover fails the gate; a head dropping a step from its
+own workflow changes nothing. The payload cannot carry config, paths, scripts or
+runner options (`gate`: `repoRoot, headSha, baseRef, repo, dryRun`; `merge`:
+`headSha, statuses, repoRoot, baseRef, reviews`). The status record's first field
+is the git blob hash of that base-ref config; `merge` refuses a status recorded
+under a different config blob. Values of credential-named variables (TOKEN, SECRET, KEY,
+PASSWORD, CREDENTIAL, AUTH) are redacted from everything returned.
 
 ---
 
 ## Other subcommands
 
-`config` validates the file, `record` builds/parses/verifies the status
-description, `run` runs the runner without posting, `post` posts one status,
+`config` validates the base-ref file (`{repoRoot, baseRef}`) or a `{source}` text,
+`record` builds/parses/verifies the status
+description, `run` (`{repoRoot, headSha, baseRef}` only) runs the runner without posting, `post` posts one status,
 `review` classifies reviews (bots never block), `sweep` lists unrecorded
 findings and CI failures, `timing` checks the enablement note. Use them only
 when a command asks; they carry the same fail-closed rules.

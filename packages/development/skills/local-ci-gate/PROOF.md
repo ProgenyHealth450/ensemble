@@ -18,10 +18,9 @@ The test builds a real git repository in a temp directory with three commits
 and one configuration (`.ensemble/local-ci.yaml`, one required workflow job,
 one Node major, status context `ensemble/local-ci`):
 
-- base: a small `scripts/ci-local.js` stand-in (same contract as the real one:
-  exports `STEPS`, prints a `name PASS|FAIL seconds` table, exits non-zero on a
-  failed step) running one step, `unit-check`, plus a minimal workflow that
-  mirrors that step.
+- base: a trusted `steps` list in `.ensemble/local-ci.yaml` with one command,
+  `unit-check` (`node scripts/unit-check.js`), run by the runner itself and graded
+  only by its exit status, plus a minimal workflow that mirrors that command.
 - F: `unit-check` made to fail (an `assert` that cannot hold).
 - P: `unit-check` fixed.
 
@@ -56,6 +55,33 @@ test, and the configured Node major is that same major, so the runner's
   `success` for P.
 
 One configuration, two outcomes: the check can fail and can pass.
+
+## Adversarial review (2026-10-21) and what it changed
+
+The proof above uses a cooperative head, so on its own it says nothing about a
+hostile one. An independent review of the whole branch, and attacks reproduced
+against the real modules, found that the first design could be made to approve a
+head whose own checks fail:
+
+- The runner believed a `name PASS` table printed by the head's own
+  `scripts/ci-local.js` (and loaded that file). A head that printed PASS rows
+  while `npm run lint` and `npm run test` failed was approved.
+- The approval set came from the working tree, or from the caller's payload. With
+  the PR branch checked out, a PR that rewrote `.ensemble/local-ci.yaml` and its
+  own workflow so the required command was `true` was approved.
+- A multi-command step graded by `bash -c` passed when a middle command failed,
+  which hosted CI fails.
+- A workflow file committed as a symlink was read from outside the clone.
+
+These are fixed and each has a test that fails on the old behaviour
+(`local-ci-adversarial`, `local-ci-trust`, `local-ci-baseref`): the runner runs a
+trusted command list itself and grades only the exit status it observes, under
+`bash -e -o pipefail`; the list comes only from `git show <baseRef>:.ensemble/local-ci.yaml`
+(the PR's base branch), never the working tree, the clone or the payload; the
+head cannot be its own base; a workflow that resolves outside the clone is refused.
+
+This is evidence the gate resists the specific hostile heads above. It is not a
+proof that no other hostile head exists.
 
 ## Credentials
 

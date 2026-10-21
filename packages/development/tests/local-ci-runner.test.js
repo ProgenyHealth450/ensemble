@@ -24,6 +24,13 @@ workflows:
       - id: test
         matrix:
           node-version: [22, 24]
+steps:
+  - name: install
+    cmd: npm ci --legacy-peer-deps
+  - name: validate
+    cmd: npm run validate
+  - name: test
+    cmd: npm test
 status_context: ensemble/local-ci
 app_id: 123
 `;
@@ -56,7 +63,6 @@ const CI_STEPS = [
   { name: 'validate', cmd: 'npm run validate' },
   { name: 'test', cmd: 'npm test' },
 ];
-const CI_SUMMARY_OK = 'STEP      RESULT   SECONDS\ninstall   PASS     1.0\nvalidate  PASS     1.0\ntest      PASS     1.0\n\nAll steps passed';
 
 function sh(cmd, args, cwd) {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8' });
@@ -104,8 +110,8 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-/** Fake process runner: `node --version` reports the Node on PATH; ci command and extras are scripted. */
-function fakeDeps({ onCi, onCmd, nodeBin } = {}) {
+/** Fake process runner: `node --version` reports the Node on PATH; every trusted command is scripted via onCmd. */
+function fakeDeps({ onCmd, nodeBin } = {}) {
   const calls = [];
   return {
     calls,
@@ -119,27 +125,28 @@ function fakeDeps({ onCi, onCmd, nodeBin } = {}) {
         const m = /\/fake\/node(\d+)\/bin/.exec(env.PATH);
         return { status: 0, stdout: m ? `v${m[1]}.0.0\n` : 'v26.0.0\n', stderr: '' };
       }
-      if (cmd === 'node scripts/ci-local.js') return onCi ? onCi({ cwd, env }) : { status: 0, stdout: CI_SUMMARY_OK, stderr: '' };
       return onCmd ? onCmd(cmd, { cwd, env }) : { status: 0, stdout: '', stderr: '' };
     },
   };
 }
 
 function gate(extra, deps) {
-  return runGate({ repoRoot: repo, headSha: shaB, approvalSet, ciSteps: CI_STEPS, ...extra }, deps);
+  return runGate({ repoRoot: repo, headSha: shaB, approvalSet, ...extra }, deps);
 }
 
 describe('local-ci-runner: isolated clone of the PR head', () => {
   test('runs the pushed commit, not the checked-out HEAD', () => {
     const seen = [];
     const deps = fakeDeps({
-      onCi: ({ cwd }) => {
-        seen.push({
-          head: git(cwd, 'rev-parse', 'HEAD'),
-          marker: fs.readFileSync(path.join(cwd, 'marker.txt'), 'utf8'),
-          cwd,
-        });
-        return { status: 0, stdout: CI_SUMMARY_OK, stderr: '' };
+      onCmd: (cmd, { cwd }) => {
+        if (cmd === 'npm test') {
+          seen.push({
+            head: git(cwd, 'rev-parse', 'HEAD'),
+            marker: fs.readFileSync(path.join(cwd, 'marker.txt'), 'utf8'),
+            cwd,
+          });
+        }
+        return { status: 0, stdout: '', stderr: '' };
       },
     });
     const r = gate({}, deps);
@@ -161,13 +168,15 @@ describe('local-ci-runner: isolated clone of the PR head', () => {
     write('untracked-new-file.txt', 'x');
     const contents = [];
     const deps = fakeDeps({
-      onCi: ({ cwd }) => {
-        contents.push({
-          marker: fs.readFileSync(path.join(cwd, 'marker.txt'), 'utf8'),
-          ci: fs.readFileSync(path.join(cwd, 'scripts/ci-local.js'), 'utf8'),
-          untracked: fs.existsSync(path.join(cwd, 'untracked-new-file.txt')),
-        });
-        return { status: 0, stdout: CI_SUMMARY_OK, stderr: '' };
+      onCmd: (cmd, { cwd }) => {
+        if (cmd === 'npm test') {
+          contents.push({
+            marker: fs.readFileSync(path.join(cwd, 'marker.txt'), 'utf8'),
+            ci: fs.readFileSync(path.join(cwd, 'scripts/ci-local.js'), 'utf8'),
+            untracked: fs.existsSync(path.join(cwd, 'untracked-new-file.txt')),
+          });
+        }
+        return { status: 0, stdout: '', stderr: '' };
       },
     });
     const r = gate({}, deps);
@@ -202,7 +211,7 @@ describe('local-ci-runner: isolated clone of the PR head', () => {
   test('unfetchable head: error naming the SHA, nothing run, no clone left', () => {
     const missing = 'deadbeef'.repeat(5);
     const deps = fakeDeps();
-    const r = runGate({ repoRoot: repo, headSha: missing, approvalSet, ciSteps: CI_STEPS }, deps);
+    const r = runGate({ repoRoot: repo, headSha: missing, approvalSet }, deps);
     expect(r.ok).toBe(false);
     expect(r.error).toContain(missing);
     expect(r.failures[0].kind).toBe('unfetchable-head');
@@ -212,19 +221,19 @@ describe('local-ci-runner: isolated clone of the PR head', () => {
   });
 
   test('a head that is not a full commit sha is refused', () => {
-    const r = runGate({ repoRoot: repo, headSha: 'HEAD', approvalSet, ciSteps: CI_STEPS }, fakeDeps());
+    const r = runGate({ repoRoot: repo, headSha: 'HEAD', approvalSet }, fakeDeps());
     expect(r.ok).toBe(false);
     expect(r.failures[0].kind).toBe('unfetchable-head');
   });
 
-  test('missing ci entry point in the PR head is a named prerequisite failure', () => {
+  test('the head scripts/ci-local.js is irrelevant: a head without it is graded by the trusted commands alone', () => {
     git(repo, 'checkout', '-q', '--detach', shaB);
     fs.rmSync(path.join(repo, 'scripts/ci-local.js'));
     const noCi = commitAll(repo, 'remove ci-local');
-    const r = runGate({ repoRoot: repo, headSha: noCi, approvalSet, ciSteps: CI_STEPS }, fakeDeps());
-    expect(r.ok).toBe(false);
-    expect(r.failures[0].kind).toBe('prerequisite');
-    expect(r.error).toContain('scripts/ci-local.js');
+    const deps = fakeDeps();
+    const r = runGate({ repoRoot: repo, headSha: noCi, approvalSet }, deps);
+    expect(r.ok).toBe(true);
+    expect(deps.calls.filter((c) => c.cmd === 'npm test')).toHaveLength(2);
   });
 });
 
@@ -233,7 +242,7 @@ describe('local-ci-runner: Node matrix', () => {
     const deps = fakeDeps();
     const r = gate({}, deps);
     expect(r.ok).toBe(true);
-    const ciRuns = deps.calls.filter((c) => c.cmd === 'node scripts/ci-local.js');
+    const ciRuns = deps.calls.filter((c) => c.cmd === 'npm test');
     expect(ciRuns.map((c) => c.env.PATH.split(path.delimiter)[0])).toEqual(['/fake/node22/bin', '/fake/node24/bin']);
     expect(r.nodes.map((n) => n.node)).toEqual([22, 24]);
     expect(requiredNodeVersions(approvalSet)).toEqual([22, 24]);
@@ -251,7 +260,7 @@ describe('local-ci-runner: Node matrix', () => {
     expect(r.failures).toHaveLength(1);
     expect(r.failures[0]).toMatchObject({ kind: 'node-version', node: 24, sha: shaB });
     expect(r.failures[0].message).toContain('Node 24');
-    expect(deps.calls.filter((c) => c.cmd === 'node scripts/ci-local.js')).toHaveLength(1);
+    expect(deps.calls.filter((c) => c.cmd === 'npm test')).toHaveLength(1);
   });
 
   test('a resolved bin dir that is not actually the required major fails (machine default is not accepted)', () => {
@@ -259,7 +268,7 @@ describe('local-ci-runner: Node matrix', () => {
     const r = gate({}, deps);
     expect(r.ok).toBe(false);
     expect(r.failures.every((f) => f.kind === 'node-version')).toBe(true);
-    expect(deps.calls.filter((c) => c.cmd === 'node scripts/ci-local.js')).toHaveLength(0);
+    expect(deps.calls.filter((c) => c.cmd === 'npm test')).toHaveLength(0);
   });
 
   test('no configured Node version is a failure, not a run on the default', () => {
@@ -268,11 +277,16 @@ workflows:
   - file: .github/workflows/validate.yml
     jobs:
       - id: validate
+steps:
+  - name: install
+    cmd: npm ci --legacy-peer-deps
+  - name: validate
+    cmd: npm run validate
 status_context: ensemble/local-ci
 app_id: 1
 `).approvalSet;
     const deps = fakeDeps();
-    const r = runGate({ repoRoot: repo, headSha: shaB, approvalSet: noMatrix, ciSteps: CI_STEPS }, deps);
+    const r = runGate({ repoRoot: repo, headSha: shaB, approvalSet: noMatrix }, deps);
     expect(r.ok).toBe(false);
     expect(r.failures[0].kind).toBe('node-version');
     expect(deps.calls).toHaveLength(0);
@@ -308,7 +322,7 @@ jobs:
   test('unmirrored required steps fail the gate and are named; nothing is run', () => {
     const sha = headWithExtraSteps();
     const deps = fakeDeps();
-    const r = runGate({ repoRoot: repo, headSha: sha, approvalSet, ciSteps: CI_STEPS }, deps);
+    const r = runGate({ repoRoot: repo, headSha: sha, approvalSet }, deps);
     expect(r.ok).toBe(false);
     expect(r.unmirrored.map((u) => u.step)).toEqual(['Reject Windows-invalid filenames', 'Upload coverage']);
     expect(r.failures.map((f) => f.step)).toEqual(['Reject Windows-invalid filenames', 'Upload coverage']);
@@ -322,9 +336,7 @@ jobs:
       {
         repoRoot: repo,
         headSha: sha,
-        approvalSet,
-        ciSteps: CI_STEPS,
-        extraSteps: [{ name: 'windows-filenames', cmd: "! git ls-files | grep ':'" }],
+        approvalSet: { ...approvalSet, steps: [...CI_STEPS, { name: 'windows-filenames', cmd: "! git ls-files | grep ':'" }] },
         equivalents: [
           { workflowStep: 'Reject Windows-invalid filenames', runs: 'windows-filenames' },
           { workflowStep: 'Upload coverage', runs: 'windows-filenames' },
@@ -367,6 +379,7 @@ jobs:
 describe("local-ci-runner: this repository's real approval set", () => {
   const yaml = require('js-yaml');
   const { STEPS } = require('../../../scripts/ci-local.js');
+  const norm = (s) => s.replace(/\s+/g, ' ').trim();
   const ROOT = path.resolve(__dirname, '../../..');
   const real = () => {
     const cfg = validateConfig(fs.readFileSync(path.join(ROOT, '.ensemble/local-ci.yaml'), 'utf8'));
@@ -383,7 +396,7 @@ describe("local-ci-runner: this repository's real approval set", () => {
     return findUnmirroredSteps({
       workflows,
       approvalSet: a,
-      runnable: [...STEPS, ...(o.extraSteps || a.extraSteps)],
+      runnable: o.steps || a.steps,
       equivalents: o.equivalents || a.equivalents,
       excludedSteps: o.excludedSteps || a.excludedSteps,
     }).map((u) => u.step);
@@ -393,10 +406,15 @@ describe("local-ci-runner: this repository's real approval set", () => {
     expect(unmirrored()).toEqual([]);
   });
 
+  test("the trusted list begins with scripts/ci-local.js's STEPS exactly (name and command), so the gate runs what ci:local runs", () => {
+    const { a } = real();
+    expect(a.steps.slice(0, STEPS.length).map((s) => [s.name, norm(s.cmd)])).toEqual(STEPS.map((s) => [s.name, norm(s.cmd)]));
+  });
+
   test('a step whose command drifted from the workflow becomes unmirrored', () => {
     const { a } = real();
-    const drifted = a.extraSteps.map((s) => (s.name === 'check-package-json-consistency' ? { ...s, cmd: s.cmd + '\n# edited' } : s));
-    expect(unmirrored({ extraSteps: drifted })).toEqual(['Check package.json consistency']);
+    const drifted = a.steps.map((s) => (s.name === 'check-package-json-consistency' ? { ...s, cmd: s.cmd + '\n# edited' } : s));
+    expect(unmirrored({ steps: drifted })).toEqual(['Check package.json consistency']);
   });
 
   test('dropping the generated-markdown equivalent makes that step unmirrored', () => {
@@ -415,45 +433,58 @@ describe("local-ci-runner: this repository's real approval set", () => {
 });
 
 describe('local-ci-runner: failing steps', () => {
-  test('non-zero step is a failure naming the step and the head SHA', () => {
-    const deps = fakeDeps({
-      onCi: () => ({
-        status: 1,
-        stdout: 'STEP      RESULT   SECONDS\ninstall   PASS     1.0\nvalidate  FAIL     2.0\ntest      PASS     1.0\n\n1 step(s) FAILED',
-        stderr: '',
-      }),
-    });
-    const r = gate({}, deps);
+  const failing = (name, status = 1, out = {}) => (cmd) =>
+    CI_STEPS.find((x) => x.cmd === cmd && x.name === name) ? { status, stdout: out.stdout || '', stderr: out.stderr || '' } : { status: 0, stdout: '', stderr: '' };
+
+  test('non-zero exit of a trusted step is a failure naming the step, node and the head SHA', () => {
+    const r = gate({}, fakeDeps({ onCmd: failing('validate', 1, { stderr: 'lint exploded' }) }));
     expect(r.ok).toBe(false);
     const f = r.failures.find((x) => x.node === 22);
     expect(f).toMatchObject({ kind: 'step-failed', step: 'validate', sha: shaB });
-    expect(f.message).toContain('validate');
     expect(f.message).toContain(shaB);
+    expect(f.message).toContain('exit 1');
+    expect(f.message).toContain('lint exploded');
   });
 
-  test('non-zero exit with an unparseable summary is still a failure', () => {
-    const deps = fakeDeps({ onCi: () => ({ status: 2, stdout: 'boom', stderr: '' }) });
-    const r = gate({}, deps);
+  test('the verdict of every step comes from its exit status, and a failing step does not hide the others', () => {
+    const r = gate({}, fakeDeps({ onCmd: failing('validate', 2) }));
+    expect(r.nodes[0].steps).toEqual([
+      { name: 'install', status: 'PASS' },
+      { name: 'validate', status: 'FAIL' },
+      { name: 'test', status: 'PASS' },
+    ]);
+  });
+
+  test('output that merely LOOKS like a passing table cannot turn a non-zero exit into a pass', () => {
+    const lie = 'STEP RESULT SECONDS\ninstall   PASS     1.0\nvalidate  PASS     1.0\ntest      PASS     1.0\n\nAll steps passed';
+    const r = gate({}, fakeDeps({ onCmd: failing('test', 1, { stdout: lie }) }));
     expect(r.ok).toBe(false);
-    expect(r.failures[0].kind).toBe('step-failed');
-    expect(r.failures[0].sha).toBe(shaB);
+    expect(r.failures[0]).toMatchObject({ kind: 'step-failed', step: 'test' });
   });
 
   test('failing on one Node version fails the gate even if the other passes', () => {
     let n = 0;
-    const deps = fakeDeps({
-      onCi: () => (++n === 2 ? { status: 1, stdout: 'test  FAIL  1.0\n', stderr: '' } : { status: 0, stdout: CI_SUMMARY_OK, stderr: '' }),
-    });
+    const deps = fakeDeps({ onCmd: (cmd) => (cmd === 'npm test' && ++n === 2 ? { status: 1, stdout: '', stderr: '' } : { status: 0, stdout: '', stderr: '' }) });
     const r = gate({}, deps);
     expect(r.ok).toBe(false);
     expect(r.nodes.map((x) => x.ok)).toEqual([true, false]);
   });
 
-  test('a failing extra step is named with the SHA', () => {
-    const deps = fakeDeps({ onCmd: () => ({ status: 3, stdout: '', stderr: 'nope' }) });
-    const r = gate({ extraSteps: [{ name: 'pkg-consistency', cmd: 'check-pkg' }] }, deps);
-    expect(r.ok).toBe(false);
-    expect(r.failures[0]).toMatchObject({ kind: 'step-failed', step: 'pkg-consistency', sha: shaB });
+  test('every trusted command runs on every required Node version, in the configured order', () => {
+    const deps = fakeDeps();
+    const r = gate({}, deps);
+    expect(r.ok).toBe(true);
+    expect(deps.calls.filter((c) => c.cmd !== 'node --version').map((c) => c.cmd)).toEqual([...CI_STEPS, ...CI_STEPS].map((s) => s.cmd));
+  });
+
+  test('an empty or malformed trusted list refuses to run anything', () => {
+    for (const steps of [undefined, [], [{ name: 'x' }], [{ name: 'a', cmd: 'true' }, { name: 'a', cmd: 'true' }]]) {
+      const deps = fakeDeps();
+      const r = runGate({ repoRoot: repo, headSha: shaB, approvalSet: { ...approvalSet, steps } }, deps);
+      expect(r.ok).toBe(false);
+      expect(r.failures[0].kind).toBe('prerequisite');
+      expect(deps.calls).toHaveLength(0);
+    }
   });
 
   test('an exception from the process runner is a failure and still removes the clone', () => {
@@ -550,13 +581,12 @@ describe('local-ci-runner: secrets', () => {
     write('.ensemble/local-ci.secrets.env', `# local\nAPP_KEY="${SECRET}"\n`);
     let seenInEnv;
     const deps = fakeDeps({
-      onCi: ({ env }) => {
-        seenInEnv = env.APP_KEY;
-        return { status: 1, stdout: `validate  FAIL  1.0\nleaked ${SECRET} in output`, stderr: `err ${SECRET}` };
+      onCmd: (cmd, { env }) => {
+        if (cmd === 'npm run validate') seenInEnv = env.APP_KEY;
+        return { status: 1, stdout: `leaked ${SECRET} in output`, stderr: `err ${SECRET}` };
       },
-      onCmd: () => ({ status: 1, stdout: SECRET, stderr: SECRET }),
     });
-    const r = gate({ secretNames: ['APP_KEY'], extraSteps: [{ name: 'x', cmd: 'run-x' }] }, deps);
+    const r = gate({ secretNames: ['APP_KEY'] }, deps);
     expect(seenInEnv).toBe(SECRET);
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r)).not.toContain(SECRET);
@@ -564,7 +594,7 @@ describe('local-ci-runner: secrets', () => {
   });
 
   test('secrets from the environment are redacted too', () => {
-    const deps = fakeDeps({ onCi: () => ({ status: 1, stdout: `validate FAIL 1.0\n${SECRET}`, stderr: '' }) });
+    const deps = fakeDeps({ onCmd: () => ({ status: 1, stdout: SECRET, stderr: '' }) });
     const r = gate({ secretNames: ['TOKEN_X'], env: { PATH: '/usr/bin', TOKEN_X: SECRET } }, deps);
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r)).not.toContain(SECRET);

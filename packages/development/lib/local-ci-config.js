@@ -12,15 +12,15 @@
  * Result: { ok:true, problems:[], approvalSet } or { ok:false, problems:[...] }.
  * approvalSet = { workflows:[{file, jobs:[{id, matrix}]}],
  *   checks:[{workflow, job, matrix}], excluded:[{workflow, job, reason}],
- *   excludedSteps:[{workflow, job, step, reason}], extraSteps:[{name, cmd}],
+ *   excludedSteps:[{workflow, job, step, reason}], steps:[{name, cmd}],
  *   equivalents:[{workflowStep, runs}],
  *   statusContext, appId, botReview:{ skipped, logins } }
  */
 
 const yaml = require('js-yaml');
 
-const TOP_REQUIRED = ['workflows', 'status_context', 'app_id'];
-const TOP_ALLOWED = ['workflows', 'excluded', 'excluded_steps', 'extra_steps', 'equivalents', 'status_context', 'app_id', 'bot_reviewers'];
+const TOP_REQUIRED = ['workflows', 'steps', 'status_context', 'app_id'];
+const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'status_context', 'app_id', 'bot_reviewers'];
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -55,6 +55,7 @@ function expandMatrix(matrix) {
 
 function validateWorkflows(list, problems) {
   const workflows = [];
+  const seenFiles = new Set();
   if (!Array.isArray(list) || list.length === 0) {
     problems.push('workflows: must be a non-empty list');
     return workflows;
@@ -68,6 +69,7 @@ function validateWorkflows(list, problems) {
     checkKeys(wf, ['file', 'jobs'], ['file', 'jobs'], where, problems);
     if ('file' in wf && !isText(wf.file)) problems.push(`${where}.file: must be non-empty text`);
     const jobs = [];
+    const seenJobs = new Set();
     if ('jobs' in wf) {
       if (!Array.isArray(wf.jobs) || wf.jobs.length === 0) {
         problems.push(`${where}.jobs: must be a non-empty list`);
@@ -93,11 +95,20 @@ function validateWorkflows(list, problems) {
               matrix = job.matrix;
             }
           }
-          if (isText(job.id)) jobs.push({ id: job.id, matrix });
+          if (isText(job.id)) {
+            const key = JSON.stringify([job.id, Object.keys(matrix).sort().map((k) => [k, matrix[k]])]);
+            if (seenJobs.has(key)) problems.push(`${jw}: duplicate job "${job.id}" with the same matrix in ${isText(wf.file) ? wf.file : where}`);
+            seenJobs.add(key);
+            jobs.push({ id: job.id, matrix });
+          }
         });
       }
     }
-    if (isText(wf.file)) workflows.push({ file: wf.file, jobs });
+    if (isText(wf.file)) {
+      if (seenFiles.has(wf.file)) problems.push(`${where}.file: duplicate workflow file "${wf.file}"`);
+      seenFiles.add(wf.file);
+      workflows.push({ file: wf.file, jobs });
+    }
   });
   return workflows;
 }
@@ -149,6 +160,25 @@ function validateRecords(list, where, keys, problems) {
   return out;
 }
 
+/**
+ * The trusted command list: required, non-empty, unique names. These are the
+ * exact commands the runner executes itself, in order, per required Node version.
+ */
+function validateSteps(list, problems) {
+  if (list === undefined) return [];
+  if (Array.isArray(list) && list.length === 0) {
+    problems.push('steps: must be a non-empty list');
+    return [];
+  }
+  const steps = validateRecords(list, 'steps', ['name', 'cmd'], problems);
+  const seen = new Set();
+  for (const s of steps) {
+    if (seen.has(s.name)) problems.push(`steps: duplicate step name "${s.name}"`);
+    seen.add(s.name);
+  }
+  return steps;
+}
+
 function validateBots(value, problems) {
   if (value === undefined || value === null) return { skipped: true, logins: [] };
   if (!Array.isArray(value) || !value.every(isText)) {
@@ -191,7 +221,7 @@ function validateConfig(source) {
   const workflows = 'workflows' in config ? validateWorkflows(config.workflows, problems) : [];
   const excluded = validateExcluded(config.excluded, problems);
   const excludedSteps = validateRecords(config.excluded_steps, 'excluded_steps', ['workflow', 'job', 'step', 'reason'], problems);
-  const extraSteps = validateRecords(config.extra_steps, 'extra_steps', ['name', 'cmd'], problems);
+  const steps = validateSteps(config.steps, problems);
   const equivalents = validateRecords(config.equivalents, 'equivalents', ['workflowStep', 'runs'], problems);
 
   if ('status_context' in config && !isText(config.status_context)) {
@@ -232,7 +262,7 @@ function validateConfig(source) {
       checks,
       excluded,
       excludedSteps,
-      extraSteps,
+      steps,
       equivalents,
       statusContext: config.status_context.trim(),
       appId,

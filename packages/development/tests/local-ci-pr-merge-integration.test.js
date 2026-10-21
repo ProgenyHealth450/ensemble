@@ -181,6 +181,23 @@ describe('sweep runs around the merge', () => {
     expect(last).toBeGreaterThan(merge);
   });
 
+  test('source: the post-merge sweep runs before the source branch is deleted (the delete is its own, later action)', () => {
+    const actions = phase('Merge and Report').steps.find((s) => s.title === 'Merge').actions;
+    const merge = actions.findIndex((a) => /gh pr merge/.test(a));
+    const del = actions.findIndex((a) => /delete the source branch/i.test(a) && !/gh pr merge/.test(a));
+    const sweeps = actions.map((a, i) => (isSweep(a) ? i : -1)).filter((i) => i >= 0);
+    expect(del).toBeGreaterThan(-1);
+    expect(merge).toBeLessThan(sweeps[1]);
+    expect(sweeps[1]).toBeLessThan(del);
+  });
+
+  test.each(Object.keys(GENERATED_REL))('%s output deletes the source branch only after the post-merge sweep', (key) => {
+    const text = read(GENERATED_REL[key]);
+    const del = text.indexOf('delete the source branch unless');
+    expect(del).toBeGreaterThan(-1);
+    expect(text.lastIndexOf('local-ci-cli.js sweep')).toBeLessThan(del);
+  });
+
   test('the sweep step does not hard-code a repo-relative CLI path (it must work from an installed plugin or the Pi bundle)', () => {
     for (const a of actionsOf(phase('Merge and Report')).filter(isSweep)) {
       expect(a).not.toMatch(/packages\/development\/lib/);

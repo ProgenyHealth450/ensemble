@@ -9,6 +9,7 @@ const repoYaml = () => fs.readFileSync(REPO_CONFIG, 'utf8');
 
 const base = () => ({
   workflows: [{ file: 'a.yml', jobs: [{ id: 'build' }] }],
+  steps: [{ name: 'test', cmd: 'npm test' }],
   status_context: 'x/local-ci',
   app_id: 123,
 });
@@ -43,8 +44,7 @@ describe('validateConfig', () => {
 
   test('edit changes behavior: removing a workflow shrinks the set', () => {
     const full = validateConfig(repoYaml());
-    const edited = repoYaml().replace(/  - file: \.github\/workflows\/test\.yml[\s\S]*?(?=\nexcluded:)/, '')
-      .replace(/excluded:[\s\S]*?(?=\n# Name)/, 'excluded: []\n');
+    const edited = repoYaml().replace(/  - file: \.github\/workflows\/test\.yml[\s\S]*?(?=\n# Whole jobs)/, '');
     const r = validateConfig(edited);
     expect(r.ok).toBe(true);
     expect(r.approvalSet.checks.length).toBeLessThan(full.approvalSet.checks.length);
@@ -89,7 +89,7 @@ describe('validateConfig', () => {
   test('each missing required key is named', () => {
     const r = validateConfig({});
     expect(r.ok).toBe(false);
-    for (const k of ['workflows', 'status_context', 'app_id']) {
+    for (const k of ['workflows', 'steps', 'status_context', 'app_id']) {
       expect(r.problems.join('\n')).toContain(`missing required key "${k}"`);
     }
   });
@@ -125,32 +125,35 @@ describe('validateConfig', () => {
     expect(r.approvalSet).toBeUndefined();
   });
 
-  test('extra_steps, equivalents and excluded_steps are normalized', () => {
+  test('steps, equivalents and excluded_steps are normalized', () => {
     const r = validateConfig({
       ...base(),
-      extra_steps: [{ name: 'lint', cmd: 'npm run lint' }],
+      steps: [{ name: 'lint', cmd: 'npm run lint' }],
       equivalents: [{ workflowStep: 'Check docs', runs: 'lint' }],
       excluded_steps: [{ workflow: 'a.yml', job: 'build', step: 'Upload', reason: 'external service' }],
     });
     expect(r.problems).toEqual([]);
-    expect(r.approvalSet.extraSteps).toEqual([{ name: 'lint', cmd: 'npm run lint' }]);
+    expect(r.approvalSet.steps).toEqual([{ name: 'lint', cmd: 'npm run lint' }]);
     expect(r.approvalSet.equivalents).toEqual([{ workflowStep: 'Check docs', runs: 'lint' }]);
     expect(r.approvalSet.excludedSteps).toEqual([
       { workflow: 'a.yml', job: 'build', step: 'Upload', reason: 'external service' },
     ]);
   });
 
-  test('the step lists default to empty, never to another repository\'s steps', () => {
+  test('the optional lists default to empty, never to another repository\'s entries; the command list is required', () => {
     const r = validateConfig(base());
-    expect(r.approvalSet.extraSteps).toEqual([]);
+    expect(r.approvalSet.steps).toEqual([{ name: 'test', cmd: 'npm test' }]);
     expect(r.approvalSet.equivalents).toEqual([]);
     expect(r.approvalSet.excludedSteps).toEqual([]);
   });
 
   test.each([
-    ['extra step without a command', { extra_steps: [{ name: 'lint' }] }],
-    ['extra step with a blank command', { extra_steps: [{ name: 'lint', cmd: '  ' }] }],
-    ['extra_steps not a list', { extra_steps: { name: 'lint', cmd: 'x' } }],
+    ['step without a command', { steps: [{ name: 'lint' }] }],
+    ['step with a blank command', { steps: [{ name: 'lint', cmd: '  ' }] }],
+    ['steps not a list', { steps: { name: 'lint', cmd: 'x' } }],
+    ['empty steps', { steps: [] }],
+    ['duplicate step names', { steps: [{ name: 'a', cmd: 'x' }, { name: 'a', cmd: 'y' }] }],
+    ['the retired extra_steps key', { extra_steps: [{ name: 'lint', cmd: 'x' }] }],
     ['equivalent missing its target', { equivalents: [{ workflowStep: 'a' }] }],
     ['excluded step without a reason', { excluded_steps: [{ workflow: 'a.yml', job: 'build', step: 'Upload' }] }],
     ['unknown key inside an excluded step', { excluded_steps: [{ workflow: 'a.yml', job: 'b', step: 's', reason: 'r', why: 'x' }] }],
@@ -158,6 +161,39 @@ describe('validateConfig', () => {
     const r = validateConfig({ ...base(), ...patch });
     expect(r.ok).toBe(false);
     expect(r.approvalSet).toBeUndefined();
+  });
+
+  describe('duplicate entries are rejected', () => {
+    const wf = (file, jobs) => ({ file, jobs });
+    test('the same workflow file listed twice', () => {
+      const r = validateConfig({ ...base(), workflows: [wf('a.yml', [{ id: 'build' }]), wf('a.yml', [{ id: 'lint' }])] });
+      expect(r.ok).toBe(false);
+      expect(r.problems.join('\n')).toMatch(/duplicate workflow file "a\.yml"/);
+    });
+
+    test('the same job id with the same matrix in one workflow, whatever the matrix key order', () => {
+      const r = validateConfig({
+        ...base(),
+        workflows: [wf('a.yml', [{ id: 'test', matrix: { node: [22], os: ['x'] } }, { id: 'test', matrix: { os: ['x'], node: [22] } }])],
+      });
+      expect(r.ok).toBe(false);
+      expect(r.problems.join('\n')).toMatch(/duplicate job "test"/);
+    });
+
+    test('the same job id with a different matrix, or in another workflow, is allowed', () => {
+      const r = validateConfig({
+        ...base(),
+        workflows: [wf('a.yml', [{ id: 'test', matrix: { node: [22] } }, { id: 'test', matrix: { node: [24] } }]), wf('b.yml', [{ id: 'test', matrix: { node: [22] } }])],
+      });
+      expect(r.problems).toEqual([]);
+    });
+  });
+
+  test("this repository's trusted list parses, is non-empty and every command is a non-blank string", () => {
+    const { steps } = validateConfig(repoYaml()).approvalSet;
+    expect(steps.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(steps.map((s) => s.name)).size).toBe(steps.length);
+    for (const s of steps) expect(s.cmd.trim()).not.toBe('');
   });
 
   test('invalid YAML and non-mapping fail closed', () => {

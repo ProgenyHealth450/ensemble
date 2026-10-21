@@ -3,12 +3,14 @@
 /**
  * Isolated local-CI gate runner.
  *
- * Runs the repository's own `ci:local` entry point from inside a clean clone of
- * the PR head commit (`.ensemble/local-ci-runs/<sha>`), once per required Node
- * version, and returns a result. It NEVER publishes anything: the caller decides
- * what to do with the result. FAIL CLOSED: every unknown, missing or
+ * Runs the maintainer's TRUSTED command list itself (`bash -c`, stdio piped) in a
+ * clean clone of the PR head commit (`.ensemble/local-ci-runs/<sha>`), once per
+ * required Node version, and returns a result. PASS/FAIL is derived ONLY from the
+ * exit status the runner observes; it never loads, executes or parses a file from
+ * the head as a step list or verdict. It NEVER publishes anything: the caller
+ * decides what to do with the result. FAIL CLOSED: every unknown, missing or
  * unprovable thing (unfetchable commit, unavailable Node version, workflow step
- * that is not mirrored, step that exits non-zero, unreadable config) yields
+ * that is not mirrored, executed set != trusted list, step that exits non-zero, unreadable config) yields
  * `ok:false` with the reason named; a pass only comes from every required step
  * passing on every required Node version.
  *
@@ -30,8 +32,6 @@ const yaml = require('js-yaml');
 const RUNS_DIR = path.join('.ensemble', 'local-ci-runs');
 const SHA_RE = /^[0-9a-f]{40}$/;
 const DEFAULT_STALE_MS = 60 * 60 * 1000;
-const DEFAULT_CI_COMMAND = 'node scripts/ci-local.js';
-const DEFAULT_CI_SCRIPT = 'scripts/ci-local.js';
 const DEFAULT_SECRETS_FILE = path.join('.ensemble', 'local-ci.secrets.env');
 // Steps the runner itself provides: the clean clone and the explicit Node version.
 const DEFAULT_IGNORED_ACTIONS = ['actions/checkout', 'actions/setup-node'];
@@ -53,7 +53,10 @@ function defaultDeps() {
       return { status: r.error ? 127 : r.status, stdout: r.stdout || '', stderr: r.stderr || (r.error ? String(r.error.message) : '') };
     },
     run(cmd, { cwd, env } = {}) {
-      const r = spawnSync('bash', ['-c', cmd], { cwd, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+      // Same fail-fast shell GitHub Actions uses for `shell: bash` steps (-e -o pipefail). Plain `bash -c` returns only the LAST
+      // command's status, so a failure in the middle of a multi-command step (a loop, a script block) would be graded as a pass
+      // here while hosted CI fails it. --noprofile --norc keeps the maintainer's shell startup files out of the step.
+      const r = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', cmd], { cwd, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
       return { status: r.error ? 127 : r.status, stdout: r.stdout || '', stderr: r.stderr || (r.error ? String(r.error.message) : '') };
     },
     resolveNodeBinDir(major) {
@@ -299,23 +302,48 @@ function tail(text) {
   return t.length > OUTPUT_TAIL ? `...${t.slice(-OUTPUT_TAIL)}` : t;
 }
 
-/** Parse ci:local's summary table for failed step names. */
-function parseFailedSteps(output) {
-  const failed = [];
-  for (const line of String(output).split('\n')) {
-    const m = /^(\S+)\s+FAIL\s+[\d.]+\s*$/.exec(line);
-    if (m) failed.push(m[1]);
+/**
+ * Inherited variables whose NAME looks like a credential. Their VALUES (length
+ * >= MIN_SECRET_LENGTH) are redacted from everything the runner returns.
+ */
+const SECRET_NAME_RE = /TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH/i;
+const MIN_SECRET_LENGTH = 6;
+
+/**
+ * The only inherited variables a step sees (plus CI, the Node-pinned PATH and the
+ * configured secret names). The full maintainer environment is never passed on.
+ */
+const ENV_ALLOWLIST = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR', 'NODE_OPTIONS'];
+
+function inheritedSecretValues(env) {
+  const out = [];
+  for (const [name, value] of Object.entries(env || {})) {
+    if (SECRET_NAME_RE.test(name) && typeof value === 'string' && value.length >= MIN_SECRET_LENGTH) out.push(value);
   }
-  return failed;
+  return out;
 }
 
-function parsePassedSteps(output) {
-  const passed = [];
-  for (const line of String(output).split('\n')) {
-    const m = /^(\S+)\s+PASS\s+[\d.]+\s*$/.exec(line);
-    if (m) passed.push(m[1]);
+function buildStepEnv({ env, secrets, binDir }) {
+  const stepEnv = {};
+  for (const name of ENV_ALLOWLIST) if (typeof env[name] === 'string') stepEnv[name] = env[name];
+  Object.assign(stepEnv, secrets);
+  stepEnv.CI = 'true';
+  stepEnv.PATH = `${binDir}${path.delimiter}${env.PATH || ''}`;
+  return stepEnv;
+}
+
+/** The trusted list must be a non-empty list of {name, cmd} with unique names. */
+function validateSteps(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) return 'the trusted step list is missing or empty';
+  const seen = new Set();
+  for (const s of steps) {
+    if (!isObject(s) || typeof s.name !== 'string' || s.name.trim() === '' || typeof s.cmd !== 'string' || s.cmd.trim() === '') {
+      return 'every trusted step needs a non-empty name and cmd';
+    }
+    if (seen.has(s.name)) return `duplicate trusted step name "${s.name}"`;
+    seen.add(s.name);
   }
-  return passed;
+  return null;
 }
 
 /* --------------------------------------------------------------------- run */
@@ -326,20 +354,23 @@ function parsePassedSteps(output) {
  * options:
  *   repoRoot       (required) the maintainer's repository
  *   headSha        (required) full 40-hex PR head commit
- *   approvalSet    (required) approvalSet from local-ci-config.validateConfig
- *   extraSteps     [{name, cmd}] additional commands run per Node version in the clone
- *   equivalents    [{workflowStep, runs}] workflow step -> runnable step name covering it
+ *   approvalSet    (required) approvalSet from local-ci-config.validateConfig of the
+ *                  MAINTAINER's config; approvalSet.steps is the trusted command list
+ *                  [{name, cmd}] the runner executes itself, in order
+ *   equivalents    [{workflowStep, runs}] workflow step -> trusted step name covering it
  *   ignoredActions actions the runner supplies (default checkout, setup-node)
  *   excludedSteps  [{workflow, job, step, reason}] steps recorded as not runnable locally
- *   ciSteps        [{name, cmd}] ci:local's step list (default: read from the clone's scripts/ci-local.js)
- *   ciCommand      default 'node scripts/ci-local.js'; ciScript its file (default scripts/ci-local.js)
- *   nodeVersions   override the required Node majors (default: from approvalSet matrices)
  *   secretNames    names of secrets steps need; values from secretsFile or env
  *   secretsFile    repo-relative gitignored file (default .ensemble/local-ci.secrets.env)
- *   env            environment (default process.env)
+ *   env            the maintainer environment (default process.env); only ENV_ALLOWLIST,
+ *                  the configured secrets, CI and PATH reach a step
  *   remote         git remote to fetch a missing head from (default origin)
  *   staleMs, now   stale-clone threshold and clock
  *   keep           keep the clone (debugging only)
+ *
+ * Required Node versions come ONLY from the approval set matrices. Nothing from the
+ * PR head is loaded or executed by the runner itself: head files are read as data
+ * (workflow YAML) to detect drift, never as a step list or a verdict.
  */
 function runGate(options, injected) {
   const deps = { ...defaultDeps(), ...(injected || {}) };
@@ -347,7 +378,7 @@ function runGate(options, injected) {
   const sha = opts.headSha;
   const env = opts.env || process.env;
   const result = { ok: false, sha, failures: [], unmirrored: [], nodes: [], staleRemoved: [], clonePath: null };
-  let secretValues = [];
+  let secretValues = inheritedSecretValues(env);
 
   const fail = (kind, step, node, message) => {
     result.failures.push({ kind, step: step || null, node: node === undefined ? null : node, sha, message });
@@ -361,6 +392,14 @@ function runGate(options, injected) {
     return finish();
   }
   const repoRoot = path.resolve(opts.repoRoot);
+
+  const steps = opts.approvalSet.steps;
+  const stepsProblem = validateSteps(steps);
+  if (stepsProblem) {
+    result.error = `prerequisite missing: ${stepsProblem}`;
+    fail('prerequisite', 'steps', undefined, result.error);
+    return finish();
+  }
 
   // Prerequisite: git.
   const gv = deps.git(['--version'], { cwd: repoRoot });
@@ -379,7 +418,7 @@ function runGate(options, injected) {
     fail('secrets', null, undefined, err.message);
     return finish();
   }
-  secretValues = Object.values(secrets);
+  secretValues = [...secretValues, ...Object.values(secrets)];
 
   // Clones left by a crashed earlier run (only sha-named dirs under the prefix).
   try {
@@ -400,38 +439,26 @@ function runGate(options, injected) {
   result.clonePath = dir;
 
   try {
-    // Prerequisite: the repository's own entry point, in the PR head.
-    const ciScript = opts.ciScript || DEFAULT_CI_SCRIPT;
-    if (!fs.existsSync(path.join(dir, ciScript))) {
-      const msg = `prerequisite missing: ${ciScript} does not exist at ${sha}`;
-      result.error = msg;
-      fail('prerequisite', ciScript, undefined, msg);
-      return finish();
-    }
-
-    let ciSteps = opts.ciSteps;
-    if (!ciSteps) {
-      try {
-        ciSteps = require(path.join(dir, ciScript)).STEPS;
-      } catch (err) {
-        ciSteps = undefined;
-        result.error = `prerequisite missing: cannot read the step list from ${ciScript}: ${err.message}`;
-      }
-    }
-    if (!Array.isArray(ciSteps) || ciSteps.length === 0) {
-      result.error = result.error || `prerequisite missing: ${ciScript} exposes no step list`;
-      fail('prerequisite', ciScript, undefined, result.error);
-      return finish();
-    }
-    const extraSteps = Array.isArray(opts.extraSteps) ? opts.extraSteps : [];
-    const runnable = [...ciSteps, ...extraSteps].filter((s) => isObject(s) && typeof s.name === 'string' && typeof s.cmd === 'string');
-
-    // Read the REQUIRED workflows at the PR head and compare with what we run.
+    // Read the REQUIRED workflows at the PR head as DATA and compare with the
+    // trusted list. The head can only make this stricter.
     const workflows = [];
+    const realDir = fs.realpathSync(dir);
     for (const wf of opts.approvalSet.workflows) {
       let doc;
       try {
-        doc = yaml.load(fs.readFileSync(path.join(dir, wf.file), 'utf8'));
+        // The head controls what this path resolves to (a committed symlink, or a symlinked parent directory).
+        // Resolve it and refuse anything that leaves the clone, so a head cannot make the gate read, and treat
+        // as its own workflow, a file from the maintainer's disk.
+        const real = fs.realpathSync(path.join(dir, wf.file));
+        if (real !== realDir && !real.startsWith(realDir + path.sep)) {
+          fail('unreadable-workflow', wf.file, undefined, `workflow ${wf.file} resolves outside the clone (symlink); refusing to read it`);
+          doc = undefined;
+        } else if (!fs.statSync(real).isFile()) {
+          fail('unreadable-workflow', wf.file, undefined, `workflow ${wf.file} is not a regular file at the PR head`);
+          doc = undefined;
+        } else {
+          doc = yaml.load(fs.readFileSync(real, 'utf8'));
+        }
       } catch (err) {
         doc = undefined;
       }
@@ -440,7 +467,7 @@ function runGate(options, injected) {
     result.unmirrored = findUnmirroredSteps({
       workflows,
       approvalSet: opts.approvalSet,
-      runnable,
+      runnable: steps,
       equivalents: opts.equivalents,
       ignoredActions: opts.ignoredActions,
       excludedSteps: opts.excludedSteps,
@@ -450,13 +477,12 @@ function runGate(options, injected) {
     }
     if (result.unmirrored.length > 0) return finish();
 
-    const versions = opts.nodeVersions || requiredNodeVersions(opts.approvalSet);
-    if (!Array.isArray(versions) || versions.length === 0) {
+    const versions = requiredNodeVersions(opts.approvalSet);
+    if (versions.length === 0) {
       fail('node-version', null, undefined, 'no required Node versions are configured; refusing to run on the machine default');
       return finish();
     }
 
-    const ciCommand = opts.ciCommand || DEFAULT_CI_COMMAND;
     for (const major of versions) {
       const node = { node: major, ok: false, steps: [] };
       result.nodes.push(node);
@@ -468,7 +494,7 @@ function runGate(options, injected) {
         fail('node-version', null, major, `required Node ${major} cannot be provided: ${err.message}`);
         continue;
       }
-      const stepEnv = { ...env, ...secrets, CI: 'true', PATH: `${binDir}${path.delimiter}${env.PATH || ''}` };
+      const stepEnv = buildStepEnv({ env, secrets, binDir });
 
       const ver = deps.run('node --version', { cwd: dir, env: stepEnv });
       const reported = ver.status === 0 ? /^v(\d+)\./.exec(ver.stdout.trim()) : null;
@@ -477,30 +503,23 @@ function runGate(options, injected) {
         continue;
       }
 
-      let nodeOk = true;
-      const ci = deps.run(ciCommand, { cwd: dir, env: stepEnv });
-      const out = `${ci.stdout}\n${ci.stderr}`;
-      for (const name of parsePassedSteps(out)) node.steps.push({ name, status: 'PASS' });
-      if (ci.status !== 0) {
-        nodeOk = false;
-        const failed = parseFailedSteps(out);
-        const names = failed.length ? failed : [`${ciCommand} (exit ${ci.status})`];
-        for (const name of names) {
-          node.steps.push({ name, status: 'FAIL' });
-          fail('step-failed', name, major, `step "${name}" failed on Node ${major} at ${sha}: ${tail(out)}`);
-        }
-      }
-      for (const s of extraSteps) {
+      // Every trusted command is run by the runner; the verdict is its exit status.
+      for (const s of steps) {
         const r = deps.run(s.cmd, { cwd: dir, env: stepEnv });
         if (r.status === 0) {
           node.steps.push({ name: s.name, status: 'PASS' });
         } else {
-          nodeOk = false;
           node.steps.push({ name: s.name, status: 'FAIL' });
           fail('step-failed', s.name, major, `step "${s.name}" failed on Node ${major} at ${sha} (exit ${r.status}): ${tail(`${r.stdout}\n${r.stderr}`)}`);
         }
       }
-      node.ok = nodeOk;
+      node.ok = executedMatches(node.steps, steps) && node.steps.every((x) => x.status === 'PASS');
+    }
+
+    // The attestation is bound to `sha`: a step that moved the clone's HEAD voids the run.
+    const head = deps.git(['rev-parse', 'HEAD'], { cwd: dir });
+    if (head.status !== 0 || head.stdout.trim() !== sha) {
+      fail('clone-moved', null, undefined, `the clean clone no longer sits at ${sha} after the steps ran (got ${tail(head.stdout) || 'no HEAD'}); not counting the run`);
     }
 
     result.ok = result.failures.length === 0 && result.nodes.length === versions.length && result.nodes.every((n) => n.ok);
@@ -512,6 +531,11 @@ function runGate(options, injected) {
   } finally {
     if (!opts.keep) fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Fail closed: the executed names must be exactly the trusted list, in order. */
+function executedMatches(executed, steps) {
+  return executed.length === steps.length && steps.every((s, i) => executed[i].name === s.name);
 }
 
 module.exports = {

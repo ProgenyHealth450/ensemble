@@ -10,11 +10,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawnSync, execFileSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 const { buildRecord, verifyRecord } = require('../lib/local-ci-record');
+const { makeBaseRepo, cleanupBaseRepos } = require('./helpers/local-ci-base-repo');
 
 const CLI_PATH = path.join(__dirname, '..', 'lib', 'local-ci-cli.js');
 const REPO_CONFIG = path.join(__dirname, '..', '..', '..', '.ensemble', 'local-ci.yaml');
@@ -22,7 +23,6 @@ const CONFIG = validateConfig(fs.readFileSync(REPO_CONFIG, 'utf8'));
 const WORKFLOW_SET = CONFIG.approvalSet.workflows.map((w) => w.file);
 const CONTEXT = CONFIG.approvalSet.statusContext;
 if (typeof CONTEXT !== 'string' || CONTEXT === '') throw new Error('fixture config has no status context');
-const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
 
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -44,19 +44,9 @@ function fakeFetch() {
   return fn;
 }
 
-function tempRepo({ withEntryPoint = true } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-e2e-'));
-  const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
-  git('init', '-q');
-  if (withEntryPoint) {
-    fs.mkdirSync(path.join(dir, 'scripts'));
-    fs.writeFileSync(path.join(dir, 'scripts', 'ci-local.js'), 'module.exports = { STEPS: [] };\n');
-  }
-  fs.writeFileSync(path.join(dir, 'README.md'), 'x\n');
-  git('add', '-A');
-  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
-  const sha = String(git('rev-parse', 'HEAD')).trim();
-  return { dir, sha };
+/** A repo whose base ref carries the trusted config (`config` overrides its text, null omits it); the head is checked out. */
+function tempRepo({ config } = {}) {
+  return makeBaseRepo({ config: config === undefined ? fs.readFileSync(REPO_CONFIG, 'utf8') : config });
 }
 
 const passingRun = (sha) => ({ ok: true, sha, failures: [], unmirrored: [], nodes: [{ node: 22, ok: true, steps: [] }, { node: 24, ok: true, steps: [] }] });
@@ -76,21 +66,19 @@ function makeDeps(overrides = {}) {
 }
 
 function gatePayload(repo, extra = {}) {
-  return { repoRoot: repo.dir, headSha: repo.sha, repo: 'owner/name', config: fs.readFileSync(REPO_CONFIG, 'utf8'), ...extra };
+  return { repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'owner/name', ...extra };
 }
 
-const cleanup = [];
-afterAll(() => cleanup.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
-const repoWith = (opts) => {
-  const r = tempRepo(opts);
-  cleanup.push(r.dir);
-  return r;
-};
+afterAll(cleanupBaseRepos);
+const repoWith = (opts) => tempRepo(opts);
 
 describe('merge readiness', () => {
-  const record = buildRecord({ runnerBlobSha: 'c0ffee12', workflowSet: WORKFLOW_SET, log: 'run' });
+  const fixture = repoWith();
+  const HEAD = fixture.sha;
+  const trustedBlob = fixture.git('rev-parse', `${fixture.baseRef}:.ensemble/local-ci.yaml`);
+  const record = buildRecord({ runnerBlobSha: trustedBlob, workflowSet: WORKFLOW_SET, log: 'run' });
   const status = (over = {}) => ({ context: CONTEXT, state: 'success', description: record.description, sha: HEAD, ...over });
-  const merge = (statuses, extra = {}) => cli.runMerge({ headSha: HEAD, statuses, path: REPO_CONFIG, ...extra }, cli.defaultDeps());
+  const merge = (statuses, extra = {}) => cli.runMerge({ headSha: HEAD, statuses, repoRoot: fixture.dir, baseRef: fixture.baseRef, ...extra }, cli.defaultDeps());
 
   it('passing run merges: a verified status bound to the exact head is ready without hosted CI', () => {
     const r = merge([status()]);
@@ -115,7 +103,7 @@ describe('merge readiness', () => {
 
   it('a failure status, a record for a different workflow set, or a blocking review refuses', () => {
     expect(merge([status({ state: 'failure' })]).mergeReady).toBe(false);
-    const other = buildRecord({ runnerBlobSha: 'c0ffee12', workflowSet: ['.github/workflows/other.yml'], log: 'run' });
+    const other = buildRecord({ runnerBlobSha: trustedBlob, workflowSet: ['.github/workflows/other.yml'], log: 'run' });
     expect(merge([status({ description: other.description })]).mergeReady).toBe(false);
     const blocked = merge([status()], {
       reviews: [{ author: { login: 'alice', type: 'User' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-01-01T00:00:00Z' }],
@@ -125,20 +113,26 @@ describe('merge readiness', () => {
   });
 
   it('an unusable config refuses rather than guessing', () => {
-    const r = cli.runMerge({ headSha: HEAD, statuses: [status()], config: 'not: [valid' }, cli.defaultDeps());
+    const bad = repoWith({ config: 'not: [valid' });
+    const r = cli.runMerge({ headSha: bad.sha, statuses: [status({ sha: bad.sha })], repoRoot: bad.dir, baseRef: bad.baseRef }, cli.defaultDeps());
     expect(r.mergeReady).toBe(false);
+    expect(r.reason).toMatch(/config invalid/);
+    const none = repoWith({ config: null });
+    expect(cli.runMerge({ headSha: none.sha, statuses: [status({ sha: none.sha })], repoRoot: none.dir, baseRef: none.baseRef }, cli.defaultDeps()).mergeReady).toBe(false);
   });
 });
 
 describe('gate flow', () => {
-  it('missing CI entry point stops naming it, never runs or posts', async () => {
-    const repo = repoWith({ withEntryPoint: false });
-    const { deps, fetch, runGate } = makeDeps();
-    const r = await cli.runGateFlow(gatePayload(repo), deps);
-    expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, prerequisite: 'scripts/ci-local.js' });
-    expect(r.error).toContain('scripts/ci-local.js');
-    expect(runGate).not.toHaveBeenCalled();
-    expect(fetch.calls).toHaveLength(0);
+  it('a missing or invalid maintainer config stops at the config stage, never runs or posts', async () => {
+    for (const config of [null, 'not: [valid', 'workflows: []\n']) {
+      const repo = repoWith({ config });
+      const { deps, fetch, runGate } = makeDeps();
+      const r = await cli.runGateFlow(gatePayload(repo), deps);
+      expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, stage: 'config' });
+      expect(r.error).toMatch(/config invalid/);
+      expect(runGate).not.toHaveBeenCalled();
+      expect(fetch.calls).toHaveLength(0);
+    }
   });
 
   it.each([
@@ -184,6 +178,8 @@ describe('gate flow', () => {
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(runGate).toHaveBeenCalledTimes(1);
     expect(runGate.mock.calls[0][0]).toMatchObject({ headSha: repo.sha, repoRoot: path.resolve(repo.dir) });
+    // the approval set and command list handed to the runner are the maintainer file's
+    expect(runGate.mock.calls[0][0].approvalSet).toEqual(CONFIG.approvalSet);
     expect(r).toMatchObject({ ok: true, posted: true, mergeReady: true });
 
     const posted = fetch.statuses();
@@ -192,16 +188,21 @@ describe('gate flow', () => {
     expect(posted[0].body).toMatchObject({ state: 'success', context: CONTEXT });
 
     const ready = cli.runMerge(
-      { headSha: repo.sha, path: REPO_CONFIG, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
+      { headSha: repo.sha, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
       deps
     );
     expect(ready.mergeReady).toBe(true);
-    // The same status no longer counts once the head moves.
+    // The same status no longer counts once the head moves (a real new commit on the PR branch).
+    fs.writeFileSync(path.join(repo.dir, 'later.txt'), 'later\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'head moves');
+    const movedHead = repo.git('rev-parse', 'HEAD');
     const moved = cli.runMerge(
-      { headSha: OTHER, path: REPO_CONFIG, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
+      { headSha: movedHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
       deps
     );
     expect(moved.mergeReady).toBe(false);
+    expect(moved.headMoved).toBe(true);
   });
 
   it('a failing step is reported with workflow, job, step and head SHA, and never posts success', async () => {
@@ -294,11 +295,13 @@ describe('CLI boundary and output', () => {
   });
 
   it('a gate refusal exits 1; a ready merge exits 0, through the real process', () => {
-    const record = buildRecord({ runnerBlobSha: 'c0ffee12', workflowSet: WORKFLOW_SET, log: 'run' });
-    const ok = run(['merge'], JSON.stringify({ headSha: HEAD, path: REPO_CONFIG, statuses: [{ context: CONTEXT, state: 'success', description: record.description, sha: HEAD }] }));
+    const fx = repoWith();
+    const blob = fx.git('rev-parse', `${fx.baseRef}:.ensemble/local-ci.yaml`);
+    const record = buildRecord({ runnerBlobSha: blob, workflowSet: WORKFLOW_SET, log: 'run' });
+    const ok = run(['merge'], JSON.stringify({ headSha: fx.sha, repoRoot: fx.dir, baseRef: fx.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: record.description, sha: fx.sha }] }));
     expect(ok.status).toBe(0);
     expect(JSON.parse(ok.stdout).mergeReady).toBe(true);
-    const no = run(['merge'], JSON.stringify({ headSha: HEAD, path: REPO_CONFIG, statuses: [] }));
+    const no = run(['merge'], JSON.stringify({ headSha: fx.sha, repoRoot: fx.dir, baseRef: fx.baseRef, statuses: [] }));
     expect(no.status).toBe(1);
     expect(JSON.parse(no.stdout).mergeReady).toBe(false);
   });
@@ -328,7 +331,8 @@ describe('CLI boundary and output', () => {
       const code = await cli.main([sub], { ...cli.defaultDeps(), io: { readJson: () => payload, write: (s) => (out += s) } });
       return { code, body: JSON.parse(out) };
     };
-    expect((await call('config', { path: REPO_CONFIG })).body.approvalSet.statusContext).toBe(CONTEXT);
+    const fx = repoWith();
+    expect((await call('config', { repoRoot: fx.dir, baseRef: fx.baseRef })).body.approvalSet.statusContext).toBe(CONTEXT);
     const built = await call('record', { action: 'build', input: { runnerBlobSha: 'c0ffee12', workflowSet: WORKFLOW_SET, log: 'l' } });
     expect(built.body.ok).toBe(true);
     expect((await call('record', { action: 'parse', input: built.body.description })).body.fields).toEqual(built.body.fields);
@@ -343,7 +347,7 @@ describe('CLI boundary and output', () => {
   it('post without a credential publishes nothing: cannot attest', async () => {
     const fetch = fakeFetch();
     const r = await cli.runPost(
-      { input: { repo: 'owner/name', sha: HEAD, state: 'success', context: CONTEXT, description: 'd' } },
+      { input: { repo: 'owner/name', sha: OTHER, state: 'success', context: CONTEXT, description: 'd' } },
       { ...cli.defaultDeps(), fetch, loadCredential: () => ({ credential: null, reason: 'cannot attest' }) }
     );
     expect(r.published).toBe(false);

@@ -10,12 +10,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
 
 const rollout = require('../lib/local-ci-rollout');
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 
+const { makeBaseRepo, cleanupBaseRepos } = require('./helpers/local-ci-base-repo');
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 const REPO_CONFIG = path.join(REPO_ROOT, '.ensemble', 'local-ci.yaml');
 const CONFIG = validateConfig(fs.readFileSync(REPO_CONFIG, 'utf8'));
@@ -241,19 +241,11 @@ describe('scenario: hosted checks required again', () => {
 describe('scenario: PR born approved (optional pre-PR gate step)', () => {
   const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const credential = { credential: { appId: '12345', privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) } };
-  const dirs = [];
-  afterAll(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
+  afterAll(() => cleanupBaseRepos());
 
   function repoWithHead() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-rollout-'));
-    dirs.push(dir);
-    const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
-    git('init', '-q');
-    fs.mkdirSync(path.join(dir, 'scripts'));
-    fs.writeFileSync(path.join(dir, 'scripts', 'ci-local.js'), 'module.exports = { STEPS: [] };\n');
-    git('add', '-A');
-    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
-    return { dir, sha: String(git('rev-parse', 'HEAD')).trim() };
+    // trusted config committed at base; PR head is a descendant left checked out
+    return makeBaseRepo({ config: fs.readFileSync(REPO_CONFIG, 'utf8') });
   }
 
   function fakeGithubStatuses() {
@@ -281,7 +273,7 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
       env: {},
     };
     const run = await cli.runGateFlow(
-      { repoRoot: repo.dir, headSha: repo.sha, repo: 'o/r', config: fs.readFileSync(REPO_CONFIG, 'utf8') },
+      { repoRoot: repo.dir, baseRef: repo.baseRef, headSha: repo.headSha, repo: 'o/r' },
       deps
     );
     return { run, deps };
@@ -292,8 +284,8 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
     const gh = fakeGithubStatuses();
     const { run, deps } = await gateThenOpenPr(repo, gh);
     expect(run).toMatchObject({ ok: true, posted: true });
-    const prHead = repo.sha; // the PR is opened for this exact head after the gate ran
-    const ready = cli.runMerge({ headSha: prHead, path: REPO_CONFIG, statuses: gh.bySha[prHead] || [] }, deps);
+    const prHead = repo.headSha; // the PR is opened for this exact head after the gate ran
+    const ready = cli.runMerge({ headSha: prHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[prHead] || [] }, deps);
     expect(ready).toMatchObject({ mergeReady: true, hostedCiWaitRequired: false });
   });
 
@@ -301,8 +293,10 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
     const repo = repoWithHead();
     const gh = fakeGithubStatuses();
     const { deps } = await gateThenOpenPr(repo, gh);
-    const newHead = 'f'.repeat(40);
-    const ready = cli.runMerge({ headSha: newHead, path: REPO_CONFIG, statuses: gh.bySha[newHead] || [] }, deps);
+    repo.git('commit', '-q', '--allow-empty', '-m', 'moved head');
+    const newHead = repo.git('rev-parse', 'HEAD');
+    expect(newHead).not.toBe(repo.headSha);
+    const ready = cli.runMerge({ headSha: newHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[newHead] || [] }, deps);
     expect(ready.mergeReady).toBe(false);
   });
 
@@ -316,9 +310,9 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
       loadCredential: () => credential,
       env: {},
     };
-    await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, repo: 'o/r', config: fs.readFileSync(REPO_CONFIG, 'utf8') }, deps);
-    expect((gh.bySha[repo.sha] || []).some((s) => s.state === 'success')).toBe(false);
-    expect(cli.runMerge({ headSha: repo.sha, path: REPO_CONFIG, statuses: gh.bySha[repo.sha] || [] }, deps).mergeReady).toBe(false);
+    await cli.runGateFlow({ repoRoot: repo.dir, baseRef: repo.baseRef, headSha: repo.headSha, repo: 'o/r' }, deps);
+    expect((gh.bySha[repo.headSha] || []).some((s) => s.state === 'success')).toBe(false);
+    expect(cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[repo.headSha] || [] }, deps).mergeReady).toBe(false);
   });
 });
 

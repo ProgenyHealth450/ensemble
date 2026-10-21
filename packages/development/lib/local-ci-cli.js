@@ -8,15 +8,22 @@
  * run -> record -> post) and the merge-readiness decision (`merge`), both of
  * which only combine verdicts the modules already produce.
  *
- *   config   {source|path}                         validateConfig
+ *   config   {source|repoRoot, baseRef}            validateConfig (source: text check only)
  *   record   {action: build|parse|verify, input}   buildRecord / parseRecord / verifyRecord
- *   run      {options}                             runGate (never publishes)
+ *   run      {repoRoot, headSha, baseRef}          runGate (never publishes)
  *   post     {input:{repo,sha,state,context,description}}  postStatus
  *   review   {action: classify|decide, reviews}    classifyReviews / decideBlock
  *   sweep    {facts, trackedKeys}                  findUntracked
  *   timing   {action: ready|verdict|record|fidelity|note, input}
- *   merge    {headSha, statuses, config|path, reviews?}    merge readiness for a PR
- *   gate     {repoRoot, headSha, repo, dryRun?, config?, ...}  full gate run
+ *   merge    {headSha, statuses, repoRoot, baseRef, reviews?}  merge readiness for a PR
+ *   gate     {repoRoot, headSha, baseRef, repo, dryRun?}  full gate run
+ *
+ * TRUST: the approval set and the command list the runner executes come ONLY from
+ * `.ensemble/local-ci.yaml` as committed at the PR's BASE ref (`git show <baseRef>:...`),
+ * the same principle as GitHub's pull_request_target: a PR that edits the config is
+ * graded by the old one. The maintainer's working tree, the checked-out branch, the
+ * clone and the payload are never consulted for config. Payloads cannot carry config,
+ * paths, scripts or runner options: unknown keys are rejected.
  *
  * FAIL CLOSED: malformed or oversized (> MAX_STDIN_BYTES) JSON is rejected
  * before any handler runs (exit 1, `{error}`, no side effects). Every string
@@ -42,12 +49,19 @@ const runGate = (options, injected) => require('./local-ci-runner').runGate(opti
 /** Largest accepted stdin payload: 1 MiB. */
 const MAX_STDIN_BYTES = 1024 * 1024;
 const DEFAULT_CONFIG_PATH = '.ensemble/local-ci.yaml';
-const DEFAULT_CI_SCRIPT = 'scripts/ci-local.js';
+const STEPS_LABEL = 'local-ci steps';
 const SHA_RE = /^[0-9a-fA-F]{40}$/;
+// Payload keys each handler accepts; anything else is rejected (fail closed).
+const CONFIG_KEYS = ['source', 'repoRoot', 'baseRef'];
+const RUN_KEYS = ['repoRoot', 'headSha', 'baseRef'];
+const GATE_KEYS = ['repoRoot', 'headSha', 'baseRef', 'repo', 'dryRun'];
+const MERGE_KEYS = ['headSha', 'statuses', 'repoRoot', 'baseRef', 'reviews'];
 
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isText = (v) => typeof v === 'string' && v.trim() !== '';
+// A baseRef is passed to git as ONE argv element; a leading dash could be read as an option.
+const isBaseRef = (v) => isText(v) && !v.startsWith('-') && !/[\0\r\n]/.test(v);
 
 function shown(name) {
   return typeof name === 'string' ? JSON.stringify(name.slice(0, 40)) : String(name);
@@ -100,26 +114,65 @@ function defaultDeps() {
   };
 }
 
-/** Config from payload.config (object|YAML text) or the repo file. */
-function loadConfig(payload, deps, repoRoot) {
-  let source = payload.config;
-  if (source === undefined) {
-    const file = payload.path || path.join(repoRoot || process.cwd(), DEFAULT_CONFIG_PATH);
-    try {
-      source = deps.readFile(file);
-    } catch (_e) {
-      source = undefined; // validateConfig reports a missing config
-    }
+/**
+ * The approval set and trusted command list come ONLY from the config committed at the
+ * PR's base ref: `git show <baseSha>:.ensemble/local-ci.yaml`. Never the working tree
+ * (which may be the PR head's own file), never the clone, never a payload.
+ * Returns the validateConfig result plus { configBlobSha, baseSha } when the ref resolves.
+ */
+function loadTrustedConfig(deps, repoRoot, baseRef) {
+  const refuse = (problem) => ({ ok: false, problems: [problem] });
+  if (!isBaseRef(baseRef)) return refuse('baseRef is missing or malformed: the trusted config is read from the PR base ref');
+  const cwd = path.resolve(repoRoot);
+  const resolved = deps.git(['rev-parse', '--verify', '--end-of-options', `${baseRef}^{commit}`], cwd);
+  const baseSha = resolved && resolved.status === 0 ? String(resolved.stdout).trim() : '';
+  if (!SHA_RE.test(baseSha)) return refuse(`baseRef ${shown(baseRef)} does not resolve to a commit in ${cwd}`);
+
+  const blob = deps.git(['rev-parse', '--verify', '--end-of-options', `${baseSha}:${DEFAULT_CONFIG_PATH}`], cwd);
+  const configBlobSha = blob && blob.status === 0 ? String(blob.stdout).trim() : '';
+  const showCfg = deps.git(['show', `${baseSha}:${DEFAULT_CONFIG_PATH}`], cwd);
+  const source = configBlobSha && showCfg && showCfg.status === 0 ? String(showCfg.stdout) : undefined;
+  const cfg = validateConfig(source); // reports a missing config: no defaults
+  return { ...cfg, baseSha, ...(source === undefined ? {} : { configBlobSha }) };
+}
+
+/** The head must not be its own base and must share history with it. Returns a problem text or null. */
+function checkBaseHead(deps, repoRoot, baseSha, headSha, baseRef) {
+  const cwd = path.resolve(repoRoot);
+  if (baseSha.toLowerCase() === headSha.toLowerCase()) {
+    return `baseRef ${shown(baseRef)} resolves to ${baseSha}, which is the PR head ${headSha}: the head cannot be its own base`;
   }
-  return validateConfig(source);
+  const anc = deps.git(['merge-base', '--is-ancestor', baseSha, headSha], cwd);
+  if (anc && anc.status === 0) return null;
+  const mb = deps.git(['merge-base', baseSha, headSha], cwd);
+  if (mb && mb.status === 0 && SHA_RE.test(String(mb.stdout).trim())) return null;
+  return `PR head ${headSha} shares no history with base ${baseSha} (${shown(baseRef)}): no merge-base, refusing`;
+}
+
+/** Load the base-ref config and, given a head, enforce the base/head relationship. */
+function loadGateConfig(deps, repoRoot, baseRef, headSha) {
+  const cfg = loadTrustedConfig(deps, repoRoot, baseRef);
+  if (!cfg.ok) return cfg;
+  const problem = checkBaseHead(deps, repoRoot, cfg.baseSha, headSha, baseRef);
+  return problem ? { ok: false, problems: [problem] } : cfg;
+}
+
+/** Fail closed on any payload key a caller could use to smuggle options. */
+function rejectUnknownKeys(payload, allowed, what) {
+  const unknown = Object.keys(payload).filter((k) => !allowed.includes(k));
+  if (unknown.length > 0) {
+    throw new Error(`${what}: unknown payload key(s) ${unknown.map(shown).join(', ')}; allowed: ${allowed.join(', ')}. Configuration comes only from the maintainer's ${DEFAULT_CONFIG_PATH}`);
+  }
 }
 
 /* ------------------------------------------------------------ simple handlers */
 
 function runConfig(payload, deps) {
   if (!isObject(payload)) throw new Error('payload must be a JSON object');
+  rejectUnknownKeys(payload, CONFIG_KEYS, 'config');
+  // `source` only validates text the caller hands over; it never feeds a gate or a merge.
   if (payload.source !== undefined) return validateConfig(payload.source);
-  return loadConfig({ path: payload.path }, deps, payload.repoRoot);
+  return loadTrustedConfig(deps, need(payload, 'repoRoot', isText, 'config'), need(payload, 'baseRef', isBaseRef, 'config'));
 }
 
 const RECORD_ACTIONS = Object.freeze({
@@ -134,9 +187,26 @@ function runRecord(payload) {
   return RECORD_ACTIONS[action](payload.input);
 }
 
+/** Runner options built ONLY from the maintainer's validated config. */
+function runnerOptions(repoRoot, headSha, cfg) {
+  return {
+    repoRoot,
+    headSha,
+    approvalSet: cfg.approvalSet,
+    equivalents: cfg.approvalSet.equivalents,
+    excludedSteps: cfg.approvalSet.excludedSteps,
+  };
+}
+
 function runRun(payload, deps) {
-  const options = need(payload, 'options', isObject, 'run');
-  return deps.runGate(options, deps.runnerDeps);
+  if (!isObject(payload)) throw new Error('payload must be a JSON object');
+  rejectUnknownKeys(payload, RUN_KEYS, 'run');
+  const repoRoot = path.resolve(need(payload, 'repoRoot', isText, 'run'));
+  const headSha = need(payload, 'headSha', (v) => typeof v === 'string' && SHA_RE.test(v), 'run');
+  const baseRef = need(payload, 'baseRef', isBaseRef, 'run');
+  const cfg = loadGateConfig(deps, repoRoot, baseRef, headSha);
+  if (!cfg.ok) return { ok: false, error: `local CI config invalid: ${cfg.problems.join('; ')}` };
+  return deps.runGate(runnerOptions(repoRoot, headSha, cfg), deps.runnerDeps);
 }
 
 async function runPost(payload, deps) {
@@ -199,17 +269,23 @@ function runRollout(payload) {
 
 /**
  * Can this PR merge on the strength of the local gate alone?
- * payload: { headSha, statuses:[{context,state,description,sha}], config|path, reviews? }
+ * payload: { headSha, statuses:[{context,state,description,sha}], repoRoot, reviews? }
  * `sha` is the commit each status was posted on. Ready only when a SUCCESS status
  * in the configured context verifies (verifyRecord) against the exact head and
- * the configured workflow set. Hosted CI is never consulted.
+ * the configured workflow set AND the trusted config blob at `baseRef`. Hosted CI is
+ * never consulted. The configuration is read ONLY from the base ref's committed
+ * .ensemble/local-ci.yaml; any other payload key (config, path, ...) is rejected.
  */
 function runMerge(payload, deps) {
+  if (!isObject(payload)) throw new Error('payload must be a JSON object');
+  rejectUnknownKeys(payload, MERGE_KEYS, 'merge');
   const headSha = need(payload, 'headSha', (v) => typeof v === 'string' && SHA_RE.test(v), 'merge');
   const statuses = need(payload, 'statuses', Array.isArray, 'merge');
+  const repoRoot = need(payload, 'repoRoot', isText, 'merge');
   const refuse = (reason, extra) => ({ ok: false, mergeReady: false, headSha, reason, ...(extra || {}) });
 
-  const cfg = loadConfig(payload, deps, payload.repoRoot);
+  const baseRef = need(payload, 'baseRef', isBaseRef, 'merge');
+  const cfg = loadGateConfig(deps, repoRoot, baseRef, headSha);
   if (!cfg.ok) return refuse(`local CI config invalid: ${cfg.problems.join('; ')}`);
   const workflowSet = cfg.approvalSet.workflows.map((w) => w.file);
 
@@ -218,7 +294,9 @@ function runMerge(payload, deps) {
     if (block.blocked) return refuse(`blocked by review: ${block.reasons.join('; ')}`, { reviewers: block.reviewers });
   }
 
-  const ours = statuses.filter((s) => isObject(s) && s.context === cfg.approvalSet.statusContext);
+  // GitHub status contexts are case-insensitive: compare lower-cased (we post the exact configured string).
+  const wantContext = cfg.approvalSet.statusContext.toLowerCase();
+  const ours = statuses.filter((s) => isObject(s) && typeof s.context === 'string' && s.context.toLowerCase() === wantContext);
   if (ours.length === 0) {
     return refuse(`no local CI status (${cfg.approvalSet.statusContext}) found: the local gate has not run for ${headSha}`, { missingRun: true });
   }
@@ -229,11 +307,11 @@ function runMerge(payload, deps) {
       problems.push(`status on ${s.sha} is ${s.state}`);
       continue;
     }
-    const v = verifyRecord({ description: s.description, statusCommitSha: s.sha, headSha, workflowSet });
+    const v = verifyRecord({ description: s.description, statusCommitSha: s.sha, headSha, workflowSet, runnerBlobSha: cfg.configBlobSha });
     if (v.ok) return { ok: true, mergeReady: true, headSha, context: cfg.approvalSet.statusContext, record: v.fields, hostedCiWaitRequired: false };
-    problems.push(v.headMismatch || v.setMismatch || v.error || 'record did not verify');
+    problems.push(v.headMismatch || v.setMismatch || v.runnerMismatch || v.error || 'record did not verify');
   }
-  const moved = ours.find((s) => s.state === 'success' && isText(s.sha) && s.sha !== headSha);
+  const moved = ours.find((s) => s.state === 'success' && isText(s.sha) && s.sha.toLowerCase() !== headSha.toLowerCase());
   return refuse(problems.join('; '), {
     missingRun: !ours.some((s) => s.state === 'success'),
     ...(moved ? { statusSha: moved.sha, headMoved: true } : {}),
@@ -242,7 +320,7 @@ function runMerge(payload, deps) {
 
 /* ------------------------------------------------------------------------ gate */
 
-function preflight(repoRoot, ciScript, deps) {
+function preflight(repoRoot, deps) {
   const missing = (prerequisite, detail) => ({
     ok: false,
     prerequisite,
@@ -252,12 +330,11 @@ function preflight(repoRoot, ciScript, deps) {
   if (!node || node.status !== 0 || !/^v\d+\./.test(String(node.stdout).trim())) return missing('node');
   const git = deps.git(['--version'], repoRoot);
   if (!git || git.status !== 0) return missing('git');
-  if (!deps.exists(path.join(repoRoot, ciScript))) return missing(ciScript, 'the configured CI entry point');
   return { ok: true };
 }
 
 /** Failures the report must name: workflow, job, step, head SHA. */
-function describeFailures(result, ciScript, equivalents) {
+function describeFailures(result, equivalents) {
   const sha = result.sha;
   const out = [];
   for (const u of result.unmirrored || []) {
@@ -268,7 +345,7 @@ function describeFailures(result, ciScript, equivalents) {
     const eq = (equivalents || []).find((e) => e.runs === f.step);
     out.push({
       kind: f.kind,
-      workflow: eq ? `covers workflow step "${eq.workflowStep}"` : ciScript,
+      workflow: eq ? `covers workflow step "${eq.workflowStep}"` : STEPS_LABEL,
       job: f.node === null || f.node === undefined ? null : `node ${f.node}`,
       step: f.step,
       sha,
@@ -286,36 +363,27 @@ function clip(text) {
 
 async function runGateFlow(payload, deps) {
   if (!isObject(payload)) throw new Error('payload must be a JSON object');
+  rejectUnknownKeys(payload, GATE_KEYS, 'gate');
   const repoRoot = path.resolve(need(payload, 'repoRoot', isText, 'gate'));
   const headSha = need(payload, 'headSha', (v) => typeof v === 'string' && SHA_RE.test(v), 'gate');
+  const baseRef = need(payload, 'baseRef', isBaseRef, 'gate');
   const dryRun = payload.dryRun === true;
-  const ciScript = payload.ciScript || DEFAULT_CI_SCRIPT;
   const report = { ok: false, stage: 'preflight', headSha, dryRun, posted: false, mergeReady: false, failures: [] };
   const stop = (stage, error, extra) => ({ ...report, stage, error, ...(extra || {}) });
 
   // 1. Prerequisites: nothing is run or posted without them, and merging is never the fallback.
-  const pre = preflight(repoRoot, ciScript, deps);
+  const pre = preflight(repoRoot, deps);
   if (!pre.ok) return stop('preflight', pre.error, { prerequisite: pre.prerequisite });
 
-  // 2. Approval set from the repo config.
-  const cfg = loadConfig(payload, deps, repoRoot);
+  // 2. Approval set and trusted command list: ONLY from the PR's base ref.
+  const cfg = loadGateConfig(deps, repoRoot, baseRef, headSha);
   if (!cfg.ok) return stop('config', `local CI config invalid: ${cfg.problems.join('; ')}`);
   if (!dryRun && !(isText(payload.repo) && /^[\w.-]+\/[\w.-]+$/.test(payload.repo))) {
     return stop('config', 'repo must be owner/name to post a status');
   }
 
   // 3. Run in a clean clone at the exact head (the runner owns checkout and cleanup).
-  const options = {
-    ...(isObject(payload.runner) ? payload.runner : {}),
-    repoRoot,
-    headSha,
-    approvalSet: cfg.approvalSet,
-    extraSteps: cfg.approvalSet.extraSteps,
-    equivalents: cfg.approvalSet.equivalents,
-    excludedSteps: cfg.approvalSet.excludedSteps,
-    ciScript,
-  };
-  const result = deps.runGate(options, deps.runnerDeps);
+  const result = deps.runGate(runnerOptions(repoRoot, headSha, cfg), deps.runnerDeps);
   report.stage = 'run';
   report.nodes = (result.nodes || []).map((n) => ({ node: n.node, ok: n.ok }));
 
@@ -334,7 +402,7 @@ async function runGateFlow(payload, deps) {
 
   // 4. Anything but a clean pass is a refusal; at most a FAILURE status is published.
   if (!passed) {
-    report.failures = describeFailures(result, ciScript, cfg.approvalSet.equivalents);
+    report.failures = describeFailures(result, cfg.approvalSet.equivalents);
     report.error = result.error || 'local CI did not pass';
     const reportable = report.failures.filter((f) => REPORTABLE_KINDS.has(f.kind));
     if (!dryRun && credential && reportable.length > 0) {
@@ -353,10 +421,8 @@ async function runGateFlow(payload, deps) {
   }
   if (dryRun) return { ...report, ok: true, mergeReady: true, wouldPost: true };
 
-  const blob = deps.git(['rev-parse', `${headSha}:${ciScript}`], repoRoot);
-  if (!blob || blob.status !== 0) return stop('attest', `cannot hash ${ciScript} at ${headSha}`);
   const record = buildRecord({
-    runnerBlobSha: String(blob.stdout).trim(),
+    runnerBlobSha: cfg.configBlobSha,
     workflowSet: cfg.approvalSet.workflows.map((w) => w.file),
     log: JSON.stringify({ sha: headSha, nodes: result.nodes }),
   });

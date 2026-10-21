@@ -4,7 +4,7 @@
  * Local CI run record: build, parse and verify the compact status description
  * `ci-local <8-hex> | set:<8-hex> | log:<12-hex>` (at most 100 characters).
  *
- *   ci-local  first 8 hex of the git blob hash of scripts/ci-local.js at the PR head
+ *   ci-local  first 8 hex of the git blob hash of the maintainer's trusted .ensemble/local-ci.yaml (the command list that ran)
  *   set       first 8 hex of sha256 over the sorted, de-duplicated workflow set
  *   log       first 12 hex of sha256 of the run log (the log is never embedded)
  *
@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const MAX_LENGTH = 100;
 const RECORD_RE = /^ci-local ([0-9a-f]{8}) \| set:([0-9a-f]{8}) \| log:([0-9a-f]{12})$/;
 const HEX_RE = /^[0-9a-fA-F]+$/;
+const SHA_RE = /^[0-9a-fA-F]{40}$/;
 
 function fail(error) {
   return { ok: false, error };
@@ -77,19 +78,31 @@ function verifyRecord(input) {
   const parsed = parseRecord(description);
   if (!parsed.ok) return parsed;
   for (const [k, v] of [['statusCommitSha', statusCommitSha], ['headSha', headSha]]) {
-    if (typeof v !== 'string' || v.trim() === '') return fail(`${k} must be a non-empty string`);
+    if (typeof v !== 'string' || !SHA_RE.test(v.trim())) return fail(`${k} must be a 40-hex commit SHA`);
   }
   const set = hashWorkflowSet(workflowSet);
   if (!set.ok) return set;
 
   const result = { ok: true, fields: parsed.fields };
-  if (statusCommitSha !== headSha) {
+  // Commit SHAs are hex: compare case-insensitively (lower-cased).
+  if (statusCommitSha.trim().toLowerCase() !== headSha.trim().toLowerCase()) {
     result.ok = false;
     result.headMismatch = `status commit ${statusCommitSha} does not match PR head ${headSha}`;
   }
   if (set.hash !== parsed.fields.set) {
     result.ok = false;
     result.setMismatch = `recorded set:${parsed.fields.set} differs from configured set:${set.hash}`;
+  }
+  // Optional: the record must have been produced under this exact trusted config blob.
+  if (input.runnerBlobSha !== undefined) {
+    const want = input.runnerBlobSha;
+    if (typeof want !== 'string' || want.length < 8 || !HEX_RE.test(want)) {
+      return fail('runnerBlobSha must be a hex git blob hash of at least 8 characters');
+    }
+    if (want.slice(0, 8).toLowerCase() !== parsed.fields.runner) {
+      result.ok = false;
+      result.runnerMismatch = `recorded config ${parsed.fields.runner} differs from trusted config ${want.slice(0, 8).toLowerCase()}`;
+    }
   }
   return result;
 }

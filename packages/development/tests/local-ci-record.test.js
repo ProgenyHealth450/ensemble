@@ -110,4 +110,31 @@ describe('local-ci-record', () => {
     expect(verifyRecord({ description, statusCommitSha: A, headSha: A, workflowSet: null }).ok).toBe(false);
     expect(verifyRecord({ description: 'junk', statusCommitSha: A, headSha: A, workflowSet: SET }).ok).toBe(false);
   });
+  describe('commit SHA normalization', () => {
+    const verify = (statusCommitSha, headSha) => verifyRecord({ description: build().description, statusCommitSha, headSha, workflowSet: SET });
+
+    test('the same commit in a different letter case verifies (hex is case-insensitive)', () => {
+      expect(verify('ABCDEF0123456789ABCDEF0123456789ABCDEF01', 'abcdef0123456789abcdef0123456789abcdef01').ok).toBe(true);
+      expect(verify('abcdef0123456789abcdef0123456789abcdef01', 'ABCDEF0123456789ABCDEF0123456789ABCDEF01').ok).toBe(true);
+    });
+
+    test('different commits still mismatch after normalization', () => {
+      const r = verify(A, B.toUpperCase());
+      expect(r.ok).toBe(false);
+      expect(r.headMismatch).toBeDefined();
+    });
+
+    test.each([
+      ['abbreviated', 'abc1234'],
+      ['39 hex', 'a'.repeat(39)],
+      ['41 hex', 'a'.repeat(41)],
+      ['non-hex', 'g'.repeat(40)],
+      ['a branch name', 'main'],
+    ])('a %s sha on either side is refused, never compared', (_n, bad) => {
+      expect(verify(bad, bad).ok).toBe(false);
+      expect(verify(bad, bad).headMismatch).toBeUndefined();
+      expect(verify(A, bad).ok).toBe(false);
+      expect(verify(bad, A).ok).toBe(false);
+    });
+  });
 });

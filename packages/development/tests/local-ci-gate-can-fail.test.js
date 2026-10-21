@@ -4,7 +4,7 @@
  * TRD-006-TEST: the local CI gate can both FAIL and PASS through the real code
  * path. A real git repo is built in a temp dir with a base commit, a deliberately
  * failing commit F and a fixing commit P, under ONE unchanged configuration.
- * Real: git clone, ci:local-shaped stand-in subprocess, non-zero exit, runGate,
+ * Real: git clone, the trusted command run by the runner (bash -c), non-zero exit, runGate,
  * runGateFlow, postStatus (RS256 JWT signing with a throwaway in-memory key),
  * loadCredential (env), runMerge. Fake: only the network (`fetch`).
  * Not exercised: npm ci, Node downloads, the repo's real suites, real GitHub.
@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { runGateFlow, runMerge, defaultDeps } = require('../lib/local-ci-cli');
+const { makeBaseRepo, cleanupBaseRepos } = require('./helpers/local-ci-base-repo');
 const { runGate } = require('../lib/local-ci-runner');
 const { redact, loadCredential, postStatus } = require('../lib/local-ci-app');
 
@@ -33,6 +34,9 @@ const CONFIG_YAML = `workflows:
       - id: proof
         matrix:
           node-version: [${NODE_MAJOR}]
+steps:
+  - name: unit-check
+    cmd: node scripts/unit-check.js
 status_context: ${CONTEXT}
 app_id: 12345
 `;
@@ -45,25 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/unit-check.js
-`;
-
-// ci:local stand-in: same contract as scripts/ci-local.js (STEPS export, summary
-// table on stdout, non-zero exit when any step fails) but runs one tiny step.
-const CI_LOCAL = `'use strict';
-const { spawnSync } = require('child_process');
-const STEPS = [{ name: 'unit-check', cmd: 'node scripts/unit-check.js' }];
-module.exports = { STEPS };
-if (require.main === module) {
-  let failed = false;
-  for (const s of STEPS) {
-    const t = Date.now();
-    const r = spawnSync(s.cmd, { shell: true, stdio: 'inherit' });
-    const ok = r.status === 0;
-    failed = failed || !ok;
-    console.log(s.name + ' ' + (ok ? 'PASS' : 'FAIL') + ' ' + ((Date.now() - t) / 1000).toFixed(1));
-  }
-  process.exit(failed ? 1 : 0);
-}
 `;
 
 const UNIT_FAILING = `'use strict';
@@ -120,6 +105,7 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   let tmp;
   let repoRoot;
   let shaBase;
+  let baseRef;
   let shaF;
   let shaP;
   let gh;
@@ -128,21 +114,24 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   let passedReport;
   let failedPosts;
 
-  const payloadFor = (headSha) => ({ repoRoot, headSha, repo: REPO });
+  const payloadFor = (headSha) => ({ repoRoot, headSha, repo: REPO, baseRef });
 
   beforeAll(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-can-fail-'));
-    repoRoot = path.join(tmp, 'repo');
-    fs.mkdirSync(repoRoot);
-    git(repoRoot, 'init', '-q', '-b', 'main');
-    shaBase = commit(repoRoot, 'base: passing stand-in', {
-      'scripts/ci-local.js': CI_LOCAL,
-      'scripts/unit-check.js': UNIT_PASSING,
-      [WORKFLOW]: WORKFLOW_YAML,
-      '.ensemble/local-ci.yaml': CONFIG_YAML,
-      '.gitignore': '.ensemble/local-ci-runs/\n',
+    // Config + passing stand-in committed at the trusted base; F and P descend from it.
+    const fixture = makeBaseRepo({
+      config: CONFIG_YAML,
+      files: {
+        'scripts/unit-check.js': UNIT_PASSING,
+        [WORKFLOW]: WORKFLOW_YAML,
+        '.gitignore': '.ensemble/local-ci-runs/\n',
+      },
+      headFiles: { 'scripts/unit-check.js': UNIT_FAILING },
     });
-    shaF = commit(repoRoot, 'F: break the unit check', { 'scripts/unit-check.js': UNIT_FAILING });
+    repoRoot = fixture.dir;
+    baseRef = fixture.baseRef;
+    shaBase = fixture.baseSha;
+    shaF = fixture.headSha;
     shaP = commit(repoRoot, 'P: fix the unit check', { 'scripts/unit-check.js': UNIT_PASSING });
 
     const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -163,6 +152,7 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
 
   afterAll(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
+    cleanupBaseRepos();
   });
 
   test('the fixture is a real repo whose three commits are distinct', () => {
@@ -187,7 +177,7 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   });
 
   test('a failure status never satisfies the merge check for the failing head', () => {
-    const verdict = runMerge({ repoRoot, headSha: shaF, statuses: failedPosts }, deps);
+    const verdict = runMerge({ repoRoot, headSha: shaF, baseRef, statuses: failedPosts }, deps);
     expect(verdict.ok).toBe(false);
     expect(verdict.mergeReady).toBe(false);
   });
@@ -205,13 +195,13 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   });
 
   test('runMerge accepts the success record for P and refuses it for F', () => {
-    const accepted = runMerge({ repoRoot, headSha: shaP, statuses: gh.posts }, deps);
+    const accepted = runMerge({ repoRoot, headSha: shaP, baseRef, statuses: gh.posts }, deps);
     expect(accepted.ok).toBe(true);
     expect(accepted.mergeReady).toBe(true);
     expect(accepted.hostedCiWaitRequired).toBe(false);
 
     const successOnly = gh.posts.filter((p) => p.state === 'success');
-    const refused = runMerge({ repoRoot, headSha: shaF, statuses: successOnly }, deps);
+    const refused = runMerge({ repoRoot, headSha: shaF, baseRef, statuses: successOnly }, deps);
     expect(refused.ok).toBe(false);
     expect(refused.mergeReady).toBe(false);
   });
