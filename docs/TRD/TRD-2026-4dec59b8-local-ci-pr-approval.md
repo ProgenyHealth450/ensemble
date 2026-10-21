@@ -3,7 +3,7 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.2
+version: 1.0.3
 status: Draft
 date: 2026-10-21
 design_readiness_score: 4.25
@@ -39,8 +39,8 @@ Based on PRD: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md (v1.0.1, Locked
 | Skill/prompt content | Yes | New `local-ci-gate` skill; edits to `pr-merge.yaml`; per-repository config file |
 | Library/CLI (Node.js) | Yes | `local-ci-*.js` modules and a `local-ci-cli.js` entry in `packages/development/lib/` |
 | Data model | No | Per-run record is a status description string; the sweep ledger is bead labels. No schema/migration. |
-| Infrastructure / external services | Yes | GitHub REST (statuses, App installation token); Docker + `act` on the maintainer's machine |
-| Security | Yes | App private key; status forgery; untrusted review text; secrets in `act` runs |
+| Infrastructure / external services | Yes | GitHub REST (statuses, App installation token); Node (22 and 24) and git on the maintainer's machine; no Docker required |
+| Security | Yes | App private key; status forgery; untrusted review text; secrets passed to local CI steps |
 | Packaging/generation | Yes | Pi vendor bundle (`lib-bundler.ts` `ENTRY_FILES`), Pi/Codex/markdown generators |
 
 **Greenfield or brownfield:** brownfield.
@@ -55,16 +55,16 @@ No companion artifacts generated.
 
 No foundational TRD capabilities matched (`trd-graph-cli capabilities docs/TRD`). Existing code reused or deliberately not reused:
 
-- **Reused:** the `tool-path-resolution` skill (locating `local-ci-cli.js` across checkout, plugin and Pi bundle); the `pr-review-state.js` `redact()` convention; the facts shape of `pr-review-remote.js` (reviews, comments, threads, check runs with `commitSha`) for the late-finding sweep input; `act-local-ci` skill for the `act` invocation guidance.
+- **Reused:** the `tool-path-resolution` skill (locating `local-ci-cli.js` across checkout, plugin and Pi bundle); the `pr-review-state.js` `redact()` convention; the facts shape of `pr-review-remote.js` (reviews, comments, threads, check runs with `commitSha`) for the late-finding sweep input; **`scripts/ci-local.js` (`npm run ci:local`, PR #184 on `dev`)** as the CI execution engine, which already clones committed HEAD, runs `npm ci` and the test, validate, generate-validate and drift steps with `CI=true`, and is unit-tested and mutation-proven. The `act-local-ci` skill remains available for workflows `ci:local` does not mirror but is no longer on the critical path.
 - **Deliberately not reused as a gate:** `pr-review-remote.js` `evaluateRemoteReview`. It is fail-closed and makes bot review blocking and head-bound, which is the opposite of REQ-006. It remains correct for `fix-issue` and `implement-trd-beads`, which this TRD does not change.
 
 ## System Architecture
 
 ### Components and boundaries
 
-1. **`SKILL.md` (local-ci-gate)** -- orchestrates a gate run: resolves the PR, fetches the head SHA, creates the clean checkout, invokes `act`, calls the CLI to build and verify the run record, publishes the status, and reports. The only component that talks to `git`, `gh`, `act` and Docker.
+1. **`SKILL.md` (local-ci-gate)** -- orchestrates a gate run: resolves the PR, fetches the head SHA, delegates the clean clone and CI execution to the runner, calls the CLI to build and verify the run record, publishes the status, and reports. The only component that talks to `git` and `gh`.
 2. **`local-ci-config.js`** -- validates the per-repository config (approval set, excluded jobs, status context name, bot-review handling, tracker). Fails closed on unknown or missing fields (AC-017-3).
-3. **`local-ci-record.js`** -- builds and parses the run record carried in the status description (head SHA, workflow set, `act` version, log digest) and verifies it against the PR head and configured set (AC-004-5, AC-004-6, AC-003-1/2).
+3. **`local-ci-record.js`** -- builds and parses the run record carried in the status description (CI tool version, workflow-set hash, log digest) and verifies it against the PR head and configured set (AC-004-5, AC-004-6, AC-003-1/2).
 4. **`local-ci-app.js`** -- the only network module: signs the App JWT with `crypto`, exchanges it for an installation token, posts the status. Reads the credential from the environment or a gitignored path, never logs it (REQ-018).
 5. **`local-ci-review.js`** -- classifies review authors by GitHub account `type` (Bot vs User), never by name, and decides whether a review set blocks (AC-006-3, AC-006-4).
 6. **`local-ci-sweep.js`** -- given fetched facts about recently merged PRs, returns the bot findings and hosted-CI failures not yet tracked, using stable dedupe keys (AC-007-2, AC-008-3).
@@ -76,8 +76,8 @@ No foundational TRD capabilities matched (`trd-graph-cli capabilities docs/TRD`)
 ```
 pr-merge -> local-ci-gate skill
   1. gh: PR head SHA, base, reviews   -> local-ci-cli review   (classify bot vs human; human CHANGES_REQUESTED blocks)
-  2. git worktree add <tmp> <headSha> -> act (approval set from config) in <tmp>
-  3. act result + digest              -> local-ci-cli record   (build run record)
+  2. git clone <tmp> @ <headSha>      -> repository ci:local steps in <tmp>, once per required Node version
+  3. step results + digest            -> local-ci-cli record   (build run record)
   4. record                           -> local-ci-app post     (JWT -> installation token -> POST status on headSha)
   5. gh: read status back             -> local-ci-cli verify   (record matches head + configured set)
   6. verified + no human block        -> gh pr merge
@@ -87,17 +87,17 @@ pr-merge -> local-ci-gate skill
 ### Integration points and failure handling
 
 - **Status publish fails or no credential:** the run may complete but publishes nothing and reports it cannot attest (AC-018-2); the merge is refused.
-- **`act` or Docker missing:** stop before any status is posted, naming the missing prerequisite (AC-015-2).
+- **Prerequisite missing (git, Node, or the repository's CI entry point):** stop before any status is posted, naming the missing prerequisite (AC-015-2).
 - **Head commit cannot be fetched:** stop, publish nothing (AC-003-4).
 - **Verification mismatch (head or workflow set differs):** refuse the merge and print the mismatch (AC-004-6).
-- **Unsupported `act` step:** the run fails and names the step (AC-009-2).
+- **Unmirrored or unrunnable step:** a required workflow step that the configured step list does not mirror, or a required Node version that cannot be provided, fails the gate and names the step or version (AC-009-2).
 
 ### Security design
 
 - The App private key is read from an environment variable or a gitignored file; it is never written to a status, log or bead (AC-018-1). `redact()` is applied to every string the CLI emits.
 - A status from any identity other than the configured App id does not satisfy verification (AC-004-4); the verifier checks the status creator, not only its name.
 - Review text and comment bodies are untrusted: only structured fields (author type, state, commit, thread resolved flag) are read for classification; bodies are passed to beads as quoted data, never interpreted.
-- **Known limit (accepted in the PRD):** nothing proves `act` ran; the run record makes careless or stale posts detectable, not impossible.
+- **Known limit (accepted in the PRD):** nothing proves the CI steps actually ran; the run record makes careless or stale posts detectable, not impossible.
 
 ### Key risk, proven first
 
@@ -152,7 +152,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
   - Target Files: `packages/development/lib/local-ci-record.js`
   - Validates PRD ACs: AC-003-1, AC-003-2, AC-004-5, AC-004-6
   - Implementation AC:
-    - [ ] Given an `act` version, a workflow set and a log, when `buildRecord` runs, then it returns a description of at most 100 characters of the fixed form `act <version> | set:<8-hex> | log:<12-hex>`, with the log as a digest and never the log text and with the head SHA left implicit because the status is posted on that commit
+    - [ ] Given a runner identity, a workflow set and a log, when `buildRecord` runs, then it returns a description of at most 100 characters of the fixed form `ci-local <8-hex> | set:<8-hex> | log:<12-hex>` where the first field is the short git blob hash of the repository's `scripts/ci-local.js` at the PR head, with the log as a digest and never the log text and with the head SHA left implicit because the status is posted on that commit
     - [ ] Given a published description, when `parseRecord` runs, then it round-trips the same fields and rejects a malformed, over-length or truncated string
     - [ ] Given a record, the PR's current head SHA, the commit the status was posted on, and the configured workflow set, when `verifyRecord` runs, then it passes only when the status's commit equals the head SHA and the set hash recomputed from configuration equals `set:`
     - [ ] Given a status posted on commit A and a PR now at commit B, when it runs, then it returns `ok:false` with `headMismatch` naming both SHAs
@@ -162,7 +162,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
   - Target Files: `packages/development/tests/local-ci-record.test.js`
   - Validates PRD ACs: AC-003-1, AC-003-2, AC-004-5, AC-004-6
   - Test AC:
-    - [ ] Scenario: record round trip -- Given a built record, When parsed, Then the act version, set hash and log digest all match
+    - [ ] Scenario: record round trip -- Given a built record, When parsed, Then the runner identity, set hash and log digest all match
     - [ ] Scenario: new commit invalidates -- Given a passing record for A, When the PR head becomes B, Then verification fails naming A and B
     - [ ] Scenario: force-push invalidates -- Given a record and a head replaced by an unrelated commit, When verified, Then it fails
     - [ ] Scenario: workflow set drift -- Given a record whose set differs from the configured set, When verified, Then it fails and lists the difference
@@ -194,42 +194,44 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: revoked key -- Given an authentication rejection, When posting, Then it fails closed and names the cause without the key
     - [ ] Scenario: gitignored credential path -- Given the credential file path, When checked against ignore rules, Then it is ignored by git
 
-- [ ] **TRD-012** Isolated gate runner (clean checkout, `act`, crash-safe cleanup) [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] (5h)
+- [ ] **TRD-012** Isolated gate runner (clean clone of the PR head, repository `ci:local`, crash-safe cleanup) [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] (5h)
   - Target Files: `packages/development/lib/local-ci-runner.js`
   - Validates PRD ACs: AC-003-3, AC-003-4, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
   - Implementation AC:
-    - [ ] Given a head SHA and the approval set, when the runner executes, then it checks that exact commit out into a temporary worktree under `.ensemble/local-ci-runs/<sha>`, runs `act` there for the configured workflows, jobs and matrix entries, and returns the result with the failing workflow, job and step named
+    - [ ] Given a head SHA and the configured step list, when the runner executes, then it makes a clean clone under `.ensemble/local-ci-runs/<sha>`, checks out exactly that commit, and runs the repository's own `ci:local` entry point (`scripts/ci-local.js` on dev) from inside that clone, so the commit under test is the PR head and never the maintainer's checked-out HEAD
     - [ ] Given uncommitted changes in the maintainer's working tree, when the runner executes, then those changes have no effect on the result
     - [ ] Given the head commit cannot be fetched, when the runner executes, then it returns an error naming the commit and publishes nothing
-    - [ ] Given a step `act` cannot run, when the run completes, then the result is a failure that names the workflow, job and step and is never reported as a pass
-    - [ ] Given `act` or Docker is unavailable, when the runner starts, then it returns a prerequisite error naming the missing tool before creating a worktree
-    - [ ] Given the runner is interrupted or crashes, when it exits or a later run starts, then the worktree is removed in a finally-style cleanup, and a later run first removes worktrees under `.ensemble/local-ci-runs/` older than a threshold and stops only containers carrying this tool's label, and touches nothing else
-    - [ ] Given secrets are needed by a workflow, when the runner executes, then they come from a gitignored local file or the environment and never from a tracked file, and none appear in the returned result
+    - [ ] Given the configured required Node versions (22 and 24 for this repository), when the runner executes, then it runs the steps under each version explicitly (for example through `ci:local --node`) rather than the machine's default Node, and a required version that cannot be provided is a failure and never a skip
+    - [ ] Given a required workflow step that the configured step list does not mirror (this repository's `validate.yml` also rejects Windows-invalid filenames and checks package.json consistency, neither of which `ci:local` runs), when the runner starts, then it either runs an equivalent configured command or fails naming the unmirrored step, and the gate never passes on a partial set
+    - [ ] Given a step exits non-zero, when the run completes, then the result is a failure naming the step and the head SHA and is never reported as a pass
+    - [ ] Given the runner is interrupted or crashes, when it exits or a later run starts, then the clone is removed in a finally-style cleanup, and a later run first removes clones under `.ensemble/local-ci-runs/` older than a threshold and touches nothing else
+    - [ ] Given secrets are needed by a step, when the runner executes, then they come from a gitignored local file or the environment and never from a tracked file, and none appear in the returned result
 
 - [ ] **TRD-012-TEST** Isolated runner [Verifies TRD-012] [Satisfies REQ-003] [Satisfies REQ-009] [Satisfies REQ-010] [Satisfies REQ-015] [Depends: TRD-012] (4h)
   - Target Files: `packages/development/tests/local-ci-runner.test.js`
   - Validates PRD ACs: AC-003-3, AC-003-4, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
   - Test AC:
-    - [ ] Scenario: runs the pushed commit -- Given a head SHA, When the runner executes, Then the worktree is at that commit and the approval set is run there
+    - [ ] Scenario: runs the pushed commit -- Given a head SHA that is not the checked-out commit, When the runner executes, Then the clean clone is at that commit and the configured steps run there
     - [ ] Scenario: dirty tree ignored -- Given uncommitted edits locally, When the runner executes, Then the result reflects the pushed head only
     - [ ] Scenario: unfetchable head -- Given a head SHA that cannot be fetched, When the runner executes, Then it errors naming the SHA and publishes nothing
-    - [ ] Scenario: unsupported step fails -- Given a workflow using an action `act` cannot run, When the runner executes, Then the result is a failure naming the step
-    - [ ] Scenario: missing prerequisite -- Given Docker is stopped, When the runner starts, Then it errors naming Docker before creating any worktree
-    - [ ] Scenario: crash leaves nothing behind -- Given the runner is killed mid-run, When a later run starts, Then the stale worktree and labelled container are removed and nothing else is touched
-    - [ ] Scenario: foreign worktrees untouched -- Given a maintainer-created worktree outside the prefix, When cleanup runs, Then it is left alone
-    - [ ] Scenario: secrets stay out -- Given a workflow that echoes a secret, When the result is returned, Then the secret value is absent
+    - [ ] Scenario: failing step named -- Given a step that exits non-zero, When the runner executes, Then the result is a failure naming that step and the exact head SHA
+    - [ ] Scenario: unmirrored workflow step fails the gate -- Given a required workflow step that is not in the configured step list, When the runner starts, Then it fails and names the unmirrored step instead of passing on a partial run
+    - [ ] Scenario: node matrix honored -- Given a required Node matrix of 22 and 24, When the runner executes on a machine whose default Node is 26, Then each required version is run explicitly and a version that cannot be provided fails the gate
+    - [ ] Scenario: crash leaves nothing behind -- Given the runner is killed mid-run, When a later run starts, Then the stale clone under the prefix is removed and nothing else is touched
+    - [ ] Scenario: foreign directories untouched -- Given a maintainer-created directory outside the prefix, When cleanup runs, Then it is left alone
+    - [ ] Scenario: secrets stay out -- Given a step that echoes a secret, When the result is returned, Then the secret value is absent
 
 - [ ] **TRD-005** Gate skill and CLI (`local-ci-gate` skill, `local-ci-cli.js`) [satisfies REQ-001] [satisfies REQ-002] [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] [Depends: TRD-003] [Depends: TRD-004] [Depends: TRD-012] (4h)
   - Target Files: `packages/development/skills/local-ci-gate/SKILL.md`, `packages/development/lib/local-ci-cli.js`, `packages/pi/src/transformers/lib-bundler.ts`
   - Validates PRD ACs: AC-001-1, AC-001-2, AC-002-1, AC-002-2, AC-003-3, AC-003-4, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
   - Implementation AC:
-    - [ ] Given a PR, when the skill runs, then it obtains a result from the TRD-012 runner for the exact head SHA and the configured approval set, and never runs `act` or touches the working tree itself
-    - [ ] Given `act` or Docker is unavailable, when the skill starts, then it stops before posting anything and names the missing prerequisite
+    - [ ] Given a PR, when the skill runs, then it obtains a result from the TRD-012 runner for the exact head SHA and the configured approval set, and never runs CI or touches the working tree itself
+    - [ ] Given Node, git or the configured CI entry point is unavailable, when the skill starts, then it stops before posting anything and names the missing prerequisite
     - [ ] Given a runner result that names a failing or unsupported step, when the skill reports, then it names the workflow, job and step and the exact head SHA and posts a failure status or nothing, never success
     - [ ] Given dry-run mode, when the skill completes, then it reports merge-readiness and posts nothing
     - [ ] Given the CLI receives malformed or oversized JSON, when it runs, then it rejects it at the boundary without side effects
     - [ ] Given `local-ci-cli.js` is added to `ENTRY_FILES`, when the Pi bundle is built, then it is present and resolvable through `tool-path-resolution`
-    - [ ] Given the skill, when it runs a gate, then it delegates checkout, `act` execution and cleanup to the runner from TRD-012 and itself only orders the steps, calls the CLI and reports
+    - [ ] Given the skill, when it runs a gate, then it delegates checkout, CI execution and cleanup to the runner from TRD-012 and itself only orders the steps, calls the CLI and reports
 
 - [ ] **TRD-005-TEST** Gate run end to end [Verifies TRD-005] [Satisfies REQ-001] [Satisfies REQ-002] [Satisfies REQ-003] [Satisfies REQ-009] [Satisfies REQ-010] [Satisfies REQ-015] [Depends: TRD-005] [Depends: TRD-012] (5h)
   - Target Files: `packages/development/tests/local-ci-gate-e2e.test.js`
@@ -237,7 +239,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
   - Test AC:
     - [ ] Scenario: passing run merges -- Given a PR whose head has a verified passing status, When the flow runs, Then the merge proceeds without waiting for hosted CI
     - [ ] Scenario: no run refuses -- Given a PR with no local status, When the flow runs, Then the merge is refused and the missing run is reported
-    - [ ] Scenario: missing prerequisite -- Given Docker is stopped, When the flow starts, Then it stops naming Docker and does not fall back to merging
+    - [ ] Scenario: missing prerequisite -- Given Node or the repository's CI entry point is missing, When the flow starts, Then it stops naming the missing prerequisite and does not fall back to merging
     - [ ] Scenario: dry run -- Given dry-run, When the flow completes, Then it reports readiness and merges and posts nothing
     - [ ] Scenario: failing step reported -- Given a failing test, When the gate runs, Then the report names workflow, job, step and head SHA
     - [ ] Scenario: runner failure never becomes success -- Given a runner result naming an unsupported step, When the skill reports, Then no success status is posted
@@ -333,7 +335,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
   - Target Files: `packages/development/skills/local-ci-gate/MEASUREMENT.md`, `packages/development/lib/local-ci-timing.js`
   - Validates PRD ACs: AC-013-1, AC-013-2, AC-009-1
   - Implementation AC:
-    - [ ] Given the configured approval set, when the gate runs cold (no image cache, no dependency cache) and warm, then both durations are recorded beside the hosted CI durations for the same workflows over the same period
+    - [ ] Given the configured step list and required Node versions, when the gate runs cold (no dependency cache, Node not yet downloaded) and warm, then both durations are recorded per Node version beside the hosted CI durations for the same workflows over the same period
     - [ ] Given the local and hosted results for the same head commit, when they are compared, then any job that passes in one and fails or cannot run in the other is listed as a fidelity gap
     - [ ] Given the recorded comparison, when a repository is about to enable the gate, then the runbook requires the measurement note to exist and states plainly whether the local gate is faster, slower or equal to hosted CI, with no target asserted
     - [ ] Given the comparison shows the local gate is slower than hosted CI, when the maintainer reads the note, then it states that the benefit for that repository comes from removing the bot-review wait and not from run time
@@ -429,7 +431,7 @@ Informational only; `implement-trd-beads` does not parse this section.
 ## Dependency and Estimate Review
 
 - **Longest chain:** TRD-001 -> TRD-004 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST (depth 6, computed from declared dependencies; 31 declared edges, no forward dependencies, no cycles). The head of the chain is the human-assisted proof, which is the real schedule risk. Three orderings were deliberately left undeclared because the tasks can be built and tested independently: TRD-007 and TRD-008 on TRD-002 (both are pure modules tested with fixtures), and TRD-011 on TRD-013 (they share only a recording location).
-- **Estimate risk:** TRD-012 (5h) bundles the worktree, `act` invocation and crash-safe cleanup; `act` fidelity on Node 22/24 with `npm ci` is unknown until run. Treat it as the most likely to overrun. TRD-005 was reduced to 4h by moving the runner out.
+- **Estimate risk:** TRD-012 (5h) bundles the clean clone of an arbitrary head commit, running the repository's `ci:local` under each required Node version, mirroring the `validate.yml` steps `ci:local` omits, and crash-safe cleanup. The Node-version provisioning (`ci:local --node` downloads Node and does not work offline unless cached) is the most likely to overrun. TRD-005 was reduced to 4h by moving the runner out.
 - **Estimate consistency:** the module tasks (TRD-002, 003, 007) are 3-4h; the three with I/O or external systems (TRD-004, TRD-008, TRD-012) are 5h.
 
 ## Testability Review
@@ -445,7 +447,7 @@ Informational only; `implement-trd-beads` does not parse this section.
 | Architecture completeness | 4 | Components, data flow, failure handling, security design and the runner boundary are defined; the App-acceptance behavior and the status description cap are explicitly deferred to TRD-001. |
 | Task coverage | 4 | All 18 requirements have implementation and test tasks (matrix regenerated from task annotations). Nine requirements have fewer than 3 PRD ACs (REQ-001, 002, 005, 010, 011, 012, 014, 015, 016), below create-trd's BDD minimum; recorded here instead of editing the locked PRD. |
 | Dependency clarity | 5 | Dependencies are now declared on every implementation task that has a prerequisite; the graph is acyclic, has no forward dependencies, and TRD-001 genuinely heads the longest chain. |
-| Estimate confidence | 4 | Granular and consistent after splitting the runner out of TRD-005; `act` fidelity and clean-checkout cost remain the main uncertainty and now have a measuring task (TRD-013). |
+| Estimate confidence | 4 | Granular and consistent after splitting the runner out of TRD-005; the cost of a clean clone plus `npm ci` per required Node version, and the unmirrored `validate.yml` steps, remain the main uncertainty and now have a measuring task (TRD-013). |
 
 **Overall: 4.25 (PASS).** Previous: 4.0.
 
@@ -455,7 +457,9 @@ Informational only; `implement-trd-beads` does not parse this section.
 - **Constitution compliance:** passed (`docs/standards/constitution.md`). Rule 1 (no secrets): TRD-004 owns the credential ignore rule and a tracked-file preflight; TRD-012 keeps workflow secrets out of results. Rule 2 (input validation): TRD-005 CLI boundary and TRD-002 config validation. Rule 3 (tests accompany features): every task has a `-TEST` pair. Rule 4 (no second dispatcher): TRD-008 and REQ-012. Rule 6 (reachable from entry point): TRD-009 wires the gate into `pr-merge`. Rule 7 (a check can fail): TRD-001, TRD-006. Rule 8 (user-editable behavior in skills): the skill and config own procedure and policy. Rule 9: no test pins another actor's write order.
 - **Open decision carried forward:** the numeric cycle-time target and minimum post-change cohort are set after the baseline (TRD-011), per PRD REQ-013.
 - **PRD wording interpreted, not changed (PRD is locked):** PRD AC-004-5 says the status description carries the head SHA. GitHub's status description is length-capped (working limit 140 characters, unconfirmed in current documentation and checked by TRD-001), so the SHA is carried implicitly by the commit the status is posted on, and `verifyRecord` checks that commit. This preserves the intent that a result is bound to one exact commit.
-- **Measured premise check (2026-10-21):** hosted required CI on this repository takes about 2.5 to 3 minutes (`test` 153-192s, `validate` 44-62s, run in parallel). A local `act` run is unlikely to be faster. TRD-013 measures this before any repository enables the gate; the speedup for a repository comes from removing the bot-review wait, not from run time.
+- **Departure from the literal request, by user decision:** the original request said to run CI locally "using act". `dev` already ships `npm run ci:local`, a tested clean-clone runner (PR #184), and the user chose to wrap it instead of building an `act` runner. The `act-local-ci` skill is unchanged and remains available for repositories or workflows `ci:local` does not mirror.
+- **Known mismatch with the locked PRD, not resolved here:** PRD-2026-4dec59b8 v1.0.1 still names `act` and a container runtime in its Solution text, AC-004-5 (the `act` version in the run record), AC-009-2 (a step `act` cannot run) and AC-015-2 (`act` or the container runtime unavailable), and the beads quote those criteria verbatim under "PRD ACs Proven". This TRD implements the intent of each criterion with `ci:local` (runner identity in the record, an unmirrored or unrunnable step fails the gate, a missing prerequisite stops the run) but does not satisfy the literal `act` wording. The PRD is locked, and editing it forces this TRD to be re-created, so the choice is deferred: either accept the wording mismatch, or unlock the PRD, replace `act` with runner-neutral wording, bump it, and re-create the TRD. Until then, a reviewer reading a bead's quoted AC will see `act` while the implementation uses `ci:local`.
+- **Measured premise check (2026-10-21):** hosted required CI on this repository takes about 2.5 to 3 minutes (`test` 153-192s, `validate` 44-62s, run in parallel). A local run through `ci:local` is a sequential install, scripts-tests, validate, generate-validate, drift and test on one Node version at a time, so it is unlikely to be faster than hosted CI, especially across the Node 22 and 24 matrix. TRD-013 measures this before any repository enables the gate; the speedup for a repository comes from removing the bot-review wait, not from run time.
 
 ## Changelog
 
@@ -464,3 +468,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 | 2026-10-21 | 1.0.0 | Initial TRD created from PRD-2026-4dec59b8 v1.0.1. Design readiness 4.0. |
 | 2026-10-21 | 1.0.1 | Refinement (8 findings, all addressed): declared `[Depends:]` on implementation tasks so TRD-001 genuinely gates TRD-004 (previously prose only; parsed chain depth was 2, not the claimed 6); compact run record (act version, 8-hex set hash, 12-hex log digest, at most 100 characters) with the head SHA carried by the commit the status is posted on, because the status description is length-capped; split the isolated runner out of TRD-005 into new TRD-012 with crash-safe cleanup that touches only this tool's labelled leftovers; added TRD-013 to measure local gate speed and fidelity against hosted CI before any repository enables the gate (hosted CI measured at about 3 minutes, so the local gate is unlikely to be faster); added first-real-post-before-protection-edit ordering to TRD-010 for GitHub's seven-day rule on required checks; added a tracked-credential preflight to TRD-004; regenerated the traceability matrix from task annotations; corrected task count (26), hours (97) and the longest chain. Design readiness 4.0 to 4.25. |
 | 2026-10-21 | 1.0.2 | Found while scaffolding beads: TRD-009 declared no dependencies although its acceptance criteria call the gate skill (TRD-005), the review decision (TRD-007) and the sweep (TRD-008), so the bead graph would have allowed the pr-merge integration to be scheduled first. Added `[Depends: TRD-005]`, `[Depends: TRD-007]` and `[Depends: TRD-008]`. Audited 16 intended orderings: 10 were already declared, 3 were this fix, and 3 (TRD-007 and TRD-008 on TRD-002, TRD-011 on TRD-013) were deliberately left undeclared because those tasks can be built and tested independently. The computed longest chain is now depth 6 (TRD-001 -> TRD-004 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST). No forward dependencies, no cycles, 31 declared edges. |
+| 2026-10-21 | 1.0.3 | Rebased onto `dev` (the real integration branch; the TRD had been written against `main`, 75 commits behind) and replaced the `act` runner with the repository's own `npm run ci:local` (`scripts/ci-local.js`, PR #184), by user decision. `ci:local` has no way to test a named commit and always tests the invoking repo's checked-out HEAD, and it runs one Node version at a time, so TRD-012 now clones the PR head into a clean directory and runs `ci:local` from inside it once per required Node version (22 and 24; the maintainer machine runs Node 26, which is not in the matrix). `validate.yml` also rejects Windows-invalid filenames and checks package.json consistency, which `ci:local` does not run, so an unmirrored required step fails the gate. The run record's first field is now the short blob hash of `scripts/ci-local.js` instead of an `act` version. No Docker is required. |
