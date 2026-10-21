@@ -3,7 +3,7 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.7
+version: 1.0.8
 status: Draft
 date: 2026-10-21
 design_readiness_score: 4.25
@@ -349,7 +349,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: slower is stated -- Given local slower than hosted, When the note is read, Then it says slower and does not claim a speedup from run time
     - [ ] Scenario: enablement requires the note -- Given no measurement note, When the runbook gate check runs, Then enablement is refused
 
-- [ ] **TRD-010** Rollout and rollback runbook with protection changes [satisfies REQ-004] [satisfies REQ-014] [satisfies REQ-016] [Depends: TRD-001] [Depends: TRD-009] [Depends: TRD-013] (4h)
+- [ ] **TRD-010** Rollout and rollback runbook with protection changes [satisfies REQ-004] [satisfies REQ-014] [satisfies REQ-016] [Depends: TRD-009] [Depends: TRD-013] (4h)
   - Target Files: `packages/development/skills/local-ci-gate/RUNBOOK.md`, `packages/development/skills/local-ci-gate/SKILL.md`
   - Validates PRD ACs: AC-004-3, AC-014-1, AC-016-1
   - Implementation AC:
@@ -475,3 +475,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 | 2026-10-21 | 1.0.5 | Implementation amendment (no requirement or AC change): the config gained optional `extra_steps`, `equivalents` and `excluded_steps` keys so a repository can declare how a workflow step that `ci:local` does not run is executed (AC-009-2) or recorded as excluded (AC-009-3). The TRD named the unmirrored-step failure but not where its resolution is declared; without it the gate failed on this repository with 5 unmirrored steps. Tracked as bead br-fhaa; delivered in 99fa619. |
 | 2026-10-21 | 1.0.6 | Sequencing change by user decision (no requirement or AC change): removed `[Depends: TRD-001]` from TRD-004 so the App client can be built before the live proof; TRD-001 remains a required gate on the PR and on TRD-010's enablement step. Reverses the 1.0.1 decision that TRD-001 gates TRD-004. Reason: TRD-001 needs a GitHub App only the maintainer can create, and everything from TRD-005 on was blocked behind it. Cost accepted: TRD-004's behaviour against real GitHub is unproven until TRD-001 runs, and a failed proof could force rework of TRD-004 and TRD-003's 100-character bound. |
 | 2026-10-21 | 1.0.7 | Pin updated to PRD 1.0.3, which records the measured baseline and the maintainer's decision that no numeric target is set for this repository (changelog only; no requirement or AC changed). TRD-011 is complete: the baseline is captured in `BASELINE.md` with reproducible raw rows, and the target decision is recorded in the PRD changelog. |
+| 2026-10-21 | 1.0.8 | Sequencing change by user decision (no requirement or AC change): removed `[Depends: TRD-001]` from TRD-010 (added in 1.0.6) so the runbook and its snapshot/restore/refusal library can be built before the live proof. TRD-001 stays enforced two ways: TRD-010's runbook refuses enablement without `docs/proofs/local-ci-app-pin-proof.md` (the refusal AC and test scenario from 1.0.6 remain), and the proof gates opening the pull request. The runbook is built against injected GitHub responses and temp fixtures and is never run against a real repository in this change. |
