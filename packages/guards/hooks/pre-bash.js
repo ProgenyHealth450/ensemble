@@ -2,9 +2,10 @@
 'use strict';
 // PreToolUse(Bash): exit 2 + stderr blocks. An unrelated internal error fails open, but never
 // for text that mentions `git ... push`: that fails closed (no verdict must not mean "allowed").
+let g;
 let command;
 try {
-  const g = require('../lib/guards');
+  g = require('../lib/guards');
   if (!g.disabled()) {
     const input = g.readInput();
     command = input && input.tool_input && input.tool_input.command;
@@ -15,7 +16,7 @@ try {
     }
   }
 } catch {
-  if (process.env.ENSEMBLE_GUARDS !== '0' && typeof command === 'string' && command.includes('push') && /\bgit\b/.test(command)) {
+  if (g && !g.disabled() && typeof command === 'string' && g.mentionsGitPush(command)) {
     process.stderr.write('ensemble-guards [protected-branch]: internal error while analyzing a command that mentions git push; blocked (fail closed). Run the git command directly.\n');
     process.exit(2);
   }

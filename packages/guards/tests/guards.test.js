@@ -442,3 +442,142 @@ describe('fail-closed push-adjacent text', () => {
     expect(bash(c).status).toBe(0);
   });
 });
+
+describe('round 4: wrappers, plumbing, scoping, linearity', () => {
+  const FM = 'git push origin feat:main';
+  beforeEach(() => { git('switch', '-q', '-c', 'feat/x'); });
+
+  test.each([
+    `timeout 5 bash -c "${FM}"`,
+    `nice bash -c "${FM}"`,
+    `ionice -c 3 bash -c "${FM}"`,
+    `stdbuf -oL bash -c "${FM}"`,
+    `setsid bash -c "${FM}"`,
+    `caffeinate -i bash -c "${FM}"`,
+    `script -q /dev/null bash -c "${FM}"`,
+    `echo hi; timeout 5 bash -c "${FM}"`,
+    `for i in 1; do timeout 5 bash -c "${FM}"; done`,
+    `f(){ timeout 5 bash -c "${FM}"; }; f`,
+    `bash -c "timeout 5 bash -c \\"${FM}\\""`,
+    `timeout 5 bash -c "eval git push origin feat:main"`,
+    `timeout -k 2 10 git push origin main`,
+    `nice -n 5 bash -c "${FM}"`,
+    `watch "git push origin main"`,
+    `ssh host "git push origin main"`,
+    `env -i bash -c "${FM}"`,
+  ])('wrapped shell payload is analyzed: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+
+  test('positional args after a -c payload are not executed', () => {
+    expect(bash('timeout 5 bash -c "echo hello" git push origin feat:main').status).toBe(0);
+    expect(bash('timeout 5 git push origin feat/x').status).toBe(0);
+    expect(bash('ssh host "git push origin feat/x"').status).toBe(0);
+  });
+
+  test.each([
+    'git send-pack file:///tmp/x.git feat:main',
+    'git send-pack --force file:///tmp/x.git feat:main',
+    'git http-push http://h/x.git feat:main',
+    'git send-pack --all file:///tmp/x.git',
+    'git send-pack file:///tmp/x.git main',
+  ])('push plumbing is guarded: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+  test('push plumbing to a feature ref is allowed', () => {
+    expect(bash('git send-pack file:///tmp/x.git feat:topic').status).toBe(0);
+  });
+
+  test.each([
+    ['unquoted', '$( ', 2],
+    ['quoted', 'echo "$( ', 2],
+    ['backtick', '` ', 2],
+    ['braces', '{a, ', 0],
+  ])('unbalanced substitutions are linear: %s', (_n, unit, withPush) => {
+    const text = unit.repeat(Math.ceil(400000 / unit.length));
+    const t = Date.now();
+    expect(bash(text).status).toBe(0);
+    expect(Date.now() - t).toBeLessThan(1500);
+    const t2 = Date.now();
+    expect(bash(`${text}\ngit push origin feat/x`).status).toBe(withPush);
+    expect(Date.now() - t2).toBeLessThan(1500);
+  });
+
+  test.each([
+    'git push origin --repo=https://github.com/o/r.git feat:topic',
+    'git push origin --repo https://github.com/o/r.git feat:topic',
+    'git push -o ci.skip origin feat/x',
+    'git push --push-option=x origin feat/x',
+    'git push --force-with-lease origin feat/x',
+    'git push --signed=if-asked origin feat/x',
+    'git push --recurse-submodules=check origin feat/x',
+    'git push --receive-pack=/usr/bin/git-receive-pack origin feat/x',
+    'git push --dry-run origin feature',
+    'git stash push -m x',
+  ])('push options with values are skipped: %s', (c) => {
+    expect(bash(c).status).toBe(0);
+  });
+  test.each([
+    'git push --repo=origin main',
+    'git push --repo origin main',
+    'git push -o ci.skip origin main',
+    'git push -o x origin HEAD:main',
+  ])('push option handling still blocks protected refs: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+
+  test.each([
+    'printf "%s\\n" "docs mention git push in the changelog" | xargs -a /dev/null wc -l',
+    'echo "git push origin main" > notes.md; xargs --version',
+    'echo "git push origin main" | xargs wc -l',
+    'echo "git push origin main" | xargs -n1 echo',
+    'cat notes | xargs grep "git push"',
+    'echo "git push" | xargs -I{} echo {}',
+  ])('opaque gate is scoped: %s', (c) => {
+    expect(bash(c).status).toBe(0);
+  });
+  test.each([
+    'echo "git push origin main" | xargs sh -c @',
+    'echo "git push origin feat/x" | xargs bash -c @',
+    'echo "git push origin feat/x" | xargs git',
+    'echo "git push origin feat/x" | xargs -I@ sh -c @',
+    'echo "git push origin main" | tee x | sh',
+  ])('opaque gate still blocks real consumers: %s', (c) => {
+    expect(bash(c).status).toBe(2);
+  });
+
+  test.each([
+    'timeout 30 npm test',
+    "ssh dev 'ls'",
+    "find . -name '*.js' -exec grep -l git {} +",
+    'git log --oneline | xargs -I{} echo {}',
+    'git stash push -m x',
+    'git push --dry-run origin feature',
+    'mkdir -p src/{a,b}',
+    'cp f{,.bak}',
+    'echo {1..3}',
+    'eval "$(ssh-agent -s)"',
+    'source .env',
+    '. ./venv/bin/activate',
+    'for f in *.md; do git add $f; done',
+    'gh pr create',
+  ])('everyday command stays allowed: %s', (c) => {
+    expect(bash(c).status).toBe(0);
+  });
+
+  test('malformed guards.json falls back to default protected branches', () => {
+    fs.mkdirSync(path.join(proj, '.ensemble'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.ensemble', 'guards.json'), '{not json');
+    expect(bash('git push origin main').status).toBe(2);
+    fs.writeFileSync(path.join(proj, '.ensemble', 'guards.json'), '[1,2]');
+    expect(bash('git push origin main').status).toBe(2);
+  });
+
+  test('mentionsGitPush is one shared predicate', () => {
+    const { mentionsGitPush } = require('../lib/guards');
+    expect(mentionsGitPush('foo git -C x push origin')).toBe(true);
+    expect(mentionsGitPush('git status')).toBe(false);
+    expect(mentionsGitPush('git-push and github push')).toBe(false);
+    expect(mentionsGitPush('git '.repeat(100000))).toBe(false);
+  });
+});

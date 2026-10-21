@@ -2,16 +2,16 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { commandsOf, MAX_BYTES } = require('./shell');
+const { commandsOf, mentionsGitPush, INERT, MAX_BYTES } = require('./shell');
 
 const DEFAULT_PROTECTED = ['main', 'master', 'production'];
 // git global options that take a separate value argument. `--exec-path`, `--html-path`, ... take
 // none (their value is only ever `--exec-path=<path>`), so listing them would swallow the subcommand.
 const GIT_VALUE_OPTS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--attr-source']);
-// `git` as a word, later `push` as a word (not git-push, .git/, github, ...).
-const GIT_PUSH_TEXT = /(?<![\w./-])git(?![\w-])[\s\S]*?(?<![\w.-])push(?![\w-])/;
-// Non-interpreting commands that may legitimately carry `git push` as plain words (`echo git push`).
-const INERT = new Set(['echo', 'printf', 'man', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'cat', 'less', 'more', 'bat', 'head', 'tail', 'wc', 'which', 'type', 'whatis', 'apropos', 'tldr', 'help']);
+// Push options that take a separate value (`--repo`, `--exec`, `--receive-pack` also accept `=`).
+// `--signed`, `--force-with-lease`, `--recurse-submodules` only take an attached `=value`.
+const PUSH_VALUE_OPTS = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec']);
+const PUSH_SUBS = new Set(['push', 'send-pack', 'http-push']);
 
 function realOr(p) {
   try { return fs.realpathSync(p); } catch { return path.resolve(p); }
@@ -68,11 +68,23 @@ const block = (rule, msg) => ({
   message: `ensemble-guards [${rule}]: ${msg}\nIf this is intentional, ask the user to approve; they can disable it with {"disable": ["${rule}"]} in .ensemble/guards.json or ENSEMBLE_GUARDS=0.`,
 });
 
-function pushTargets(args, cur) {
-  const pos = args.filter((a) => !a.startsWith('-') || a === '-');
-  const refs = pos.slice(1); // pos[0] is the remote
-  if (!refs.length) return cur ? [cur] : [];
-  return refs.map((r) => {
+// Positional words of a push-like command: [{a, i}] (index into args). With `--repo` the first
+// positional is not the remote, so every positional is a refspec.
+function pushWords(args) {
+  const pos = [];
+  let repoOpt = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (PUSH_VALUE_OPTS.has(a)) { if (a === '--repo') repoOpt = true; i++; continue; }
+    if (a.startsWith('--repo=')) repoOpt = true;
+    if (!a.startsWith('-') || a === '-') pos.push({ a, i });
+  }
+  return { refs: repoOpt ? pos : pos.slice(1), pos }; // pos[0] is the remote
+}
+
+function pushTargets(refWords, cur) {
+  if (!refWords.length) return cur ? [cur] : [];
+  return refWords.map(({ a: r }) => {
     let dst = r.replace(/^\+/, '');
     if (dst.includes(':')) dst = dst.split(':').pop();
     dst = dst.replace(/^(refs\/)?heads\//, ''); // git also resolves `heads/<b>` to refs/heads/<b>
@@ -121,15 +133,18 @@ function checkBash(command, cfg, cwd) {
   let dir = cwd;
   const sim = new Map(); // dir -> simulated branch (null = unknown)
   const branchOf = (d) => (sim.has(d) ? sim.get(d) : currentBranch(d));
-  if (command.length > MAX_BYTES && command.includes('push') && /\bgit\b/.test(command)) {
+  if (command.length > MAX_BYTES && mentionsGitPush(command)) {
     return block('protected-branch', 'command is larger than 1 MB and mentions git push, so it cannot be analyzed and is blocked. Run the git command directly.');
   }
   const cmds = commandsOf(command);
   if (cmds.truncated && /\b(git|br)\b/.test(command) && ruleOn(cfg, 'protected-branch')) {
     return block('protected-branch', 'command nests more than 200 substitutions / `bash -c` / `eval` bodies (or exceeds 1 MB of analyzed text), so it cannot be analyzed and is blocked because it mentions git/br. Split it into simpler commands.');
   }
-  if (cmds.opaque && GIT_PUSH_TEXT.test(command) && ruleOn(cfg, 'protected-branch')) {
-    return block('protected-branch', 'the command text mentions `git push` and feeds it to a shell/xargs/eval/source through stdin, a here-string, a process substitution or an expansion, so it cannot be analyzed. Run the git command directly.');
+  if (cmds.unclosed && mentionsGitPush(command) && ruleOn(cfg, 'protected-branch')) {
+    return block('protected-branch', 'the command has an unterminated `$(` or backtick and mentions `git push`, so it cannot be analyzed. Fix the quoting or run the git command directly.');
+  }
+  if ((cmds.opaqueTexts.some(mentionsGitPush) || (cmds.opaqueGlobal && mentionsGitPush(command))) && ruleOn(cfg, 'protected-branch')) {
+    return block('protected-branch', 'the command text mentions `git push` and feeds it to a shell/xargs/eval/source through stdin, a pipe, a here-string, a process substitution or an expansion, so it cannot be analyzed. Run the git command directly.');
   }
   for (const w of cmds) {
     const base = w[0].split('/').pop();
@@ -152,12 +167,11 @@ function checkBash(command, cfg, cwd) {
       continue;
     }
     if (base !== 'git') {
-      // Backstop: `git push` spelled as separate words under another command (`timeout 5 git push`,
-      // `ssh h git push`) is a push we failed to classify; only inert printers may carry it.
+      // Backstop: `git push` spelled as separate words under another command (`ssh h git push`,
+      // `find -exec git push`) is a push we failed to classify; only inert printers and shells
+      // whose -c payload was analyzed (trailing words are $0/$1) may carry it.
       const gi = w.indexOf('git');
-      // (`sh -c <payload> git push`: words after the payload are positional args, the payload was analyzed.)
-      const shellC = /^(bash|sh|zsh|dash|ksh)$/.test(base) && w.some((x) => /^-[A-Za-z]*c$/.test(x));
-      if (gi >= 0 && w.indexOf('push', gi + 1) > gi && !INERT.has(base) && !shellC && ruleOn(cfg, 'protected-branch')) {
+      if (gi >= 0 && w.indexOf('push', gi + 1) > gi && !INERT.has(base) && !w.shellC && ruleOn(cfg, 'protected-branch')) {
         return block('protected-branch', 'a `git ... push` appears as words of a command that is not git itself, so it cannot be proven not to push a protected branch. Run the git command directly.');
       }
       continue;
@@ -183,10 +197,11 @@ function checkBash(command, cfg, cwd) {
         return block('protected-branch', `git commit on protected branch "${b}". Create a feature branch first (git switch -c <name>) and commit there.`);
       }
     }
-    if (sub === 'push') {
+    if (PUSH_SUBS.has(sub)) {
+      const { refs, pos } = pushWords(args);
       // A real expansion ($VAR, ${..}, $(..), backticks) in the remote/refspec cannot be proven
       // not to name a protected branch. Single-quoted / escaped `$` is a literal and is fine.
-      const unresolved = args.filter((a, i) => g.exp[i] && (!a.startsWith('-') || a === '-'));
+      const unresolved = pos.filter(({ i }) => g.exp[i]).map(({ a }) => a);
       if (unresolved.length && ruleOn(cfg, 'protected-branch')) {
         return block('protected-branch', `git push target "${unresolved[0]}" contains a shell expansion ($VAR, \${...}, $(...), backticks or a {a,b} / {a..b} brace expression), so it cannot be proven not to be a protected branch. Spell the branch name literally.`);
       }
@@ -194,10 +209,10 @@ function checkBash(command, cfg, cwd) {
       const all = args.includes('--all') || args.includes('--mirror');
       const force = args.some((a) => a === '--force' || a === '-f' || a.startsWith('--force-with-lease') || a === '--force-if-includes' || /^-[A-Za-z]*f[A-Za-z]*$/.test(a)) ||
         args.some((a) => a.startsWith('+'));
-      const hit = all ? ['(all branches)'] : pushTargets(args, b).filter((t) => prot.includes(t));
+      const hit = all ? ['(all branches)'] : pushTargets(refs, b).filter((t) => prot.includes(t));
       if (hit.length) {
         if (force && ruleOn(cfg, 'force-push')) return block('force-push', `force push to protected branch "${hit[0]}". Never rewrite shared history; push a feature branch and open a PR.`);
-        if (ruleOn(cfg, 'protected-branch')) return block('protected-branch', `git push to protected branch "${hit[0]}". Push a feature branch and open a PR instead.`);
+        if (ruleOn(cfg, 'protected-branch')) return block('protected-branch', `git ${sub} to protected branch "${hit[0]}". Push a feature branch and open a PR instead.`);
       }
     }
   }
@@ -225,4 +240,4 @@ function checkStop(input, cfg, dir) {
   return block('dod', `Definition-of-Done command \`${dod.command}\` ${why}. Fix the failures before finishing.\n--- output tail ---\n${tail((r.stdout || '') + (r.stderr || ''))}`);
 }
 
-module.exports = { checkBash, checkStop, loadConfig, readInput, projectDir, disabled };
+module.exports = { mentionsGitPush, checkBash, checkStop, loadConfig, readInput, projectDir, disabled };
