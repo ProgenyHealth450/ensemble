@@ -5,9 +5,9 @@
   "status": "active",
   "stage": "implementation_approval",
   "stageOutcome": {
-    "kind": "success",
-    "detail": "beads scaffolded for TRD-2026-4dec59b8 v1.0.2: epic br-0unz, 4 stories, 26 tasks, 31 dependency edges",
-    "recordedAt": "2026-10-21T16:11:22.290Z"
+    "kind": "approval_wait",
+    "detail": "TRD 1.0.3: rebased onto dev, runner changed from act to ci:local; 7 beads refreshed; awaiting implementation approval",
+    "recordedAt": "2026-10-21T16:21:57.357Z"
   },
   "artifacts": [
     {
@@ -41,6 +41,14 @@
       "version": "1.0.1",
       "producingStage": "trd_refine",
       "recordedAt": "2026-10-21T16:04:58.449Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.3",
+      "producingStage": "beads_plan",
+      "recordedAt": "2026-10-21T16:21:57.357Z"
     }
   ],
   "beadRefs": [
@@ -78,7 +86,7 @@
   ],
   "implementationApprovedAt": null,
   "prApprovedAt": null,
-  "revision": 5,
+  "revision": 6,
   "createdAt": "2026-10-21T15:30:55.595Z",
-  "updatedAt": "2026-10-21T16:11:22.290Z"
+  "updatedAt": "2026-10-21T16:21:57.358Z"
 }
