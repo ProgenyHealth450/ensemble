@@ -641,7 +641,7 @@ The test-skill helpers print a JSON result with `success`, `passed`, `failed`, `
 | `assess-repo` | Full repository assessment (orchestrates the leaves below) |
 | `assess-purpose`, `assess-architect`, `assess-code-quality`, `assess-testing`, `assess-security`, `assess-ai-readiness`, `assess-cicd` | One repository dimension |
 | `assess-team` | Full team assessment (orchestrates the team leaves below) |
-| `assess-team-commit-volume`, `assess-team-commit-messages`, `assess-team-code-quality`, `assess-team-test-coverage`, `assess-team-ai-adoption`, `assess-team-documentation`, `assess-team-incidents`, `assess-team-code-review` | One per-developer team dimension |
+| `assess-team-dimension` | One team dimension (commit messages, code quality, test coverage, AI adoption, documentation, code review); team-level by default |
 | `assess-config` | Creating assessment configuration (code roots, hosts, credentials) |
 | `assessment-report-suite` | Running both assessments and producing the executive package |
 | `ai-readiness-diagnostic-report` | Generating the AI Readiness Diagnostic Excel workbook from assessment outputs |
