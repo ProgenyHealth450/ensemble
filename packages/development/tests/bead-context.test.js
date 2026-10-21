@@ -80,6 +80,7 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bead-context-'));
   write('docs/TRD/demo.md', trdText());
   write('docs/PRD/demo.md', PRD);
+  spawnSync('git', ['init', '-q'], { cwd: dir }); // repo root = dir
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -251,5 +252,54 @@ describe('bead-context', () => {
     const { code, json } = run(['bead-context']);
     expect(code).toBe(1);
     expect(json.error).toMatch(/--bead/);
+  });
+});
+
+describe('review regressions', () => {
+  const legacy = { title: '[trd:demo:task:TRD-001] Build', description: 'old bead' };
+
+  test.each([
+    ['repo-root-relative --trd given from a subdirectory', 'docs/TRD/demo.md'],
+    ['cwd-relative --trd given from a subdirectory', 'TRD/demo.md'],
+  ])('legacy fallback: %s', (_n, trdFlag) => {
+    const file = path.join(dir, 'issue.json');
+    fs.writeFileSync(file, JSON.stringify([{ id: 'b-1', ...legacy }]));
+    const { code, json } = run(['bead-context', '--bead', 'b-1', '--issue-json', file, '--trd', trdFlag], path.join(dir, 'docs'));
+    expect({ code, ok: json.ok, missing: json.missing }).toEqual({ code: 0, ok: true, missing: [] });
+    expect(json.references.trd).toBe('docs/TRD/demo.md');
+  });
+
+  test('ids containing letters survive the lower-cased anchor round trip', () => {
+    write('docs/TRD/demo.md', trdText().replace(/TRD-001/g, 'TRD-A-001'));
+    const t = plan().tasks.find((x) => x.id === 'TRD-A-001');
+    expect(t).toBeTruthy();
+    expect(t.description).toContain('TRD Task: docs/TRD/demo.md#trd-a-001');
+    const { json } = ctx(t);
+    expect(json.ok).toBe(true);
+    expect(json.context.trdTask.id).toBe('TRD-A-001');
+    expect(json.references.prdRequirements).toEqual(['REQ-001']);
+  });
+
+  test('multi-REQ bead: each requirement carries its own ACs even when the bead lists ACs of only one', () => {
+    write('docs/TRD/demo.md', trdText().replace('`[satisfies REQ-001]`\n  - Validates PRD ACs: AC-001-1, AC-001-2', '`[satisfies REQ-001] [satisfies REQ-002]`\n  - Validates PRD ACs: AC-001-1'));
+    const t = plan().tasks.find((x) => x.id === 'TRD-001');
+    expect(t.description).toContain('PRD Requirement: docs/PRD/demo.md#req-002');
+    const { json } = ctx(t);
+    expect(json.ok).toBe(true);
+    const byId = Object.fromEntries(json.context.prdRequirements.map((r) => [r.id, r.acs.map((a) => a.id)]));
+    expect(byId).toEqual({ 'REQ-001': ['AC-001-1'], 'REQ-002': ['AC-002-1'] });
+  });
+
+  test('workstream-plan writes repo-relative, resolved reference paths', () => {
+    const ready = (t) => t.replace('prd_reference:', 'design_readiness_score: 4.5\nstatus: Draft\nprd_reference:');
+    write('docs/TRD/demo.md', ready(trdText()));
+    write('docs/TRD/other.md', ready(trdText().replace('# Demo TRD', '# Other TRD')));
+    const r = run(['workstream-plan', path.join(dir, 'docs/TRD/demo.md'), path.join(dir, 'docs/TRD/other.md')], path.join(dir, 'docs'));
+    expect(r.json.ok).not.toBe(false);
+    const sp = r.json.scaffoldPlans;
+    const task = sp[0].plan.tasks.find((x) => x.id === 'TRD-001');
+    expect(task.description).toContain('TRD: docs/TRD/demo.md\n');
+    expect(task.description).toContain('PRD: docs/PRD/demo.md\n');
+    expect(task.externalRef).toBe('docs/TRD/demo.md#trd-001');
   });
 });

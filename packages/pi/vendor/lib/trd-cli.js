@@ -276,21 +276,31 @@ function runParse(argv) {
 }
 
 /**
+ * Repo-root-relative reference paths for a TRD, as written into every bead's References block:
+ * { trdFilePath, prdFilePath, prdUnresolved }. prdFilePath is the raw reference when unresolved
+ * and '' when the TRD names no PRD.
+ */
+function referencePaths(trdPath, parsed) {
+  const root = repoRoot();
+  const prdRef = (parsed && parsed.prdReference) || '';
+  const prdAbs = resolvePrd(prdRef, trdPath);
+  return {
+    trdFilePath: toRepoRelative(trdPath, root),
+    prdFilePath: prdAbs ? toRepoRelative(prdAbs, root) : toPosix(prdRef),
+    prdUnresolved: !!prdRef && !prdAbs,
+  };
+}
+
+/**
  * `scaffold-plan <trd-path>` -> { ok:true, slug, plan }
  */
 function runScaffoldPlan(argv) {
   const { positionals } = parseArgs(argv);
   const trdPath = positionals[0];
   const { slug, parsed, prdContext } = loadParsed(trdPath);
-  const root = repoRoot();
-  // Every path written into a bead is repo-root-relative so it survives worktrees and cwd changes.
-  const prdRef = parsed.prdReference || '';
-  const prdAbs = resolvePrd(prdRef, trdPath);
   const plan = buildScaffoldPlan(parsed, {
     trdSlug: slug,
-    trdFilePath: toRepoRelative(trdPath, root),
-    prdFilePath: prdAbs ? toRepoRelative(prdAbs, root) : toPosix(prdRef),
-    prdUnresolved: !!prdRef && !prdAbs,
+    ...referencePaths(trdPath, parsed),
     prdContext,
   });
   return { ok: true, slug, plan };
@@ -363,8 +373,8 @@ function runBeadContext(argv) {
     trdTaskId = block.trdTask ? block.trdTask.id : '';
     prdRel = block.prd;
     prdRawUnresolved = block.prdUnresolved;
-    reqIds = block.prdRequirements.map((r) => r.id.toUpperCase());
-    acIds = block.prdAcs.map((a) => a.toUpperCase());
+    reqIds = block.prdRequirements.map((r) => r.id);
+    acIds = block.prdAcs.slice();
     if (!trdRel) missing.push('References block has no TRD line');
     out.kind = (titleInfo && titleInfo.kind) || kindFromRefs(block);
   } else {
@@ -377,7 +387,10 @@ function runBeadContext(argv) {
     }
     if (missing.length) return out;
     out.kind = titleInfo.kind;
-    trdRel = toRepoRelative(trdFlag, root);
+    const trdFound = [trdFlag, path.resolve(root, trdFlag)].find((c) => {
+      try { return fs.statSync(c).isFile(); } catch { return false; }
+    });
+    trdRel = toRepoRelative(trdFound || trdFlag, root);
     trdTaskId = titleInfo.taskId || '';
     prdFallback = true;
   }
@@ -428,8 +441,8 @@ function runBeadContext(argv) {
       else { prdRel = toPosix(ref); prdRawUnresolved = true; }
     }
     if (task) {
-      reqIds = (task.satisfies || []).filter((s) => !/^(INFRA|ARCH)$/i.test(String(s).trim())).map((s) => String(s).toUpperCase());
-      acIds = (task.validatesAcs || []).map((a) => String(a).toUpperCase());
+      reqIds = (task.satisfies || []).filter((s) => !/^(INFRA|ARCH)$/i.test(String(s).trim())).map((s) => String(s).trim());
+      acIds = (task.validatesAcs || []).map((a) => String(a).trim());
     }
   }
   out.references.prd = prdRel ? `${prdRel}${prdRawUnresolved ? UNRESOLVED_SUFFIX : ''}` : null;
@@ -446,20 +459,28 @@ function runBeadContext(argv) {
       missing.push(`PRD file ${prdRel} cannot be read: ${err.code || err.message}`);
     }
     if (prdCtx) {
+      // Anchors are lower-cased in the block, so recover ids case-insensitively against the PRD.
+      const ciKey = (map, id) => Object.keys(map).find((k) => k.toLowerCase() === String(id).toLowerCase());
+      const resolvedReqIds = [];
       for (const id of reqIds) {
-        const req = prdCtx.requirements[id];
-        if (!req) {
-          missing.push(`PRD requirement ${id} not found in ${prdRel}`);
+        const reqKey = ciKey(prdCtx.requirements, id);
+        if (!reqKey) {
+          resolvedReqIds.push(id.toUpperCase());
+          missing.push(`PRD requirement ${id.toUpperCase()} not found in ${prdRel}`);
           continue;
         }
-        const reqAcIds = new Set((req.acIds || []).map((a) => a.toUpperCase()));
-        const acs = [];
-        for (const acId of acIds.length ? acIds : [...reqAcIds]) {
-          const ac = prdCtx.acs[acId];
-          if (ac && ac.reqId === id) acs.push({ id: ac.id, given: ac.given, when: ac.when, then: ac.then, text: ac.text });
-        }
+        const req = prdCtx.requirements[reqKey];
+        resolvedReqIds.push(req.id);
+        // The ACs the bead lists that belong to THIS requirement; when it lists none of its own
+        // (e.g. a secondary REQ of a multi-REQ task), fall back to all of the requirement's ACs.
+        const owned = (req.acIds || []).map((a) => String(a));
+        const listed = acIds.map((a) => ciKey(prdCtx.acs, a)).filter((k) => k && prdCtx.acs[k].reqId === req.id);
+        const acs = (listed.length ? listed : owned.map((a) => ciKey(prdCtx.acs, a)).filter(Boolean))
+          .map((k) => prdCtx.acs[k])
+          .map((ac) => ({ id: ac.id, given: ac.given, when: ac.when, then: ac.then, text: ac.text }));
         out.context.prdRequirements.push({ id: req.id, title: req.title, text: req.text, acs });
       }
+      out.references.prdRequirements = resolvedReqIds;
     }
   } else if (reqIds.length) {
     missing.push(`bead references PRD requirement(s) ${reqIds.join(', ')} but no PRD is referenced`);
@@ -628,7 +649,7 @@ function loadWorkstreamItems(trdPaths) {
   const paths = Array.isArray(trdPaths) ? trdPaths : [];
   return paths.map((trdPath) => {
     const { slug, parsed, prdContext } = loadParsed(trdPath);
-    return { trdPath, slug, parsed, prdContext };
+    return { trdPath, slug, parsed, prdContext, refs: referencePaths(trdPath, parsed) };
   });
 }
 
