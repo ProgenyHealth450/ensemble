@@ -3,7 +3,7 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.1
+version: 1.0.2
 status: Draft
 date: 2026-10-21
 design_readiness_score: 4.25
@@ -305,7 +305,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: hosted CI still runs on push -- Given the workflows, When their triggers are read, Then pull_request and push triggers are unchanged
     - [ ] Scenario: no background mechanism -- Given the new modules and skill, When scanned for timers, daemons and schedules, Then none exist
 
-- [ ] **TRD-009** Integrate the gate into `pr-merge.yaml` and regenerate [satisfies REQ-001] [satisfies REQ-002] [satisfies REQ-006] [satisfies REQ-007] [satisfies REQ-008] [satisfies REQ-015] (5h)
+- [ ] **TRD-009** Integrate the gate into `pr-merge.yaml` and regenerate [satisfies REQ-001] [satisfies REQ-002] [satisfies REQ-006] [satisfies REQ-007] [satisfies REQ-008] [satisfies REQ-015] [Depends: TRD-005] [Depends: TRD-007] [Depends: TRD-008] (5h)
   - Target Files: `packages/git/commands/pr-merge.yaml`
   - Validates PRD ACs: AC-001-1, AC-002-1, AC-006-1, AC-006-3, AC-007-1, AC-008-1
   - Implementation AC:
@@ -428,7 +428,7 @@ Informational only; `implement-trd-beads` does not parse this section.
 
 ## Dependency and Estimate Review
 
-- **Longest chain:** TRD-001 -> TRD-004 -> TRD-005 -> TRD-006 -> TRD-006-TEST (depth 5). The head of the chain is the human-assisted proof, which is the real schedule risk. An earlier version of this TRD claimed a depth-6 chain through TRD-009 and TRD-010 while declaring no dependencies on implementation tasks, so that chain existed only in prose; dependencies are now declared and the figure is computed from them.
+- **Longest chain:** TRD-001 -> TRD-004 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST (depth 6, computed from declared dependencies; 31 declared edges, no forward dependencies, no cycles). The head of the chain is the human-assisted proof, which is the real schedule risk. Three orderings were deliberately left undeclared because the tasks can be built and tested independently: TRD-007 and TRD-008 on TRD-002 (both are pure modules tested with fixtures), and TRD-011 on TRD-013 (they share only a recording location).
 - **Estimate risk:** TRD-012 (5h) bundles the worktree, `act` invocation and crash-safe cleanup; `act` fidelity on Node 22/24 with `npm ci` is unknown until run. Treat it as the most likely to overrun. TRD-005 was reduced to 4h by moving the runner out.
 - **Estimate consistency:** the module tasks (TRD-002, 003, 007) are 3-4h; the three with I/O or external systems (TRD-004, TRD-008, TRD-012) are 5h.
 
@@ -463,3 +463,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 |---|---|---|
 | 2026-10-21 | 1.0.0 | Initial TRD created from PRD-2026-4dec59b8 v1.0.1. Design readiness 4.0. |
 | 2026-10-21 | 1.0.1 | Refinement (8 findings, all addressed): declared `[Depends:]` on implementation tasks so TRD-001 genuinely gates TRD-004 (previously prose only; parsed chain depth was 2, not the claimed 6); compact run record (act version, 8-hex set hash, 12-hex log digest, at most 100 characters) with the head SHA carried by the commit the status is posted on, because the status description is length-capped; split the isolated runner out of TRD-005 into new TRD-012 with crash-safe cleanup that touches only this tool's labelled leftovers; added TRD-013 to measure local gate speed and fidelity against hosted CI before any repository enables the gate (hosted CI measured at about 3 minutes, so the local gate is unlikely to be faster); added first-real-post-before-protection-edit ordering to TRD-010 for GitHub's seven-day rule on required checks; added a tracked-credential preflight to TRD-004; regenerated the traceability matrix from task annotations; corrected task count (26), hours (97) and the longest chain. Design readiness 4.0 to 4.25. |
+| 2026-10-21 | 1.0.2 | Found while scaffolding beads: TRD-009 declared no dependencies although its acceptance criteria call the gate skill (TRD-005), the review decision (TRD-007) and the sweep (TRD-008), so the bead graph would have allowed the pr-merge integration to be scheduled first. Added `[Depends: TRD-005]`, `[Depends: TRD-007]` and `[Depends: TRD-008]`. Audited 16 intended orderings: 10 were already declared, 3 were this fix, and 3 (TRD-007 and TRD-008 on TRD-002, TRD-011 on TRD-013) were deliberately left undeclared because those tasks can be built and tested independently. The computed longest chain is now depth 6 (TRD-001 -> TRD-004 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST). No forward dependencies, no cycles, 31 declared edges. |
