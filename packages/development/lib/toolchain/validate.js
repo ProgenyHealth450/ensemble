@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Adapter manifest validation (TRD-2026-8d825f54 TRD-005/TRD-008, PRD REQ-005, REQ-022,
- * REQ-023).
+ * Adapter manifest validation (TRD-2026-8d825f54 TRD-005/TRD-007/TRD-008, PRD REQ-005,
+ * REQ-003, REQ-008, REQ-022, REQ-023).
  *
  * `validateManifest(dir)` structurally validates one adapter directory's `adapter.yaml`
  * against `packages/development/toolchain/schemas/adapter-manifest-schema.json`, requires a
@@ -13,6 +13,15 @@
  * `./contracts`). This is purely structural/self-consistency validation of one manifest; it
  * does not check conformance against a category contract's full capability set (that is
  * `validateConformance`, TRD-007).
+ *
+ * `validateConformance(adapter, contracts)` checks one already-parsed adapter manifest against
+ * the category contracts it declares (TRD-007, PRD REQ-008, REQ-003, AC-008-1, AC-008-2): every
+ * `required` capability of each declared category must be implemented, contract compatibility
+ * uses `checkCompat` from `./contracts` (capabilities `addedInMinor` a later minor than the
+ * adapter targets are exempt from the "required" check, not a conformance failure), and every
+ * `${name}` placeholder in a shared capability's `run` template (including any `variants` run
+ * template) and every `parse.map` output key, when present) must match that capability's
+ * declared contract inputs/outputs.
  *
  * `validateAllowlist(manifest)` checks that every capability and health check's `run` argv
  * (including variant run templates) calls a binary declared in the manifest's `binaries` and
@@ -32,6 +41,12 @@
  * static check; the runtime runner (TRD-010) validates substituted arguments against each
  * capability's declared contract input types before every call. Do not add argument-level
  * constraints to the static validator.
+ *
+ * `validateConformance` checks only the manifest's declared shape: the capability ids it
+ * claims to implement and the placeholder/output names referenced in its `run` templates and
+ * `parse.map`. It does not substitute real argument values, does not execute any binary and
+ * does not check the actual shape of a capability's runtime stdout against its contract
+ * outputs — that is the runner's job (TRD-010, a later task).
  */
 
 const fs = require('fs');
@@ -39,7 +54,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 const Ajv = require('ajv');
 
-const { loadContracts } = require('./contracts');
+const { loadContracts, checkCompat } = require('./contracts');
 
 const ADAPTER_MANIFEST_SCHEMA_PATH = path.join(
   __dirname,
@@ -381,10 +396,163 @@ function scanCredentials(files) {
   return errors.length === 0 ? { valid: true, errors: [] } : { valid: false, errors };
 }
 
+/**
+ * Extract every `${name}` placeholder referenced in a capability's `run` argv template.
+ *
+ * @param {unknown} run a capability's `run` array (template argv)
+ * @returns {string[]} placeholder names, in order of appearance, duplicates included
+ */
+function extractRunPlaceholders(run) {
+  const names = [];
+  if (!Array.isArray(run)) {
+    return names;
+  }
+  for (const arg of run) {
+    if (typeof arg !== 'string') {
+      continue;
+    }
+    for (const match of arg.matchAll(/\$\{([^}]+)\}/g)) {
+      names.push(match[1]);
+    }
+  }
+  return names;
+}
+
+/**
+ * Check one already-parsed adapter manifest's conformance against the category contracts it
+ * declares (TRD-007, PRD REQ-008, REQ-003, AC-008-1, AC-008-2, AC-008-3).
+ *
+ * For every category in `adapter.categories`:
+ *  - resolves that category's contract as `contracts[`${category}.yaml`]` — the exact shape
+ *    returned by `loadContracts()` in `./contracts`, keyed by file name (the same lookup
+ *    convention `validateManifest` already uses above for its per-capability `variants`
+ *    check). Callers that already hold a `loadContracts()` result should pass it through
+ *    directly rather than re-reading the category directory per adapter;
+ *  - checks `adapter.contract[category]` against that contract via `checkCompat()`
+ *    (`./contracts`) and surfaces its `errors` verbatim on a major-version mismatch — do not
+ *    reconstruct `checkCompat`'s message (AC-008-3);
+ *  - for every capability the contract marks `required: true` that `checkCompat` does not
+ *    report in `unavailableCapabilities` (i.e. it is required at the adapter's targeted
+ *    minor), fails naming that capability id if it is not a key of `adapter.capabilities`
+ *    (AC-008-1);
+ *  - for every capability id declared in both the manifest and that category's contract,
+ *    every `${name}` placeholder in the manifest capability's `run` template must be one of
+ *    the contract capability's declared `inputs`, and every key of `capability.parse.map`
+ *    (when present) must be one of the contract capability's declared `outputs` — errors name
+ *    the adapter id, the capability id and the offending input/output name.
+ *
+ * @param {object} adapter a parsed adapter manifest (see adapter-manifest-schema.json),
+ *   typically `yaml.load(fs.readFileSync(path.join(dir, 'adapter.yaml')))`
+ * @param {Record<string, unknown>} contracts the category-contract map as returned by
+ *   `loadContracts()` in `./contracts`, keyed by file name (e.g. `'tracker.yaml'`)
+ * @returns {{ok: true, errors: []} | {ok: false, errors: string[]}}
+ */
+function validateConformance(adapter, contracts) {
+  const adapterId = (adapter && adapter.adapter) || '(unknown adapter)';
+  const errors = [];
+
+  if (!adapter || typeof adapter !== 'object') {
+    return { ok: false, errors: [`${adapterId}: manifest is missing or is not an object`] };
+  }
+
+  const categories = Array.isArray(adapter.categories) ? adapter.categories : [];
+  const adapterCapabilities =
+    adapter.capabilities && typeof adapter.capabilities === 'object' ? adapter.capabilities : {};
+  const adapterTargets = adapter.contract && typeof adapter.contract === 'object' ? adapter.contract : {};
+  const contractsMap = contracts && typeof contracts === 'object' ? contracts : {};
+
+  for (const category of categories) {
+    const contractFileName = `${category}.yaml`;
+    const categoryContract = contractsMap[contractFileName];
+    if (!categoryContract || typeof categoryContract !== 'object') {
+      errors.push(`${adapterId}: no category contract loaded for '${category}' (expected '${contractFileName}')`);
+      continue;
+    }
+
+    let compatResult;
+    try {
+      compatResult = checkCompat(adapterTargets[category], categoryContract);
+    } catch (error) {
+      errors.push(`${adapterId}: cannot check contract compatibility for category '${category}' (${error.message})`);
+      continue;
+    }
+
+    if (!compatResult.ok) {
+      errors.push(...compatResult.errors);
+      continue;
+    }
+
+    const unavailable = new Set(compatResult.unavailableCapabilities);
+    const contractCapabilities =
+      categoryContract.capabilities && typeof categoryContract.capabilities === 'object'
+        ? categoryContract.capabilities
+        : {};
+
+    for (const [capabilityId, declaredCapability] of Object.entries(contractCapabilities)) {
+      if (!declaredCapability || !declaredCapability.required || unavailable.has(capabilityId)) {
+        continue;
+      }
+      if (!Object.prototype.hasOwnProperty.call(adapterCapabilities, capabilityId)) {
+        errors.push(`${adapterId}: missing required capability '${capabilityId}' for category '${category}'`);
+      }
+    }
+
+    for (const [capabilityId, capability] of Object.entries(adapterCapabilities)) {
+      const declaredCapability = contractCapabilities[capabilityId];
+      if (!capability || typeof capability !== 'object' || !declaredCapability) {
+        continue;
+      }
+
+      const declaredInputs = Array.isArray(declaredCapability.inputs) ? declaredCapability.inputs : [];
+      for (const placeholder of extractRunPlaceholders(capability.run)) {
+        if (!declaredInputs.includes(placeholder)) {
+          errors.push(
+            `${adapterId}: capability '${capabilityId}' run template references '\${${placeholder}}' which is ` +
+              `not a declared input of category '${category}'`
+          );
+        }
+      }
+
+      if (capability.parse && typeof capability.parse === 'object' && capability.parse.map && typeof capability.parse.map === 'object') {
+        const declaredOutputs = Array.isArray(declaredCapability.outputs) ? declaredCapability.outputs : [];
+        for (const outputField of Object.keys(capability.parse.map)) {
+          if (!declaredOutputs.includes(outputField)) {
+            errors.push(
+              `${adapterId}: capability '${capabilityId}' parse.map references output '${outputField}' which is ` +
+                `not a declared output of category '${category}'`
+            );
+          }
+        }
+      }
+
+      if (capability.variants && typeof capability.variants === 'object') {
+        for (const [selectorArg, valueMap] of Object.entries(capability.variants)) {
+          if (!valueMap || typeof valueMap !== 'object') {
+            continue;
+          }
+          for (const [variantValue, variantRun] of Object.entries(valueMap)) {
+            for (const placeholder of extractRunPlaceholders(variantRun)) {
+              if (!declaredInputs.includes(placeholder)) {
+                errors.push(
+                  `${adapterId}: capability '${capabilityId}' variants.${selectorArg}.${variantValue} run template ` +
+                    `references '\${${placeholder}}' which is not a declared input of category '${category}'`
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors };
+}
+
 module.exports = {
   validateManifest,
   checkVocabularyBlock,
   validateAllowlist,
   scanCredentials,
+  validateConformance,
   ADAPTER_MANIFEST_SCHEMA_PATH
 };
