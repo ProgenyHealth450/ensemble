@@ -28,7 +28,6 @@ Part of the ensemble plugin ecosystem for Claude Code. This plugin provides deve
 | `/ensemble:create-trd` | Create a Technical Requirements Document from a PRD; `--parser-tables` produces a Foreman-native structured TRD (parser-compatible sprint/story tables, no adversarial review phase) that `foreman sling prd` can consume |
 | `/ensemble:refine-trd` | Refine and improve an existing TRD |
 | `/ensemble:fix-issue` | Lightweight bug fix workflow (analysis to PR) |
-| `/ensemble:generate-api-docs` | Generate API documentation |
 
 ## Usage
 
@@ -126,7 +125,7 @@ The command:
 - stops on failure and offers retry, skip, inverse commands, cancel remaining, or abort;
 - never starts builders, tests, branches, commits, PRs, or implementation loops.
 
-After refinement, continue with `/ensemble:beads-plan` or `/ensemble:beads-build`.
+After refinement, continue with `/ensemble:beads-build <scope> --plan` or `/ensemble:beads-build`.
 
 ### PR Review Cycle
 
@@ -138,7 +137,6 @@ Integration points:
 
 - `fix-issue`: Local Review and Batch Fix runs after Test Validation and before any commit, push or PR; `prApprovedAt` is set only once the local review is complete. After the PR exists, Remote Review Disposition never completes the run while the review is pending or blocked: it records the PR, returns a resumable report, and under `--foreman` writes status, head SHA and ledger to `FOREMAN_ARTIFACT_PATH` before any halt.
 - `implement-trd-beads`: in stacked mode each phase is reviewed (that phase's diff only) before its PR is proposed or the next branch is appended, and the phase's story bead closes only after the review gate passes. In single-PR mode the whole-branch review runs in the PR Review Completion Check, before Epic Closure and before the completion PR exists. A pending remote review is reported as pending and resumable, never as merged or landed.
-- `complete-beads`: the quality-gate result carries the finding ledger and local review status; story roll-up and epic closure are gated on `LOCAL_REVIEW_COMPLETE`.
 
 Resume state is a per-PR report under `.ensemble/pr-review/` (git-ignored: committing it would change the head SHA and invalidate the review it records). See [`docs/guides/pr-review-cycle-time-pilot.md`](../../docs/guides/pr-review-cycle-time-pilot.md) for how the cycle-time effect is measured; the 50% median open-to-merge target is not claimed until a comparable post-change cohort demonstrates it.
 

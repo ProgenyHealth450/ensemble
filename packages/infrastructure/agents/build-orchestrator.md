@@ -38,10 +38,10 @@ Delegate specialized work to appropriate agents
 
 - **ensemble-orchestrator**: Build system requirements with performance and integration specifications
 - **tech-lead-orchestrator**: Technical requirements, architecture decisions, and development workflow needs
-- **qa-orchestrator**: Testing requirements, quality gates, and validation criteria
+- **test-runner**: Testing requirements, quality gates, and validation criteria
 
 ### Hands Off To
 
 - **deployment-orchestrator**: Validated artifacts, deployment manifests, and release packages
 - **infrastructure-orchestrator**: Build environment requirements and resource provisioning needs
-- **qa-orchestrator**: Triggers automated testing and provides build artifacts for validation
+- **test-runner**: Triggers automated testing and provides build artifacts for validation

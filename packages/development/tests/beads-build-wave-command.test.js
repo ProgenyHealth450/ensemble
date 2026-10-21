@@ -21,11 +21,20 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     expect(block).toMatch(/ERROR: --epic <id> is required/);
   });
 
-  test('bv is required (no br ready fallback)', () => {
+  test('bv is optional: falls back to br ready, one bead per track', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toMatch(/bv \(beads_viewer\) is required/);
-    expect(text).toMatch(/exit 1/);
+    expect(text).not.toMatch(/bv \(beads_viewer\) is required/);
+    expect(text).toMatch(/BV_AVAILABLE=false/);
+    expect(text).toMatch(/br ready --json/);
+    expect(text).toMatch(/single-bead track/);
   });
+
+  test('stages explicit paths, never git add -A or .beads', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    expect(text).toMatch(/git add -- <path>/);
+    expect(text).toMatch(/NEVER git add -A/);
+  });
+
   test('workflow is exactly two phases: Preflight + Execute (no Quality Gate, no Completion)', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/- name: Preflight/);
@@ -153,13 +162,14 @@ describe('beads-build v1.2.0 wave-loop contract', () => {
     expect(text).toMatch(/lastUpdated: "2026-08-19"/);
   });
 
-  test('mission summary explains the two-tier loop architecture', () => {
+  test('mission summary states the parent-loop / one-wave-per-runner contract', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     const missionBlock = text.slice(
       text.indexOf('mission:'),
       text.indexOf('workflow:')
     );
-    expect(missionBlock).toMatch(/two-tier non-recursive dispatch\s+loop/i);
+    expect(missionBlock).toMatch(/remaining_scoped_count/);
+    expect(missionBlock).toMatch(/No recursion/);
     expect(missionBlock).toMatch(/beads-build-wave/);
     expect(missionBlock).toMatch(/max_depth=1/);
   });

@@ -21,36 +21,26 @@ const wave = read('commands/beads-build-wave.yaml');
 const waveAgent = read('agents/beads-build-wave.yaml');
 
 describe('implement-trd-beads labels the beads it scaffolds', () => {
-  test.each(['epic', 'stories[i]', 'tasks[j]', 'synthesizedTests[k]'])(
-    'br create for PLAN.%s passes --labels',
-    (entry) => {
-      const create = itb
-        .split('\n')
-        .find((l) => l.includes(`run br create using PLAN.${entry} fields verbatim`));
-      expect(create).toBeDefined();
-      expect(create).toMatch(new RegExp(`--labels=<PLAN\\.${entry.replace(/[[\]]/g, '\\$&')}\\.labels`));
-    }
-  );
+  test('br create passes --labels from the plan entry for every bead kind', () => {
+    expect(itb).toMatch(/br create --title='<title>' --type=<type> --priority=<priority> --labels=<labels comma-joined>/);
+    expect(itb).toMatch(/plan\.epic`, `plan\.stories\[\]`, `plan\.tasks\[\]`, `plan\.synthesizedTests\[\]/);
+  });
 
   test('TRD_LABEL is defined (as the TRD slug), not just used', () => {
-    expect(itb).toMatch(/Set TRD_LABEL = TRD_SLUG/);
-    expect(itb).toMatch(/NOT the TRD's frontmatter Label/);
+    expect(itb).toMatch(/TRD_LABEL = TRD_SLUG/);
   });
 
   test('execution delegates with --label and backfills beads scaffolded before labels existed', () => {
-    expect(itb).toMatch(/beads-build with arguments: .*--label <TRD_LABEL>/);
+    expect(itb).toMatch(/beads-build <ROOT_EPIC_ID>.*--label <TRD_LABEL>/);
     // inside a double-quoted YAML string the quotes are stored escaped (\")
     expect(itb).toMatch(/beads-label --label \\?"<TRD_LABEL>\\?" --match \\?"\[trd:<TRD_SLUG>/);
   });
 });
 
-describe.each([
-  ['beads-build.yaml', build],
-  ['beads-build-wave.yaml', wave],
-])('%s', (_name, text) => {
+describe('beads-build.yaml', () => {
   test('advertises and parses --label', () => {
-    expect(text).toMatch(/argument_hint: .*--label <label>/);
-    expect(text).toMatch(/Parse --label <L> from \$ARGUMENTS/);
+    expect(build).toMatch(/argument_hint: .*--label <label>/);
+    expect(build).toMatch(/Parse --label <L> from \$ARGUMENTS/);
   });
 });
 
@@ -89,6 +79,10 @@ describe('beads-build-wave', () => {
 
   test('carries LABEL in each track scope', () => {
     expect(wave).toMatch(/scope: \{ ROOT_EPIC_ID, EPIC_SLUG, LABEL \(or null\),/);
+  });
+
+  test('br-only scheduling is label-scoped too', () => {
+    expect(wave).toMatch(/br ready --json` \(add `--label <LABEL>` when LABEL is set/);
   });
 
   test('the runner agent maps the payload LABEL to --label', () => {

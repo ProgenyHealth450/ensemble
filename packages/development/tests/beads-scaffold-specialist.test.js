@@ -18,6 +18,6 @@ describe('beads-scaffold-specialist agent', () => {
   test('implement-trd-beads reserves scaffold work for the scaffold specialist', () => {
     const yaml = fs.readFileSync(path.join(__dirname, '../commands/implement-trd-beads.yaml'), 'utf8');
     expect(yaml).toContain('beads-scaffold-specialist');
-    expect(yaml).toContain('Do not delegate scaffold planning to backend-developer');
+    expect(yaml).toMatch(/never backend-developer/);
   });
 });

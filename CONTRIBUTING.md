@@ -276,6 +276,12 @@ describe('MyPlugin', () => {
 });
 ```
 
+### Prompt Tests
+
+Do not write tests that pin prompt wording (`toContain`/`toMatch` on command, agent or SKILL text).
+Test CLI/parser behavior, assert machine contracts structurally, and use `evals/` for model behavior.
+Existing wording pins and their rewrite targets are inventoried in [docs/guides/prompt-testing.md](docs/guides/prompt-testing.md).
+
 ### Validation
 
 All plugins must pass validation:

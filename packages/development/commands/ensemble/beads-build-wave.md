@@ -1,6 +1,6 @@
 ---
 name: "ensemble:beads-build-wave"
-description: "Run a single beads-build wave (one bv --robot-plan + concurrent Task() dispatch + barrier) and emit a JSON summary suitable for the parent loop"
+description: "Run a single beads-build wave (one bv --robot-plan or br ready schedule + concurrent Task() dispatch + barrier) and emit a JSON summary suitable for the parent loop"
 user-invocable: false
 version: "1.1.0"
 category: "implementation"
@@ -14,7 +14,7 @@ model: "sonnet"
 
 
 Single-wave primitive for the beads-build execution engine. Each invocation
-runs exactly one scheduling wave: bv --robot-plan partitions the ready set,
+runs exactly one scheduling wave: bv --robot-plan (or br ready when bv is absent) partitions the ready set,
 the parent dispatches every track concurrently to tech-lead-orchestrator via
 Task(), the parent waits for the barrier, and a structured JSON summary is
 emitted so the caller can decide whether to dispatch another wave.
@@ -45,11 +45,11 @@ settles, regardless of remaining work. Callers re-invoke it themselves.
 - Parse --team-roles <json> from $ARGUMENTS (optional); if present parse as TEAM_ROLES. If absent, parse deprecated --builder <agent> and synthesize compatibility TEAM_ROLES={lead:{agents:["tech-lead-orchestrator"],owns:["planning","escalation"]},builder:{agents:[<builder>],owns:["implementation"]},architect:{agents:["architect"],owns:["task-design"]},documentation:{agents:["documentation-specialist"],owns:["pr-boundary-doc-maintenance"]}}. If neither flag is present, set TEAM_ROLES={} and continue.
 
 **2. Tool Availability Check**
-   Verify br is installed and functional; bv is required (no graceful degradation)
+   Verify br is installed and functional; bv is optional (br ready fallback)
 
 - which br || { echo "ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust"; exit 1; }
 - br list --status=open > /dev/null 2>&1 || { echo "ERROR: br not functional"; exit 1; }
-- which bv >/dev/null 2>&1 && BV_AVAILABLE=true || { echo "ERROR: bv (beads_viewer) is required (no fallback scheduler). Install from https://github.com/Dicklesworthstone/beads_viewer and retry."; exit 1; }
+- which bv >/dev/null 2>&1 && BV_AVAILABLE=true || BV_AVAILABLE=false (bv is OPTIONAL: when absent, print "WARNING: bv not installed; scheduling from br ready" and continue). Install bv from https://github.com/Dicklesworthstone/beads_viewer
 
 **3. Working Directory and Branch Verification**
    Confirm clean working directory AND that the caller already switched off the repository default branch; branch creation itself is still owned by the caller (beads-build.yaml or implement-trd-beads.yaml Feature Branch Creation) -- this step only verifies the precondition, it never creates or switches branches.
@@ -93,22 +93,22 @@ The caller owns the loop. Lowering the per-iteration decision cost
 (just a count check) is the design goal, not enforcing continuation.
 
 
-- Step 1 (sync): run br sync --flush-only (ensure JSONL is current before any bv call).
-- Step 2 (plan): run bv --robot-plan --label <LABEL> --format toon when LABEL is set, otherwise bv --robot-plan --format toon. Treat non-zero exit OR malformed TOON as HARD FAILURE: print "ERROR: bv --robot-plan failed" with captured diagnostics and HALT. There is no br ready fallback -- bv is the only scheduler. SCHEDULING SOURCE LOCK: do NOT derive scheduling decisions from .beads/*.jsonl directly; the persisted bead graph is opaque to this command and must only be read through bv.
-- Step 3 (parse tracks): parse the TOON output to extract the parallel tracks (up to MAX_PARALLEL). Each track is an ordered list of bead IDs. If zero tracks returned: skip to Step 7 (empty-plan edge).
-- Step 3b (scope check, only when LABEL is set; this verifies bv's output and never replaces it as the scheduler): LABEL_IDS = the .id of every entry in the issue list of br list --all --label <LABEL> --json. If LABEL_IDS is empty, or any bead ID in the tracks is not in LABEL_IDS: print "ERROR: bv returned beads outside label <LABEL> (bv ignores an unknown label and returns the unscoped plan). Refusing to dispatch." and HALT; do not dispatch any track.
+- Step 1 (sync): run br sync --flush-only (ensure JSONL is current before any scheduling call).
+- Step 2 (plan): when BV_AVAILABLE, run bv --robot-plan --label <LABEL> --format toon when LABEL is set, otherwise bv --robot-plan --format toon. If bv exits non-zero or returns malformed TOON, print a warning with the diagnostics and set BV_AVAILABLE=false for this wave. br-only: `br ready --json` (add `--label <LABEL>` when LABEL is set, `--limit <MAX_PARALLEL>`) and make each returned bead its own single-bead track; ready beads are unblocked so no graph partitioning is needed. SCHEDULING SOURCE LOCK: do NOT derive scheduling decisions from .beads/*.jsonl directly; read the bead graph only through bv or br.
+- Step 3 (parse tracks): parse the bv TOON output (or the br ready JSON) to extract the tracks (up to MAX_PARALLEL). Each track is an ordered list of bead IDs. If zero tracks returned: skip to Step 7 (empty-plan edge).
+- Step 3b (scope check, only when LABEL is set; verifies the plan and never replaces the scheduler): LABEL_IDS = the .id of every entry in the issue list of br list --all --label <LABEL> --json. If LABEL_IDS is empty, or any bead ID in the tracks is not in LABEL_IDS: print "ERROR: bv returned beads outside label <LABEL> (bv ignores an unknown label and returns the unscoped plan). Refusing to dispatch." and HALT; do not dispatch any track.
 - Step 4 (build payload per track): for each track, construct an immutable track payload with the following fields:
 -   goal: free-text from parent invocation.
 -   scope: { ROOT_EPIC_ID, EPIC_SLUG, LABEL (or null), TRD_PATH (or null), STRATEGY }.
 -   team_roles: TEAM_ROLES object parsed from --team-roles or synthesized from deprecated --builder.
 -   track_beads: ordered string[] of bead IDs for this track only.
--   lifecycle_contract: literal command sequence per bead, in order: (1) claim via 'br update <BEAD_ID> --status=in_progress'; (2) dispatch the implementing subagent; (3) COMMIT GATE (hard, non-skippable): after the subagent reports success, run 'git status --porcelain' -- if non-empty, the subagent left uncommitted work, so commit it now ('git add -A && git commit -m "<conventional message referencing the bead/TRD task>"') before proceeding; NEVER call br close while git status --porcelain is non-empty; a subagent's self-reported success narrative is NOT sufficient evidence of a commit, the Commit Gate must independently verify git state; (4) close via 'br close <BEAD_ID>' only after the Commit Gate passes; (5) sync via 'br sync --flush-only' between operations.
+-   lifecycle_contract: literal command sequence per bead, in order: (1) claim via 'br update <BEAD_ID> --status=in_progress'; (2) dispatch the implementing subagent; (3) COMMIT GATE (hard, non-skippable): after the subagent reports success, run 'git status --porcelain -- . ':(exclude).beads'' -- if non-empty, the subagent left uncommitted work, so stage exactly the files the wave modified ('git add -- <path> ...', paths from git status --porcelain; NEVER git add -A, git commit -a or anything under .beads/, see docs/guides/beads-tracked-export.md) and commit them ('git commit -m "<conventional message referencing the bead/TRD task>"') before proceeding; NEVER call br close while git status --porcelain is non-empty; a subagent's self-reported success narrative is NOT sufficient evidence of a commit, the Commit Gate must independently verify git state; (4) close via 'br close <BEAD_ID>' only after the Commit Gate passes; (5) sync via 'br sync --flush-only' between operations.
 -   quality_loop: pointer to packages/development/agents/tech-lead-orchestrator.* Quality Loop Execution expertise (lines 99-104 of the YAML source) - the orchestrator follows claim, implement, run tests, delegate to code-reviewer, then if reviewer approves routes through advisor before QA. Architect is invoked on in_design, PM on in_clarification. On REJECTED with fixable issues, delegate back to original specialist with feedback (max 2 review rounds). Skip review only if strategy == 'flexible' or task type is docs/documentation-only.
 -   pm_clarification_guard: maximum 3 PM clarification rounds per task. On the 4th request, HALT that task path and escalate to the lead with the full clarification history instead of looping again.
-- The payload is constructed once by the parent and never mutated. The orchestrator inside the track runs beads sequentially; it does NOT re-call bv --robot-plan or re-partition.
+- The payload is constructed once by the parent and never mutated. The orchestrator inside the track runs beads sequentially; it does NOT re-run the scheduler or re-partition.
 - Step 5 (concurrent dispatch): for each track in the wave, launch Task(subagent_type="tech-lead-orchestrator", prompt=<track_payload>) WITHOUT waiting on any one. Start every track in the wave before waiting on any one.
 - Step 6 (barrier): wait for every track invocation in the wave to settle. Sibling-track failures are isolated -- one failed track does not cancel successful sibling tracks. The next wave (if any) starts from the surviving bead graph.
-- Step 7 (empty-plan edge): a wave with zero actionable tracks must distinguish terminal states: complete (no open scoped beads remain) or blocked (open scoped beads exist but bv returned no actionable tracks).
+- Step 7 (empty-plan edge): a wave with zero actionable tracks must distinguish terminal states: complete (no open scoped beads remain) or blocked (open scoped beads exist but the scheduler returned no actionable tracks).
 - Step 8 (build summary): construct a JSON summary line and print it to stdout, then exit. The summary is the only output the caller reads.
 - Schema (one line, valid JSON): { wave_number, root_epic_id, epic_slug, tracks_dispatched, tracks_succeeded, tracks_failed, beads_closed_this_wave, remaining_scoped_count, in_progress_scoped_count, terminal_state ("in_progress"|"complete"|"blocked"), elapsed_seconds, next_action_hint ("dispatch_another_wave"|"stop_complete"|"stop_blocked") }.
 - Print the JSON summary as the LAST line of stdout, then exit. Do NOT print follow-up prose, summaries, or progress commentary after the JSON line -- the summary is the contract.

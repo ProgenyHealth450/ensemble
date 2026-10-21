@@ -27,7 +27,7 @@ Parse $ARGUMENTS; the first token selects the assessment skill to load
 1. Parse $ARGUMENTS. The first whitespace-delimited token selects an assessment by its keyword below; the remaining text, unmodified, becomes that skill's own input (for example the path or scope the user wants assessed).
 2. If the first token matches no keyword, or $ARGUMENTS is empty: print the keyword table below (keyword + one-line description) and HALT without side effects.
 3. `repo` -> `skill://assess-repo` - Full repository assessment: purpose first, then architecture, code quality, testing, security, AI readiness and CI/CD in parallel, synthesized into one report under docs/assessment/
-4. `team` -> `skill://assess-team` - Full team assessment: commit volume and messages, code quality, test coverage, AI adoption, documentation, incidents and code review by developer
+4. `team` -> `skill://assess-team` - Team assessment: commit messages, code quality, test coverage, AI adoption, documentation and code review (team-level by default)
 5. `config` -> `skill://assess-config` - Create portfolio-local assessment configuration: code roots, repository and issue-tracker hosts, secret-safe credential wiring and local output paths
 6. `report` -> `skill://assessment-report-suite` - End-to-end executive package: assess-repo and assess-team, the AI Readiness Diagnostic workbook, a markdown executive summary and a PowerPoint brief
 

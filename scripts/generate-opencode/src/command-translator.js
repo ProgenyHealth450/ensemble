@@ -35,7 +35,6 @@ const ARGUMENT_PLACEHOLDERS = {
   'ensemble:release': '$VERSION',
   'ensemble:refine-prd': '$PRD_PATH',
   'ensemble:refine-trd': '$TRD_PATH',
-  'ensemble:analyze-product': '$PRODUCT_DESCRIPTION',
 };
 
 // ---------------------------------------------------------------------------

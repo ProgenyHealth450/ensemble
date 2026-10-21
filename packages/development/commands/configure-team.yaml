@@ -115,8 +115,7 @@ team_configuration:
     devops: infrastructure-developer
     lead: tech-lead-orchestrator
     reviewer: code-reviewer
-    qa: qa-orchestrator
-    qa_fallback: test-runner
+    qa: test-runner
 
   complexity_tiers:
     simple:
@@ -293,10 +292,10 @@ workflow:
             this command runs from a consumer repo (e.g. a project that does not vendor the ensemble
             monorepo) — without it, only the project's local agents (typically a tiny set like
             planner/reviewer/worker) are visible, and the full team roster (tech-lead-orchestrator,
-            code-reviewer, qa-orchestrator, test-runner, etc.) is incorrectly absent.
+            code-reviewer, test-runner, etc.) is incorrectly absent.
           actions:
             - "Step 1a — Source packages scan: Use Glob tool to scan packages/*/agents/*.yaml relative to CWD. For each discovered YAML file use Read tool to extract name and description fields from front matter. Also extract the '## Mission' section body text (first paragraph after heading)."
-            - "Step 1b — Runtime plugin agent fallback (REQUIRED): Use Glob tool to scan BOTH '~/.omp/plugins/node_modules/@*/*/agents/*.md' (scoped npm packages, e.g. @sunstone-partners/ensemble-pi/agents/*.md) AND '~/.omp/plugins/node_modules/*/agents/*.md' (unscoped fallback). The two-pattern glob is required because the @*/agents/*.md shorthand misses the package segment; without it only the project's local agents are visible and the full team roster (tech-lead-orchestrator, code-reviewer, qa-orchestrator, test-runner, etc.) is incorrectly absent. SYMLINK FALLBACK (REQUIRED): OMP's Glob does not always traverse plugin directory symlinks (live install at ~/.omp/plugins/node_modules/@sunstone-partners/ensemble-pi is a symlink). If Glob returns zero matches OR fewer than 4 plugin agents are discovered, run via Bash: 'find -L ~/.omp/plugins/node_modules -path \"*/agents/*.md\" -type f' and treat each returned absolute path as an agent file. PATH PARSING: derive <plugin> by stripping the trailing '/agents/<basename>' from the file's absolute path (e.g. '/Users/ldangelo/.omp/plugins/node_modules/@sunstone-partners/ensemble-pi/agents/deep-debugger.md' → strip '/agents/deep-debugger.md' → '/Users/ldangelo/.omp/plugins/node_modules/@sunstone-partners/ensemble-pi' → <plugin> = '@sunstone-partners/ensemble-pi'). Derive <agent_name> from the file basename without the .md extension (e.g. 'deep-debugger'). Do NOT use the file's parent directory (that is 'agents'); use dirname(dirname(file)) to reach the plugin root reliably for both scoped ('@scope/pkg') and unscoped ('pkg') layouts. Merge these into AGENT_REGISTRY before proceeding. For each discovered agent markdown file (whether via Glob or find -L), derive a runtime agent identifier of the form '<plugin>:<agent_name>' by combining the plugin directory name (e.g. ensemble-pi -> 'ensemble-full' when the plugin's marketplace name is ensemble-full, otherwise the raw plugin directory name) with the basename without .md extension. Also include the unqualified basename as an alias. This ensures AGENT_REGISTRY reflects agents the Task tool can actually invoke in the current runtime, not just agents vendored in the consumer repo's source tree."
+            - "Step 1b — Runtime plugin agent fallback (REQUIRED): Use Glob tool to scan BOTH '~/.omp/plugins/node_modules/@*/*/agents/*.md' (scoped npm packages, e.g. @sunstone-partners/ensemble-pi/agents/*.md) AND '~/.omp/plugins/node_modules/*/agents/*.md' (unscoped fallback). The two-pattern glob is required because the @*/agents/*.md shorthand misses the package segment; without it only the project's local agents are visible and the full team roster (tech-lead-orchestrator, code-reviewer, test-runner, etc.) is incorrectly absent. SYMLINK FALLBACK (REQUIRED): OMP's Glob does not always traverse plugin directory symlinks (live install at ~/.omp/plugins/node_modules/@sunstone-partners/ensemble-pi is a symlink). If Glob returns zero matches OR fewer than 4 plugin agents are discovered, run via Bash: 'find -L ~/.omp/plugins/node_modules -path \"*/agents/*.md\" -type f' and treat each returned absolute path as an agent file. PATH PARSING: derive <plugin> by stripping the trailing '/agents/<basename>' from the file's absolute path (e.g. '/Users/ldangelo/.omp/plugins/node_modules/@sunstone-partners/ensemble-pi/agents/deep-debugger.md' → strip '/agents/deep-debugger.md' → '/Users/ldangelo/.omp/plugins/node_modules/@sunstone-partners/ensemble-pi' → <plugin> = '@sunstone-partners/ensemble-pi'). Derive <agent_name> from the file basename without the .md extension (e.g. 'deep-debugger'). Do NOT use the file's parent directory (that is 'agents'); use dirname(dirname(file)) to reach the plugin root reliably for both scoped ('@scope/pkg') and unscoped ('pkg') layouts. Merge these into AGENT_REGISTRY before proceeding. For each discovered agent markdown file (whether via Glob or find -L), derive a runtime agent identifier of the form '<plugin>:<agent_name>' by combining the plugin directory name (e.g. ensemble-pi -> 'ensemble-full' when the plugin's marketplace name is ensemble-full, otherwise the raw plugin directory name) with the basename without .md extension. Also include the unqualified basename as an alias. This ensures AGENT_REGISTRY reflects agents the Task tool can actually invoke in the current runtime, not just agents vendored in the consumer repo's source tree."
             - "Step 1c — Router-rules overlay: If .claude/router-rules.json exists in CWD, read it and merge any custom agent names defined there into AGENT_REGISTRY (these are user-defined aliases the runtime resolves)."
             - "Step 1d — Dedupe and freeze: Build AGENT_REGISTRY as Map of agent_name to {description, mission_keywords, source_file, runtime_id, source}. When the same agent_name appears in both source packages and runtime plugins, prefer the runtime entry (it carries the most accurate description and the runtime_id the Task tool consumes). Sort AGENT_REGISTRY keys alphabetically for deterministic downstream behavior."
             - "Step 1e — Capability keywords: Extract capability keywords from description and mission text (tokenize, lowercase). Used by Step 3 (Builder Agent Matching) for keyword-overlap ranking."
@@ -334,7 +333,7 @@ workflow:
             - For every agent in BUILDER_AGENTS list verify presence in AGENT_REGISTRY
             - Validate lead agent (tech-lead-orchestrator) exists in AGENT_REGISTRY
             - Validate reviewer agent (code-reviewer) exists in AGENT_REGISTRY
-            - Validate QA agent -- qa-orchestrator first; fall back to test-runner if missing
+            - Validate QA agent (test-runner) exists
             - If any selected agent is absent from registry log warning and substitute with nearest available or default
 
     - name: Marketplace Gap Analysis
@@ -396,7 +395,7 @@ workflow:
             - Build TEAM_CONFIG_YAML conforming to the implement-trd-beads team roles schema
             - "Always include lead role: agent: tech-lead-orchestrator, owns: [task-selection, architecture-review, final-approval]"
             - "Always include builder role: agents from BUILDER_AGENTS list, owns: [implementation]"
-            - "If Complex: include reviewer role (code-reviewer) and qa role (qa-orchestrator or test-runner fallback)"
+            - "If Complex: include reviewer role (code-reviewer) and qa role (test-runner)"
             - "If Medium: omit reviewer and qa roles"
             - If plugins were installed, build MARKETPLACE_NOTE listing installed plugins with agents/skills provided
 

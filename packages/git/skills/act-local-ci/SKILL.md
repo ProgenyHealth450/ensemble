@@ -1,3 +1,8 @@
+---
+name: act-local-ci
+description: "Run GitHub Actions workflows locally with nektos/act to validate CI before pushing: job selection, event simulation, secrets, matrix. Use when testing workflows locally; not for debugging remote runs."
+---
+
 # Act Local CI Skill
 
 **Quick Reference** - Test GitHub Actions workflows locally using nektos/act

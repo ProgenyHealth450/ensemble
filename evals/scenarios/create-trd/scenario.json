@@ -1,0 +1,14 @@
+{
+  "description": "create-trd from a tiny seeded PRD must produce a TRD that trd-cli parses with >=1 task",
+  "type": "agent",
+  "plugins": ["development"],
+  "prompt": "/ensemble:create-trd docs/PRD/PRD-2026-001-slugify.md --foreman\n\nThis is a non-interactive run: do not ask questions, choose recommended options, and write the TRD under docs/TRD/. Do not implement anything.",
+  "allowedTools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"],
+  "permissionMode": "acceptEdits",
+  "maxTurns": 40,
+  "timeoutSec": 900,
+  "graders": [
+    { "type": "trdParses", "path": "docs/TRD" },
+    { "type": "noProtectedBranchCommit", "branch": "main" }
+  ]
+}

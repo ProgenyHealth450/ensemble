@@ -1,0 +1,72 @@
+---
+name: implement-trd-beads-reference
+description: On-demand reference for /ensemble:implement-trd-beads — branch intent and stacked-PR branch handling, PR creation per backend, combined-workstream mode, resume and failure recovery. Read only the section the command points you at; not a standalone workflow.
+---
+
+# implement-trd-beads reference
+
+Variable names are the command's.
+
+## 1. Environment resolution (Preflight 3)
+
+1. Resolve `VALIDATE_GIT_TOWN_SH` (`packages/git/skills/git-town/scripts/validate-git-town.sh`) per the tool-path-resolution skill; unresolvable -> HALT. Run it; `GIT_TOWN_EXIT_CODE` 3 (version mismatch) and 4 (not a git repo) HALT. 0/1/2 go to resolve-sdlc.
+2. `INTERACTIVE=false` when `--foreman`, else true iff AskUserQuestion exists (when in doubt, false: never risk a hung prompt).
+3. `REMOTE_URL=$(git remote get-url origin 2>/dev/null)`, literal `none` if empty. Run `node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL"`. An `error` key (not `{ok:false}`) -> print and HALT. `branchingStrategy.action=='halt'` -> print its message and HALT. Set `BRANCHING_STRATEGY=branchingStrategy.strategy`. Print `consolidatedMessage` only when non-null.
+4. `prBackend.needsResolution==false` -> `PR_BACKEND=prBackend.backend`. If true: interactive -> AskUserQuestion `id=pr_backend` with options `ado` (azure-devops MCP, manual steps if not connected; `ENSEMBLE_PR_BACKEND=ado`), `manual` (always print manual steps; `ENSEMBLE_PR_BACKEND=manual`), `proceed with gh anyway (not recommended)` (`ENSEMBLE_PR_BACKEND=gh`), `abort` (HALT). Non-interactive -> print the three `ENSEMBLE_PR_BACKEND=<ado|manual|gh>` lines plus a hint to export one in the shell profile, and HALT.
+5. `BRANCHING_STRATEGY` and `PR_BACKEND` are re-resolved on every invocation, including resumes; they are never persisted (choices-read/write persist only `branch_name`, `use_proposed`, `stacked_prs`). On a resume with a non-null `consolidatedMessage`, add a NOTE that earlier branches/PRs are unaffected.
+6. Capture `WORKTREE_STATUS=$(git status --porcelain -- . ':(exclude).beads')` and decide nothing yet (the gate lives in Resume Detection). `.beads/` is excluded because br rewrites a tracked export on every write (docs/guides/beads-tracked-export.md).
+
+## 2. Branch intent and branch creation (Preflight 6)
+
+Inputs: `--branch=<name>` -> `BRANCH_REQUESTED`; `--use-current-branch` -> `USE_CURRENT_BRANCH_REQUESTED`. Both together HALT before any br/git/scaffold side effect.
+
+1. `node "$TRD_CLI" choices-read "<TRD_FILE_PATH>"` -> `SAVED_BRANCH_NAME`, `SAVED_USE_PROPOSED`, `SAVED_STACKED_PRS`; `ok:false` -> HALT.
+2. Effective stacked = `ENSEMBLE_USE_STACKED_PRS` (true/false) if set, else `SAVED_STACKED_PRS`, else false. Run `node "$TRD_CLI" pr-plan "<TRD_FILE_PATH>"` (append `--stacked` only when effective stacked). `ok:false`/non-zero -> HALT. `STACKED_PRS=stacked`, `PR_ACTIONS=actions`, proposed branch = `branchFirst`. pr-plan is the only source of `STACKED_PRS`.
+3. `CURRENT_BRANCH_NAME=$(git branch --show-current)` (empty = detached HEAD).
+4. Resolve branch intent, first match wins: (a) `--branch` -> that name; (b) `--use-current-branch` -> current branch, HALT on detached HEAD ("requires a current branch ... use --branch=<name>"); (c) auto-detect, only when neither flag is set: `git for-each-ref --format='%(refname:short)' refs/heads/ | grep -E '(^|/)<TRD_SLUG>$'` (local branches only, slug regex-escaped); exactly one match -> use it (`BRANCH_RESOLVED_BY_AUTO_DETECT=true`); two or more -> warn, list them, do not auto-select; (d) `SAVED_BRANCH_NAME` (if `SAVED_USE_PROPOSED`, use `branchFirst`); (e) interactive -> AskUserQuestion `id=branch_intent` with options Use proposed branch / Specify existing branch (followup `id=branch_name`) / Use current branch (only if one exists) / Abort (HALT, "no git side effects"); non-interactive -> print the unresolved plan and HALT: `ERROR: Branch intent required in non-interactive mode. Pass --branch=<name> or --use-current-branch to specify the target branch, or run interactively.` Resolution (a)-(d) never prompts.
+5. Print an EXECUTION PLAN box (TRD, mode, strategy, proposed branch, current branch, PR topology `Stacked (one PR per phase)` / `Single PR (all phases on one branch)`, selected branch) BEFORE the first mutating git command. All HALT paths above exit before any git mutation.
+6. Reuse mode (`USE_PROPOSED=false`, i.e. a current/named/saved existing branch): print `Branch intent: reuse mode — single-branch plan.` and rewrite `PR_ACTIONS`: every gate/append entry gets `branch=<branch_name>`, `parentBranch` and `appendNextBranch` cleared, `createPr=false`; the completion entry becomes `{kind:'completion', createPr:true, branch:<branch_name>, proposeTitle:'Implement <TRD_SLUG> (<TRD file basename>)', summaryKind:'single', parentBranch:'', appendNextBranch:''}`. `STACKED_PRS=false`. This applies to auto-detected branches too.
+7. Check out the branch. `USE_PROPOSED=true`: `git branch --list <b>`; exists -> `git switch`; else `git-town` -> `git town hack <b>`; `plain-git` -> base = `git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/` (fallback `main`), then `git checkout -b <b> <base>` (no git-town command is ever issued under plain-git). `USE_PROPOSED=false`: must already exist (`git switch`), else HALT.
+8. State: `CURRENT_PHASE_BRANCH=<branch>`, `PHASE_BRANCH_MAP={1:<branch>}`, `PHASE_PR_MAP={}`.
+9. Persist: `node "$TRD_CLI" choices-write "<TRD_FILE_PATH>" --branch-name <branch>` plus `--use-proposed` when USE_PROPOSED and `--stacked-prs` when STACKED_PRS. Failure is a warning, not a HALT.
+
+## 3. Phase PR boundary actions (Quality Gate)
+
+`GATE_ACTION = PR_ACTIONS[N]` supplies `createPr`, `proposeTitle`, `branch`, `parentBranch`, `appendNextBranch`, `shippableState`; never re-derive them. Always `git switch GATE_ACTION.branch` first if not on it.
+
+`PR_BODY`: `PR/Phase <N> of TRD <TRD_SLUG>.`, `**Shippable:** <shippableState or 'See TRD for scope'>`, strategy, task ids, coverage, story bead id.
+
+Create the PR per `PR_BACKEND` (base = `parentBranch` or the default branch):
+- `gh` + `git-town`: `git town propose --title '<proposeTitle>' --body '<PR_BODY>'`.
+- `gh` + `plain-git`: `git push -u origin <branch>` then `gh pr create --title ... --base <base> --body ...`.
+- `ado`: `git push -u origin <branch>`; if a tool named `mcp__azure-devops*` exists call its `repo_create_pull_request` (title, source branch, target branch, description). Otherwise print `Azure DevOps MCP tool not connected — create this PR manually:` with `az repos pr create --source-branch <b> --target-branch <base> --title "<title>"` and the portal route; do NOT HALT.
+- `manual`: print `git push -u origin <branch>` and `gh pr create --title "<title>" --base <base>` (or the ADO equivalent); never push or create automatically; print this at EVERY phase gate where a PR is due.
+
+Record the URL in `PHASE_PR_MAP[N]`; unset for ado-without-MCP and manual.
+
+Append (stacked only, `appendNextBranch` set, after PR creation): `git-town` -> `git town append <NEXT_BRANCH>`; `plain-git` -> `git checkout -b <NEXT_BRANCH>` (stacked off the current branch). Set `CURRENT_PHASE_BRANCH` and `PHASE_BRANCH_MAP[N+1]`.
+
+The single completion PR (Completion Report) uses the same backend matrix with `COMPLETION_ACTION` fields and base = default branch.
+
+## 4. Combined workstream mode (`--workstream` / `--legacy-multi`)
+
+Two or more TRD paths without either flag HALT before side effects, pointing at `--workstream --generate-only` / `--workstream`.
+- `--workstream`: `node "$TRD_CLI" create-workstream-trd <paths...>` -> `{ok,path}`; failure -> print and HALT; continue as a normal single-TRD run on that path. With `--generate-only` (plus optional `--out <path>`, `--allow-invalid`) stop after reporting. Output `docs/TRD/workstreams/TRD-YYYY-<8hex>-workstream-<slug>.md` holds: Source TRD Manifest, normalized Master Task List, source provenance, verbatim source task markdown, and per PRD acceptance criterion implementation, test and validation tasks.
+- `--legacy-multi` (deprecated; print a DEPRECATED notice listing each TRD): `COMBINED_WORKSTREAM_MODE=true`, `SOURCE_TRD_PATHS` = ordered paths.
+- Validation: `node "$TRD_CLI" validate-workstream <paths...>` is all-or-nothing before any br/branch/scaffold side effect; `ok:false` -> print every failing TRD and HALT.
+- Scaffold: `node "$TRD_CLI" workstream-plan <paths...>` (+ `--stacked` when `ENSEMBLE_USE_STACKED_PRS=true`) -> `{workstreamSlug, releaseTrain, trdEpics, scaffoldPlans, crossTrd}` ; ambiguities/conflicts -> print and HALT, never guess edges. Create/reuse the release train, then each TRD epic, then execute each `scaffoldPlans[n].plan` with the single-TRD scaffold procedure, recording every titlePrefix -> bead id in `GLOBAL_BEAD_MAP`. After local deps, execute `WORKSTREAM_PLAN.deps` and `crossTrd.edges` through `GLOBAL_BEAD_MAP`, adding `edge.metadata` as a comment on the blocked bead. On a cycle or contradictory direction print the edge and ask retry / skip (record a skipped-edge comment) / reverse (show the reversed command, require confirmation) / abort.
+- `--status`: `ISSUES_JSON=$(mktemp); br list --all --limit 0 --json > "$ISSUES_JSON"; node "$TRD_CLI" workstream-status --issues-json "$ISSUES_JSON" [--workstream <slug>]` -> print release-train progress, per-TRD epics, blocked, ready, parallel-safe streams; failure -> print and HALT.
+
+## 5. Resume and recovery
+
+- Resume = an open epic titled `[trd:<TRD_SLUG>]` exists. Dirty tree: fresh run HALTs (`ERROR: working directory is dirty. Commit, stash or revert before starting a new build.` + `WORKTREE_STATUS`); a resume prints a NOTE and continues. Never stash, commit, checkout or clean the user's paths to satisfy a gate.
+- `--execute` with no existing epic: `ERROR: --execute requires an existing bead scaffold. Run /ensemble:implement-trd-beads --plan first.` and EXIT.
+- Re-running Quality Gate resumes at the blocked phase's review step; re-running Completion runs a FRESH review.
+- Scaffold is idempotent via title prefixes: `[trd:<slug>]` epic, `[trd:<slug>:pr:<N>]` or `[trd:<slug>:phase:<N>]` story, `[trd:<slug>:task:<ID>]` task. A partial scaffold re-run creates only the missing beads.
+- Stale inter-phase edges from older scaffolds: for phase N>=2, `br dep remove <first task bead of N> <last task bead of N-1>` (ignore "edge not found").
+- Blocked wave (beads-build reports `terminal_state=blocked`): `current_phase` = lowest phase in `phase-status` with an unclosed task. Only open blockers (`br dep list`/`br show`) of current-phase tasks matter: HALT with `EXECUTION BLOCKED: current-phase has open blockers — resolve blockers or run /ensemble:refine-beads.` If current-phase blockers are all closed but tasks remain unclosed, retry the wave once and surface as a likely br sync problem; do not HALT on later-phase blockers or on static `TASK_TRACEABILITY` deps.
+- `--reset-task TRD-XXX`: from `br list --all --limit 0 --json` (array or `.issues`) pick beads whose title contains `[trd:<slug>:task:<ID>]`; exactly one -> `br update <id> --status=open`; zero -> `ERROR: No bead found for TASK_ID=<ID> with TRD_SLUG=<slug>`, exit 1; several -> `ERROR: Multiple beads match — ambiguous TASK_ID, please be more specific`, exit 1.
+
+## 6. Foreman mode
+
+Artifact path rules are in the command's `foreman` parameter. Tag beads for dispatch only after every bead and edge exists and `bv --robot-plan` succeeded: `br update <id> --add-label foreman-exec` on task-level beads only (never the epic or stories; never `--labels`/`--set-labels`, which replace the label set), then `br sync --flush-only` and verify `br list --label foreman-exec --json` count equals tagged count, else `ERROR: foreman-exec tagging incomplete` with both counts and HALT. Without `--foreman` never add the label.

@@ -3,29 +3,17 @@ name: assess-team
 description: orchestrate comprehensive team assessment using parallel specialist analysis
 ---
 
-# Soul
+# Role
 
-You are a senior CTO orchestrating a comprehensive team assessment. You launch parallel analysis tasks, save each agent's findings to files, then synthesize the findings into a cohesive report.
+Orchestrate a team assessment: launch parallel specialist tasks, save each task's findings to files, then synthesize one report.
 
 # Tool Guidance
 
-**Avoid:** `find ... -exec ...`, `xargs ...`, and other complex shell pipelines; many coding-agent
-runtimes restrict these.
+Avoid `find ... -exec ...`, `xargs ...` and other complex shell pipelines (many runtimes restrict them); prefer dedicated file-discovery, read and text-search tools.
 
-**Prefer:** your runtime's dedicated file-discovery, read, and text-search capabilities where
-available.
+# Privacy and Use Guard
 
-# Token Optimization Rules
-
-**For All Agents:**
-1. **Cite specific file:line, not summarize**
-2. **Use tables over paragraphs** — Tables compress better in context
-3. **One-line rationale for scores** — "3.9 / B due to 40% missing conventional commits"
-4. **Skip common knowledge** — Don't explain what a commit is; get to findings
-5. **Be specific with numbers** — "127 commits without body" not "many commits"
-6. **Truncate verbose output** — Cite 3 examples, state "47 more similar"
-7. **No filler prose** — "Key Finding:" not long preambles
-8. **Return max 5 lines summary** — not 10
+Report team-level aggregates by default. Individual (per-author) results only on explicit request, only for authors with at least 10 commits in scope (group the rest as "others"). Git signals are partial proxies: never present them as a performance rating or use them for HR decisions. There is no per-developer ranking, and no commit-volume or incident dimension: volume rewards activity not value, and local git has no incident data.
 
 # Data Source Constraints
 
@@ -51,122 +39,37 @@ When data not available:
 
 ## Phase 1: Determine Context
 
-Determine the report path:
-```
-docs/assessment/team-<YYYY-MM-DD>.md
-```
-
-Each agent will save to:
-```
-docs/assessment/team-<YYYY-MM-DD>-<agent-name>.md
-```
+Final report: `docs/assessment/team-<YYYY-MM-DD>.md`. Each task saves to `docs/assessment/team-<REPORT_PREFIX>-<dimension>.md`.
 
 ## Phase 2: Parallel Analysis
 
-Launch 8 parallel `task` agents. Each agent:
-1. Analyzes its domain deeply
-2. Saves detailed findings to its output file
-3. Returns a summary (max 5 lines) — not 10
+Launch one parallel `task` per dimension below (6 tasks). Each is a thin dispatch: it loads the `assess-team-dimension` skill, which holds the probes, output format and scoring rules. If your runtime cannot load a skill by name for a subagent, read that skill's `SKILL.md` yourself and include its full text in the subagent prompt.
 
-## Specialist Tasks
+| Dimension | Output file |
+|-----------|-------------|
+| `commit-messages` | `docs/assessment/team-<REPORT_PREFIX>-commit-messages.md` |
+| `code-quality` | `docs/assessment/team-<REPORT_PREFIX>-code-quality.md` |
+| `test-coverage` | `docs/assessment/team-<REPORT_PREFIX>-test-coverage.md` |
+| `ai-adoption` | `docs/assessment/team-<REPORT_PREFIX>-ai-adoption.md` |
+| `documentation` | `docs/assessment/team-<REPORT_PREFIX>-documentation.md` |
+| `code-review` | `docs/assessment/team-<REPORT_PREFIX>-code-review.md` |
 
-Every specialist task below is a thin dispatch: it names the skill to load and adds only this run's rules; the skill itself holds the analysis steps, output format, and scoring rules. If your runtime cannot load a skill by name for a subagent, read that skill's `SKILL.md` file yourself and include its full text in the subagent prompt.
-
-### Task 1: Commit Volume Analysis
 ```markdown
-Load the `assess-team-commit-volume` skill and follow it.
+Load the `assess-team-dimension` skill and follow it.
 
 Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-commit-volume.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 2: Commit Message Standards
-```markdown
-Load the `assess-team-commit-messages` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-commit-messages.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 3: Code Quality Contributions
-```markdown
-Load the `assess-team-code-quality` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-code-quality.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 4: Test Coverage Contributions
-```markdown
-Load the `assess-team-test-coverage` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-test-coverage.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 5: AI Adoption Analysis
-```markdown
-Load the `assess-team-ai-adoption` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-ai-adoption.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 6: Documentation Contributions
-```markdown
-Load the `assess-team-documentation` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-documentation.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 7: Incident Response
-```markdown
-Load the `assess-team-incidents` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-incidents.md
-- Cite specific file:line, not summarize
-- Save full findings to output file, return summary only
-```
-
-### Task 8: Code Review Participation
-```markdown
-Load the `assess-team-code-review` skill and follow it.
-
-Run-specific rules:
-- Save your findings to: docs/assessment/team-<REPORT_PREFIX>-code-review.md
-- Cite specific file:line, not summarize
+- Dimension: <dimension from the table>
+- Save your findings to: <output file from the table>
 - Save full findings to output file, return summary only
 ```
 
 ## Phase 3: Read Agent Outputs
 
-After all 8 tasks complete, read each agent's output file:
-- `docs/assessment/team-<REPORT_PREFIX>-commit-volume.md`
-- `docs/assessment/team-<REPORT_PREFIX>-commit-messages.md`
-- `docs/assessment/team-<REPORT_PREFIX>-code-quality.md`
-- `docs/assessment/team-<REPORT_PREFIX>-test-coverage.md`
-- `docs/assessment/team-<REPORT_PREFIX>-ai-adoption.md`
-- `docs/assessment/team-<REPORT_PREFIX>-documentation.md`
-- `docs/assessment/team-<REPORT_PREFIX>-incidents.md`
-- `docs/assessment/team-<REPORT_PREFIX>-code-review.md`
+After all 6 tasks complete, read each output file in the table.
 
 ## Phase 4: Generate Final Report
 
-Synthesize findings into the comprehensive report.
+Synthesize findings into the report below.
 
 # Output Format
 
@@ -191,25 +94,14 @@ Synthesize findings into the comprehensive report.
 | Assessment | Score | Grade | Key Finding |
 |------------|------:|-------|-------------|
 | Overall | <1.0-5.0> | <Letter> | [one line] |
-| Commit Volume | <1.0-5.0> | <Letter> | [one line] |
 | Commit Messages | <1.0-5.0> | <Letter> | [one line] |
 | Code Quality | <1.0-5.0> | <Letter> | [one line] |
 | Test Coverage | <1.0-5.0> | <Letter> | [one line] |
 | AI Adoption | <1.0-5.0> | <Letter> | [one line] |
 | Documentation | <1.0-5.0> | <Letter> | [one line] |
-| Incident Response | <1.0-5.0> | <Letter> | [one line] |
 | Code Review | <1.0-5.0> | <Letter> | [one line - include data limitation note] |
 
-**Scoring Rubric:** Always assign a numeric score first (1.0-5.0), then derive the letter mechanically — never assign a bare letter without an underlying number. Anchors: 5=A (best practice), 4=B (solid), 3=C (debt present), 2=D (significant issues), 1=F (critical), with `+`/`-` thirds subdividing each band (A and F are terminal, unsplit) — see `skill://assessment-report-suite`'s "Scoring Scale" section for the exact range table. Never invent an alternate numeric-to-letter mapping.
-
----
-
-## Developer Rankings
-
-| Rank | Author | Volume | Messages | Quality | Tests | AI | Overall |
-|------|--------|--------|----------|---------|-------|-----|---------|
-| 1 | ... | <1.0-5.0> / <Letter> | <1.0-5.0> / <Letter> | <1.0-5.0> / <Letter> | <1.0-5.0> / <Letter> | <1.0-5.0> / <Letter> | <1.0-5.0> / <Letter> |
-| 2 | ... | ... | ... | ... | ... | ... | ... |
+**Scoring:** numeric first (1.0-5.0), letter derived per the Scoring Scale in `skill://assessment-report-suite`; never a bare letter or an alternate mapping.
 
 ---
 
@@ -248,18 +140,17 @@ The following data could not be verified from local git:
 - PR review/approval data (requires GitHub/Azure DevOps API)
 - Branch policy enforcement
 - Copilot usage statistics
+- Incident response (not assessed: no data source in local git)
 
 ---
 
 ## Agent Output Files
 
-- [Commit Volume](docs/assessment/team-<REPORT_PREFIX>-commit-volume.md)
 - [Commit Messages](docs/assessment/team-<REPORT_PREFIX>-commit-messages.md)
 - [Code Quality](docs/assessment/team-<REPORT_PREFIX>-code-quality.md)
 - [Test Coverage](docs/assessment/team-<REPORT_PREFIX>-test-coverage.md)
 - [AI Adoption](docs/assessment/team-<REPORT_PREFIX>-ai-adoption.md)
 - [Documentation](docs/assessment/team-<REPORT_PREFIX>-documentation.md)
-- [Incident Response](docs/assessment/team-<REPORT_PREFIX>-incidents.md)
 - [Code Review](docs/assessment/team-<REPORT_PREFIX>-code-review.md)
 
 ---
@@ -270,7 +161,7 @@ The following data could not be verified from local git:
 # Return Summary
 
 After generating the report, return (max 5 lines):
-- Top developer by overall score
+- Strongest and weakest dimension
 - Key insight
 - Overall score: <1.0-5.0> / <Letter>
 - Top 2 recommendations

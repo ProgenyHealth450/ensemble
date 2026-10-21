@@ -8,37 +8,13 @@ sandbox_mode = "workspace-write"
 max_threads = 6
 max_depth = 1
 
-[agents."agent-meta-engineer"]
-description = "Chief AI engineer focused on agent ecosystem management - designing, spawning, improving agents and creating specialized commands on demand."
-config_file = "agents/agent-meta-engineer.toml"
-
-[agents."context-fetcher"]
-description = "Pull authoritative references into plans/specs (AgentOS docs; vendor docs via Context7) with version awareness."
-config_file = "agents/context-fetcher.toml"
-
-[agents."directory-monitor"]
-description = "Proactive directory monitoring specialist for real-time file system surveillance, change detection, and automated workflow triggering based on configurable thresholds."
-config_file = "agents/directory-monitor.toml"
-
 [agents."ensemble-orchestrator"]
 description = "Chief orchestrator for agent mesh coordination, task delegation, and conflict resolution"
 config_file = "agents/ensemble-orchestrator.toml"
 
-[agents."file-creator"]
-description = "Template-based scaffolding with project conventions"
-config_file = "agents/file-creator.toml"
-
-[agents."general-purpose"]
-description = "Research and analysis specialist for complex investigations, multi-domain analysis, and ambiguous scope tasks."
-config_file = "agents/general-purpose.toml"
-
 [agents."advisor"]
 description = "Monitor active implementation to detect shortcuts, ensure the best solution is implemented rather than the fastest path, and intervene when an agent is silently bypassing requirements."
 config_file = "agents/advisor.toml"
-
-[agents."api-documentation-specialist"]
-description = "OpenAPI/Swagger documentation and API design"
-config_file = "agents/api-documentation-specialist.toml"
 
 [agents."architect"]
 description = "Design the technical approach for an implementation task; produce / validate the design before the builder starts; flag architectural drift during execution."
@@ -64,10 +40,6 @@ config_file = "agents/documentation-specialist.toml"
 description = "Framework-agnostic front-end implementation (JS/TS, React, Vue, Angular, Svelte) with accessibility and performance optimization"
 config_file = "agents/frontend-developer.toml"
 
-[agents."pm"]
-description = "Answer requirements questions raised during implementation; clarify ambiguous acceptance criteria; resolve scope disputes between agents."
-config_file = "agents/pm.toml"
-
 [agents."tech-lead-orchestrator"]
 description = "Orchestrate traditional development methodology - plan, architect, task breakdown, develop, code-review, test loop until completion with intelligent delegation and quality loops"
 config_file = "agents/tech-lead-orchestrator.toml"
@@ -83,10 +55,6 @@ config_file = "agents/playwright-tester.toml"
 [agents."git-workflow"]
 description = "Enhanced git commit specialist with conventional commits, semantic versioning, and git-town integration. Enforces best practices and safety protocols."
 config_file = "agents/git-workflow.toml"
-
-[agents."github-specialist"]
-description = "GitHub workflow automation specialist for branch management, pull request creation, code review integration, and repository operations using gh CLI."
-config_file = "agents/github-specialist.toml"
 
 [agents."build-orchestrator"]
 description = "Build system orchestrator managing CI/CD pipeline optimization, artifact creation, dependency management, and build automation across all environments."
@@ -116,25 +84,17 @@ config_file = "agents/infrastructure-specialist.toml"
 description = "PostgreSQL database administration, SQL optimization, and schema management specialist with deep PostgreSQL expertise and seamless integration with the Claude Code agent ecosystem"
 config_file = "agents/postgresql-specialist.toml"
 
-[agents."manager-dashboard-agent"]
-description = "Specialized agent for collecting, storing, and analyzing team productivity metrics and development analytics"
-config_file = "agents/manager-dashboard-agent.toml"
-
 [agents."product-management-orchestrator"]
 description = "Product lifecycle orchestrator managing requirements gathering, stakeholder alignment, feature prioritization, roadmap planning, and user experience coordination"
 config_file = "agents/product-management-orchestrator.toml"
 
 [agents."code-reviewer"]
-description = "Security-enhanced code review with comprehensive DoD enforcement and quality gates"
+description = "Definition-of-Done review gate with severity-classified findings and merge-blocking rules"
 config_file = "agents/code-reviewer.toml"
 
 [agents."deep-debugger"]
-description = "Systematic bug recreation, root cause analysis, and TDD-based resolution with skills-based test framework integration"
+description = "Reproduces bugs with a failing test first, then drives a TDD fix through specialist agents and quality gates"
 config_file = "agents/deep-debugger.toml"
-
-[agents."qa-orchestrator"]
-description = "Quality assurance orchestration and test coordination"
-config_file = "agents/qa-orchestrator.toml"
 
 [agents."test-runner"]
 description = "Unit and integration test execution with intelligent failure triage and debugging"

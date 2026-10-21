@@ -17,6 +17,15 @@ const { yamlScalar } = require('./yaml-scalar');
 const path = require('path');
 
 /**
+ * The ONLY workflow step keys transformCommandToMarkdown renders: `order`
+ * (sorting/numbering), `title`, `description`, `actions`, `delegation`
+ * (agent + context) and `mcp_tool`. Any other step key is silently dropped from
+ * the generated command, so scripts/lib/step-keys-check.js rejects it. Add a key
+ * here only together with the rendering code below.
+ */
+const RENDERED_STEP_KEYS = ['order', 'title', 'description', 'actions', 'delegation', 'mcp_tool'];
+
+/**
  * Generate the DO NOT EDIT header
  * @param {string} sourceFile - Source YAML filename
  * @returns {string}
@@ -300,6 +309,7 @@ function transformCommandToMarkdown(commandData, sourceYamlPath, commandPathsByR
 }
 
 module.exports = {
+  RENDERED_STEP_KEYS,
   transformCommandToMarkdown,
   generateCommandFrontmatter,
   generateDoNotEditHeader,

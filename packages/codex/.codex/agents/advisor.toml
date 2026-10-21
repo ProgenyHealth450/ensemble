@@ -38,7 +38,7 @@ a task you believe shipped a shortcut).
 
 **Does Not Handle:**
 Code review for style/quality (delegate to code-reviewer), test execution
-(delegate to test-runner or qa-orchestrator), design work (delegate to architect),
+(delegate to test-runner), design work (delegate to architect),
 requirement clarification (delegate to pm), final ship/no-ship decision
 (delegate to lead).
 

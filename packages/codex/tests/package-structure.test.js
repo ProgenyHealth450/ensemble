@@ -40,7 +40,15 @@ describe('ensemble-codex package structure', () => {
   test('translated agent configs are present', () => {
     const agentDir = path.join(CODEX_DIR, 'agents');
     const files = fs.readdirSync(agentDir).filter((file) => file.endsWith('.toml'));
-    expect(files.length).toBeGreaterThanOrEqual(28);
+    const sourceAgents = fs
+      .readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) => {
+        const dir = path.join(ROOT, 'packages', entry.name, 'agents');
+        return fs.existsSync(dir) ? fs.readdirSync(dir).filter((file) => file.endsWith('.yaml')) : [];
+      })
+      .map((file) => file.replace(/\.yaml$/, '.toml'));
+    expect([...files].sort()).toEqual([...sourceAgents].sort());
 
     const backendAgent = fs.readFileSync(path.join(agentDir, 'backend-developer.toml'), 'utf-8');
     expect(backendAgent).toMatch(/skills = \[/);

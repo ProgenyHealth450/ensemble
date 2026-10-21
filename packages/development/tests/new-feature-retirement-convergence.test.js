@@ -34,24 +34,6 @@ describe('Scenario: direct invocation of ensemble-new-feature still works and co
       /prd_create -> *\s*prd_refine -> trd_create -> trd_refine -> beads_plan ->\s*implementation_approval -> implementation -> pr_approval -> pr_create ->\s*done/,
     );
   });
-
-  test('the de-advertisement pointer explicitly states zero behavior change for direct invocation', () => {
-    const step1 = newFeatureYaml.workflow.phases[0].steps.find((s) => s.order === 1);
-    const text = actionsText(step1);
-    expect(text).toMatch(/De-advertisement pointer \(REQ-009\)/);
-    expect(text).toContain(
-      'Direct invocation of this command still works and behaves identically -- same createRun/resolveByArtifact/mutate calls, same run record, same stage machine, zero behavior change.',
-    );
-  });
-
-  test('the only addition is one informational pointer line -- it never gates, delays, or alters any step\'s own decision', () => {
-    const step1 = newFeatureYaml.workflow.phases[0].steps.find((s) => s.order === 1);
-    const text = actionsText(step1);
-    expect(text).toContain(
-      "'Driven directly via /ensemble:new-feature; /ensemble:feature is the canonical front door for this workflow.'",
-    );
-    expect(text).toContain('This line never gates, delays, or alters any step\'s own decision.');
-  });
 });
 
 describe('Scenario: skill/command convergence -- "start a new feature" names the same canonical workflow', () => {
@@ -73,7 +55,7 @@ describe('Scenario: skill/command convergence -- "start a new feature" names the
   test('new-feature.yaml\'s own pointer names /ensemble:feature as the canonical front door for the same workflow it implements', () => {
     const step1 = newFeatureYaml.workflow.phases[0].steps.find((s) => s.order === 1);
     expect(actionsText(step1)).toContain(
-      'this workflow is the internal implementation behind the canonical front door `/ensemble:feature`',
+      'internal implementation behind the canonical front door `/ensemble:feature`',
     );
   });
 });

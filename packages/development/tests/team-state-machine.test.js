@@ -260,7 +260,7 @@ describe('Rejection cycle tracking (countRejections)', () => {
       'status:in_progress reviewer:code-reviewer verdict:rejected reason:missing-error-handling',
       'status:in_review builder:backend-developer files:src/api.ts',
       'status:in_qa reviewer:code-reviewer verdict:approved',
-      'status:in_progress qa:qa-orchestrator verdict:rejected reason:test-coverage-below-80-percent',
+      'status:in_progress qa:test-runner verdict:rejected reason:test-coverage-below-80-percent',
     ].join('\n');
     expect(countRejections(output)).toBe(2);
   });

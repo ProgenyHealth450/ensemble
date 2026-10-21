@@ -66,7 +66,7 @@ function agentYaml(name: string): string {
 }
 
 function skillMd(name: string): string {
-  return ['---', `name: ${name}`, `description: "The ${name} skill"`, '---', '', `# ${name}`, '', 'Body.', ''].join('\n');
+  return ['---', `name: ${name}`, `description: "The ${name} skill"`, '---', '', `# ${name}`, '', 'Body. See REFERENCE.md.', ''].join('\n');
 }
 
 /** Every file under `dir` as a sorted list of paths relative to it, with forward slashes. */

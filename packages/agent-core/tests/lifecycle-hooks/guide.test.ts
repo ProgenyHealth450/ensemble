@@ -422,11 +422,11 @@ describe("command lifecycle hooks guide", () => {
       expect(capabilityTableDiffs(guide)).toEqual([]);
     });
 
-    it("says hooks are inactive in every harness without an adapter, and that Pi is the only supported one", () => {
+    it("says hooks are inactive in every harness without an adapter, and that Pi has full support while Claude Code uses the separate plugin", () => {
       const adapterless = HARNESS_NAMES.filter((name) => !HARNESS_CAPABILITIES[name].adapter);
       expect(adapterless.length).toBeGreaterThan(0);
       expect(guide).toContain(`Lifecycle hooks are not active in ${adapterless.join(", ")}`);
-      expect(guide).toContain("**Pi is the only supported harness.**");
+      expect(guide).toContain("**Pi has full support; Claude Code is supported through the separate `ensemble-lifecycle` plugin.**");
       expect(HARNESS_NAMES.filter((name) => HARNESS_CAPABILITIES[name].adapter)).toEqual(["pi"]);
     });
 

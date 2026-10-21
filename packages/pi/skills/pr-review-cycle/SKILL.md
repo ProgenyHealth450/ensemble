@@ -33,8 +33,8 @@ not restate those rules here.
 |---|---|---|
 | `MODE` | `'local'` \| `'remote'` | `local`: run the pre-publication steps (1-6) only. `remote`: the PR already exists; run the post-publication steps (7-9) using the local-phase facts recorded by the prior `local` invocation. |
 | `BASE_SHA` / `HEAD_SHA` | string | Already-resolved commit SHAs for the diff under review (never a bare ref). |
-| `REVIEWED_TREE_SHA` | string (optional) | `MODE=local`: the tree of the head this review validates -- `git rev-parse <post-fix head>^{tree}`, a full object id like every SHA here -- re-resolved after the batch fix exactly as the head is (Step 6). Passed as `reviewedTreeSha` and recorded in the state report, so a later `MODE=remote` run can tell that the commit PR creation made holds the reviewed content. Leave it out when it was not computed. |
-| `HEAD_TREE_SHA` | string (optional) | `MODE=remote`: the tree of `HEAD_SHA`, the commit being evaluated -- `git rev-parse <HEAD_SHA>^{tree}`. Passed as `headTreeSha` to `status` and as `treeSha` to `state-read`. Leave it out when it was not computed. |
+| `REVIEWED_TREE_SHA` | string (optional) | `MODE=local`: the tree of the head this review validates -- `git rev-parse <post-fix head>^{tree}`, a full object id -- re-resolved after the batch fix exactly as the head is (Step 6). Passed as `reviewedTreeSha` and recorded in the state report, so a later `MODE=remote` run can tell the commit PR creation made holds the reviewed content. Leave it out when not computed. |
+| `HEAD_TREE_SHA` | string (optional) | `MODE=remote`: the tree of `HEAD_SHA` -- `git rev-parse <HEAD_SHA>^{tree}`. Passed as `headTreeSha` to `status` and as `treeSha` to `state-read`. Leave it out when not computed. |
 | `MERGE_BASE_SHA`, `PR_BASE_SHA`, `PARENT_PHASE_TIP_SHA` | string (optional) | Passed through to CLI `scope`; Step 1 says which of them (and `BASE_SHA`) becomes the base. |
 | `PR_ID` | string | Stable per-PR key (e.g. `<repo-slug>-pr-<number>` or `<repo-slug>-<branch>`) used to address the review-state report. |
 | `PR_URL` | string (optional) | Known only once the PR is published; required for `MODE=remote`. |
@@ -146,16 +146,19 @@ run). Then re-review the diff against the same `range` (base-correct) to
 confirm the batch actually resolved what it claims and introduced nothing
 new. This closes the local phase.
 
-The batch fix changes the tree, so re-resolve the head SHA once the batch has
-landed: the re-review diff (same base), `headSha` and `reviewedHeadSha` for
-Step 8 are all taken from that post-fix head, never from the head resolved
-before the batch. The review is then bound to the tree that will actually be
-published; a review bound to the pre-fix head is stale and cannot complete.
-`reviewedTreeSha` is re-resolved the same way -- it is
-`git rev-parse <post-fix head>^{tree}` (`REVIEWED_TREE_SHA`), taken after the
-batch, never the tree of the pre-fix head. It is recorded in the state report
-(Step 9), which is what lets the remote run recognise the commit PR creation
-makes from this exact content as the reviewed one.
+The batch fix changes the tree, so re-resolve after it lands: the re-review
+diff (same base), `headSha`, `reviewedHeadSha` (Step 8) and `reviewedTreeSha`
+(`git rev-parse <post-fix head>^{tree}`, `REVIEWED_TREE_SHA`) all come from the
+post-fix head, never the pre-fix one -- a review bound to it is stale and
+cannot complete. `reviewedTreeSha` is recorded in the state report (Step 9) so
+the remote run recognises PR creation's commit as the reviewed content.
+
+**Optional security gate** (prose only: the CLI/ledger have no gate record, and
+the outcome never changes CLI status). Before `MODE=local` returns, run native
+`/security-review` on the post-fix diff, plus whichever are installed:
+`gitleaks detect`, `osv-scanner`, else `npm audit --omit=dev`. Triage hits as
+Step 2 findings (fix real ones via Step 5, re-verify); report each tool as
+`clean`, `N findings` or `not installed`.
 
 If `MODE=local`, stop here: derive status (Step 8 below) using only the
 local facts (`remotePhase` is omitted / treated as pending), write state

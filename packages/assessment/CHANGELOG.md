@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The eight `assess-team-*` per-dimension skills are replaced by one `assess-team-dimension` skill with a section per dimension (8 skill descriptions become 1). The commit-volume and incident-response dimensions and the per-developer ranking are gone: volume rewards activity rather than value, and local git has no incident data. `assess-team` now reports team-level aggregates by default, with individual results only on explicit request, a 10-commit minimum, and a never-a-performance-rating guard.
+
 - Assessment skills are no longer bundled into `ensemble-pi`; they ship only in `ensemble-assessment` (still included in `ensemble-full`).
 
 ## [1.0.0] - 2026-10-09

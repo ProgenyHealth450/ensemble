@@ -1,0 +1,77 @@
+---
+name: "ensemble:retro"
+description: "Post-release retrospective - estimate accuracy, PRD success-metric status, incidents, and proposed follow-ups"
+version: "1.0.0"
+category: "planning"
+last-updated: "2026-10-20"
+argument-hint: "--release vX.Y.Z | --since <ref>"
+model: "sonnet"
+---
+<!-- DO NOT EDIT - Generated from retro.yaml -->
+<!-- To modify this file, edit the YAML source and run: npm run generate -->
+
+
+Close the feedback loop after a release - compare what was planned with what happened, and turn the gaps into follow-ups.
+
+## Workflow
+
+### Phase 1: Gather
+
+**1. Resolve the Range**
+   Establish the starting ref and release label
+
+- --release vX.Y.Z: the range is the previous tag (git describe --tags --abbrev=0 vX.Y.Z^) to vX.Y.Z, and the release date is the tag date. --since <ref>: the range is <ref>..HEAD and the label is the ref. With neither, HALT and ask. If the ref does not resolve, HALT and say so
+
+**2. Collect What Shipped**
+   List merged PRs and closed beads in the range
+
+- git log <range> --merges --oneline plus gh pr list --state merged --search "merged:>=<start-date>" --json number,title,mergedAt,url (skip gh if unavailable)
+- br list --all --json > a temp file; closed beads with closed_at inside the range are the shipped beads
+
+**3. Compute Estimate vs Actual**
+   Run the estimate-actual library over the beads export
+
+- Resolve ESTIMATE_ACTUAL (RELATIVE_PATH packages/development/lib/estimate-actual.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md), then run: node $ESTIMATE_ACTUAL --issues-json <file>
+- Narrow its beads to the shipped set. Report count, median ratio, p90 ratio, and the beads with the largest ratio (actual/estimate) in either direction. Report withoutEstimate as a coverage gap. Actual time is created-to-closed wall clock, so state that it overstates effort
+
+**4. Compare Against PRD Success Metrics**
+   Find the PRD and score each success metric
+
+- Find the TRD for the release (docs/TRD/, from bead labels or titles). Read its frontmatter key prd_reference (also accepted: prd, source_prd) to locate the PRD. If none, say the PRD is unknown and list every metric as unmeasured
+- Extract the PRD's success metrics. For each, find evidence (analytics, test or benchmark output, issue data, error tracker). Status: met (evidence meets the target), not met (evidence misses it), unmeasured (no evidence; say what would measure it)
+
+**5. Collect Incidents**
+   Find problems opened since the release
+
+- gh issue list --state all --search "created:>=<release-date>" --json number,title,state,labels,createdAt,url; flag bug/incident-labelled or regression-looking issues
+- Query an error-tracker MCP tool ONLY if one is configured in this session; otherwise note that none was queried
+
+### Phase 2: Report
+
+**1. Write the Retro**
+   Write docs/retros/<YYYY-MM-DD>-<release>.md (create docs/retros/ if missing; overwrite the same file on rerun)
+
+- Sections: What Shipped (PRs, beads), Estimate Accuracy (the metrics above), Success Metrics (met / not met / unmeasured table with evidence), Incidents, Follow-ups
+
+**2. Propose Follow-ups**
+   Propose, do not create
+
+- List proposed beads (title, rationale, source: missed metric, incident, or estimate outlier) and proposed PRD/TRD refinements (what to change and why)
+- Ask for approval. Only for approved items run br create, or hand the PRD changes to /ensemble:refine-prd. Print the retro path and what was created
+
+## Expected Output
+
+**Format:** docs/retros/<date>-<release>.md plus follow-up proposals awaiting approval
+
+**Structure:**
+- **What Shipped**: Merged PRs and closed beads in the range
+- **Estimate Accuracy**: Count, median and p90 actual/estimate ratio, outliers, beads without estimates
+- **Success Metrics**: Each PRD metric with status met, not met, or unmeasured and its evidence
+- **Incidents**: Issues and errors opened since release
+- **Follow-ups**: Proposed beads and PRD refinements
+
+## Usage
+
+```
+/ensemble:retro --release vX.Y.Z | --since <ref>
+```
