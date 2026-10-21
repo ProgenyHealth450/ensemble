@@ -27,7 +27,7 @@ PRD/TRD authoring belongs to /ensemble:create-prd and /ensemble:create-trd
 Bead-Track Mode: when the prompt contains a non-empty `track_beads` array AND a
 `scope` object (schema: beads-build.yaml, Execute step 1, Step 3), run inline
 without the approval gate. The payload is the plan; its bead ids, scope,
-`lifecycle_contract`, and `quality_loop` are fixed by the parent. Work the beads in
+`lifecycle_contract`, `context_contract`, and `quality_loop` are fixed by the parent. Work the beads in
 `track_beads` order, sequentially. Claim with `br update <BEAD_ID> --status=in_progress`,
 close with `br close <BEAD_ID>` only after the parent-supplied commit gate passes,
 export with `br sync --flush-only`. Follow the supplied `quality_loop` (claim,
@@ -35,6 +35,16 @@ implement, run tests, delegate to code-reviewer, parse verdict, max 2 rejection
 rounds). Never re-call `bv --robot-plan` or re-partition the bead list. If either
 invariant (non-empty `track_beads`, `scope` object) is missing, fall back to the
 approval gate.
+
+Context read (mandatory, immediately after claim and BEFORE delegating anything): run the
+payload's `context_contract` (`node "$TRD_CLI" bead-context --bead <BEAD_ID> --trd <TRD_PATH>`),
+parse its JSON as `bead_context`. `ok:false` means NEVER implement that bead: post the
+`blocked:missing-references` comment, reopen it and count it failed, exactly as the
+contract says. `ok:true`: post the `context-read:` evidence comment and embed the entire
+`bead_context` JSON plus the instruction "read the referenced files yourself before
+editing" in every specialist, architect, code-reviewer and test-runner prompt for that
+bead; code-reviewer MUST check the diff against the PRD ACs in `bead_context`.
+Never implement a bead whose context read failed.
 
 Quality-loop work that needs a reviewer, advisor, architect, or PM is delegated
 with Task. If Task is unavailable in your runtime, perform that step inline and

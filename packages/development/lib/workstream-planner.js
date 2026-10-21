@@ -119,10 +119,13 @@ function buildWorkstreamPlan(items, opts = {}) {
   for (const item of list) {
     const slug = item.slug || deriveTrdSlug(item.trdPath);
     const parsed = item.parsed || {};
+    // refs = repo-relative TRD/PRD paths computed by the CLI (referencePaths); raw paths only for callers without a repo.
+    const refs = item.refs || { trdFilePath: item.trdPath, prdFilePath: parsed.prdReference || '', prdUnresolved: false };
     const scaffold = buildScaffoldPlan(parsed, {
       trdSlug: slug,
-      trdFilePath: item.trdPath,
-      prdFilePath: parsed.prdReference || '',
+      trdFilePath: refs.trdFilePath,
+      prdFilePath: refs.prdFilePath,
+      prdUnresolved: !!refs.prdUnresolved,
       prdContext: item.prdContext || { requirements: {}, acs: {} },
     });
     scaffoldPlans.push({ trdPath: item.trdPath, slug, plan: scaffold });

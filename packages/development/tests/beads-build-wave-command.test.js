@@ -84,6 +84,7 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/track_beads/);
     expect(text).toMatch(/lifecycle_contract/);
+    expect(text).toMatch(/context_contract/);
     expect(text).toMatch(/quality_loop/);
     expect(text).toMatch(/pm_clarification_guard/);
   });
@@ -154,12 +155,6 @@ describe('beads-build v1.2.0 wave-loop contract', () => {
     const execEnd = text.indexOf('title: Debug Loop');
     const execBlock = text.slice(execStart, execEnd);
     expect(execBlock).toMatch(/Codex's max_depth=1 constraint/);
-  });
-
-  test('metadata version bumped to 1.2.0', () => {
-    const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toMatch(/version: 1\.2\.0/);
-    expect(text).toMatch(/lastUpdated: "2026-08-19"/);
   });
 
   test('mission summary states the parent-loop / one-wave-per-runner contract', () => {

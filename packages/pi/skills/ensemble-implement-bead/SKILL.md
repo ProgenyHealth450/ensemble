@@ -12,7 +12,7 @@ description: >-
   is committed.
 disable-model-invocation: true
 ---
-<!-- Command: ensemble-implement-bead | Version: 2.0.0 -->
+<!-- Command: ensemble-implement-bead | Version: 2.1.0 -->
 <!-- Description: Implement one bead by ID on a feature branch using the same branching, commit and PR_BACKEND policy as beads-build and implement-trd-beads -->
 
 # ensemble-implement-bead
@@ -52,8 +52,9 @@ Same resolution as beads-build Preflight step 3, never cached across invocations
 
 **Actions:**
 1. Run: br update <BEAD_ID> --status=in_progress; br comment add <BEAD_ID> "status:in_progress agent:implement-bead branch:<branch>"
-2. Dispatch Task(subagent_type=<tech-lead-orchestrator resolved by its namespaced identifier>, prompt=<track payload>) where the payload is the beads-build-wave track payload for a single bead: goal (implement the bead, run its tests), scope { ROOT_EPIC_ID: null, LABEL: first bead label or null, STRATEGY: tdd }, track_beads [<BEAD_ID>] with BEAD_TITLE and BEAD_DESCRIPTION, the quality_loop (implement, test, code-reviewer, then advisor before QA; max 2 review rounds) and the pm_clarification_guard (max 3 rounds). The orchestrator routes to the right specialist; do not pick one by keyword here.
-3. If tests still fail after the orchestrator reports its attempts: print the failure details and HALT. Do not close the bead or create a PR.
+2. Context read (mandatory, BEFORE any specialist is dispatched): run `node "$TRD_CLI" bead-context --bead <BEAD_ID>` (this command has no TRD_PATH; the bead's `## References` block supplies it; a legacy bead without one needs `--trd <path>` and is blocked if none is known) and parse the JSON as BEAD_CONTEXT. `ok:false`: do NOT implement the bead; run `br comment add <BEAD_ID> "blocked:missing-references <missing joined by '; '>"` and `br update <BEAD_ID> --status=open`, print the missing items and HALT. `ok:true`: run `br comment add <BEAD_ID> "context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>"` as evidence.
+3. Dispatch Task(subagent_type=<tech-lead-orchestrator resolved by its namespaced identifier>, prompt=<track payload>) where the payload is the beads-build-wave track payload for a single bead: goal (implement the bead, run its tests), scope { ROOT_EPIC_ID: null, LABEL: first bead label or null, STRATEGY: tdd }, track_beads [<BEAD_ID>] with BEAD_TITLE and BEAD_DESCRIPTION, the `context_contract` (the bead-context command above; already executed for this bead), `bead_context` = the entire BEAD_CONTEXT JSON (the orchestrator MUST embed it plus "read the referenced files yourself before editing" in every specialist, architect, code-reviewer and test-runner prompt, and the code-reviewer MUST check the diff against the PRD ACs in it), the quality_loop (implement, test, code-reviewer, then advisor before QA; max 2 review rounds) and the pm_clarification_guard (max 3 rounds). The orchestrator routes to the right specialist; do not pick one by keyword here.
+4. If tests still fail after the orchestrator reports its attempts: print the failure details and HALT. Do not close the bead or create a PR.
 
 ### Step 2: Commit Gate and Close
 
