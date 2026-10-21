@@ -149,3 +149,53 @@ describe('loadContracts', () => {
     }
   });
 });
+
+/**
+ * TRD-2026-8d825f54 TRD-001-TEST: every capability states inputs, outputs and
+ * required/optional status (PRD REQ-002, AC-002-1).
+ *
+ * Scenario: Contract capabilities are fully stated -- Given a category, When its contract
+ * is read through loadContracts(), Then every capability states inputs, outputs and
+ * required/optional status and a capability missing any of them fails validation.
+ */
+describe('TRD-001-TEST: contract capabilities are fully stated', () => {
+  test('Scenario: Contract capabilities are fully stated -- every loaded capability states inputs, outputs and required/optional status', () => {
+    const contracts = loadContracts(CATEGORIES_DIR);
+    expect(Object.keys(contracts)).toHaveLength(14);
+
+    for (const [fileName, contract] of Object.entries(contracts)) {
+      const result = validateContract(contract, fileName);
+      expect({ fileName, result }).toEqual({ fileName, result: { valid: true, errors: [] } });
+
+      for (const [capabilityName, capability] of Object.entries(contract.capabilities)) {
+        expect(Array.isArray(capability.inputs)).toBe(true);
+        expect(capability.inputs.length).toBeGreaterThan(0);
+        expect(Array.isArray(capability.outputs)).toBe(true);
+        expect(capability.outputs.length).toBeGreaterThan(0);
+        expect(typeof capability.required).toBe('boolean');
+        expect(capabilityName).toEqual(expect.any(String));
+      }
+    }
+  });
+
+  test('Scenario: Contract capabilities are fully stated -- a capability missing inputs, outputs or required/optional status fails validation', () => {
+    const contracts = loadContracts(CATEGORIES_DIR);
+    const fileName = 'tracker.yaml';
+    const original = contracts[fileName];
+    expect(original).toBeDefined();
+
+    const capabilityNames = Object.keys(original.capabilities);
+    expect(capabilityNames.length).toBeGreaterThan(0);
+    const targetCapability = capabilityNames[0];
+
+    const mutated = JSON.parse(JSON.stringify(original));
+    delete mutated.capabilities[targetCapability].outputs;
+
+    const result = validateContract(mutated, fileName);
+
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes(fileName) && e.includes(targetCapability))
+    ).toBe(true);
+  });
+});
