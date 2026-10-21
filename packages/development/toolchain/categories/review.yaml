@@ -1,0 +1,9 @@
+category: review
+
+capabilities:
+  review.status:
+    description: Read the automated review state of a change request.
+    inputs: [id]
+    outputs: [id, state, threads]
+    required: true
+    sideEffect: false

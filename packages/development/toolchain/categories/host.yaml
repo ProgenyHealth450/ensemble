@@ -1,0 +1,23 @@
+category: host
+
+capabilities:
+  host.openChangeRequest:
+    description: Open a change request (pull/merge request) from a pushed branch.
+    inputs: [baseBranch, headBranch, title, description]
+    outputs: [id, url, state]
+    required: true
+    sideEffect: true
+
+  host.getChangeRequestStatus:
+    description: Read the state and checks of an existing change request.
+    inputs: [id]
+    outputs: [id, url, state, checks]
+    required: true
+    sideEffect: false
+
+  host.mergeChangeRequest:
+    description: Merge a change request once its checks pass.
+    inputs: [id]
+    outputs: [id, state]
+    required: false
+    sideEffect: true

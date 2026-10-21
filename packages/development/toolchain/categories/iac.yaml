@@ -1,0 +1,16 @@
+category: iac
+
+capabilities:
+  iac.plan:
+    description: Compute the infrastructure change plan without applying it.
+    inputs: [workspace]
+    outputs: [status, changes]
+    required: true
+    sideEffect: false
+
+  iac.apply:
+    description: Apply a previously computed infrastructure change plan.
+    inputs: [workspace]
+    outputs: [status]
+    required: false
+    sideEffect: true

@@ -1,0 +1,9 @@
+category: container-deploy
+
+capabilities:
+  container-deploy.deploy:
+    description: Build and deploy a container workload to its target environment.
+    inputs: [target, image]
+    outputs: [status, url]
+    required: true
+    sideEffect: true

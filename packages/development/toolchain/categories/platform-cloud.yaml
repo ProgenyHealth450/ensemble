@@ -1,0 +1,9 @@
+category: platform-cloud
+
+capabilities:
+  platform-cloud.status:
+    description: Read the status of a resource hosted on the platform/cloud provider.
+    inputs: [resource]
+    outputs: [status]
+    required: true
+    sideEffect: false

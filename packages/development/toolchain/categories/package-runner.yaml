@@ -1,0 +1,9 @@
+category: package-runner
+
+capabilities:
+  package-runner.run:
+    description: Run a package/build-tool script (for example an npm/yarn/pnpm script).
+    inputs: [script, args]
+    outputs: [status, output]
+    required: true
+    sideEffect: false

@@ -1,0 +1,9 @@
+category: test-runner
+
+capabilities:
+  test-runner.run:
+    description: Run the project's unit/integration test suite.
+    inputs: [pattern]
+    outputs: [status, passed, failed, output]
+    required: true
+    sideEffect: false
