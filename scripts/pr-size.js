@@ -12,17 +12,18 @@ const { execFileSync } = require('child_process');
 
 const DEFAULT_THRESHOLD = 400;
 
-/** Resolve the path git reports for a rename: `a => b` or `pre/{a => b}/post`. */
+/** Resolve a path git reports for a rename (`a => b` or `pre/{a => b}/post`) to { oldPath, newPath }. */
 function resolveRename(p) {
+  const join = (...parts) => parts.join('').replace(/\/\//g, '/');
   const brace = p.match(/^(.*)\{(.*) => (.*)\}(.*)$/);
   if (brace) {
-    return (brace[1] + brace[3] + brace[4]).replace(/\/\//g, '/');
+    return { oldPath: join(brace[1], brace[2], brace[4]), newPath: join(brace[1], brace[3], brace[4]) };
   }
   const plain = p.match(/^(.*) => (.*)$/);
-  return plain ? plain[2] : p;
+  return plain ? { oldPath: plain[1], newPath: plain[2] } : { oldPath: p, newPath: p };
 }
 
-/** Parse `git diff --numstat` output into [{ path, added, deleted, binary }]. */
+/** Parse `git diff --numstat -M` output into [{ path (new), oldPath, added, deleted, binary }]. */
 function parseNumstat(text) {
   const files = [];
   for (const line of String(text).split('\n')) {
@@ -30,8 +31,10 @@ function parseNumstat(text) {
     const m = line.match(/^(-|\d+)\t(-|\d+)\t(.+)$/);
     if (!m) continue;
     const binary = m[1] === '-' || m[2] === '-';
+    const { oldPath, newPath } = resolveRename(m[3]);
     files.push({
-      path: resolveRename(m[3]),
+      path: newPath,
+      oldPath,
       added: binary ? 0 : Number(m[1]),
       deleted: binary ? 0 : Number(m[2]),
       binary,
@@ -44,10 +47,10 @@ const LOCKFILES = new Set(['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', '
 
 /**
  * True when a path is generated output. Generated command/agent Markdown is
- * only recognised when its source YAML exists under repoRoot: commands/ensemble/X.md
+ * only recognised when its source YAML exists (per `exists(path)`): commands/ensemble/X.md
  * has commands/X.yaml; agents/X.md has agents/X.yaml.
  */
-function isGenerated(filePath, repoRoot = process.cwd()) {
+function isGenerated(filePath, exists = () => false) {
   const p = filePath.replace(/\\/g, '/');
   if (/^packages\/(pi|codex|opencode)\//.test(p)) return true;
   if (/(^|\/)bundle\//.test(p)) return true;
@@ -56,14 +59,18 @@ function isGenerated(filePath, repoRoot = process.cwd()) {
   if (LOCKFILES.has(path.posix.basename(p))) return true;
 
   let m = p.match(/^(packages\/[^/]+\/commands)\/ensemble\/([^/]+)\.md$/);
-  if (m) return fs.existsSync(path.join(repoRoot, m[1], `${m[2]}.yaml`));
+  if (m) return exists(`${m[1]}/${m[2]}.yaml`);
   m = p.match(/^(packages\/[^/]+\/agents)\/([^/]+)\.md$/);
-  if (m) return fs.existsSync(path.join(repoRoot, m[1], `${m[2]}.yaml`));
+  if (m) return exists(`${m[1]}/${m[2]}.yaml`);
   return false;
 }
 
-/** Aggregate files into hand-written vs generated totals and flag over-threshold. */
-function summarize(files, threshold = DEFAULT_THRESHOLD, repoRoot = process.cwd()) {
+/**
+ * Aggregate files into hand-written vs generated totals and flag over-threshold.
+ * `existsAt(side, path)` tells whether a path exists on the 'old' (base) or
+ * 'new' (head) side; a renamed file counts as generated only if generated on both sides.
+ */
+function summarize(files, threshold = DEFAULT_THRESHOLD, existsAt = () => false) {
   let handWritten = 0;
   let generated = 0;
   let binaryFiles = 0;
@@ -71,7 +78,10 @@ function summarize(files, threshold = DEFAULT_THRESHOLD, repoRoot = process.cwd(
   for (const f of files) {
     const lines = f.added + f.deleted;
     if (f.binary) binaryFiles++;
-    if (isGenerated(f.path, repoRoot)) {
+    const generatedNew = isGenerated(f.path, (p) => existsAt('new', p));
+    const renamed = f.oldPath && f.oldPath !== f.path;
+    const isGen = renamed ? generatedNew && isGenerated(f.oldPath, (p) => existsAt('old', p)) : generatedNew;
+    if (isGen) {
       generated += lines;
     } else {
       handWritten += lines;
@@ -119,11 +129,20 @@ function parseArgs(argv) {
 
 function main(argv) {
   const opts = parseArgs(argv);
-  const numstat = execFileSync('git', ['diff', '--numstat', `${opts.base}...${opts.head}`], {
-    encoding: 'utf8',
-    maxBuffer: 256 * 1024 * 1024,
-  });
-  const s = summarize(parseNumstat(numstat), opts.threshold);
+  const git = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const numstat = git(['diff', '--numstat', '-M', '--find-renames', `${opts.base}...${opts.head}`]);
+  // `base...head` diffs from the merge base, so the old side lives there.
+  const oldRef = git(['merge-base', opts.base, opts.head]).trim();
+  const refs = { old: oldRef, new: opts.head };
+  const existsAt = (side, p) => {
+    try {
+      execFileSync('git', ['cat-file', '-e', `${refs[side]}:${p}`], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const s = summarize(parseNumstat(numstat), opts.threshold, existsAt);
   const report = formatReport(s);
   console.log(report);
 

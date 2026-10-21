@@ -3,6 +3,11 @@ name: PR Size (advisory)
 # Advisory only: never add this as a required check. The script exits 0 unless --strict.
 on:
   pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: pr-size-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

@@ -340,7 +340,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/) format:
 - **Stack small PRs** and merge each as it lands ([stacked PRs guide](docs/guides/stacked-prs.md)).
 - **Short-lived branches**: when the base moves (a consolidation or version bump lands), merge or rebase `origin/dev` the same day rather than redoing work later.
 - **Definition of done**: the required checks (`validate`, `test (22)`, `test (24)`) are green and the `pr-review-cycle` stopping rule is met. Blocking findings are only a proven break of a default-on control, data loss, or a failed required check; opt-in and best-effort findings become beads, not another review round.
-- **Before pushing**: run `npm run ci:local` (clean-clone CI parity) so Linux-only failures show up locally.
+- **Before pushing**: when available, run `npm run ci:local` (clean-clone CI parity) so Linux-only failures show up locally; otherwise run the full `npm run validate` and test suites.
 - **Consumer check** before removing or renaming a command, skill, agent or CLI flag: search consumers in sibling repos and in the `packages/pi`, `packages/codex` and `packages/opencode` outputs (for example, Foreman invokes `/ensemble:create-trd-foreman`). Leave a thin deprecated shim for one release unless the consumer change merges in the same window.
 
 ## Submitting Changes
