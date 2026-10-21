@@ -12,6 +12,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 
 const { validateManifest, checkVocabularyBlock } = require('../../packages/development/lib/toolchain/validate');
+const { loadContracts } = require('../../packages/development/lib/toolchain/contracts');
 
 const tempDirs = [];
 
@@ -285,5 +286,104 @@ describe('validateManifest', () => {
     const result = validateManifest(dir);
 
     expect(result.valid).toBe(false);
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 TRD-005-TEST: an adapter skill missing its vocabulary block fails
+ * validation naming the file and the missing block (PRD REQ-005, AC-005-2).
+ *
+ * Scenario: Missing vocabulary block -- Given an adapter skill missing its vocabulary block,
+ * When validation runs, Then it fails naming the file and the missing block.
+ *
+ * Unlike the hand-picked single-capability fixture used elsewhere in this file, this fixture
+ * implements every capability the real shipped `tracker.yaml` category contract declares
+ * (read through `loadContracts()`, not reconstructed inline), so the proof exercises a
+ * realistic, fully conforming multi-capability adapter -- not a minimal stub -- and isolates
+ * the vocabulary gate as the ONLY source of failure.
+ */
+describe('TRD-005-TEST: missing vocabulary block fails validation naming the file and the missing block', () => {
+  const trackerContract = loadContracts()['tracker.yaml'];
+
+  // The real shipped `tracker.yaml` quotes its `version` ("1.0"), but YAML lets an editor
+  // drop the quotes; an unquoted `1.0` parses as the *number* 1 (JS has no trailing-zero
+  // float), which would make `contract: { tracker: 1 }` fail the manifest schema's
+  // 'major.minor' string pattern -- an unrelated schema error that has nothing to do with
+  // the vocabulary gate this fixture exists to isolate. Normalize defensively so this
+  // fixture keeps proving the vocabulary check in isolation regardless of that YAML
+  // formatting detail.
+  function normalizeContractVersion(version) {
+    const asString = String(version);
+    return /^\d+\.\d+$/.test(asString) ? asString : '1.0';
+  }
+
+  function realisticTrackerManifest() {
+    return {
+      adapter: 'realistic-tracker',
+      version: '1.0.0',
+      categories: ['tracker'],
+      contract: { tracker: normalizeContractVersion(trackerContract.version) },
+      binaries: ['realistic-tool'],
+      allowlist: [{ bin: 'realistic-tool', sub: ['show', 'create', 'update', 'close'] }],
+      env: ['REALISTIC_TOOL_TOKEN'],
+      health: [{ id: 'version', run: ['realistic-tool', '--version'], timeoutMs: 5000 }],
+      detect: [],
+      capabilities: Object.fromEntries(
+        Object.keys(trackerContract.capabilities).map((capabilityId) => [
+          capabilityId,
+          { run: ['realistic-tool', capabilityId.split('.')[1]], parse: { format: 'json', root: '$' } }
+        ])
+      )
+    };
+  }
+
+  const REALISTIC_NO_VOCABULARY_SKILL_MD = [
+    '# Realistic Tracker Adapter',
+    '',
+    'This adapter wraps the realistic-tool CLI for the tracker category.',
+    '',
+    '## Usage',
+    '',
+    'Run `realistic-tool show <id>` to read a work item.',
+    '',
+    '## Examples',
+    '',
+    '```',
+    'realistic-tool show bd-1',
+    '```',
+    ''
+  ].join('\n');
+
+  test('Scenario: Missing vocabulary block -- a fully conforming, multi-capability adapter whose SKILL.md has every section except ## Vocabulary still fails validation naming the file and the missing block', () => {
+    const dir = mkAdapterDir({ manifest: realisticTrackerManifest(), skillMd: REALISTIC_NO_VOCABULARY_SKILL_MD });
+    const skillMdPath = path.join(dir, 'SKILL.md');
+
+    const directResult = checkVocabularyBlock(skillMdPath);
+    expect(directResult.ok).toBe(false);
+    expect(directResult.error).toContain(skillMdPath);
+    expect(directResult.error).toContain('Vocabulary');
+
+    const manifestResult = validateManifest(dir);
+    expect(manifestResult.valid).toBe(false);
+    // Scoped to what this scenario proves: the vocabulary gate fires and names the file,
+    // on an adapter that implements every tracker capability the real contract declares.
+    // Not asserting the error count/isolation here, so an unrelated schema nuance (e.g. a
+    // contract version's YAML formatting) can't make this test fail for the wrong reason --
+    // the point is that the vocabulary error is present, not that it is the only one.
+    expect(
+      manifestResult.errors.some((error) => error.includes(skillMdPath) && error.includes('Vocabulary'))
+    ).toBe(true);
+  });
+
+  test('Scenario: Missing vocabulary block -- an adapter entirely missing its SKILL.md file fails validation naming the file and the missing block', () => {
+    const dir = mkAdapterDir({ manifest: realisticTrackerManifest(), skillMd: null });
+    const skillMdPath = path.join(dir, 'SKILL.md');
+
+    const manifestResult = validateManifest(dir);
+
+    expect(manifestResult.valid).toBe(false);
+    expect(
+      manifestResult.errors.some((error) => error.includes(skillMdPath) && error.includes('Vocabulary'))
+    ).toBe(true);
   });
 });
