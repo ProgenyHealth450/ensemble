@@ -10,10 +10,13 @@ No speed target is asserted. The gate enablement check (`checkEnablementReady` i
 `packages/development/lib/local-ci-timing.js`) refuses while this file still carries the
 `TEMPLATE-UNFILLED` line or has no `Verdict:` line of `faster`, `slower` or `equal`.
 
-Known, separately measured context (not a result of this template): hosted required CI on
-this repository takes about 2.5-3 minutes (`test` 153-192 s, `validate` 44-62 s). The local
-gate is therefore unlikely to be faster in run time; if it is slower, the benefit comes from
-removing the bot-review wait, not from run time, and the note must say so.
+Context only, not a result of this template: a small sample of successful hosted runs on
+`dev` (queried 2026-10-21 with `gh api repos/{owner}/{repo}/actions/runs/<id>/jobs`, using
+`completed_at - started_at` per job) gave `test (22)` 150 s and `test (24)` 118 s (one run
+each) and `validate` 50-51 s (two runs). That is a handful of runs, not a baseline; capture a
+real cohort below before relying on it. On those figures the local gate is unlikely to be
+faster in run time; if it is slower, the benefit comes from removing the bot-review wait,
+not from run time, and the note must say so.
 
 ## Capture procedure
 
