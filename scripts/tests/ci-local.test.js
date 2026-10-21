@@ -29,6 +29,34 @@ describe('buildPlan', () => {
     expect(parseArgs(['--list']).list).toBe(true);
   });
 
+  it('mirrors CI: nothing runs before `test` that test.yml does not run, and the pi build stays in the drift step', () => {
+    const runs = (f) =>
+      fs
+        .readFileSync(path.join(__dirname, '..', '..', '.github', 'workflows', f), 'utf8')
+        .split('\n')
+        .map((l) => l.match(/^\s*(?:-\s*)?run:\s*(.+)$/))
+        .filter(Boolean)
+        .map((m) => m[1].trim());
+    const testYml = runs('test.yml');
+    const driftYml = runs('generated-drift.yml');
+    // the CI test job installs then runs `npm test` directly, with no build in between
+    const testCmds = testYml.slice(0, testYml.indexOf('npm test') + 1);
+    expect(testCmds).toEqual(['npm ci --legacy-peer-deps', 'npm test']);
+
+    const names = STEPS.map((s) => s.name);
+    const buildPi = driftYml.find((c) => /npm run build --workspace=packages\/pi/.test(c));
+    expect(buildPi).toBeDefined();
+    const before = STEPS.slice(0, names.indexOf('test'));
+    // no step ahead of `test` may run a build that test.yml does not
+    before.forEach((s) => {
+      if (s.name !== 'generated-drift') expect(s.cmd).not.toMatch(/\bbuild\b/);
+    });
+    // the build still precedes the generate chain inside the drift step, as in generated-drift.yml
+    const drift = STEPS.find((s) => s.name === 'generated-drift').cmd;
+    expect(drift.indexOf(buildPi)).toBeGreaterThanOrEqual(0);
+    expect(drift.indexOf(buildPi)).toBeLessThan(drift.indexOf('npm run generate &&'));
+  });
+
   it('every step is {name, cmd}', () => {
     STEPS.forEach((s) => expect(typeof s.cmd).toBe('string'));
   });

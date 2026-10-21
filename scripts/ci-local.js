@@ -11,6 +11,10 @@
  * Step list mirrors .github/workflows: test.yml (npm test, Node 22 + 24),
  * validate.yml (scripts/tests, validate, generated markdown),
  * generated-drift.yml (build pi, generate chain, git-status drift check).
+ * `npm test` runs with NO extra build step, exactly like test.yml: workspaces
+ * that need compiled output build it themselves (e.g. a `pretest`). The pi
+ * build belongs to the drift step only (as in generated-drift.yml); running it
+ * before `test` would mask failures that CI's required test jobs would hit.
  */
 
 const { spawnSync } = require('child_process');
@@ -22,14 +26,13 @@ const CI_NODE_MATRIX = [22, 24];
 
 const STEPS = [
   { name: 'install', cmd: 'npm ci --legacy-peer-deps' },
-  { name: 'build-pi', cmd: 'npm run build --workspace=packages/pi' },
   { name: 'scripts-tests', cmd: 'npx jest scripts/tests' },
   { name: 'validate', cmd: 'npm run validate' },
   { name: 'generate-validate', cmd: 'npm run generate:validate' },
   {
     name: 'generated-drift',
     cmd:
-      'npm run generate && npm run generate:pi && npm run generate:codex && npm run generate:opencode' +
+      'npm run build --workspace=packages/pi && npm run generate && npm run generate:pi && npm run generate:codex && npm run generate:opencode' +
       ' && if [ -n "$(git status --porcelain)" ]; then echo "Generated output differs from committed files:"; git status --porcelain; exit 1; fi',
   },
   { name: 'test', cmd: 'npm test' },
