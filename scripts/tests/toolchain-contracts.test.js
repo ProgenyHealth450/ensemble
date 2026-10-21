@@ -54,6 +54,7 @@ describe('validateContract', () => {
     const result = validateContract(
       {
         category: 'tracker',
+        version: '1.0',
         capabilities: {
           'tracker.show': {
             inputs: ['id'],
@@ -135,6 +136,45 @@ describe('validateContract', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('tracker.show'))).toBe(true);
+  });
+
+  test('a contract without a version field fails validateContract naming the file', () => {
+    const result = validateContract(
+      {
+        category: 'tracker',
+        capabilities: {
+          'tracker.show': {
+            inputs: ['id'],
+            outputs: ['id'],
+            required: true
+          }
+        }
+      },
+      'no-version.yaml'
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('no-version.yaml') && e.includes('version'))).toBe(true);
+  });
+
+  test('a contract with a malformed version field fails validateContract naming the file', () => {
+    const result = validateContract(
+      {
+        category: 'tracker',
+        version: '1',
+        capabilities: {
+          'tracker.show': {
+            inputs: ['id'],
+            outputs: ['id'],
+            required: true
+          }
+        }
+      },
+      'bad-version.yaml'
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('bad-version.yaml') && e.includes('version'))).toBe(true);
   });
 });
 

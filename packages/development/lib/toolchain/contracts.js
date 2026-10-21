@@ -32,8 +32,9 @@ function loadContracts(categoriesDir = DEFAULT_CATEGORIES_DIR) {
 }
 
 /**
- * Structurally validate one parsed category contract: every capability must state non-empty
- * `inputs`, non-empty `outputs` and a boolean `required` field.
+ * Structurally validate one parsed category contract: it must carry a `version: major.minor`
+ * string (TRD-002, PRD REQ-003), and every capability must state non-empty `inputs`,
+ * non-empty `outputs` and a boolean `required` field.
  *
  * @param {unknown} contract parsed YAML contract (as returned by `loadContracts`)
  * @param {string} fileName name used in error messages, e.g. "tracker.yaml"
@@ -48,6 +49,10 @@ function validateContract(contract, fileName) {
 
   if (typeof contract.category !== 'string' || contract.category.length === 0) {
     errors.push(`${fileName}: missing a string 'category' field`);
+  }
+
+  if (typeof contract.version !== 'string' || !/^\d+\.\d+$/.test(contract.version)) {
+    errors.push(`${fileName}: missing or malformed 'version' field (expected 'major.minor', e.g. '1.0')`);
   }
 
   const capabilities = contract.capabilities;
@@ -136,11 +141,13 @@ function checkCompat(adapterTarget, contract) {
 
 /**
  * Check that `nextContract` only adds to `previousContract` within the same major version:
- * no capability may be removed, and no capability's `required` flag may change (PRD REQ-003,
+ * no capability may be removed, no capability's `required` flag may change on a capability
+ * both versions share, and a capability newly added in `nextContract` must be optional (PRD
+ * REQ-003: "Within a contract major version, new capabilities are added only as optional.",
  * AC-003-3).
  *
  * A major-version bump is exempt from this rule; that is exactly where breaking changes
- * (removals, required-ness changes) are allowed.
+ * (removals, required-ness changes, required additions) are allowed.
  *
  * @param {{version: string, capabilities: Record<string, {required: boolean}>}} previousContract
  * @param {{version: string, capabilities: Record<string, {required: boolean}>}} nextContract
@@ -164,6 +171,18 @@ function checkAdditiveOnly(previousContract, nextContract) {
     if (previousCapability.required !== nextCapability.required) {
       errors.push(
         `capability '${capabilityName}' had its 'required' flag changed within major version ${previousVersion.major}`
+      );
+    }
+  }
+
+  for (const [capabilityName, nextCapability] of Object.entries(nextContract.capabilities)) {
+    if (Object.prototype.hasOwnProperty.call(previousContract.capabilities, capabilityName)) {
+      continue;
+    }
+    if (nextCapability.required) {
+      errors.push(
+        `capability '${capabilityName}' was added as required within major version ${nextVersion.major}; ` +
+          'new capabilities may only be added as optional'
       );
     }
   }

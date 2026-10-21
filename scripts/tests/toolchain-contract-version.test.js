@@ -149,6 +149,47 @@ describe('checkAdditiveOnly', () => {
 
     expect(result).toEqual({ ok: true, errors: [] });
   });
+
+  test('adding a new required capability within the same major fails and names that capability', () => {
+    const previousContract = {
+      version: '1.0',
+      capabilities: {
+        a: { inputs: ['in'], outputs: ['out'], required: true }
+      }
+    };
+    const nextContract = {
+      version: '1.1',
+      capabilities: {
+        a: { inputs: ['in'], outputs: ['out'], required: true },
+        x: { inputs: ['in'], outputs: ['out'], required: true, addedInMinor: 1 }
+      }
+    };
+
+    const result = checkAdditiveOnly(previousContract, nextContract);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((message) => message.includes("'x'"))).toBe(true);
+  });
+
+  test('a major-version bump permits a newly added required capability', () => {
+    const previousContract = {
+      version: '1.0',
+      capabilities: {
+        a: { inputs: ['in'], outputs: ['out'], required: true }
+      }
+    };
+    const nextContract = {
+      version: '2.0',
+      capabilities: {
+        a: { inputs: ['in'], outputs: ['out'], required: true },
+        x: { inputs: ['in'], outputs: ['out'], required: true }
+      }
+    };
+
+    const result = checkAdditiveOnly(previousContract, nextContract);
+
+    expect(result).toEqual({ ok: true, errors: [] });
+  });
 });
 
 /**
@@ -164,9 +205,8 @@ describe('TRD-002-TEST: additive-only contract versioning behavior', () => {
     const realCapabilityNames = Object.keys(realTracker.capabilities);
     expect(realCapabilityNames.length).toBeGreaterThan(0);
 
-    // Deep-clone the REAL tracker contract, inject the synthetic 'version' the real YAML
-    // lacks (necessary scaffolding; checkCompat requires it), and add ONE new capability
-    // on top of the untouched real ones.
+    // Deep-clone the REAL tracker contract (it already ships a real 'version') and bump its
+    // minor, adding ONE new capability on top of the untouched real ones.
     const bumpedContract = JSON.parse(JSON.stringify(realTracker));
     bumpedContract.version = '1.1';
     bumpedContract.capabilities['tracker.search'] = {
@@ -215,7 +255,6 @@ describe('TRD-002-TEST: additive-only contract versioning behavior', () => {
     const realHost = hostContracts['host.yaml'];
     expect(realHost).toBeDefined();
     const hostContract = JSON.parse(JSON.stringify(realHost));
-    hostContract.version = '1.0';
 
     const hostResultBefore = checkCompat('1.0', hostContract);
 
