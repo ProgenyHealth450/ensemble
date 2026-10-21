@@ -125,6 +125,41 @@ describe('validateConfig', () => {
     expect(r.approvalSet).toBeUndefined();
   });
 
+  test('extra_steps, equivalents and excluded_steps are normalized', () => {
+    const r = validateConfig({
+      ...base(),
+      extra_steps: [{ name: 'lint', cmd: 'npm run lint' }],
+      equivalents: [{ workflowStep: 'Check docs', runs: 'lint' }],
+      excluded_steps: [{ workflow: 'a.yml', job: 'build', step: 'Upload', reason: 'external service' }],
+    });
+    expect(r.problems).toEqual([]);
+    expect(r.approvalSet.extraSteps).toEqual([{ name: 'lint', cmd: 'npm run lint' }]);
+    expect(r.approvalSet.equivalents).toEqual([{ workflowStep: 'Check docs', runs: 'lint' }]);
+    expect(r.approvalSet.excludedSteps).toEqual([
+      { workflow: 'a.yml', job: 'build', step: 'Upload', reason: 'external service' },
+    ]);
+  });
+
+  test('the step lists default to empty, never to another repository\'s steps', () => {
+    const r = validateConfig(base());
+    expect(r.approvalSet.extraSteps).toEqual([]);
+    expect(r.approvalSet.equivalents).toEqual([]);
+    expect(r.approvalSet.excludedSteps).toEqual([]);
+  });
+
+  test.each([
+    ['extra step without a command', { extra_steps: [{ name: 'lint' }] }],
+    ['extra step with a blank command', { extra_steps: [{ name: 'lint', cmd: '  ' }] }],
+    ['extra_steps not a list', { extra_steps: { name: 'lint', cmd: 'x' } }],
+    ['equivalent missing its target', { equivalents: [{ workflowStep: 'a' }] }],
+    ['excluded step without a reason', { excluded_steps: [{ workflow: 'a.yml', job: 'build', step: 'Upload' }] }],
+    ['unknown key inside an excluded step', { excluded_steps: [{ workflow: 'a.yml', job: 'b', step: 's', reason: 'r', why: 'x' }] }],
+  ])('malformed step config fails closed: %s', (_n, patch) => {
+    const r = validateConfig({ ...base(), ...patch });
+    expect(r.ok).toBe(false);
+    expect(r.approvalSet).toBeUndefined();
+  });
+
   test('invalid YAML and non-mapping fail closed', () => {
     expect(validateConfig('a: [').ok).toBe(false);
     expect(validateConfig('- 1\n- 2').ok).toBe(false);

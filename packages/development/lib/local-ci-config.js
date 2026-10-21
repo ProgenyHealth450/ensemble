@@ -12,13 +12,15 @@
  * Result: { ok:true, problems:[], approvalSet } or { ok:false, problems:[...] }.
  * approvalSet = { workflows:[{file, jobs:[{id, matrix}]}],
  *   checks:[{workflow, job, matrix}], excluded:[{workflow, job, reason}],
+ *   excludedSteps:[{workflow, job, step, reason}], extraSteps:[{name, cmd}],
+ *   equivalents:[{workflowStep, runs}],
  *   statusContext, appId, botReview:{ skipped, logins } }
  */
 
 const yaml = require('js-yaml');
 
 const TOP_REQUIRED = ['workflows', 'status_context', 'app_id'];
-const TOP_ALLOWED = ['workflows', 'excluded', 'status_context', 'app_id', 'bot_reviewers'];
+const TOP_ALLOWED = ['workflows', 'excluded', 'excluded_steps', 'extra_steps', 'equivalents', 'status_context', 'app_id', 'bot_reviewers'];
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -124,6 +126,29 @@ function validateExcluded(list, problems) {
   return excluded;
 }
 
+/** A list of mappings whose keys are all required non-empty text. */
+function validateRecords(list, where, keys, problems) {
+  const out = [];
+  if (list === undefined) return out;
+  if (!Array.isArray(list)) {
+    problems.push(`${where}: must be a list`);
+    return out;
+  }
+  list.forEach((item, i) => {
+    const at = `${where}[${i}]`;
+    if (!isObject(item)) {
+      problems.push(`${at}: must be a mapping`);
+      return;
+    }
+    checkKeys(item, keys, keys, at, problems);
+    for (const k of keys) {
+      if (k in item && !isText(item[k])) problems.push(`${at}.${k}: must be non-empty text`);
+    }
+    if (keys.every((k) => isText(item[k]))) out.push(Object.fromEntries(keys.map((k) => [k, item[k]])));
+  });
+  return out;
+}
+
 function validateBots(value, problems) {
   if (value === undefined || value === null) return { skipped: true, logins: [] };
   if (!Array.isArray(value) || !value.every(isText)) {
@@ -165,6 +190,9 @@ function validateConfig(source) {
 
   const workflows = 'workflows' in config ? validateWorkflows(config.workflows, problems) : [];
   const excluded = validateExcluded(config.excluded, problems);
+  const excludedSteps = validateRecords(config.excluded_steps, 'excluded_steps', ['workflow', 'job', 'step', 'reason'], problems);
+  const extraSteps = validateRecords(config.extra_steps, 'extra_steps', ['name', 'cmd'], problems);
+  const equivalents = validateRecords(config.equivalents, 'equivalents', ['workflowStep', 'runs'], problems);
 
   if ('status_context' in config && !isText(config.status_context)) {
     problems.push('status_context: must be non-empty text');
@@ -203,6 +231,9 @@ function validateConfig(source) {
       workflows,
       checks,
       excluded,
+      excludedSteps,
+      extraSteps,
+      equivalents,
       statusContext: config.status_context.trim(),
       appId,
       botReview,
