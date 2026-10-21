@@ -3,7 +3,7 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.8
+version: 1.0.9
 status: Draft
 date: 2026-10-21
 design_readiness_score: 4.25
@@ -76,7 +76,7 @@ No foundational TRD capabilities matched (`trd-graph-cli capabilities docs/TRD`)
 ```
 pr-merge -> local-ci-gate skill
   1. gh: PR head SHA, base, reviews   -> local-ci-cli review   (classify bot vs human; human CHANGES_REQUESTED blocks)
-  2. git clone <tmp> @ <headSha>      -> repository ci:local steps in <tmp>, once per required Node version
+  2. git clone <tmp> @ <headSha>      -> the TRUSTED command list (from the base ref) run by the runner in <tmp>, once per required Node version; PASS/FAIL = exit status the runner observes
   3. step results + digest            -> local-ci-cli record   (build run record)
   4. record                           -> local-ci-app post     (JWT -> installation token -> POST status on headSha)
   5. gh: read status back             -> local-ci-cli verify   (record matches head + configured set)
@@ -194,14 +194,14 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: revoked key -- Given an authentication rejection, When posting, Then it fails closed and names the cause without the key
     - [ ] Scenario: gitignored credential path -- Given the credential file path, When checked against ignore rules, Then it is ignored by git
 
-- [ ] **TRD-012** Isolated gate runner (clean clone of the PR head, repository `ci:local`, crash-safe cleanup) [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] (5h)
+- [ ] **TRD-012** Isolated gate runner (clean clone of the PR head, trusted command list, crash-safe cleanup) [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] (5h)
   - Target Files: `packages/development/lib/local-ci-runner.js`
   - Validates PRD ACs: AC-003-3, AC-003-4, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
   - Implementation AC:
-    - [ ] Given a head SHA and the configured step list, when the runner executes, then it makes a clean clone under `.ensemble/local-ci-runs/<sha>`, checks out exactly that commit, and runs the repository's own `ci:local` entry point (`scripts/ci-local.js` on dev) from inside that clone, so the commit under test is the PR head and never the maintainer's checked-out HEAD
+    - [ ] Given a head SHA and the configured step list, when the runner executes, then it makes a clean clone under `.ensemble/local-ci-runs/<sha>`, checks out exactly that commit, and runs the trusted command list from the maintainer's config (read from the PR's base ref, never from the head) itself from inside that clone, grading only the exit status it observes and never loading or believing anything the head's own `ci:local` prints, so the commit under test is the PR head and never the maintainer's checked-out HEAD
     - [ ] Given uncommitted changes in the maintainer's working tree, when the runner executes, then those changes have no effect on the result
     - [ ] Given the head commit cannot be fetched, when the runner executes, then it returns an error naming the commit and publishes nothing
-    - [ ] Given the configured required Node versions (22 and 24 for this repository), when the runner executes, then it runs the steps under each version explicitly (for example through `ci:local --node`) rather than the machine's default Node, and a required version that cannot be provided is a failure and never a skip
+    - [ ] Given the configured required Node versions (22 and 24 for this repository), when the runner executes, then it runs the steps under each version explicitly (a Node bin directory pinned first on PATH) rather than the machine's default Node, and a required version that cannot be provided is a failure and never a skip
     - [ ] Given a required workflow step that the configured step list does not mirror (this repository's `validate.yml` also rejects Windows-invalid filenames and checks package.json consistency, neither of which `ci:local` runs), when the runner starts, then it either runs an equivalent configured command or fails naming the unmirrored step, and the gate never passes on a partial set
     - [ ] Given a step exits non-zero, when the run completes, then the result is a failure naming the step and the head SHA and is never reported as a pass
     - [ ] Given the runner is interrupted or crashes, when it exits or a later run starts, then the clone is removed in a finally-style cleanup, and a later run first removes clones under `.ensemble/local-ci-runs/` older than a threshold and touches nothing else
@@ -476,3 +476,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 | 2026-10-21 | 1.0.6 | Sequencing change by user decision (no requirement or AC change): removed `[Depends: TRD-001]` from TRD-004 so the App client can be built before the live proof; TRD-001 remains a required gate on the PR and on TRD-010's enablement step. Reverses the 1.0.1 decision that TRD-001 gates TRD-004. Reason: TRD-001 needs a GitHub App only the maintainer can create, and everything from TRD-005 on was blocked behind it. Cost accepted: TRD-004's behaviour against real GitHub is unproven until TRD-001 runs, and a failed proof could force rework of TRD-004 and TRD-003's 100-character bound. |
 | 2026-10-21 | 1.0.7 | Pin updated to PRD 1.0.3, which records the measured baseline and the maintainer's decision that no numeric target is set for this repository (changelog only; no requirement or AC changed). TRD-011 is complete: the baseline is captured in `BASELINE.md` with reproducible raw rows, and the target decision is recorded in the PRD changelog. |
 | 2026-10-21 | 1.0.8 | Sequencing change by user decision (no requirement or AC change): removed `[Depends: TRD-001]` from TRD-010 (added in 1.0.6) so the runbook and its snapshot/restore/refusal library can be built before the live proof. TRD-001 stays enforced two ways: TRD-010's runbook refuses enablement without `docs/proofs/local-ci-app-pin-proof.md` (the refusal AC and test scenario from 1.0.6 remain), and the proof gates opening the pull request. The runbook is built against injected GitHub responses and temp fixtures and is never run against a real repository in this change. |
+| 2026-10-21 | 1.0.9 | Security redesign of TRD-012 after an independent adversarial review (no requirement or AC id changed; reverses the 1.0.3 choice to wrap `ci:local`). Reproduced against the real modules: the first design believed a `name PASS` table printed by the PR head's own `scripts/ci-local.js` (and `require()`d that file), so a head whose `npm run lint` and `npm run test` failed was approved; the approval set came from the working tree or the caller's payload, so with the PR branch checked out a PR that rewrote `.ensemble/local-ci.yaml` and its workflow to `true` was approved; a `bash -c` step passed when a middle command failed, which hosted CI fails; a workflow committed as a symlink was read from outside the clone; inherited environment secrets were not redacted. Now: the runner runs a trusted `steps` list from `.ensemble/local-ci.yaml` itself under `bash -e -o pipefail`, grades only exit statuses it observes, and never loads the head's `ci:local`; that file is read only with `git show <baseRef>:.ensemble/local-ci.yaml` (the PR's base branch, as `pull_request_target` does), `baseRef` is required, the head cannot be its own base, and the record carries the trusted config's blob hash; the payload cannot carry config, paths, scripts or runner options; a workflow resolving outside the clone is refused; steps get a minimal environment and credential-named values are redacted. `extra_steps` was replaced by `steps`. Consequence accepted: a PR that changes the gate is graded by the previous config and its change takes effect after merge. |
