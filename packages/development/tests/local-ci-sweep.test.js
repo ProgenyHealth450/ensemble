@@ -87,10 +87,16 @@ describe('hosted CI and background-work guarantees', () => {
     }
   });
 
-  test('no background mechanism: module has no timers, daemons or schedules', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'local-ci-sweep.js'), 'utf8');
-    for (const word of ['setInterval', 'setTimeout', 'cron', 'schedule', 'daemon', 'watch']) {
-      expect(src.toLowerCase()).not.toContain(word.toLowerCase());
+  test.each([
+    ['sweep module', ['lib', 'local-ci-sweep.js']],
+    ['CLI that runs the sweep', ['lib', 'local-ci-cli.js']],
+    ['runner', ['lib', 'local-ci-runner.js']],
+    ['gate skill', ['skills', 'local-ci-gate', 'SKILL.md']],
+  ])('no background mechanism: %s has no timers, daemons, hooks or schedules', (_name, parts) => {
+    const src = fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8').toLowerCase();
+    for (const word of ['setinterval', 'settimeout', 'cron', 'schedule', 'daemon', 'watch', 'launchd', 'systemd']) {
+      expect(src).not.toContain(word);
     }
   });
+
 });
