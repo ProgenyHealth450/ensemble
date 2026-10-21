@@ -21,22 +21,22 @@ every per-finding triage, regression-test and minimal-fix decision.
 
 ## Stopping rule, budget and isolation
 
-**Definition of done (state before spawning reviewers):** merge criteria = the
-repo's required checks + this stopping rule; anything beyond is advisory.
+**Definition of done (state before spawning reviewers):** merge = the
+repo's required checks + this stopping rule; the rest is advisory.
 
 **Blocking findings only:** a proven break of a default-on control, data
 loss/corruption, a build/test/required-check failure, or a security issue
 reachable with default configuration. Findings in opt-in or best-effort /
-heuristic components (shell-command filters, lint-like checks), and all
+heuristic components, and all
 minor/nitpick, are `deferred` with a bead and never block. For a
 heuristic component, after round one further "another bypass shape" findings
 merge into ONE bead, not new rounds.
 
-**Default plan:** one independent review pass, one batch fix round, verification
-by executed tests; a second only while a BLOCKING finding remains (the CLI
+**Default plan:** one independent review pass, one batch fix round, executed-test
+verification; a second only while a BLOCKING finding remains (CLI
 cap of 2 is the hard limit).
 
-**Wall-clock budget:** 45 minutes for the whole cycle, 20 per independent
+**Wall-clock budget:** 45 minutes per cycle, 20 per independent
 reviewer; give each reviewer its timebox and ask for findings so far at expiry.
 When spent, stop, derive status with the CLI (never `REVIEW_COMPLETE` from
 prose) and report what was not reviewed.
@@ -139,7 +139,7 @@ dropped. Duplicates are merged under one fix id, keeping every original link.
 
 Classify every ledger entry with `isActionable` **before making any code
 change**. An unresolved thread or a Critical/Major finding is actionable
-unless the stopping rule defers it; a Minor/nitpick finding may be `deferred`
+unless it is a Major deferred as `blocking: false` with a reason (never Critical); a Minor/nitpick finding may be `deferred`
 only with a recorded reason; an uncertain finding is `adjudicate`, never
 dropped. Do not start fixing
 the first finding while later findings are still unclassified.
