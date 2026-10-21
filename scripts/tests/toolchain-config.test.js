@@ -11,6 +11,7 @@ const os = require('os');
 const path = require('path');
 
 const { resolveCategory } = require('../../packages/development/lib/toolchain/config');
+const { getUserToolchainConfigPath } = require('../../packages/development/lib/toolchain/config-path');
 
 const tempDirs = [];
 
@@ -25,6 +26,13 @@ function mkProjectConfig(projectRoot, yamlContents) {
   const ensembleDir = path.join(projectRoot, '.ensemble');
   fs.mkdirSync(ensembleDir, { recursive: true });
   const configPath = path.join(ensembleDir, 'toolchain.yaml');
+  fs.writeFileSync(configPath, yamlContents);
+  return configPath;
+}
+
+function mkUserConfig(xdgConfigHome, yamlContents) {
+  const configPath = getUserToolchainConfigPath({ XDG_CONFIG_HOME: xdgConfigHome });
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, yamlContents);
   return configPath;
 }
@@ -110,5 +118,68 @@ describe('resolveCategory precedence', () => {
 
     expect(result).toEqual({ value: 'detected-tracker', source: 'detection' });
     expect(detect).toHaveBeenCalledWith('tracker', expect.objectContaining({ projectRoot: tmpEmptyDir }));
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 TRD-003-TEST: the project > user and shipped-default fallback precedence
+ * steps hold across the full real precedence chain for multiple categories, not just one
+ * hand-picked category (PRD REQ-009, AC-009-1, AC-009-2).
+ *
+ * Scenario: Project config beats user config -- Given project config selects adapter A and user
+ * config selects adapter B for a category, When resolved, Then A wins.
+ *
+ * Scenario: Shipped default fallback -- Given no config and no detectable signal, When resolved,
+ * Then the shipped default is used.
+ */
+describe('TRD-003-TEST: provider selection precedence chain', () => {
+  test('Scenario: Project config beats user config -- Given project config selects adapter A and user config selects adapter B for a category, When resolved, Then A wins. -- holds simultaneously for multiple categories (host, workflow), not just one, and the user tier is actually consulted when project config omits a category', () => {
+    const tmpProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-toolchain-multi-project-'));
+    const tmpXdgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-toolchain-multi-xdg-'));
+    tempDirs.push(tmpProjectDir, tmpXdgDir);
+
+    mkProjectConfig(tmpProjectDir, 'host: a\nworkflow: a\n');
+    mkUserConfig(tmpXdgDir, 'host: b\nworkflow: b\ntracker: b\n');
+
+    const ctx = { projectRoot: tmpProjectDir, env: { XDG_CONFIG_HOME: tmpXdgDir } };
+
+    for (const category of ['host', 'workflow']) {
+      expect(resolveCategory(category, ctx)).toEqual({ value: 'a', source: 'project' });
+    }
+
+    // project config has no 'tracker' key, proving the user config file is actually read
+    // (not merely present on disk) rather than silently ignored.
+    expect(resolveCategory('tracker', ctx)).toEqual({ value: 'b', source: 'user' });
+  });
+
+  test('Scenario: Shipped default fallback -- Given no config and no detectable signal, When resolved, Then the shipped default is used. -- holds for all 14 shipped categories against hardcoded expected values', () => {
+    const tmpEmptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-toolchain-multi-default-'));
+    tempDirs.push(tmpEmptyDir);
+
+    // Hardcoded independently of packages/development/toolchain/toolchain.default.yaml so this
+    // test actually verifies the shipped file's content instead of echoing it back to itself.
+    const expectedDefaults = {
+      host: 'github',
+      workflow: 'plain-git',
+      worktree: 'plain-git',
+      tracker: 'beads',
+      'work-graph': 'auto',
+      'ci-local': 'act',
+      review: 'coderabbit',
+      lint: 'reviewdog',
+      'test-runner': 'default',
+      'e2e-quality': 'playwright',
+      'container-deploy': 'docker-kubectl',
+      iac: 'terraform',
+      'platform-cloud': 'aws',
+      'package-runner': 'npm'
+    };
+    expect(Object.keys(expectedDefaults)).toHaveLength(14);
+
+    for (const [category, expectedValue] of Object.entries(expectedDefaults)) {
+      const result = resolveCategory(category, { projectRoot: tmpEmptyDir, env: {} });
+
+      expect(result).toEqual({ value: expectedValue, source: 'default' });
+    }
   });
 });
