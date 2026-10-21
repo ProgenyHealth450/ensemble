@@ -1,7 +1,7 @@
 ---
 document_id: PRD-2026-4dec59b8
 label: prd-local-ci-pr-approval
-version: 1.0.1
+version: 1.0.2
 status: Locked
 date: 2026-10-21
 scale_depth: STANDARD
@@ -25,7 +25,7 @@ design_readiness_score: null
 
 **Who feels it:** Maintainers and developers in repositories that land PRs through the shared `/ensemble:pr-merge` command, and the PR-producing commands (`/ensemble:fix-issue`, `/ensemble:implement-trd-beads`). Ensemble is the first adopter; Foreman is the repository where the CodeRabbit wait is felt.
 
-**Solution:** Change what approves a PR. The approval signal becomes a local run of the repository's required CI workflows via `act`, executed against a clean checkout of the exact PR head commit, and published to GitHub as a status posted by a maintainer-owned GitHub App so branch protection can pin to it. The status carries a run record (head SHA, workflow set, `act` version, log digest) that the merge flow verifies. Bot reviews, including CodeRabbit, stop gating the merge; a human reviewer's `CHANGES_REQUESTED` still blocks. Findings and post-merge hosted-CI failures are captured as tracked work by the next merge-flow run. Hosted CI keeps running on every push as a safety net but is no longer required to merge.
+**Solution:** Change what approves a PR. The approval signal becomes a local run of the repository's required CI checks through a local CI runner, executed against a clean checkout of the exact PR head commit, and published to GitHub as a status posted by a maintainer-owned GitHub App so branch protection can pin to it. The status carries a run record (runner identity, workflow-set hash, log digest; the head SHA is the commit the status is posted on) that the merge flow verifies. Bot reviews, including CodeRabbit, stop gating the merge; a human reviewer's `CHANGES_REQUESTED` still blocks. Findings and post-merge hosted-CI failures are captured as tracked work by the next merge-flow run. Hosted CI keeps running on every push as a safety net but is no longer required to merge.
 
 **Success:** Median PR open-to-merge time falls materially against a baseline cohort captured before the change, with no increase in defects reaching the base branch that the previous gate would have caught. The numeric target is set after the baseline is measured (REQ-013), not invented in advance.
 
@@ -35,13 +35,13 @@ design_readiness_score: null
 - Local-run evidence is a **status posted by a maintainer-owned GitHub App**, bound to the head SHA and carrying a run record. (Verified: a personal-token or `gh` status cannot satisfy a check pinned to the GitHub Actions app.)
 - Hosted CI **keeps running but is not required to merge**.
 - The local run executes in a **clean checkout of the PR head SHA**, not the working tree.
-- The approval set **mirrors today's required checks** (`validate`, `test` on Node 22 and 24); a step `act` cannot run **fails the gate**.
+- The approval set **mirrors today's required checks** (`validate`, `test` on Node 22 and 24); a required step the local runner cannot run or does not mirror **fails the gate**.
 - Late bot findings and post-merge hosted-CI failures are captured **by the next merge-flow run as beads**; no daemon.
 - The feature is **repository-agnostic**, with per-repository configuration; each adopting repository's owner approves its own protection change.
 
 **Relationship to prior work:** This PRD deliberately reverses one decision in `PRD-2026-82b6a138` ("CodeRabbit remains enabled and authoritative for remote review; only a review for the current head can satisfy the remote-review condition"). That reversal is intentional and scoped by REQ-006 and REQ-007. The base/head identity, finding ledger and `REVIEW_COMPLETE/PENDING/BLOCKED` contract of `PRD-2026-82b6a138` are retained wherever they do not make remote review blocking.
 
-**Out of scope (Won't, this release):** Replacing CodeRabbit with another review provider; changing CodeRabbit's review profile; changes to Foreman's own workflow definitions (adopting the shared merge command in the Foreman repository is a separate rollout there); HerdR changes; a general PR dashboard; remote or self-hosted CI runners; weakening any test, assertion or required check to make a local run pass; cryptographic proof that `act` actually ran.
+**Out of scope (Won't, this release):** Replacing CodeRabbit with another review provider; changing CodeRabbit's review profile; changes to Foreman's own workflow definitions (adopting the shared merge command in the Foreman repository is a separate rollout there); HerdR changes; a general PR dashboard; remote or self-hosted CI runners; weakening any test, assertion or required check to make a local run pass; cryptographic proof that the local CI steps actually ran.
 
 ## Approvals and Decision Ownership
 
@@ -52,7 +52,7 @@ design_readiness_score: null
 
 **Entry (must be true before work starts):**
 
-- `act` and a running container runtime are available on the maintainer's machine (verified present at authoring time).
+- The repository's local CI entry point (for this repository, `npm run ci:local`), git, and each required Node version are available on the maintainer's machine.
 - The maintainer can change branch-protection settings on the target branches.
 - Existing unrelated working-tree changes remain untouched.
 - A GitHub App owned by the maintainers exists and is installed on each adopting repository; creating and installing it is in scope for this work.
@@ -99,7 +99,7 @@ The local run's result is published to GitHub as a status on the head commit, po
 - AC-004-2: Given a failing local run, when its result is published, then the head commit shows a failure status and the PR cannot be merged by the supported flow.
 - AC-004-3: Given branch protection on the target branch requires the local-run status pinned to the maintainer-owned app, when a PR has only a hosted-CI success and no local status, then it cannot merge; and when it has a passing status from the app, then it can.
 - AC-004-4: Given a passing status for the agreed name posted by any identity other than the maintainer-owned app (for example a personal token), when merge readiness is evaluated, then it does not satisfy the requirement.
-- AC-004-5: Given a published status, when its description is read, then it carries the run record: the head SHA, the workflow set run, the `act` version, and a digest of the run log.
+- AC-004-5: Given a published status, when its description is read, then it carries the run record: the runner identity, a hash of the workflow set run, and a digest of the run log, and the head SHA is established by the commit the status is posted on.
 - AC-004-6: Given a status whose run record does not match the PR's current head SHA or the repository's configured workflow set, when the merge flow evaluates it, then the merge is refused and the mismatch is reported.
 
 ### REQ-005: The gate can fail (Must) [RISK: a gate that cannot fail manufactures false confidence]
@@ -141,7 +141,7 @@ Hosted CI continues to run on every push and on the base branch, but is not requ
 The local run executes the same workflows and jobs that hosted CI would, so a local pass is a meaningful predictor of a hosted pass.
 
 - AC-009-1: Given the repository's test workflow with its Node version matrix, when the local run executes, then every matrix entry that is a required gate today is run locally, which for this repository means `validate` and `test` on Node 22 and Node 24.
-- AC-009-2: Given a workflow step in the approval set that cannot run under `act` (unsupported action or missing runner feature), when the local run encounters it, then the run fails, the failing step is named, and the PR is not approved on the strength of a partial run.
+- AC-009-2: Given a required workflow step that the local CI runner cannot run or does not mirror (an unsupported action, a missing runner feature, or a step absent from the configured list), when the local run encounters it, then the run fails, the failing step is named, and the PR is not approved on the strength of a partial run.
 - AC-009-3: Given a job that cannot be represented locally (for example one that only uploads coverage to an external service), when the approval set is defined, then such jobs are explicitly excluded and the exclusion is recorded.
 
 ### REQ-010: Local run must not leak secrets (Must)
@@ -185,7 +185,7 @@ A maintainer can revert to requiring hosted CI and CodeRabbit as merge gates qui
 When a local run fails or cannot approve, the maintainer is told why and what to do next.
 
 - AC-015-1: Given a failing local run, when the merge flow stops, then it reports the failing workflow, job and step and the exact head commit.
-- AC-015-2: Given `act` or the container runtime is unavailable, when the merge flow is invoked, then it stops with a message naming the missing prerequisite rather than falling back to merging without evidence.
+- AC-015-2: Given the local CI runner's prerequisites (the repository's local CI entry point, git, or a required Node version) are unavailable, when the merge flow is invoked, then it stops with a message naming the missing prerequisite rather than falling back to merging without evidence.
 
 ### REQ-016: Applies to the PR-producing commands' boundaries (Could)
 
@@ -251,7 +251,7 @@ The credential that lets the maintainer-owned app post results is held only wher
 | Completeness | 5 | Gate, evidence, bot and human review handling, post-merge follow-up, hosted-CI safety net, rollback, measurement, per-repository configuration and credential protection are all covered. |
 | Testability | 4 | Every Must and Should requirement has Given/When/Then criteria, including a gate-can-fail check. AC-004-3/004-4 are specified but unproven against a real protected branch. |
 | Clarity | 5 | All open questions are resolved and recorded as decisions. |
-| Feasibility | 4 | `act` and a container runtime exist and the app-pinning constraint is documented; the remaining uncertainty is `act` fidelity against the Node 22/24 matrix and the cost of a clean checkout plus `npm ci` per run. |
+| Feasibility | 4 | A local CI runner already exists on the integration branch and the app-pinning constraint is documented; the remaining uncertainty is runner fidelity against the Node 22/24 matrix and the cost of a clean checkout plus `npm ci` per run. |
 
 **Overall: 4.5 (PASS).** No clarification markers remain.
 
@@ -260,7 +260,7 @@ The credential that lets the maintainer-owned app post results is held only wher
 - **Ambiguity scan complete: 0 items remain.** All 9 markers raised at creation were resolved during refinement on 2026-10-21.
 - **Observed repository facts at authoring time (inputs, not requirements):** the `dev` branch requires `validate`, `test (22)` and `test (24)`, each pinned to the GitHub Actions app (app id 15368), with no required reviews; the `main` branch requires `release-gate` and `source-branch` with stale-review dismissal and zero required approvals; both enforce for administrators. The existing merge command refuses to merge while a review decision is `CHANGES_REQUESTED`. In the last 30 PRs on the Ensemble repository, CodeRabbit left no reviews or comments and the only bot reviewer was `github-actions[bot]`.
 - **Verified against GitHub documentation (2026-10-21):** a protected branch can require a check from a specific GitHub App and rejects one set by another source ("Required status check ... was not set by the expected GitHub App"); check runs can be created only by a GitHub App, while a personal token can only use the classic commit-status API; required checks must pass on the latest head SHA; a required check must have completed within the past seven days. This was not tested by posting a status to a protected branch; AC-004-3 and AC-004-4 must be proven against a real branch before the gate is enabled.
-- **Residual risk accepted:** the app identity proves who posted a result, and the run record makes a careless or stale post detectable, but nothing proves `act` actually ran. A maintainer holding the app credential could post success without running the gate. This is bounded by REQ-018 and out of scope to eliminate (see Out of scope).
+- **Residual risk accepted:** the app identity proves who posted a result, and the run record makes a careless or stale post detectable, but nothing proves the local CI steps actually ran. A maintainer holding the app credential could post success without running the gate. This is bounded by REQ-018 and out of scope to eliminate (see Out of scope).
 - Depth was set to STANDARD by default; no depth question was asked.
 
 ## Changelog
@@ -269,3 +269,4 @@ The credential that lets the maintainer-owned app post results is held only wher
 |---|---|---|
 | 2026-10-21 | 1.0.0 | Initial draft from the user's request and three recorded design decisions. |
 | 2026-10-21 | 1.0.1 | Refinement: resolved all 9 clarification markers. Scope made repository-agnostic after finding CodeRabbit inactive on Ensemble. Evidence now posted by a maintainer-owned GitHub App with a run record; run executes in a clean checkout of the head SHA; approval set mirrors today's required checks with unsupported steps failing the gate; human `CHANGES_REQUESTED` still blocks while bot reviews do not; late findings and post-merge CI failures are captured as beads by the next merge-flow run; success target deferred until a baseline is measured. Added REQ-017 (per-repository configuration) and REQ-018 (app credential protection); added AC-012-2. Readiness 4.0 to 4.5. PRD locked. |
+| 2026-10-21 | 1.0.2 | Wording-only change, no requirement added, removed or re-prioritised: replaced `act` and "container runtime" with runner-neutral terms ("local CI runner", "the repository's local CI entry point") in the Solution, decisions, Entry criteria, AC-004-5, AC-009-2, AC-015-2, the readiness note and the residual-risk note. Reason: `dev` already ships a tested clean-clone runner (`npm run ci:local`, PR #184) and the user chose to wrap it instead of building an `act` runner, so a PRD naming `act` contradicted the implementation and the beads that quote these criteria. AC-004-5 now names the runner identity instead of an `act` version. The user's original request ("using act") is kept as history in the self-critique. Requirement and AC counts are unchanged (18 and 47). |
