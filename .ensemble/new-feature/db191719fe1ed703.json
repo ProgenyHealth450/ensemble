@@ -6,8 +6,8 @@
   "stage": "implementation_approval",
   "stageOutcome": {
     "kind": "approval_wait",
-    "detail": "TRD 1.0.3: rebased onto dev, runner changed from act to ci:local; 7 beads refreshed; awaiting implementation approval",
-    "recordedAt": "2026-10-21T16:21:57.357Z"
+    "detail": "PRD 1.0.2 (runner-neutral wording) and TRD 1.0.4; 6 beads refreshed; implementation approval deferred by user pending PRD wording fix, now done; awaiting approval",
+    "recordedAt": "2026-10-21T16:27:24.071Z"
   },
   "artifacts": [
     {
@@ -49,6 +49,22 @@
       "version": "1.0.3",
       "producingStage": "beads_plan",
       "recordedAt": "2026-10-21T16:21:57.357Z"
+    },
+    {
+      "type": "prd",
+      "path": "docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "PRD-2026-4dec59b8",
+      "version": "1.0.2",
+      "producingStage": "prd_refine",
+      "recordedAt": "2026-10-21T16:27:24.071Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.4",
+      "producingStage": "beads_plan",
+      "recordedAt": "2026-10-21T16:27:24.071Z"
     }
   ],
   "beadRefs": [
@@ -86,7 +102,7 @@
   ],
   "implementationApprovedAt": null,
   "prApprovedAt": null,
-  "revision": 6,
+  "revision": 7,
   "createdAt": "2026-10-21T15:30:55.595Z",
-  "updatedAt": "2026-10-21T16:21:57.358Z"
+  "updatedAt": "2026-10-21T16:27:24.071Z"
 }
