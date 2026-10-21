@@ -3,7 +3,7 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.5
+version: 1.0.6
 status: Draft
 date: 2026-10-21
 design_readiness_score: 4.25
@@ -170,7 +170,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: truncated record rejected -- Given a cut-off description, When parsed, Then it returns an error rather than partial fields
     - [ ] Scenario: over-length description rejected -- Given a description longer than 100 characters, When it is built or parsed, Then it is rejected and nothing longer than the bound is ever produced
 
-- [ ] **TRD-004** GitHub App client (`local-ci-app.js`) [satisfies REQ-004] [satisfies REQ-010] [satisfies REQ-018] [Depends: TRD-001] (5h)
+- [ ] **TRD-004** GitHub App client (`local-ci-app.js`) [satisfies REQ-004] [satisfies REQ-010] [satisfies REQ-018] (5h)
   - Target Files: `packages/development/lib/local-ci-app.js`, `.gitignore`
   - Validates PRD ACs: AC-004-1, AC-004-2, AC-010-1, AC-010-2, AC-018-1, AC-018-2, AC-018-3
   - Implementation AC:
@@ -349,7 +349,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: slower is stated -- Given local slower than hosted, When the note is read, Then it says slower and does not claim a speedup from run time
     - [ ] Scenario: enablement requires the note -- Given no measurement note, When the runbook gate check runs, Then enablement is refused
 
-- [ ] **TRD-010** Rollout and rollback runbook with protection changes [satisfies REQ-004] [satisfies REQ-014] [satisfies REQ-016] [Depends: TRD-009] [Depends: TRD-013] (4h)
+- [ ] **TRD-010** Rollout and rollback runbook with protection changes [satisfies REQ-004] [satisfies REQ-014] [satisfies REQ-016] [Depends: TRD-001] [Depends: TRD-009] [Depends: TRD-013] (4h)
   - Target Files: `packages/development/skills/local-ci-gate/RUNBOOK.md`, `packages/development/skills/local-ci-gate/SKILL.md`
   - Validates PRD ACs: AC-004-3, AC-014-1, AC-016-1
   - Implementation AC:
@@ -359,6 +359,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Given `fix-issue` or `implement-trd-beads` is about to open a PR, when the optional gate step is used, then the PR opens with the status already published for its head
     - [ ] Given protection changes need an admin, when the runbook is read, then it names which step each adopting repository's owner approves
     - [ ] Given the TRD-013 measurement note does not exist for the repository, when the runbook reaches enablement, then it stops and refuses to proceed
+    - [ ] Given `docs/proofs/local-ci-app-pin-proof.md` (TRD-001) does not exist or records no observed App-status acceptance and personal-token rejection, when the runbook reaches enablement, then it stops and refuses to proceed, because the App client has not been shown to satisfy an App-pinned required check
 
 - [ ] **TRD-010-TEST** Rollback restores prior protection [Verifies TRD-010] [Satisfies REQ-004] [Satisfies REQ-014] [Satisfies REQ-016] [Depends: TRD-010] (3h)
   - Target Files: `packages/development/tests/local-ci-rollback.test.js`
@@ -367,6 +368,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: enable then rollback is lossless -- Given a protection snapshot, When the gate is enabled then rolled back, Then protection equals the snapshot
     - [ ] Scenario: hosted checks required again -- Given a rolled-back repository, When a PR has no hosted CI success, Then it cannot merge
     - [ ] Scenario: PR born approved -- Given the optional gate step, When a PR is opened by fix-issue, Then its head already carries the status
+    - [ ] Scenario: enablement refused without the App-pin proof -- Given no proof note (or one with no observed responses), When the runbook gate check runs, Then enablement is refused
 
 - [ ] **TRD-011** Baseline capture and success-target recording [satisfies REQ-013] (4h)
   - Target Files: `packages/development/lib/local-ci-baseline.js`, `packages/development/skills/local-ci-gate/BASELINE.md`
@@ -423,7 +425,7 @@ Informational only; `implement-trd-beads` does not parse this section.
 
 ## Architecture Self-Critique
 
-1. **Gap, sequencing (resolved):** TRD-001 needs a real GitHub App and a throwaway repository, which only the maintainer can create, so it is human-assisted. TRD-004 now declares `[Depends: TRD-001]`, so the App client cannot be scheduled before the proof. TRD-002 and TRD-003 are pure modules and are allowed to proceed in parallel, by decision.
+1. **Gap, sequencing (resolved):** TRD-001 needs a real GitHub App and a throwaway repository, which only the maintainer can create, so it is human-assisted. TRD-004 originally declared `[Depends: TRD-001]` so the App client could not be built before the proof. **Superseded by user decision on 2026-10-21 (1.0.6):** the App client is built first against a locally generated RSA key and an injected `fetch`, and TRD-001's live proof is instead a hard gate on the pull request and on the enablement runbook (TRD-010). The proof is not dropped: until `docs/proofs/local-ci-app-pin-proof.md` exists, three things stay unproven (an App-posted status satisfies a check pinned to that App while a personal-token status does not; the longest status description GitHub accepts, against the module's 100-character bound; whether the JWT `iss` should be the numeric App id or the client id). TRD-002 and TRD-003 are pure modules and proceed in parallel, by decision.
 2. **Gap, contradiction with an existing module:** `pr-review-remote.js` classifies bots by a configured login list, while PRD AC-006-4 requires classification by GitHub account type. Resolution: TRD-007 is a separate module that reads `type`; `pr-review-remote.js` is left untouched because `fix-issue` and `implement-trd-beads` still depend on its fail-closed behavior.
 3. **Gap, tracker coupling:** The sweep creates beads through `br`, which exists in this repository but not necessarily in an adopting repository such as Foreman. Resolution: the tracker is a config field (TRD-002); the sweep returns structured items, and the skill hands them to whichever tracker the config names.
 4. **Missing failure path:** if the status is posted but the PR head moves before the merge call, the merge could race. Resolution: the merge step re-reads the head SHA and re-verifies immediately before calling `gh pr merge` (TRD-005, TRD-009).
@@ -471,3 +473,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 | 2026-10-21 | 1.0.3 | Rebased onto `dev` (the real integration branch; the TRD had been written against `main`, 75 commits behind) and replaced the `act` runner with the repository's own `npm run ci:local` (`scripts/ci-local.js`, PR #184), by user decision. `ci:local` has no way to test a named commit and always tests the invoking repo's checked-out HEAD, and it runs one Node version at a time, so TRD-012 now clones the PR head into a clean directory and runs `ci:local` from inside it once per required Node version (22 and 24; the maintainer machine runs Node 26, which is not in the matrix). `validate.yml` also rejects Windows-invalid filenames and checks package.json consistency, which `ci:local` does not run, so an unmirrored required step fails the gate. The run record's first field is now the short blob hash of `scripts/ci-local.js` instead of an `act` version. No Docker is required. |
 | 2026-10-21 | 1.0.4 | PRD-2026-4dec59b8 was re-locked at v1.0.2 with runner-neutral wording (a wording-only change: the same 18 requirements, the same 47 acceptance criteria, the same priorities). Updated the PRD reference to v1.0.2 and replaced the "known mismatch" note, which is now false, with a resolution note. The six beads that quote the three reworded criteria (AC-004-5, AC-009-2, AC-015-2) were refreshed so they quote the current PRD text: TRD-003, TRD-003-TEST, TRD-005, TRD-005-TEST, TRD-012, TRD-012-TEST. No task, dependency, estimate or scenario changed. |
 | 2026-10-21 | 1.0.5 | Implementation amendment (no requirement or AC change): the config gained optional `extra_steps`, `equivalents` and `excluded_steps` keys so a repository can declare how a workflow step that `ci:local` does not run is executed (AC-009-2) or recorded as excluded (AC-009-3). The TRD named the unmirrored-step failure but not where its resolution is declared; without it the gate failed on this repository with 5 unmirrored steps. Tracked as bead br-fhaa; delivered in 99fa619. |
+| 2026-10-21 | 1.0.6 | Sequencing change by user decision (no requirement or AC change): removed `[Depends: TRD-001]` from TRD-004 so the App client can be built before the live proof; TRD-001 remains a required gate on the PR and on TRD-010's enablement step. Reverses the 1.0.1 decision that TRD-001 gates TRD-004. Reason: TRD-001 needs a GitHub App only the maintainer can create, and everything from TRD-005 on was blocked behind it. Cost accepted: TRD-004's behaviour against real GitHub is unproven until TRD-001 runs, and a failed proof could force rework of TRD-004 and TRD-003's 100-character bound. |
