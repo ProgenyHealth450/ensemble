@@ -32,6 +32,7 @@ const { postStatus, loadCredential, redact, MAX_DESCRIPTION, CANNOT_ATTEST } = r
 const { classifyReviews, decideBlock } = require('./local-ci-review');
 const { findUntracked } = require('./local-ci-sweep');
 const timing = require('./local-ci-timing');
+const rollout = require('./local-ci-rollout');
 
 // config and runner need js-yaml. They load on first use so the CLI still starts
 // (and reports a usable error) where js-yaml is not resolvable, e.g. a bare vendor dir.
@@ -174,6 +175,24 @@ function runTiming(payload) {
   const input = need(payload, 'input', isObject, 'timing');
   const result = TIMING_ACTIONS[action](input);
   return action === 'note' ? { ok: typeof result === 'string', note: result } : result;
+}
+
+/* ------------------------------------------------------------ rollout / rollback */
+
+const ROLLOUT_ACTIONS = Object.freeze({
+  snapshot: (input) => rollout.snapshotProtection(input.response, { repo: input.repo, branch: input.branch, now: input.now }),
+  'plan-enable': (input) => rollout.planEnable(input),
+  'plan-rollback': (input) => rollout.planRollback(input),
+  preconditions: (input) => rollout.checkEnablementPreconditions(input),
+  proof: (input) => rollout.checkProofNote(input.text),
+});
+
+/** Plans are DATA: this subcommand never calls GitHub and never changes protection. */
+function runRollout(payload) {
+  const action = need(payload, 'action', isText, 'rollout');
+  if (!hasOwn(ROLLOUT_ACTIONS, action)) throw new Error(`rollout: unknown action ${shown(action)}`);
+  const input = need(payload, 'input', isObject, 'rollout');
+  return ROLLOUT_ACTIONS[action](input);
 }
 
 /* -------------------------------------------------------------- merge readiness */
@@ -363,6 +382,7 @@ const HANDLERS = Object.freeze({
   review: runReview,
   sweep: runSweep,
   timing: runTiming,
+  rollout: runRollout,
   merge: runMerge,
   gate: runGateFlow,
 });
@@ -412,6 +432,7 @@ module.exports = {
   runReview,
   runSweep,
   runTiming,
+  runRollout,
   runMerge,
   runGateFlow,
   HANDLERS,

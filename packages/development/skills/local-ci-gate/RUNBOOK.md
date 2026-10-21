@@ -1,0 +1,133 @@
+# Local CI Gate: Rollout and Rollback Runbook (TRD-010)
+
+For a repository adopting the gate. The planning logic lives in
+`local-ci-rollout.js` and is reached through the gate CLI's `rollout`
+subcommand (`local-ci-cli.js rollout`), so it works from a checkout, a plugin
+install or the Pi bundle. Locate the CLI exactly as the gate skill does
+(`tool-path-resolution`); never hard-code a repo path. Send one JSON payload on
+stdin: `{"action": "<name>", "input": {...}}` with `action` one of `snapshot`,
+`plan-enable`, `plan-rollback`, `preconditions`, `proof`. It only snapshots,
+plans and checks; it never calls GitHub. A person with the rights named in
+[Owner approvals](#owner-approvals) runs each call. The function names used
+below (`snapshotProtection`, `planEnable`, ...) are what each action runs.
+
+## Status of this repository: enablement is REFUSED
+
+The live proof (TRD-001) is still open. `docs/proofs/local-ci-app-pin-proof.md`
+does not exist, so nobody has observed GitHub accepting a status from the App
+client as satisfying an App-pinned required check, or rejecting the same
+context from a personal token. Without that observation, requiring the local
+status could leave every PR unmergeable (or let a non-App token satisfy it).
+`checkEnablementPreconditions` therefore refuses today. Do not change branch
+protection until it returns `{ok: true}`. The measurement note
+(`MEASUREMENT.md`) is also still the unfilled template, which refuses on its own.
+
+## Owner approvals
+
+Each protection-changing step needs an admin of the adopting repository. The
+list below is `OWNER_APPROVALS` in the library; a test checks every
+protection-changing plan step is on it.
+
+| Step | Approver | Needs approval | What is approved |
+|---|---|---|---|
+| `snapshot` | repository admin | no | read-only GET of the current protection |
+| `first-success-status` | repository owner | yes | publishing the first real local-ci success from the App on a current head commit |
+| `enable-protection` | repository admin | yes | local App-pinned status required; hosted checks no longer required |
+| `rollback-protection` | repository admin | yes | restoring the snapshot; hosted checks required again |
+
+## Enable
+
+Run in order; stop at the first refusal.
+
+1. **Snapshot** (`snapshot`). Read the current protection and record it with
+   `snapshotProtection(response, {repo, branch, now})`, then store the result
+   somewhere durable (a file in the repo's ops notes, not a secret store; it
+   holds no credential):
+   `gh api repos/OWNER/REPO/branches/BRANCH/protection`.
+   A malformed or partial response is refused, never snapshotted as a guess.
+   The snapshot keeps `required_status_checks` (with `strict` and each check's
+   `app_id`), `enforce_admins.enabled`, `required_pull_request_reviews`,
+   `restrictions`, the repo, branch and timestamp.
+2. **Preconditions.** `checkEnablementPreconditions({repoRoot, hasReportedSuccess})`
+   must return `ok: true`. It refuses when any of these fails (all reasons listed):
+   - the measurement note is missing, unfilled or `unmeasured` (TRD-013);
+   - `docs/proofs/local-ci-app-pin-proof.md` is missing or lacks the structure below;
+   - the local status context has not yet reported success on this repository;
+   - `BASELINE.md` is missing.
+3. **First real success status** (`first-success-status`). GitHub only allows a
+   check to be required if it completed successfully in that repository within
+   the past seven days. So, before touching protection, run the gate for a
+   current head commit of the protected branch's PRs (`gate` mode of this skill)
+   and let it post a real success from the App. Then set
+   `hasReportedSuccess: true` for the step-2 check. Never post a status by hand.
+4. **Enable protection** (`enable-protection`).
+   `planEnable({snapshot, statusContext, appId, replaces})` returns the calls as data.
+   `statusContext` is `status_context` from `.ensemble/local-ci.yaml`; `appId`
+   must be the real positive integer App id (the placeholder
+   `REPLACE_WITH_GITHUB_APP_ID`, a missing id, a string or `-1` is refused).
+   `replaces` is the list of currently required check names that the local gate
+   covers (for this repository `validate`, `test (22)`, `test (24)`: the job
+   names in the approval set, with ` (<node>)` for matrix entries). Only those
+   are removed. Every other required check (a secret scan, a deploy preview)
+   stays required, because the gate does not run it; the plan lists them under
+   `keeps`. A name in `replaces` that is not currently required is refused, so a
+   typo cannot leave a hosted check in place while enablement looks done.
+   The one protection-changing call is
+   `PATCH /repos/OWNER/REPO/branches/BRANCH/protection/required_status_checks`
+   with body `{"strict": <snapshot strict>, "checks": [<kept checks with their app_id>, {"context": "<statusContext>", "app_id": <appId>}]}`.
+   It replaces the list of required checks only, so `enforce_admins`, reviews and
+   restrictions are untouched and `strict` is carried over. Then the plan's
+   read-only `GET .../protection` verifies the result.
+   The `PUT .../protection` endpoint is deliberately not used: it replaces the
+   whole protection and would drop anything the snapshot missed.
+
+### App-pin proof note structure (for TRD-001's author)
+
+`docs/proofs/local-ci-app-pin-proof.md` must contain both headed sections,
+each with a recorded response line and date, and no credential:
+
+```
+## App status accepted
+Date: YYYY-MM-DD
+Response: HTTP 201
+
+## Personal-token status rejected
+Date: YYYY-MM-DD
+Response: HTTP 4xx
+```
+
+The first section's `Response:` must be `HTTP 2xx`, the second's `HTTP 4xx`,
+copied from a real observation, with surrounding prose as needed. The check
+also fails if `redact(note) !== note` (`local-ci-app.js`), so paste no key, JWT
+or token. See `checkProofNote`.
+
+## Rollback
+
+1. `planRollback({snapshot})` using the stored snapshot returns one
+   protection-changing call (`rollback-protection`):
+   `PATCH /repos/OWNER/REPO/branches/BRANCH/protection/required_status_checks`
+   with the snapshot's `strict` and its original checks, each with its original
+   `app_id` (an any-app check, recorded as `null`, is written back as `-1`).
+   The hosted checks are required again and the local status is no longer required.
+   Applying `planEnable` then `planRollback` to a protection store restores a
+   protection equal to the snapshot (covered by a test against an in-memory store).
+2. Run the plan's `GET` and compare it with the snapshot.
+3. **`pr-merge` and bot reviews.** `pr-merge` classifies reviewers by account
+   type; a bot's CHANGES_REQUESTED review and unresolved bot threads do not block
+   its merge decision, and rolling back protection does not change that. What
+   rolling back changes is the merge gate: GitHub itself again requires the
+   hosted checks, so a PR without hosted CI success cannot merge even if the
+   local gate passed. If `pr-merge` should also stop merging on the local status
+   (so it waits for hosted CI again), revert the commit that changed
+   `packages/git/commands/pr-merge.yaml` to merge on the gate verdict and
+   regenerate; that is a separate, reviewed change.
+
+## Optional pre-PR gate step (fix-issue, implement-trd-beads)
+
+`fix-issue` and `implement-trd-beads` are unchanged. A caller that wants the PR
+to open already approved runs, after the final commit and push of the branch and
+before opening the PR: resolve the branch head SHA (full 40 hex), run the gate for
+that head (`MODE=gate`, this skill), confirm `posted:true` and `mergeReady:true`,
+then open the PR. The status is attached to the commit, so the PR's head carries
+it from the moment it opens. If any commit is added afterwards the head moves and
+the gate must run again; a status on an older commit never counts.

@@ -88,6 +88,15 @@ when a command asks; they carry the same fail-closed rules.
 
 ---
 
+## Rollout, rollback and the pre-PR step
+
+Enabling the gate as a required check, rolling it back, the owner approvals and
+the optional pre-PR gate step (run `gate` for the branch head, then open the PR)
+are in `RUNBOOK.md` beside this file. Enablement is refused until its
+preconditions hold; never change branch protection from this skill.
+
+---
+
 ## Rules
 
 - Success exists only as a status posted by the CLI on the exact head.
