@@ -86,26 +86,48 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
 ## Trust and provenance
 
 Required commands and the approval set come ONLY from `.ensemble/local-ci.yaml`
-as committed at the PR's BASE branch ref (`git show <baseRef>:.ensemble/local-ci.yaml`),
-the same principle as GitHub's `pull_request_target`. `baseRef` is a required
-payload key for `config`, `run`, `merge` and `gate`; there is no default and no
-fallback to the working tree. Consequence: a PR that edits the gate config or
-its workflows is graded by the PREVIOUS config (its change applies after it
-merges), and the maintainer's working tree, local edits and checked-out branch
-are irrelevant. The CLI refuses when `baseRef` does not resolve, when it
-resolves to the head itself, or when head and base share no history. `steps` lists the exact commands, in order,
-and the runner runs each itself with `bash -c` in the clean clone, once per
-required Node version, under a minimal environment (PATH, HOME, CI, LANG, TERM,
-TMPDIR and a few more, plus configured secrets). PASS/FAIL is the exit status the
-runner observes; nothing in the PR head (`scripts/ci-local.js`, printed tables,
-its own config) is loaded, executed or believed. A head workflow step that
-`steps`/`equivalents` do not cover fails the gate; a head dropping a step from its
-own workflow changes nothing. The payload cannot carry config, paths, scripts or
-runner options (`gate`: `repoRoot, headSha, baseRef, repo, dryRun`; `merge`:
-`headSha, statuses, repoRoot, baseRef, reviews`). The status record's first field
-is the git blob hash of that base-ref config; `merge` refuses a status recorded
-under a different config blob. Values of credential-named variables (TOKEN, SECRET, KEY,
-PASSWORD, CREDENTIAL, AUTH) are redacted from everything returned.
+as committed at the PR's BASE branch (`git show <baseRef>:.ensemble/local-ci.yaml`),
+the same principle as GitHub's `pull_request_target`. A PR that edits the gate
+config or its workflows is graded by the PREVIOUS config; its change applies
+after it merges. The maintainer's working tree, local edits and checked-out
+branch are irrelevant.
+
+`baseRef` is required (`config`, `run`, `merge`, `gate`) and must be a
+remote-tracking ref of the PR's base branch, fetched fresh: `origin/<branch>`
+or `refs/remotes/<remote>/<branch>`. Local branches, SHAs, `HEAD`, `@`, and any
+revision syntax (`@{n}`, `^`, `~`, `:`, `..`) are refused, because the PR author
+can move a local branch or a descendant of the head. The CLI also refuses a base
+that is the head, a descendant of the head, or shares no history with it.
+
+`steps` lists the exact commands, in order. The runner runs each itself in the
+clean clone, once per required Node version, under `bash -e -o pipefail` (as
+GitHub Actions does, so a failure in the middle of a step fails it). PASS is an
+exit status of exactly 0 that the runner observed; a signal, a missing status or
+a failed start is a failure. Nothing in the PR head (`scripts/ci-local.js`,
+printed tables, its own config) is loaded, executed or believed. A head workflow
+step that `steps`/`equivalents` do not cover fails the gate; a head dropping a
+step from its own workflow changes nothing; a workflow file that resolves
+outside the clone is refused. After the steps the run is voided if any tracked
+file differs from the head's tree (compared by content, which `git status` is
+not), the index changed, the HEAD moved or the clone's git config changed.
+Untracked output (`node_modules`, `coverage/`) is fine.
+
+Steps run under a minimal environment (PATH, HOME, CI, LANG, TERM, TMPDIR and a
+few more). A step sees a secret only if its NAME is in the base-ref config's
+`secret_names`; the value comes from the maintainer's environment or the
+gitignored `.ensemble/local-ci.secrets.env`, never from the config, the head or
+the payload. Values of configured secrets, and of any inherited variable whose
+name contains TOKEN, SECRET, KEY, PASSWORD, CREDENTIAL or AUTH, are redacted
+from everything returned. A step can still print or send a secret it was given
+in a form redaction cannot recognise (encoded, split); list only secrets you
+accept a trusted step handling.
+
+The payload cannot carry config, paths, scripts or runner options (`gate`:
+`repoRoot, headSha, baseRef, repo, dryRun`; `merge`: `headSha, statuses,
+repoRoot, baseRef, reviews`); other keys are rejected. The status record's first
+field is the first 12 hex of the git blob hash of the base-ref config, which
+covers the whole command list; `merge` requires it and refuses a status recorded
+under a different config blob.
 
 ---
 

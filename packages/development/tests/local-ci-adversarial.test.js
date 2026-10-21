@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 
-const { runGate } = require('../lib/local-ci-runner');
+const { runGate, cloneAtSha, sweepStaleClones } = require('../lib/local-ci-runner');
 const { validateConfig } = require('../lib/local-ci-config');
 const cli = require('../lib/local-ci-cli');
 
@@ -63,7 +63,8 @@ function makeHead({ scripts = {}, files = {}, workflowCmds = [LINT.cmd, TEST.cmd
   const dir = path.join(tmp, 'repo');
   fs.mkdirSync(dir);
   git(dir, 'init', '-q', '-b', 'main');
-  // BASE commit (branch `trusted-base`): holds the maintainer config when `baseConfig` is given.
+  // BASE commit, exposed as the remote-tracking ref `origin/trusted-base` (what a fetch leaves and the gate requires;
+  // a local branch of that name would be refused): holds the maintainer config when `baseConfig` is given.
   fs.writeFileSync(path.join(dir, 'README.md'), 'base\n');
   if (baseConfig !== null) {
     fs.mkdirSync(path.join(dir, '.ensemble'), { recursive: true });
@@ -71,7 +72,7 @@ function makeHead({ scripts = {}, files = {}, workflowCmds = [LINT.cmd, TEST.cmd
   }
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'base');
-  git(dir, 'branch', 'trusted-base');
+  git(dir, 'update-ref', 'refs/remotes/origin/trusted-base', git(dir, 'rev-parse', 'HEAD'));
   const all = {
     '.gitignore': '.ensemble/local-ci-runs/\n.ensemble/local-ci.secrets.env\n',
     'package.json': JSON.stringify({ name: 'head', version: '1.0.0', scripts: { lint: 'exit 0', test: 'exit 0', ...scripts } }),
@@ -234,7 +235,7 @@ describe('nothing but the maintainer config sets the Node matrix and the command
     const head = makeHead({ scripts: { lint: 'exit 1' }, workflowCmds: ['true'], baseConfig: trusted, extraCommitFiles: { '.ensemble/local-ci.yaml': weak } });
     expect(fs.readFileSync(path.join(head.dir, '.ensemble', 'local-ci.yaml'), 'utf8')).toBe(weak); // head's file is what is on disk
     const report = await cli.runGateFlow(
-      { repoRoot: head.dir, headSha: head.sha, baseRef: 'trusted-base', repo: 'o/r', dryRun: true },
+      { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', dryRun: true },
       { ...cli.defaultDeps(), runnerDeps: deps(), env: {}, loadCredential: () => ({ credential: null, reason: 'none' }) }
     );
     expect(report.ok).toBe(false);
@@ -330,7 +331,7 @@ describe('secrets and environment', () => {
     process.env.DEPLOY_TOKEN = SECRET;
     try {
       const report = await cli.runGateFlow(
-        { repoRoot: head.dir, headSha: head.sha, baseRef: 'trusted-base', repo: 'o/r' },
+        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r' },
         {
           ...cli.defaultDeps(),
           fetch,
@@ -401,5 +402,263 @@ describe('a head file that is a symlink cannot make the runner read outside the 
     const r = gate({ dir: head.dir, sha, tmp: head.tmp }, approvalFor([LINT, TEST]));
     expect(r.ok).toBe(false);
     expect(r.failures.some((f) => /symlink|outside/i.test(f.message))).toBe(true);
+  });
+});
+
+describe('the steps cannot rewrite what they claim to have tested', () => {
+  // The attestation says "these steps passed against the tree of <sha>". A trusted step that edits a tracked file, hides
+  // the edit from git, rewrites the index or the clone's git config would make that false while every exit status is 0.
+  const run = (cmd, extra = {}) => {
+    const head = makeHead({ workflowCmds: [cmd], ...extra });
+    return gate(head, approvalFor([{ name: 'step', cmd }]));
+  };
+  const kinds = (r) => r.failures.map((f) => f.kind);
+
+  it('control: an honest step that writes untracked and ignored output (coverage/, node_modules) passes', () => {
+    const r = run('mkdir -p coverage node_modules/.cache && echo {} > coverage/x.json && echo c > node_modules/.cache/y && echo out > build-output.txt');
+    expect(r).toMatchObject({ ok: true, failures: [] });
+  });
+
+  it('control: a tracked symlink and a tracked executable are not mistaken for tampering', () => {
+    const head = makeHead({ workflowCmds: ['true'] });
+    fs.symlinkSync('package.json', path.join(head.dir, 'link-to-package'));
+    fs.writeFileSync(path.join(head.dir, 'tool.sh'), '#!/bin/sh\ntrue\n', { mode: 0o755 });
+    git(head.dir, 'add', '-A');
+    git(head.dir, 'commit', '-q', '-m', 'symlink and exec bit');
+    const sha = git(head.dir, 'rev-parse', 'HEAD');
+    const r = gate({ dir: head.dir, sha, tmp: head.tmp }, approvalFor([{ name: 'step', cmd: 'true' }]));
+    expect(r).toMatchObject({ ok: true, failures: [] });
+  });
+
+  it.each([
+    ['appends to a tracked file', 'echo tampered >> package.json'],
+    ['deletes a tracked file', 'rm package.json'],
+    ['replaces a tracked file with a symlink', 'rm package.json && ln -s /etc/hostname package.json'],
+    ['rewrites the index', 'git rm -q --cached package.json'],
+    ['hides an edit with --assume-unchanged', 'git update-index --assume-unchanged package.json && echo tampered >> package.json'],
+    ['hides an edit with --skip-worktree', 'git update-index --skip-worktree package.json && echo tampered >> package.json'],
+  ])('a step that %s voids the run even though it exits 0', (_name, cmd) => {
+    const r = run(cmd);
+    expect(r.ok).toBe(false);
+    expect(kinds(r)).toContain('clone-tampered');
+  });
+
+  it('an unreadable clone git config is not read as "unchanged": the run is voided (fail closed)', () => {
+    const head = makeHead({ workflowCmds: ['true'] });
+    const real = {
+      git: (args, o = {}) => {
+        const x = spawnSync('git', args, { cwd: o.cwd, input: o.input, encoding: 'utf8', maxBuffer: 1 << 26 });
+        return { status: x.error ? 127 : x.status, stdout: x.stdout || '', stderr: x.stderr || '' };
+      },
+    };
+    // Every `git config --local --list` fails, before and after the steps: nothing can be compared.
+    const r = gate(head, approvalFor([{ name: 'step', cmd: 'true' }]), undefined, {
+      git: (args, o) => (args[0] === 'config' && args.includes('--list') ? { status: 128, stdout: '', stderr: 'boom' } : real.git(args, o)),
+    });
+    expect(r.ok).toBe(false);
+    expect(kinds(r)).toContain('clone-config-changed');
+  });
+
+  it.each([
+    ['sets core.fsmonitor', 'git config core.fsmonitor /tmp/nope.sh'],
+    ['sets core.hooksPath', 'git config core.hooksPath /tmp/hooks'],
+    ['adds an alias', 'git config alias.st status'],
+  ])('a step that %s in the clone voids the run', (_name, cmd) => {
+    const r = run(cmd);
+    expect(r.ok).toBe(false);
+    expect(kinds(r)).toContain('clone-config-changed');
+  });
+});
+
+describe('only an exit status of exactly 0 is a pass', () => {
+  // The runner grades the status deps.run reports. A step killed by a signal reports status null (no exit code), a
+  // failed spawn reports 127; neither is a pass. Mutating the grade to `!r.status` would turn null into a pass.
+  const realRun = (cmd, o) => {
+    const x = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', cmd], { cwd: o.cwd, env: o.env, encoding: 'utf8' });
+    return { status: x.error ? 127 : x.status, stdout: x.stdout || '', stderr: x.stderr || '' };
+  };
+  // Run the head with deps.run replaced: the version probe stays honest, the trusted step reports `reported`.
+  const withReported = (reported) => {
+    const head = makeHead({ workflowCmds: ['the-step'] });
+    return gate(head, approvalFor([{ name: 'the-step', cmd: 'the-step' }]), undefined, {
+      run: (cmd, o) => (cmd === 'the-step' ? reported : realRun(cmd, o)),
+    });
+  };
+
+  it('status 0 passes (control)', () => {
+    expect(withReported({ status: 0, stdout: '', stderr: '' })).toMatchObject({ ok: true, failures: [] });
+  });
+
+  it.each([
+    ['null (killed by a signal: no exit code)', null],
+    ['undefined (no status reported)', undefined],
+    ['127 (could not be started)', 127],
+    ['1', 1],
+    ['-1', -1],
+    ['"0" as text', '0'],
+    ['false', false],
+    ['NaN', NaN],
+  ])('status %s is a failure, never a pass', (_name, status) => {
+    const r = withReported({ status, stdout: '', stderr: '' });
+    expect(r.ok).toBe(false);
+    expect(r.failures.map((f) => f.kind)).toContain('step-failed');
+  });
+});
+
+describe('the guards around the clone directory and the head sha', () => {
+  const tmpDir = (p) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), p));
+    tmpRoots.push(d);
+    return d;
+  };
+  const OLD = Date.now() + 10 * 24 * 3600 * 1000; // "now" ten days on: every entry is stale
+
+  it('the stale sweep removes a symlinked run directory itself, never what it points at', () => {
+    const repo = tmpDir('lci-sweep-');
+    const victim = tmpDir('lci-victim-');
+    fs.writeFileSync(path.join(victim, 'precious.txt'), 'keep me');
+    const runs = path.join(repo, '.ensemble', 'local-ci-runs');
+    fs.mkdirSync(runs, { recursive: true });
+    const name = 'a'.repeat(40);
+    fs.symlinkSync(victim, path.join(runs, name));
+    expect(sweepStaleClones({ repoRoot: repo, maxAgeMs: 1000, now: OLD })).toEqual([]);
+    expect(fs.readFileSync(path.join(victim, 'precious.txt'), 'utf8')).toBe('keep me');
+  });
+
+  it('the stale sweep touches only sha-named directories under the prefix', () => {
+    const repo = tmpDir('lci-sweep2-');
+    const runs = path.join(repo, '.ensemble', 'local-ci-runs');
+    fs.mkdirSync(path.join(runs, 'a'.repeat(40)), { recursive: true });
+    fs.mkdirSync(path.join(runs, 'not-a-sha'), { recursive: true });
+    // (an upper-case 40-char name is not tested here: on a case-insensitive filesystem it is the SAME directory as the lower-case one)
+    fs.writeFileSync(path.join(runs, 'b'.repeat(40)), 'a file, not a clone');
+    expect(sweepStaleClones({ repoRoot: repo, maxAgeMs: 1000, now: OLD })).toEqual(['a'.repeat(40)]);
+    expect(fs.existsSync(path.join(runs, 'not-a-sha'))).toBe(true);
+    expect(fs.existsSync(path.join(runs, 'b'.repeat(40)))).toBe(true);
+  });
+
+  it.each([
+    ['too short', 'abc123'],
+    ['too long', 'a'.repeat(41)],
+    ['upper case', 'A'.repeat(40)],
+    ['a ref name', 'origin/main'],
+    ['option shaped', '--upload-pack=touch /tmp/pwned'],
+    ['path traversal', '../'.repeat(14) + 'a'.repeat(4)],
+    ['not text', 12345],
+    ['null', null],
+  ])('a malformed head sha (%s) is refused before git or the filesystem is touched', (_name, sha) => {
+    const repo = tmpDir('lci-sha-');
+    const git = jest.fn(() => ({ status: 0, stdout: '', stderr: '' }));
+    const r = cloneAtSha({ repoRoot: repo, sha, deps: { git } });
+    expect(r.ok).toBe(false);
+    expect(git).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(repo, '.ensemble'))).toBe(false);
+  });
+});
+
+describe('secrets reach a step only by name from the BASE-ref config, through the CLI', () => {
+  const VALUE = 'registry-token-value-9876';
+  const cfgText = (extra = {}) =>
+    yaml.dump({
+      workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }],
+      steps: [{ name: 'show', cmd: 'node scripts/show.js' }],
+      status_context: 'x/local-ci',
+      app_id: 1,
+      ...extra,
+    });
+  // The step records which of the two variables it can see (outside the clone) and prints the value (to test redaction).
+  const showScript = (out) =>
+    `const e = process.env; require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify({ listed: e.LISTED_TOKEN || null, unlisted: e.UNLISTED_TOKEN || null })); console.log('value=' + (e.LISTED_TOKEN || ''));\n`;
+  const run = async (baseConfig, { headConfig } = {}) => {
+    const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lci-sec-'));
+    tmpRoots.push(dirTmp);
+    const out = path.join(dirTmp, 'seen.json');
+    const head = makeHead({
+      workflowCmds: ['node scripts/show.js'],
+      files: { 'scripts/show.js': showScript(out) },
+      baseConfig,
+      extraCommitFiles: headConfig ? { '.ensemble/local-ci.yaml': headConfig } : {},
+    });
+    const posted = [];
+    // The CLI forwards no env: the runner reads the maintainer's real process.env (that is the point). Set it there,
+    // scoped to this call and restored, rather than inventing an injection seam a caller could abuse.
+    const saved = { LISTED_TOKEN: process.env.LISTED_TOKEN, UNLISTED_TOKEN: process.env.UNLISTED_TOKEN };
+    process.env.LISTED_TOKEN = VALUE;
+    process.env.UNLISTED_TOKEN = 'unlisted-value-5432';
+    let report;
+    try {
+      report = await cli.runGateFlow(
+        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', dryRun: true },
+        {
+          ...cli.defaultDeps(),
+          runnerDeps: deps(),
+          loadCredential: () => ({ credential: null, reason: 'none' }),
+          postStatus: async (a) => { posted.push(a); return { published: true }; },
+        }
+      );
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    const seen = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')) : null;
+    return { report, seen, posted };
+  };
+
+  it('a name listed in the base-ref secret_names reaches the step; an unlisted variable does not', async () => {
+    const { report, seen } = await run(cfgText({ secret_names: ['LISTED_TOKEN'] }));
+    expect(report.stage).not.toBe('config');
+    expect(seen).toEqual({ listed: VALUE, unlisted: null });
+  });
+
+  it('with no secret_names configured, neither variable reaches the step', async () => {
+    const { seen } = await run(cfgText());
+    expect(seen).toEqual({ listed: null, unlisted: null });
+  });
+
+  it('the delivered value never appears in what the CLI returns, even when the step prints it', async () => {
+    const { report } = await run(cfgText({ secret_names: ['LISTED_TOKEN'] }));
+    expect(JSON.stringify(report)).not.toContain(VALUE);
+  });
+
+  it('a configured secret whose NAME does not look like a credential is still redacted (only the configured path can catch it)', async () => {
+    // REGISTRY_SESSION matches none of TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH, so the inherited-name heuristic cannot
+    // redact it: if it is absent from the result, the configured-secret redaction did that work.
+    const PLAIN = 'plain-named-value-77123';
+    const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lci-plain-'));
+    tmpRoots.push(dirTmp);
+    const head = makeHead({
+      workflowCmds: ['node scripts/leak.js'],
+      files: { 'scripts/leak.js': "console.error('leaked=' + process.env.REGISTRY_SESSION); process.exit(1);\n" },
+      baseConfig: yaml.dump({
+        workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }],
+        steps: [{ name: 'leak', cmd: 'node scripts/leak.js' }],
+        secret_names: ['REGISTRY_SESSION'],
+        status_context: 'x/local-ci',
+        app_id: 1,
+      }),
+    });
+    const saved = process.env.REGISTRY_SESSION;
+    process.env.REGISTRY_SESSION = PLAIN;
+    let report;
+    try {
+      report = await cli.runGateFlow(
+        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', dryRun: true },
+        { ...cli.defaultDeps(), runnerDeps: deps(), loadCredential: () => ({ credential: null, reason: 'none' }) }
+      );
+    } finally {
+      if (saved === undefined) delete process.env.REGISTRY_SESSION;
+      else process.env.REGISTRY_SESSION = saved;
+    }
+    expect(report.failures.map((x) => x.kind)).toContain('step-failed'); // the step ran and printed it
+    expect(JSON.stringify(report)).not.toContain(PLAIN);
+    expect(JSON.stringify(report)).toContain('leaked='); // it printed, so redaction (not silence) removed the value
+  });
+
+  it('a head cannot grant itself a secret by committing its own secret_names', async () => {
+    // The base config lists nothing; the head's committed copy lists LISTED_TOKEN. Only the base counts.
+    const { seen } = await run(cfgText(), { headConfig: cfgText({ secret_names: ['LISTED_TOKEN'] }) });
+    expect(seen).toEqual({ listed: null, unlisted: null });
   });
 });

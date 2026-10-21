@@ -20,7 +20,7 @@
 const yaml = require('js-yaml');
 
 const TOP_REQUIRED = ['workflows', 'steps', 'status_context', 'app_id'];
-const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'status_context', 'app_id', 'bot_reviewers'];
+const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'secret_names', 'status_context', 'app_id', 'bot_reviewers'];
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -179,6 +179,29 @@ function validateSteps(list, problems) {
   return steps;
 }
 
+// Environment-variable NAMES only (never values): these are the secrets the maintainer allows trusted steps to see. The
+// names come from the base-ref config so neither a PR head nor a caller can choose what reaches the code under test; the
+// values are read from the maintainer's environment or the fixed gitignored .ensemble/local-ci.secrets.env, never this file.
+const SECRET_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+function validateSecretNames(value, problems) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    problems.push('secret_names: must be a list of environment variable names');
+    return [];
+  }
+  const out = [];
+  value.forEach((name, i) => {
+    if (typeof name !== 'string' || !SECRET_NAME_RE.test(name)) {
+      problems.push(`secret_names[${i}]: must be an environment variable NAME (letters, digits, underscore); values never belong in this file`);
+    } else if (out.includes(name)) {
+      problems.push(`secret_names[${i}]: duplicate name "${name}"`);
+    } else {
+      out.push(name);
+    }
+  });
+  return out;
+}
+
 function validateBots(value, problems) {
   if (value === undefined || value === null) return { skipped: true, logins: [] };
   if (!Array.isArray(value) || !value.every(isText)) {
@@ -235,6 +258,7 @@ function validateConfig(source) {
     else problems.push('app_id: must be a positive integer or non-empty placeholder text');
   }
   const botReview = validateBots(config.bot_reviewers, problems);
+  const secretNames = validateSecretNames(config.secret_names, problems);
 
   for (const ex of excluded) {
     const wf = workflows.find((w) => w.file === ex.workflow);
@@ -264,6 +288,7 @@ function validateConfig(source) {
       excludedSteps,
       steps,
       equivalents,
+      secretNames,
       statusContext: config.status_context.trim(),
       appId,
       botReview,

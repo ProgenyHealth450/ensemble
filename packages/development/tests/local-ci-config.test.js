@@ -201,4 +201,35 @@ describe('validateConfig', () => {
     expect(validateConfig('- 1\n- 2').ok).toBe(false);
     expect(validateConfig(42).ok).toBe(false);
   });
+
+  describe('secret_names: which environment variables trusted steps may see', () => {
+    const withSecrets = (secret_names) => validateConfig({ ...base(), steps: [{ name: 's', cmd: 'true' }], secret_names });
+
+    test('defaults to none, never to a repository-wide or inherited set', () => {
+      expect(validateConfig({ ...base(), steps: [{ name: 's', cmd: 'true' }] }).approvalSet.secretNames).toEqual([]);
+    });
+
+    test('valid environment variable names are carried through', () => {
+      const r = withSecrets(['NPM_TOKEN', 'CODECOV_TOKEN', '_X1']);
+      expect(r.problems).toEqual([]);
+      expect(r.approvalSet.secretNames).toEqual(['NPM_TOKEN', 'CODECOV_TOKEN', '_X1']);
+    });
+
+    test.each([
+      ['a value instead of a name', ['NPM_TOKEN=abc123']],
+      ['a name with a dash', ['NPM-TOKEN']],
+      ['a name starting with a digit', ['1TOKEN']],
+      ['an empty name', ['']],
+      ['a non-string', [42]],
+      ['a path-like entry', ['../x']],
+      ['a duplicate', ['A', 'A']],
+      ['a name over 64 characters', ['A'.repeat(65)]],
+      ['not a list', 'NPM_TOKEN'],
+    ])('%s is refused', (_n, secret_names) => {
+      const r = withSecrets(secret_names);
+      expect(r.ok).toBe(false);
+      expect(r.approvalSet).toBeUndefined();
+      expect(r.problems.join(' ')).toMatch(/secret_names/);
+    });
+  });
 });

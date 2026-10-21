@@ -2,9 +2,11 @@
 
 /**
  * Local CI run record: build, parse and verify the compact status description
- * `ci-local <8-hex> | set:<8-hex> | log:<12-hex>` (at most 100 characters).
+ * `ci-local <12-hex> | set:<8-hex> | log:<12-hex>` (at most 100 characters).
  *
- *   ci-local  first 8 hex of the git blob hash of the maintainer's trusted .ensemble/local-ci.yaml (the command list that ran)
+ *   ci-local  first 12 hex of the git blob hash of the maintainer's trusted .ensemble/local-ci.yaml: the WHOLE config
+ *             (steps, matrix, equivalents, exclusions), so this one field binds the command list that ran. 12 hex (48 bits),
+ *             not 8, because it is the only field that does; the workflow-set hash below covers file names only.
  *   set       first 8 hex of sha256 over the sorted, de-duplicated workflow set
  *   log       first 12 hex of sha256 of the run log (the log is never embedded)
  *
@@ -16,7 +18,8 @@
 const crypto = require('crypto');
 
 const MAX_LENGTH = 100;
-const RECORD_RE = /^ci-local ([0-9a-f]{8}) \| set:([0-9a-f]{8}) \| log:([0-9a-f]{12})$/;
+const RUNNER_HEX = 12;
+const RECORD_RE = /^ci-local ([0-9a-f]{12}) \| set:([0-9a-f]{8}) \| log:([0-9a-f]{12})$/;
 const HEX_RE = /^[0-9a-fA-F]+$/;
 const SHA_RE = /^[0-9a-fA-F]{40}$/;
 
@@ -43,15 +46,15 @@ function hashWorkflowSet(workflowSet) {
 function buildRecord(input) {
   if (input === null || typeof input !== 'object') return fail('input must be an object');
   const { runnerBlobSha, workflowSet, log } = input;
-  if (typeof runnerBlobSha !== 'string' || runnerBlobSha.length < 8 || !HEX_RE.test(runnerBlobSha)) {
-    return fail('runnerBlobSha must be a hex git blob hash of at least 8 characters');
+  if (typeof runnerBlobSha !== 'string' || runnerBlobSha.length < RUNNER_HEX || !HEX_RE.test(runnerBlobSha)) {
+    return fail(`runnerBlobSha must be a hex git blob hash of at least ${RUNNER_HEX} characters`);
   }
   if (typeof log !== 'string') return fail('log must be a string');
   const set = hashWorkflowSet(workflowSet);
   if (!set.ok) return set;
 
   const fields = {
-    runner: runnerBlobSha.slice(0, 8).toLowerCase(),
+    runner: runnerBlobSha.slice(0, RUNNER_HEX).toLowerCase(),
     set: set.hash,
     log: sha256Hex(log).slice(0, 12),
   };
@@ -93,16 +96,15 @@ function verifyRecord(input) {
     result.ok = false;
     result.setMismatch = `recorded set:${parsed.fields.set} differs from configured set:${set.hash}`;
   }
-  // Optional: the record must have been produced under this exact trusted config blob.
-  if (input.runnerBlobSha !== undefined) {
-    const want = input.runnerBlobSha;
-    if (typeof want !== 'string' || want.length < 8 || !HEX_RE.test(want)) {
-      return fail('runnerBlobSha must be a hex git blob hash of at least 8 characters');
-    }
-    if (want.slice(0, 8).toLowerCase() !== parsed.fields.runner) {
-      result.ok = false;
-      result.runnerMismatch = `recorded config ${parsed.fields.runner} differs from trusted config ${want.slice(0, 8).toLowerCase()}`;
-    }
+  // REQUIRED: the record must have been produced under this exact trusted config blob. Without it nothing binds the
+  // command list (the set hash covers workflow file names only), so a missing value is refused, never skipped.
+  const want = input.runnerBlobSha;
+  if (typeof want !== 'string' || want.length < RUNNER_HEX || !HEX_RE.test(want)) {
+    return fail(`runnerBlobSha is required: a hex git blob hash of the trusted config, at least ${RUNNER_HEX} characters`);
+  }
+  if (want.slice(0, RUNNER_HEX).toLowerCase() !== parsed.fields.runner) {
+    result.ok = false;
+    result.runnerMismatch = `recorded config ${parsed.fields.runner} differs from trusted config ${want.slice(0, RUNNER_HEX).toLowerCase()}`;
   }
   return result;
 }

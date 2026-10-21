@@ -75,8 +75,8 @@ describe('(a) a head that rewrites its own config is graded by the BASE config, 
     expect(JSON.stringify(runGate.mock.calls[0][0].approvalSet.steps)).not.toContain('"true"');
     expect(r.ok).toBe(true);
     const desc = fetch.statuses()[0].body.description;
-    expect(desc.startsWith(`ci-local ${blobAt(repo, repo.baseRef).slice(0, 8)} `)).toBe(true);
-    expect(desc.startsWith(`ci-local ${blobAt(repo, 'HEAD').slice(0, 8)} `)).toBe(false);
+    expect(desc.startsWith(`ci-local ${blobAt(repo, repo.baseRef).slice(0, 12)} `)).toBe(true);
+    expect(desc.startsWith(`ci-local ${blobAt(repo, 'HEAD').slice(0, 12)} `)).toBe(false);
   });
 
   it('merge refuses a record produced under the head-rewritten config', () => {
@@ -87,8 +87,8 @@ describe('(a) a head that rewrites its own config is graded by the BASE config, 
       cli.defaultDeps()
     );
     expect(r.mergeReady).toBe(false);
-    expect(r.reason).toContain(blobAt(repo, 'HEAD').slice(0, 8));
-    expect(r.reason).toContain(blobAt(repo, repo.baseRef).slice(0, 8));
+    expect(r.reason).toContain(blobAt(repo, 'HEAD').slice(0, 12));
+    expect(r.reason).toContain(blobAt(repo, repo.baseRef).slice(0, 12));
   });
 
   it('through the real runner: the weakened head fails the base `exit 1` step and is not merge-ready', async () => {
@@ -142,45 +142,61 @@ describe('(c) baseRef is required and cannot inject git options', () => {
     gate: (p) => cli.runGateFlow({ ...base, repo: 'o/r', dryRun: true, ...p }, deps().d),
   };
 
-  it.each(['config', 'run', 'merge', 'gate'])('%s rejects a missing, blank, non-text or leading-dash baseRef at the boundary', async (name) => {
-    for (const bad of [undefined, '', '   ', 5, null, '-x', '--output=/tmp/x']) {
+  const HOSTILE = [
+    undefined, '', '   ', 5, null,
+    '-x', '--output=/tmp/x',            // option-shaped
+    'main', 'trusted-base',             // a bare local branch name
+    'HEAD', '@', 'main^0', 'HEAD^{}',   // revision syntax
+    'origin/main@{0}', 'origin/main@{1}', '@{1}', // reflog spellings
+    'origin/main~1', 'origin/main:x', 'origin/ma..in', // ancestry, path and range syntax
+    'refs/heads/main', 'refs/tags/v1',  // not remote-tracking
+    'origin/', '/origin/main', 'origin//main', 'origin/.hidden', 'origin/x.lock',
+    'a'.repeat(40), 'abcd1234',         // raw and abbreviated SHAs
+    'origin/main\0x', 'origin/main\nx', 'origin/main\rx', // control characters (real NUL, LF, CR)
+  ];
+
+  it.each(['config', 'run', 'merge', 'gate'])('%s rejects every non-remote-tracking baseRef shape at the boundary', async (name) => {
+    for (const bad of HOSTILE) {
       const p = bad === undefined ? {} : { baseRef: bad };
       await expect(Promise.resolve().then(() => handlers[name](p))).rejects.toThrow(/baseRef/);
     }
   });
 
-  it('an unknown ref is refused (no fallback to the working tree)', async () => {
-    const r = handlers.config({ baseRef: 'no-such-ref' });
+  it('a well-formed remote-tracking ref that does not exist is refused (no fallback to the working tree)', async () => {
+    const r = handlers.config({ baseRef: 'origin/no-such-branch' });
     expect(r.ok).toBe(false);
-    expect(r.problems.join(' ')).toMatch(/does not resolve/);
-    const g = await handlers.gate({ baseRef: 'no-such-ref' });
+    expect(r.problems.join(' ')).toMatch(/not a remote-tracking ref present/);
+    const g = await handlers.gate({ baseRef: 'origin/no-such-branch' });
     expect(g.ok).toBe(false);
     expect(g.stage).toBe('config');
   });
 
-  it('a ref named like a git option is passed as data: git is never told --output and creates no file', async () => {
+  it('a LOCAL branch named like a remote-tracking ref does not satisfy it', async () => {
+    // refs/heads/origin/spoof exists, refs/remotes/origin/spoof does not: only a fetch can create the latter.
+    repo.git('branch', 'origin/spoof');
+    const r = handlers.config({ baseRef: 'origin/spoof' });
+    expect(r.ok).toBe(false);
+    expect(r.problems.join(' ')).toMatch(/not a remote-tracking ref present/);
+  });
+
+  it('an option-shaped ref is rejected before git runs: no --output file is ever created', () => {
     const out = `/tmp/local-ci-baseref-inject-${process.pid}`;
     fs.rmSync(out, { force: true });
-    const ref = `--output=${out}`;
-    repo.git('branch', '--', 'safe');
-    // reaches loadTrustedConfig only through direct calls (boundary already rejects it); also via a CLI process
     const spawned = spawnSync(process.execPath, [path.join(__dirname, '..', 'lib', 'local-ci-cli.js'), 'config'], {
-      input: JSON.stringify({ repoRoot: repo.dir, baseRef: ref }),
+      input: JSON.stringify({ repoRoot: repo.dir, baseRef: `--output=${out}` }),
       encoding: 'utf8',
     });
     expect(spawned.status).toBe(1);
     expect(JSON.parse(spawned.stdout).error).toMatch(/baseRef/);
-    // and a ref that merely CONTAINS the option text after a safe prefix is still just an unknown ref
-    const r = cli.runConfig({ repoRoot: repo.dir, baseRef: `safe..${ref}` }, cli.defaultDeps());
-    expect(r.ok).toBe(false);
     expect(fs.existsSync(out)).toBe(false);
   });
 });
 
-describe('(d) the head is not its own base', () => {
-  it('baseRef resolving to the head SHA is refused by gate, run and merge, naming both', async () => {
+describe('(d) the head is not its own base, and a descendant of the head is not a base', () => {
+  it('a remote-tracking ref pointing at the head SHA is refused by gate, run and merge, naming both', async () => {
     const repo = makeBaseRepo({ config: STRICT });
-    const asHead = { ...payload(repo), baseRef: repo.headSha };
+    repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.headSha);
+    const asHead = { ...payload(repo), baseRef: 'origin/pr-self' };
     const { d, runGate, fetch } = deps();
     const g = await cli.runGateFlow(asHead, d);
     expect(g).toMatchObject({ ok: false, mergeReady: false, stage: 'config' });
@@ -188,10 +204,47 @@ describe('(d) the head is not its own base', () => {
     expect(g.error).toContain(repo.headSha);
     expect(runGate).not.toHaveBeenCalled();
     expect(fetch.calls).toHaveLength(0);
-    expect(cli.runRun({ repoRoot: repo.dir, headSha: repo.headSha, baseRef: repo.headSha }, d).ok).toBe(false);
-    const m = cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: 'HEAD', statuses: [] }, cli.defaultDeps());
+    expect(cli.runRun({ repoRoot: repo.dir, headSha: repo.headSha, baseRef: 'origin/pr-self' }, d).ok).toBe(false);
+    const m = cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: 'origin/pr-self', statuses: [] }, cli.defaultDeps());
     expect(m.mergeReady).toBe(false);
     expect(m.reason).toMatch(/own base/);
+  });
+
+  it('a descendant of the head that carries a weakened config is refused as a base (the head author can push one)', async () => {
+    // The attack: push a child of the head whose .ensemble/local-ci.yaml requires only `true`, and have the
+    // base ref point at it. It shares history with the head, so a bare merge-base check would trust it.
+    const repo = makeBaseRepo({ config: STRICT, files: { '.github/workflows/ci.yml': WF('exit 1') } });
+    fs.writeFileSync(path.join(repo.dir, '.ensemble/local-ci.yaml'), WEAK);
+    fs.writeFileSync(path.join(repo.dir, '.github/workflows/ci.yml'), WF('true'));
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'descendant of the head: weakened gate');
+    const child = repo.git('rev-parse', 'HEAD');
+    repo.git('update-ref', 'refs/remotes/origin/attacker-main', child);
+    repo.git('checkout', '-q', repo.headSha);
+    const base = { repoRoot: repo.dir, headSha: repo.headSha, baseRef: 'origin/attacker-main' };
+    const { d, runGate } = deps();
+    const run = cli.runRun(base, d);
+    expect(run.ok).toBe(false);
+    expect(JSON.stringify(run)).toMatch(/descendant of the PR head/);
+    expect(runGate).not.toHaveBeenCalled();
+    const g = await cli.runGateFlow({ ...payload(repo), baseRef: 'origin/attacker-main' }, d);
+    expect(g).toMatchObject({ ok: false, mergeReady: false, stage: 'config' });
+    expect(g.error).toMatch(/descendant of the PR head/);
+    const m = cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: 'origin/attacker-main', statuses: [] }, cli.defaultDeps());
+    expect(m.mergeReady).toBe(false);
+    expect(m.reason).toMatch(/descendant of the PR head/);
+  });
+
+  it('control: a base that advanced past the fork point (a sibling of the head, not its descendant) is still accepted', async () => {
+    const repo = makeBaseRepo({ config: STRICT });
+    repo.git('checkout', '-q', '--detach', repo.baseSha);
+    fs.writeFileSync(path.join(repo.dir, 'advanced.txt'), 'the base branch moved on\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'base advanced');
+    repo.git('update-ref', `refs/remotes/${repo.baseRef}`, repo.git('rev-parse', 'HEAD'));
+    repo.git('checkout', '-q', repo.headSha);
+    const c = cli.runRun({ repoRoot: repo.dir, headSha: repo.headSha, baseRef: repo.baseRef }, deps().d);
+    expect(JSON.stringify(c)).not.toMatch(/descendant|own base|shares no history/);
   });
 });
 
@@ -231,7 +284,7 @@ describe('(f) a status produced under a different config blob is refused by merg
     const bad = merge(foreign);
     expect(bad.mergeReady).toBe(false);
     expect(bad.reason).toContain('deadbeef');
-    expect(bad.reason).toContain(trusted.slice(0, 8));
+    expect(bad.reason).toContain(trusted.slice(0, 12));
     expect(merge(trusted).mergeReady).toBe(true);
   });
 });
@@ -244,15 +297,17 @@ describe('(g) gate -> merge round trip', () => {
     expect(r).toMatchObject({ ok: true, posted: true, mergeReady: true });
     const post = fetch.statuses()[0];
     expect(post.url).toContain(`/statuses/${repo.headSha}`);
-    expect(post.body.description.startsWith(`ci-local ${blobAt(repo, repo.baseRef).slice(0, 8)} `)).toBe(true);
+    expect(post.body.description.startsWith(`ci-local ${blobAt(repo, repo.baseRef).slice(0, 12)} `)).toBe(true);
     const status = { context: CTX, state: 'success', description: post.body.description, sha: repo.headSha };
     const merge = () => cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: [status] }, cli.defaultDeps());
     expect(merge().mergeReady).toBe(true);
 
-    // the base branch's config changes (a different blob): the old status no longer counts
-    repo.git('checkout', '-q', repo.baseRef);
+    // the base branch's config changes (a different blob), and a fetch moves the remote-tracking ref to it: the old
+    // status no longer counts. (Committing on a detached checkout of origin/<branch> would NOT move the ref.)
+    repo.git('checkout', '-q', '--detach', repo.baseSha);
     fs.writeFileSync(path.join(repo.dir, '.ensemble/local-ci.yaml'), cfg('  - name: real-check\n    cmd: exit 2'));
     repo.git('commit', '-qam', 'base changes the gate');
+    repo.git('update-ref', `refs/remotes/${repo.baseRef}`, repo.git('rev-parse', 'HEAD'));
     repo.git('checkout', '-q', repo.headSha);
     const stale = merge();
     expect(stale.mergeReady).toBe(false);

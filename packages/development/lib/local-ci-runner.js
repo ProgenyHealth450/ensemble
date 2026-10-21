@@ -48,8 +48,8 @@ function normalizeCmd(cmd) {
 
 function defaultDeps() {
   return {
-    git(args, { cwd } = {}) {
-      const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    git(args, { cwd, input } = {}) {
+      const r = spawnSync('git', args, { cwd, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       return { status: r.error ? 127 : r.status, stdout: r.stdout || '', stderr: r.stderr || (r.error ? String(r.error.message) : '') };
     },
     run(cmd, { cwd, env } = {}) {
@@ -208,6 +208,53 @@ function cloneAtSha({ repoRoot, sha, remote = 'origin', deps }) {
     return unfetchable(`clone HEAD is ${head.stdout.trim() || 'unknown'}, not the requested commit`);
   }
   return { ok: true, dir };
+}
+
+/**
+ * Did the steps change what they claim to have tested? Compares the clone with the tree of `sha` by CONTENT, not by
+ * git's opinion of it: `git diff` / `git status` are blind to `update-index --assume-unchanged` and `--skip-worktree`,
+ * which a hostile step can set to hide a modified tracked file, so each tracked path is hashed from disk and compared
+ * with the blob id in the tree. Untracked files are ignored on purpose: honest steps write them (node_modules, coverage/).
+ * Returns a list of problems; [] means the tracked content is exactly the tree of `sha`.
+ */
+function trackedIntegrity({ dir, sha, deps }) {
+  const problems = [];
+  const tree = deps.git(['rev-parse', `${sha}^{tree}`], { cwd: dir });
+  const idx = deps.git(['write-tree'], { cwd: dir });
+  if (tree.status !== 0 || idx.status !== 0 || idx.stdout.trim() !== tree.stdout.trim()) {
+    problems.push(`the index no longer matches the tree of ${sha.slice(0, 8)}`);
+  }
+  const ls = deps.git(['ls-tree', '-r', '-z', '--full-tree', sha], { cwd: dir });
+  if (ls.status !== 0) return [...problems, `cannot list the tracked files of ${sha.slice(0, 8)}`];
+  for (const rec of String(ls.stdout).split('\0').filter(Boolean)) {
+    const tab = rec.indexOf('\t');
+    const [mode, type, blob] = rec.slice(0, tab).split(' ');
+    const rel = rec.slice(tab + 1);
+    if (type !== 'blob') continue; // a submodule entry is not tracked file content
+    const abs = path.join(dir, rel);
+    let st;
+    try {
+      st = fs.lstatSync(abs);
+    } catch (_e) {
+      problems.push(`tracked file removed: ${rel}`);
+      continue;
+    }
+    if (mode === '120000') {
+      const want = st.isSymbolicLink() ? fs.readlinkSync(abs) : null;
+      const h = want === null ? null : deps.git(['hash-object', '--stdin'], { cwd: dir, input: want }).stdout.trim();
+      if (h !== blob) problems.push(`tracked symlink changed: ${rel}`);
+      continue;
+    }
+    const h = deps.git(['hash-object', '--no-filters', '--', rel], { cwd: dir });
+    if (h.status !== 0 || h.stdout.trim() !== blob) problems.push(`tracked file modified: ${rel}`);
+  }
+  return problems;
+}
+
+/** The clone's own git configuration, so a step that sets core.fsmonitor, hooksPath, sshCommand etc. is detected. */
+function cloneGitConfig({ dir, deps }) {
+  const r = deps.git(['config', '--local', '--list', '-z'], { cwd: dir });
+  return r.status === 0 ? String(r.stdout) : null;
 }
 
 /* --------------------------------------------------------- step mirroring */
@@ -437,6 +484,9 @@ function runGate(options, injected) {
   }
   const dir = clone.dir;
   result.clonePath = dir;
+  // Baseline of the clone's own git config, taken before any step runs; compared after (a step that sets core.fsmonitor,
+  // core.hooksPath, core.sshCommand ... would otherwise change what later git calls in the clone execute).
+  const configBefore = cloneGitConfig({ dir, deps });
 
   try {
     // Read the REQUIRED workflows at the PR head as DATA and compare with the
@@ -520,6 +570,17 @@ function runGate(options, injected) {
     const head = deps.git(['rev-parse', 'HEAD'], { cwd: dir });
     if (head.status !== 0 || head.stdout.trim() !== sha) {
       fail('clone-moved', null, undefined, `the clean clone no longer sits at ${sha} after the steps ran (got ${tail(head.stdout) || 'no HEAD'}); not counting the run`);
+    }
+
+    // The steps must not have rewritten what they claim to have tested: tracked content is compared by hash against the
+    // tree of `sha` (see trackedIntegrity), and the clone's own git config must be unchanged. Untracked output is fine.
+    const tampered = trackedIntegrity({ dir, sha, deps });
+    if (tampered.length > 0) {
+      fail('clone-tampered', null, undefined, `a step changed tracked content of the clean clone at ${sha}; not counting the run: ${tampered.slice(0, 5).join('; ')}${tampered.length > 5 ? `; and ${tampered.length - 5} more` : ''}`);
+    }
+    const configAfter = cloneGitConfig({ dir, deps });
+    if (configBefore === null || configAfter === null || configAfter !== configBefore) {
+      fail('clone-config-changed', null, undefined, `the clone's git configuration changed (or could not be read) while the steps ran; not counting the run`);
     }
 
     result.ok = result.failures.length === 0 && result.nodes.length === versions.length && result.nodes.every((n) => n.ok);

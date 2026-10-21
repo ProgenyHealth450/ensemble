@@ -83,7 +83,7 @@ describe('merge readiness', () => {
   it('passing run merges: a verified status bound to the exact head is ready without hosted CI', () => {
     const r = merge([status()]);
     expect(r).toMatchObject({ ok: true, mergeReady: true, headSha: HEAD, hostedCiWaitRequired: false });
-    expect(verifyRecord({ description: record.description, statusCommitSha: HEAD, headSha: HEAD, workflowSet: WORKFLOW_SET }).ok).toBe(true);
+    expect(verifyRecord({ description: record.description, statusCommitSha: HEAD, headSha: HEAD, runnerBlobSha: trustedBlob, workflowSet: WORKFLOW_SET }).ok).toBe(true);
   });
 
   it('no run refuses and reports the missing run', () => {
@@ -333,7 +333,7 @@ describe('CLI boundary and output', () => {
     };
     const fx = repoWith();
     expect((await call('config', { repoRoot: fx.dir, baseRef: fx.baseRef })).body.approvalSet.statusContext).toBe(CONTEXT);
-    const built = await call('record', { action: 'build', input: { runnerBlobSha: 'c0ffee12', workflowSet: WORKFLOW_SET, log: 'l' } });
+    const built = await call('record', { action: 'build', input: { runnerBlobSha: 'c0ffee123456', workflowSet: WORKFLOW_SET, log: 'l' } });
     expect(built.body.ok).toBe(true);
     expect((await call('record', { action: 'parse', input: built.body.description })).body.fields).toEqual(built.body.fields);
     expect((await call('record', { action: 'parse', input: 'garbage' })).code).toBe(1);

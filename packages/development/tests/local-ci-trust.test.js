@@ -35,7 +35,7 @@ afterAll(cleanupBaseRepos);
 function maintainer(config = TRUSTED_TEXT, extra = {}) {
   const repo = makeBaseRepo({ config, ...extra });
   const blob = repo.git('rev-parse', `${repo.baseRef}:${CONFIG_PATH}`);
-  return { ...repo, blob, short: blob.slice(0, 8) };
+  return { ...repo, blob, short: blob.slice(0, 12) };
 }
 
 function fakeFetch() {
@@ -103,7 +103,7 @@ describe('gate: payload cannot carry config or runner options', () => {
     // and without the override the runner gets exactly the maintainer's matrix and only the documented option keys
     await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r', dryRun: true }, deps);
     const options = runGate.mock.calls[0][0];
-    expect(Object.keys(options).sort()).toEqual(['approvalSet', 'equivalents', 'excludedSteps', 'headSha', 'repoRoot']);
+    expect(Object.keys(options).sort()).toEqual(['approvalSet', 'equivalents', 'excludedSteps', 'headSha', 'repoRoot', 'secretNames']);
     expect(options.approvalSet.checks.map((c) => c.matrix['node-version']).filter(Boolean)).toEqual([22, 24]);
   });
 
@@ -171,10 +171,11 @@ describe('merge: payload cannot carry config', () => {
   });
 
   it('a status whose record config hash differs from the trusted base blob is refused, naming both hashes', () => {
-    const other = buildRecord({ runnerBlobSha: 'deadbeef', workflowSet: WORKFLOW_SET, log: 'run' });
+    const other = buildRecord({ runnerBlobSha: 'deadbeef1234', workflowSet: WORKFLOW_SET, log: 'run' });
+    expect(other.ok).toBe(true); // a well-formed record under a DIFFERENT config: refused for that reason alone
     const r = merge({ statuses: [status({ description: other.description })] });
     expect(r.mergeReady).toBe(false);
-    expect(r.reason).toContain('deadbeef');
+    expect(r.reason).toContain('deadbeef1234');
     expect(r.reason).toContain(repo.short);
   });
 
@@ -182,7 +183,7 @@ describe('merge: payload cannot carry config', () => {
     const edited = maintainer(TRUSTED_TEXT, { headFiles: { [CONFIG_PATH]: TRUSTED_TEXT + '\n# head edit\n' } });
     const headBlob = edited.git('rev-parse', `HEAD:${CONFIG_PATH}`);
     expect(headBlob).not.toBe(edited.blob);
-    const rec = buildRecord({ runnerBlobSha: headBlob.slice(0, 8), workflowSet: WORKFLOW_SET, log: 'run' });
+    const rec = buildRecord({ runnerBlobSha: headBlob.slice(0, 12), workflowSet: WORKFLOW_SET, log: 'run' });
     const r = cli.runMerge(
       { headSha: edited.sha, baseRef: edited.baseRef, repoRoot: edited.dir, statuses: [{ context: CONTEXT, state: 'success', description: rec.description, sha: edited.sha }] },
       cli.defaultDeps()
@@ -190,10 +191,15 @@ describe('merge: payload cannot carry config', () => {
     expect(r.mergeReady).toBe(false);
   });
 
-  it('a base ref equal to the head is refused (the head cannot be its own base)', () => {
-    const r = merge({ baseRef: repo.sha });
+  it('a remote-tracking base ref equal to the head is refused (the head cannot be its own base)', () => {
+    repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.sha);
+    const r = merge({ baseRef: 'origin/pr-self' });
     expect(r.mergeReady).toBe(false);
-    expect(r.reason).toMatch(/head|base/i);
+    expect(r.reason).toMatch(/own base/);
+  });
+
+  it('the head SHA itself is not accepted as a base ref at all (boundary refusal)', () => {
+    expect(() => merge({ baseRef: repo.sha })).toThrow(/baseRef/);
   });
 
   it('a maintainer config without steps is refused (the command list is required)', () => {
@@ -226,8 +232,11 @@ describe('run and config subcommands', () => {
     const repo = maintainer();
     const { deps, runGate } = makeDeps();
     expect(() => cli.runRun({ repoRoot: repo.dir, headSha: repo.sha }, deps)).toThrow(/baseRef/);
-    const r = cli.runRun({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.sha }, deps);
+    repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.sha);
+    const r = cli.runRun({ repoRoot: repo.dir, headSha: repo.sha, baseRef: 'origin/pr-self' }, deps);
     expect(r.ok).toBe(false);
+    expect(JSON.stringify(r)).toMatch(/own base/);
+    expect(() => cli.runRun({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.sha }, deps)).toThrow(/baseRef/);
     expect(runGate).not.toHaveBeenCalled();
   });
 
@@ -349,17 +358,23 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
     const baseBlob = repo.git('rev-parse', `${repo.baseRef}:${CONFIG_PATH}`);
     const headBlob = repo.git('hash-object', path.join(repo.dir, CONFIG_PATH));
     expect(headBlob).not.toBe(baseBlob);
-    expect(r.record.runner).toBe(baseBlob.slice(0, 8));
-    expect(r.record.runner).not.toBe(headBlob.slice(0, 8));
-    expect(fetch.statuses()[0].body.description).toContain(`ci-local ${baseBlob.slice(0, 8)}`);
+    expect(r.record.runner).toBe(baseBlob.slice(0, 12));
+    expect(r.record.runner).not.toBe(headBlob.slice(0, 12));
+    expect(fetch.statuses()[0].body.description).toContain(`ci-local ${baseBlob.slice(0, 12)}`);
   });
 
   it('a base ref that is the head, or does not resolve, posts nothing and runs nothing', async () => {
     const repo = maintainer();
+    repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.sha);
     const { deps, fetch, runGate } = makeDeps();
-    for (const baseRef of [repo.sha, 'no-such-branch']) {
+    // a real remote-tracking ref at the head, and a well-formed one that does not exist: refused by the gate, not the boundary
+    for (const baseRef of ['origin/pr-self', 'origin/no-such-branch']) {
       const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: 'o/r' }, deps);
       expect(r).toMatchObject({ ok: false, posted: false, mergeReady: false });
+    }
+    // the head's own SHA, and a bare local branch name, are not remote-tracking refs: refused at the boundary
+    for (const baseRef of [repo.sha, 'no-such-branch']) {
+      await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: 'o/r' }, deps)).rejects.toThrow(/baseRef/);
     }
     expect(runGate).not.toHaveBeenCalled();
     expect(fetch.calls).toHaveLength(0);

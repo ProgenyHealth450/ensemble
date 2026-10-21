@@ -60,8 +60,22 @@ const MERGE_KEYS = ['headSha', 'statuses', 'repoRoot', 'baseRef', 'reviews'];
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isText = (v) => typeof v === 'string' && v.trim() !== '';
-// A baseRef is passed to git as ONE argv element; a leading dash could be read as an option.
-const isBaseRef = (v) => isText(v) && !v.startsWith('-') && !/[\0\r\n]/.test(v);
+// A baseRef names the PR's BASE BRANCH as a remote-tracking ref: `<remote>/<branch>` (what `git fetch` populates) or its
+// full form `refs/remotes/<remote>/<branch>`. Nothing else is accepted: no local branch, no raw or abbreviated SHA, no
+// HEAD or `@`, and no revision syntax (`@{n}` reflog, `^`, `~`, `:`, `..`), any of which would let a ref the head's author
+// can move (or one only in the maintainer's reflog) choose which config is trusted. The branch part is limited to a safe
+// character set; a base branch outside it is refused (fail closed). It is passed to git as ONE argv element.
+const BASE_REF_RE = /^(?:refs\/remotes\/)?[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
+const isBaseRef = (v) =>
+  typeof v === 'string' &&
+  v.length <= 200 &&
+  BASE_REF_RE.test(v) &&
+  // `refs/heads/x` and `refs/tags/x` fit the `<remote>/<branch>` shape (remote "refs"); only the full refs/remotes/ form may start with refs/.
+  (!v.startsWith('refs/') || v.startsWith('refs/remotes/')) &&
+  !v.includes('..') &&
+  !v.split('/').some((part) => part === '' || part === '.' || part.startsWith('.') || part.endsWith('.lock'));
+/** `origin/dev` -> `refs/remotes/origin/dev`; an already-full name is unchanged. */
+const fullRemoteRef = (v) => (v.startsWith('refs/remotes/') ? v : `refs/remotes/${v}`);
 
 function shown(name) {
   return typeof name === 'string' ? JSON.stringify(name.slice(0, 40)) : String(name);
@@ -122,9 +136,18 @@ function defaultDeps() {
  */
 function loadTrustedConfig(deps, repoRoot, baseRef) {
   const refuse = (problem) => ({ ok: false, problems: [problem] });
-  if (!isBaseRef(baseRef)) return refuse('baseRef is missing or malformed: the trusted config is read from the PR base ref');
+  if (!isBaseRef(baseRef)) {
+    return refuse(
+      `baseRef ${shown(baseRef)} is not a remote-tracking ref: pass the PR's base branch as origin/<branch> (or refs/remotes/<remote>/<branch>), fetched fresh; local branches, SHAs, HEAD and revision syntax are refused`
+    );
+  }
   const cwd = path.resolve(repoRoot);
-  const resolved = deps.git(['rev-parse', '--verify', '--end-of-options', `${baseRef}^{commit}`], cwd);
+  // `show-ref --verify` takes an EXACT full ref name (no DWIM, no @{n}, no ^), and refs/remotes/ is only populated by
+  // fetches, so a local branch the head's author pushed or force-moved cannot satisfy it. Resolve that exact name.
+  const full = fullRemoteRef(baseRef);
+  const exists = deps.git(['show-ref', '--verify', '--quiet', full], cwd);
+  if (!exists || exists.status !== 0) return refuse(`baseRef ${shown(baseRef)} is not a remote-tracking ref present in ${cwd} (fetch it first)`);
+  const resolved = deps.git(['rev-parse', '--verify', '--end-of-options', `${full}^{commit}`], cwd);
   const baseSha = resolved && resolved.status === 0 ? String(resolved.stdout).trim() : '';
   if (!SHA_RE.test(baseSha)) return refuse(`baseRef ${shown(baseRef)} does not resolve to a commit in ${cwd}`);
 
@@ -136,11 +159,22 @@ function loadTrustedConfig(deps, repoRoot, baseRef) {
   return { ...cfg, baseSha, ...(source === undefined ? {} : { configBlobSha }) };
 }
 
-/** The head must not be its own base and must share history with it. Returns a problem text or null. */
+/**
+ * The base must be an ANCESTOR of the head, or a commit the head diverged from that is NOT a descendant of it.
+ * A legitimate base is the PR's base branch, which may have advanced since the PR forked, so "not an ancestor"
+ * alone is not a refusal; but a base that CONTAINS the head (the head is an ancestor of the base) is a descendant
+ * the head's author can push, and trusting it lets them choose the graded command list. Returns a problem text or null.
+ * The graph can only reject those shapes; that the base is the real PR base is established by baseRef being a
+ * remote-tracking ref (see isBaseRef), never by anything here.
+ */
 function checkBaseHead(deps, repoRoot, baseSha, headSha, baseRef) {
   const cwd = path.resolve(repoRoot);
   if (baseSha.toLowerCase() === headSha.toLowerCase()) {
     return `baseRef ${shown(baseRef)} resolves to ${baseSha}, which is the PR head ${headSha}: the head cannot be its own base`;
+  }
+  const headIsAncestor = deps.git(['merge-base', '--is-ancestor', headSha, baseSha], cwd);
+  if (headIsAncestor && headIsAncestor.status === 0) {
+    return `baseRef ${shown(baseRef)} (${baseSha}) is a descendant of the PR head ${headSha}: the head's author controls descendants of the head, so it cannot be the trusted base`;
   }
   const anc = deps.git(['merge-base', '--is-ancestor', baseSha, headSha], cwd);
   if (anc && anc.status === 0) return null;
@@ -195,6 +229,8 @@ function runnerOptions(repoRoot, headSha, cfg) {
     approvalSet: cfg.approvalSet,
     equivalents: cfg.approvalSet.equivalents,
     excludedSteps: cfg.approvalSet.excludedSteps,
+    // Names from the BASE-ref config only; values come from the environment or the fixed gitignored secrets file.
+    secretNames: cfg.approvalSet.secretNames,
   };
 }
 

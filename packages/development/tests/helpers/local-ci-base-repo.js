@@ -2,7 +2,9 @@
 
 /**
  * Real temp git repo for the local CI gate tests. The trusted config
- * (.ensemble/local-ci.yaml) is committed at a BASE commit (branch `trusted-base`);
+ * (.ensemble/local-ci.yaml) is committed at a BASE commit, exposed as the REMOTE-TRACKING ref
+ * `origin/trusted-base` (refs/remotes/origin/trusted-base, which only a fetch populates, exactly
+ * what the gate requires of a baseRef; a local branch of that name would be refused);
  * the PR head is a descendant commit and is left CHECKED OUT, which is exactly the
  * situation that used to let a PR grade itself. Optional `headFiles` are committed
  * on the head only (path -> text, null deletes).
@@ -13,7 +15,8 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const BASE_REF = 'trusted-base';
+const BASE_BRANCH = 'trusted-base';
+const BASE_REF = `origin/${BASE_BRANCH}`;
 const CONFIG_PATH = '.ensemble/local-ci.yaml';
 const roots = [];
 
@@ -34,7 +37,8 @@ function makeBaseRepo({ config, files = {}, headFiles = {}, baseRef = BASE_REF }
   git('add', '-A');
   git('commit', '-qm', 'base');
   const baseSha = git('rev-parse', 'HEAD');
-  git('branch', baseRef);
+  // A remote-tracking ref, as a fetch of the PR's base branch would leave it (no remote needed for the ref to exist).
+  git('update-ref', `refs/remotes/${baseRef}`, baseSha);
   put('head.txt', 'pr head\n');
   for (const [rel, text] of Object.entries(headFiles)) put(rel, text);
   git('add', '-A');
@@ -47,4 +51,4 @@ function cleanupBaseRepos() {
   for (const d of roots.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 }
 
-module.exports = { makeBaseRepo, cleanupBaseRepos, BASE_REF, CONFIG_PATH };
+module.exports = { makeBaseRepo, cleanupBaseRepos, BASE_REF, BASE_BRANCH, CONFIG_PATH };
