@@ -50,17 +50,20 @@ jobs:
         if: >-
           github.head_ref != 'dev' ||
           github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           echo "::error::PRs into main may only come from the 'dev' branch of ${{ github.repository }}."
-          echo "  head branch : ${{ github.head_ref }}"
-          echo "  head repo   : ${{ github.event.pull_request.head.repo.full_name }}"
+          echo "  head branch : ${HEAD_REF}"
+          echo "  head repo   : ${HEAD_REPO}"
           echo "Merge this branch into dev first, then open a dev -> main release PR."
           exit 1
 
   release-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # validate-release-bump.js diffs HEAD against the base branch, so
           # the full history has to be present. With the default shallow
@@ -68,7 +71,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
 
