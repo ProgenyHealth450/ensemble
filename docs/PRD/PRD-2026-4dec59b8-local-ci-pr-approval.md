@@ -1,7 +1,7 @@
 ---
 document_id: PRD-2026-4dec59b8
 label: prd-local-ci-pr-approval
-version: 1.0.2
+version: 1.0.3
 status: Locked
 date: 2026-10-21
 scale_depth: STANDARD
@@ -270,3 +270,4 @@ The credential that lets the maintainer-owned app post results is held only wher
 | 2026-10-21 | 1.0.0 | Initial draft from the user's request and three recorded design decisions. |
 | 2026-10-21 | 1.0.1 | Refinement: resolved all 9 clarification markers. Scope made repository-agnostic after finding CodeRabbit inactive on Ensemble. Evidence now posted by a maintainer-owned GitHub App with a run record; run executes in a clean checkout of the head SHA; approval set mirrors today's required checks with unsupported steps failing the gate; human `CHANGES_REQUESTED` still blocks while bot reviews do not; late findings and post-merge CI failures are captured as beads by the next merge-flow run; success target deferred until a baseline is measured. Added REQ-017 (per-repository configuration) and REQ-018 (app credential protection); added AC-012-2. Readiness 4.0 to 4.5. PRD locked. |
 | 2026-10-21 | 1.0.2 | Wording-only change, no requirement added, removed or re-prioritised: replaced `act` and "container runtime" with runner-neutral terms ("local CI runner", "the repository's local CI entry point") in the Solution, decisions, Entry criteria, AC-004-5, AC-009-2, AC-015-2, the readiness note and the residual-risk note. Reason: `dev` already ships a tested clean-clone runner (`npm run ci:local`, PR #184) and the user chose to wrap it instead of building an `act` runner, so a PRD naming `act` contradicted the implementation and the beads that quote these criteria. AC-004-5 now names the runner identity instead of an `act` version. The user's original request ("using act") is kept as history in the self-critique. Requirement and AC counts are unchanged (18 and 47). |
+| 2026-10-21 | 1.0.3 | Baseline recorded per AC-013-3; no requirement added, removed or re-prioritised. Measured on this repository over its last 30 PRs merged to `dev` (2026-10-12 to 2026-10-21): open-to-merge median 105.9 min and p75 683.5 min; hosted CI wait median 2.6 min (about 2.5% of the median); CodeRabbit left no review on any of the 30, so bot-review wait is unmeasurable here. **Decision (maintainer): no numeric target and no minimum post-change cohort is set for this repository.** The data leaves nothing material to reduce here, so a target would be unfalsifiable; status stays `unproven` by design (AC-013-2). The target, minimum cohort size and duration are to be set per adopting repository, from a baseline captured there with `packages/development/skills/local-ci-gate/BASELINE.md`'s procedure, before that repository enables the gate. Figures are reproducible from `baseline-cohort.json`. |

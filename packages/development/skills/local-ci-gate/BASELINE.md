@@ -1,9 +1,9 @@
 # Local CI Gate — Baseline Note (REQ-013)
 
-Capture date: 2026-10-21 (template created; figures NOT yet measured)
+Capture date: 2026-10-21 (baseline measured; see Results)
 Status: **target unproven until measured**
-Gate enablement record: none — the gate is not enabled. This note MUST be
-filled in and dated before any enablement is recorded.
+Gate enablement record: none — the gate is not enabled. The baseline below was
+recorded before any enablement.
 
 The numeric target and the minimum post-change cohort size/duration are
 DECIDED FROM this baseline after it is measured. They are not set here, and no
@@ -37,16 +37,30 @@ per PR to `summarizeCohort` in `packages/development/lib/local-ci-baseline.js`.
 Percentiles are linear-interpolation (median = p50, p75 = p75). CI wait and
 bot-review wait are reported separately and are never summed or conflated.
 
-## Results (unfilled — NOT measured)
+## Results (measured 2026-10-21)
 
-Cohort window: _unfilled_
-Cohort size: _unfilled_
+Cohort window: 2026-10-12 to 2026-10-21 (last 30 PRs merged to `dev`)
+Cohort size: 30 (rejected: 0)
+Raw rows: `baseline-cohort.json` (PR number, timestamps, durations only); the
+figures below are recomputed from it by `summarizeCohort`.
 
-| Metric                      | Median     | p75        |
-| --------------------------- | ---------- | ---------- |
-| Open-to-merge time          | _unfilled_ | _unfilled_ |
-| Hosted CI wait              | _unfilled_ | _unfilled_ |
-| Bot-review (CodeRabbit) wait | _unfilled_ | _unfilled_ |
+| Metric                       | Median | p75    | PRs with data |
+| ---------------------------- | ------ | ------ | ------------- |
+| Open-to-merge time           | 105.9 min | 683.5 min | 30 |
+| Hosted CI wait               | 2.6 min | 2.8 min | 30 |
+| Bot-review (CodeRabbit) wait | n/a | n/a | 0 |
+
+What this says, and does not say:
+
+- Hosted CI is about 2.5% of the median open-to-merge time on this repository. Removing it cannot
+  move that median much.
+- CodeRabbit left no review on any of the 30 PRs, so there is no bot-review wait to remove here.
+  On this repository there is therefore nothing measurable for the bot-review half of the
+  feature to remove. Whether another repository (the maintainer reports Foreman) has a
+  bot-review wait is NOT measured here; run the capture procedure there.
+- The p75 is inflated by PRs left open overnight and is reported as measured, not trimmed.
+- This is one repository over nine days. It is a baseline, not a prediction for other
+  repositories, and no post-change cohort exists.
 
 ## Decisions (made only after measurement)
 

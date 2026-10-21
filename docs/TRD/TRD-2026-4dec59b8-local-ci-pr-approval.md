@@ -3,7 +3,7 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.6
+version: 1.0.7
 status: Draft
 date: 2026-10-21
 design_readiness_score: 4.25
@@ -12,7 +12,7 @@ Constitution compliance: passed
 
 # TRD-2026-4dec59b8: Local-CI PR Approval
 
-Based on PRD: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md (v1.0.2, Locked)
+Based on PRD: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md (v1.0.3, Locked)
 
 ## Architecture Decision
 
@@ -474,3 +474,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 | 2026-10-21 | 1.0.4 | PRD-2026-4dec59b8 was re-locked at v1.0.2 with runner-neutral wording (a wording-only change: the same 18 requirements, the same 47 acceptance criteria, the same priorities). Updated the PRD reference to v1.0.2 and replaced the "known mismatch" note, which is now false, with a resolution note. The six beads that quote the three reworded criteria (AC-004-5, AC-009-2, AC-015-2) were refreshed so they quote the current PRD text: TRD-003, TRD-003-TEST, TRD-005, TRD-005-TEST, TRD-012, TRD-012-TEST. No task, dependency, estimate or scenario changed. |
 | 2026-10-21 | 1.0.5 | Implementation amendment (no requirement or AC change): the config gained optional `extra_steps`, `equivalents` and `excluded_steps` keys so a repository can declare how a workflow step that `ci:local` does not run is executed (AC-009-2) or recorded as excluded (AC-009-3). The TRD named the unmirrored-step failure but not where its resolution is declared; without it the gate failed on this repository with 5 unmirrored steps. Tracked as bead br-fhaa; delivered in 99fa619. |
 | 2026-10-21 | 1.0.6 | Sequencing change by user decision (no requirement or AC change): removed `[Depends: TRD-001]` from TRD-004 so the App client can be built before the live proof; TRD-001 remains a required gate on the PR and on TRD-010's enablement step. Reverses the 1.0.1 decision that TRD-001 gates TRD-004. Reason: TRD-001 needs a GitHub App only the maintainer can create, and everything from TRD-005 on was blocked behind it. Cost accepted: TRD-004's behaviour against real GitHub is unproven until TRD-001 runs, and a failed proof could force rework of TRD-004 and TRD-003's 100-character bound. |
+| 2026-10-21 | 1.0.7 | Pin updated to PRD 1.0.3, which records the measured baseline and the maintainer's decision that no numeric target is set for this repository (changelog only; no requirement or AC changed). TRD-011 is complete: the baseline is captured in `BASELINE.md` with reproducible raw rows, and the target decision is recorded in the PRD changelog. |

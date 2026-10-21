@@ -37,11 +37,18 @@ const UNTOUCHED_REL = [
 
 const flat = (t) => t.replace(/\s+/g, ' ').trim();
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
-const gitShow = (rel) =>
-  execFileSync('git', ['show', `HEAD:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
+const gitShowAt = (ref, rel) =>
+  execFileSync('git', ['show', `${ref}:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
+const gitShow = (rel) => gitShowAt('HEAD', rel);
+
+// pr-merge.yaml as it was BEFORE this feature changed it: the last commit that touched it on dev
+// (1d96158). A fixed commit that already exists on the shared branches, so it survives this
+// branch being rebased or squash-merged; HEAD would not work (it becomes the new file once the
+// change is committed) and a moving ref such as origin/dev would break the day dev takes it.
+const PR_MERGE_BEFORE = '1d96158a1fc14549b76aef73368aee3cacd53f26';
 
 const source = yaml.load(read(SOURCE_REL));
-const committed = yaml.load(gitShow(SOURCE_REL));
+const committed = yaml.load(gitShowAt(PR_MERGE_BEFORE, SOURCE_REL));
 const generated = Object.fromEntries(Object.entries(GENERATED_REL).map(([k, rel]) => [k, flat(read(rel))]));
 
 const phases = source.workflow.phases;

@@ -155,9 +155,24 @@ describe('baseline precedes enablement', () => {
     }
   });
 
-  it('does not fabricate figures: results table is unfilled', () => {
-    const table = note.split('## Results')[1].split('## Decisions')[0];
-    expect(table).not.toMatch(/\d+(\.\d+)?\s*(h|hours|min|ms|s)\b/i);
-    expect(table).toMatch(/unfilled/);
+  it('every figure in the note is reproduced from the recorded cohort rows', () => {
+    const cohort = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '..', 'skills', 'local-ci-gate', 'baseline-cohort.json'), 'utf8')
+    );
+    const s = summarizeCohort(cohort.prs);
+    const min = (ms) => (ms == null ? 'n/a' : (ms / 60000).toFixed(1) + ' min');
+    const row = (label) => note.split('\n').find((l) => l.startsWith('| ' + label));
+    expect(row('Open-to-merge time')).toContain(min(s.openToMerge.median));
+    expect(row('Open-to-merge time')).toContain(min(s.openToMerge.p75));
+    expect(row('Hosted CI wait')).toContain(min(s.ciWait.median));
+    expect(row('Hosted CI wait')).toContain(min(s.ciWait.p75));
+    expect(row('Bot-review')).toContain(min(s.botReviewWait.median));
+    expect(note).toContain('Cohort size: ' + s.openToMerge.count);
+  });
+
+  it('records no numeric target while none has been decided', () => {
+    const decisions = note.split('## Decisions')[1];
+    expect(decisions).toMatch(/Numeric target[^\n]*_undecided_/);
+    expect(decisions).toMatch(/Minimum post-change cohort size:[^\n]*_undecided_/);
   });
 });
