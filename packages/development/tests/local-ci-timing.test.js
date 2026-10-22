@@ -177,8 +177,15 @@ describe('local-ci-timing: checkEnablementReady', () => {
     expect(checkEnablementReady({}).ok).toBe(false);
   });
 
-  test('refused for the shipped unfilled template', () => {
+  test('the shipped note is filled: the checker accepts it and reports its stated verdict', () => {
     const r = checkEnablementReady({ notePath: TEMPLATE });
+    expect(r).toEqual({ ok: true, verdict: expect.stringMatching(/^(faster|slower|equal)$/) });
+    expect(fs.readFileSync(TEMPLATE, 'utf8')).not.toContain('TEMPLATE-UNFILLED');
+  });
+
+  test('an unfilled template is refused: the shipped note with the marker put back is not accepted', () => {
+    const filled = fs.readFileSync(TEMPLATE, 'utf8');
+    const r = checkEnablementReady({ note: `<!-- TEMPLATE-UNFILLED: delete this line only when every figure below is filled from a real run. -->\n${filled}` });
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/template/);
   });

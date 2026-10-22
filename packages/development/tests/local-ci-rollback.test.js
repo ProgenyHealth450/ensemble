@@ -341,10 +341,12 @@ describe('scenario: enablement preconditions', () => {
     expect(check(paths)).toEqual({ ok: true, reasons: [] });
   });
 
-  test('refuses against the real repository paths while the measurement is unfilled', () => {
-    const r = rollout.checkEnablementPreconditions({ repoRoot: REPO_ROOT, hasReportedSuccess: true });
-    expect(r.ok).toBe(false);
-    expect(reasonsOf(r)).toMatch(/measurement note/);
+  test('against the real repository paths the measurement and baseline preconditions pass; only the success status remains', () => {
+    const without = rollout.checkEnablementPreconditions({ repoRoot: REPO_ROOT, hasReportedSuccess: false });
+    expect(without.ok).toBe(false);
+    expect(reasonsOf(without)).toMatch(/seven days/);
+    expect(reasonsOf(without)).not.toMatch(/measurement note|baseline note/);
+    expect(rollout.checkEnablementPreconditions({ repoRoot: REPO_ROOT, hasReportedSuccess: true })).toEqual({ ok: true, reasons: [] });
   });
 
   test('measurement filled, baseline present and a reported success is the only way to ok', () => {
@@ -531,12 +533,15 @@ describe('the rollout subcommand of the gate CLI (how an installed copy reaches 
     expect(back.out.steps.find((s) => s.method === 'PATCH').body.checks.map((c) => c.context)).toEqual(COVERED);
   });
 
-  test('preconditions refuse in this repository today, with the reasons, and exit 1', () => {
-    const r = call({ action: 'preconditions', input: { repoRoot: REPO_ROOT, hasReportedSuccess: true } });
-    expect(r.code).toBe(1);
-    expect(r.out.ok).toBe(false);
-    expect(r.out.reasons.join(' ')).toMatch(/measurement/i);
-    expect(r.out.reasons.join(' ')).not.toMatch(/proof/i);
+  test('preconditions through the CLI: exit 1 with the seven-day reason until a success is reported, exit 0 once it is', () => {
+    const refused = call({ action: 'preconditions', input: { repoRoot: REPO_ROOT, hasReportedSuccess: false } });
+    expect(refused.code).toBe(1);
+    expect(refused.out.ok).toBe(false);
+    expect(refused.out.reasons.join(' ')).toMatch(/seven days/i);
+    expect(refused.out.reasons.join(' ')).not.toMatch(/proof|measurement|baseline/i); // the real notes are filled
+    const ok = call({ action: 'preconditions', input: { repoRoot: REPO_ROOT, hasReportedSuccess: true } });
+    expect(ok.code).toBe(0);
+    expect(ok.out).toEqual({ ok: true, reasons: [] });
   });
 
   test('an inherited or unknown action is rejected, and a missing input is rejected', () => {
