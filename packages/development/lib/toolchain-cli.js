@@ -13,11 +13,11 @@
  *   explain [--json]   Identical resolution to `resolve`; the distinct subcommand name exists
  *                      for callers that want the "why was this adapter chosen" framing.
  *   validate <adapter-dir> [--json]
- *                      Structurally validate the adapter manifest at `<adapter-dir>/adapter.yaml`
- *                      (`validateManifest`) and, if structurally valid, check its conformance
- *                      against the category contracts it declares (`validateConformance` in
- *                      `./toolchain/validate.js`, TRD-007, PRD REQ-008/REQ-003 AC-008-1,
- *                      AC-008-2).
+ *                      Run the composed static validation gate `validateAdapterDir` (TRD-009,
+ *                      PRD REQ-008/REQ-022/REQ-023) over `<adapter-dir>`: `validateManifest`,
+ *                      `validateAllowlist`, `validateConformance` and `scanCredentials`, in
+ *                      `./toolchain/validate.js`, returning the union of their errors. This is
+ *                      the only entry point; do not re-wire a subset of the four checks here.
  *
  * Output:
  *   - Default (no `--json`): a human-readable table with columns `category`, `adapter`,
@@ -57,13 +57,8 @@
  * TRD-014, TRD-017, TRD-018).
  */
 
-const fs = require('fs');
-const path = require('path');
-const yaml = require('js-yaml');
-
 const { resolveCategory } = require('./toolchain/config');
-const { validateManifest, validateConformance } = require('./toolchain/validate');
-const { loadContracts } = require('./toolchain/contracts');
+const { validateAdapterDir } = require('./toolchain/validate');
 
 const CATEGORIES = [
   'host',
@@ -122,10 +117,13 @@ function explain(ctx = {}) {
 }
 
 /**
- * `validate <adapter-dir>` subcommand handler: structurally validates the adapter manifest at
- * `<adapter-dir>/adapter.yaml` (`validateManifest`) and, when structurally valid, checks its
- * conformance against the category contracts it declares (`validateConformance` in
- * `./toolchain/validate.js`, TRD-007, PRD REQ-008/REQ-003 AC-008-1, AC-008-2).
+ * `validate <adapter-dir>` subcommand handler: runs the composed static validation gate
+ * `validateAdapterDir` (`./toolchain/validate.js`, TRD-009, PRD REQ-008/REQ-022/REQ-023,
+ * AC-008-1..3, AC-022-1, AC-023-1, AC-023-3) over `<adapter-dir>` and returns its result
+ * unchanged. Do not call `validateManifest`/`validateAllowlist`/`validateConformance`/
+ * `scanCredentials` directly here — `validateAdapterDir` is the single production caller that
+ * composes all four (TRD-009 review finding: a validator with no production caller enforces
+ * nothing).
  *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx] unused by
  *   `validate`; accepted so every handler shares the same `(ctx, positionals)` signature
@@ -138,20 +136,7 @@ function validate(ctx = {}, positionals = []) {
     return { ok: false, errors: ['validate: missing required <adapter-dir> argument'] };
   }
 
-  const manifestResult = validateManifest(adapterDir);
-  if (!manifestResult.valid) {
-    return { ok: false, errors: manifestResult.errors };
-  }
-
-  const manifestPath = path.join(adapterDir, 'adapter.yaml');
-  let manifest;
-  try {
-    manifest = yaml.load(fs.readFileSync(manifestPath, 'utf8'));
-  } catch (error) {
-    return { ok: false, errors: [`${manifestPath}: invalid YAML (${error.message})`] };
-  }
-
-  return validateConformance(manifest, loadContracts());
+  return validateAdapterDir(adapterDir);
 }
 
 const HANDLERS = { resolve, explain, validate };

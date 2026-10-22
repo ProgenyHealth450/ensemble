@@ -196,6 +196,21 @@ describe('loadAdapter: repo-local trust (TRD interpretation I5)', () => {
     }
   });
 
+  test(
+    "PR review finding 3: an empty ctx (no 'interactive' key at all) still defaults to " +
+      'non-interactive and throws UNTRUSTED_REPO_ADAPTER, pinning the fail-closed default',
+    () => {
+      expect.assertions(3);
+      try {
+        loadAdapter('foo', { projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
+      } catch (error) {
+        expect(error.code).toBe('UNTRUSTED_REPO_ADAPTER');
+        expect(error.message).toContain('foo');
+        expect(error.message).toContain('trustedRepoAdapters');
+      }
+    }
+  );
+
   test("AC-007-3: a non-interactive call with 'foo' in trustedRepoAdapters resolves with no packaging step", () => {
     writeUserToolchainConfig(xdgConfigHome, { trustedRepoAdapters: ['foo'] });
 

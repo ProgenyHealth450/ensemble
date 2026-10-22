@@ -2,18 +2,29 @@
 /**
  * Tests for TRD-2026-8d825f54 TRD-009 (PRD REQ-008, AC-008-3): proves the full toolchain
  * validator pipeline (`validateManifest`, `checkVocabularyBlock`, `validateAllowlist`,
- * `scanCredentials`, `validateConformance` in packages/development/lib/toolchain/validate.js,
- * plus the `toolchain-cli validate` subcommand entry point in
- * packages/development/lib/toolchain-cli.js) against two STATIC fixture adapter directories
- * on disk under `scripts/tests/fixtures/toolchain/` rather than a built `fs.mkdtempSync` temp
- * dir, per the TRD.
+ * `scanCredentials`, `validateConformance`, `validateAdapterDir` in
+ * packages/development/lib/toolchain/validate.js, plus the `toolchain-cli validate`
+ * subcommand entry point in packages/development/lib/toolchain-cli.js) against two STATIC
+ * fixture adapter directories on disk under `scripts/tests/fixtures/toolchain/` rather than a
+ * built `fs.mkdtempSync` temp dir, per the TRD.
  *
  * Note: `npm run validate` (scripts/validate-all.js) only walks `packages/**`, so these
  * fixtures under `scripts/tests/fixtures/` are never discovered as real installed adapters.
+ *
+ * The `validateAdapterDir` describe blocks below additionally prove a PR-level review
+ * finding: `toolchain-cli validate` used to call only `validateManifest` +
+ * `validateConformance`, so an adapter calling an undeclared binary or embedding a literal
+ * credential passed `validate` with exit 0. `validateAdapterDir` is the single composed gate
+ * all four checks now go through; these tests mutate a temp copy of `good-adapter` (never the
+ * static fixture itself) to reproduce that bypass and prove it is closed, both through the
+ * exported `validateAdapterDir`/`cliValidate` functions and through a real
+ * `node toolchain-cli.js validate` subprocess.
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const yaml = require('js-yaml');
 
@@ -22,7 +33,8 @@ const {
   checkVocabularyBlock,
   validateAllowlist,
   scanCredentials,
-  validateConformance
+  validateConformance,
+  validateAdapterDir
 } = require('../../packages/development/lib/toolchain/validate');
 const { loadContracts } = require('../../packages/development/lib/toolchain/contracts');
 const { validate: cliValidate } = require('../../packages/development/lib/toolchain-cli');
@@ -30,6 +42,7 @@ const { validate: cliValidate } = require('../../packages/development/lib/toolch
 const FIXTURES_ROOT = path.join(__dirname, 'fixtures', 'toolchain');
 const GOOD_DIR = path.join(FIXTURES_ROOT, 'good-adapter');
 const BROKEN_DIR = path.join(FIXTURES_ROOT, 'broken-adapter');
+const CLI_PATH = path.join(__dirname, '..', '..', 'packages', 'development', 'lib', 'toolchain-cli.js');
 
 function loadManifest(dir) {
   return yaml.load(fs.readFileSync(path.join(dir, 'adapter.yaml'), 'utf8'));
@@ -37,6 +50,34 @@ function loadManifest(dir) {
 
 function adapterFiles(dir) {
   return [path.join(dir, 'adapter.yaml'), path.join(dir, 'SKILL.md')];
+}
+
+const tempDirs = [];
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
+  }
+});
+
+/**
+ * Copy the `good-adapter` fixture into a fresh temp directory outside the repo tree so a test
+ * can mutate `adapter.yaml`/`SKILL.md` without ever touching the static fixture on disk.
+ * @returns {string} the temp adapter directory
+ */
+function mkMutableGoodAdapterCopy() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-adapter-dir-'));
+  tempDirs.push(dir);
+  fs.cpSync(GOOD_DIR, dir, { recursive: true });
+  return dir;
+}
+
+function replaceInFile(filePath, searchValue, replaceValue) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  if (!content.includes(searchValue)) {
+    throw new Error(`replaceInFile: ${filePath} does not contain ${JSON.stringify(searchValue)}`);
+  }
+  fs.writeFileSync(filePath, content.replace(searchValue, replaceValue));
 }
 
 describe('TRD-009-TEST: good-adapter fixture passes every validator with zero errors', () => {
@@ -168,5 +209,96 @@ describe('TRD-009-TEST: mutation check proves the broken-fixture assertion is ca
     const alwaysPassValid = () => ({ valid: true, errors: [] });
     const alwaysPassOk = () => ({ ok: true, errors: [] });
     expect(() => assertCombinedDefectsPresent(alwaysPassValid, alwaysPassValid, alwaysPassOk)).toThrow();
+  });
+});
+
+describe("TRD-009-TEST: validateAdapterDir composes all four static checks (PR review finding 1: 'toolchain-cli validate' had no caller for validateAllowlist/scanCredentials)", () => {
+  test('(structural) an otherwise conformant adapter missing the SKILL.md Vocabulary block fails via validateManifest, naming SKILL.md', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    const skillMdPath = path.join(dir, 'SKILL.md');
+    replaceInFile(skillMdPath, '## Vocabulary', '## Terminology');
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes(skillMdPath) && e.includes('Vocabulary'))).toBe(true);
+  });
+
+  test('(a) structurally valid, conformant adapter calling an undeclared binary fails naming the binary and the capability', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    replaceInFile(
+      path.join(dir, 'adapter.yaml'),
+      'run: ["fixture-tool", "show", "--id", "${id}"]',
+      'run: ["curl", "show", "--id", "${id}"]'
+    );
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes('curl') && e.includes("capability 'tracker.show'"))).toBe(true);
+  });
+
+  test('(b) adapter calling a declared binary with a subcommand not in its allowlist fails naming both', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    replaceInFile(
+      path.join(dir, 'adapter.yaml'),
+      'run: ["fixture-tool", "show", "--id", "${id}"]',
+      'run: ["fixture-tool", "destroy", "--id", "${id}"]'
+    );
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes("'fixture-tool destroy'") && e.includes('not in the allowlist'))).toBe(
+      true
+    );
+  });
+
+  test('(c) SKILL.md prose with a literal ghp_ token fails naming SKILL.md', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    const skillMdPath = path.join(dir, 'SKILL.md');
+    fs.appendFileSync(skillMdPath, '\nSupport contact token: ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n');
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes(skillMdPath) && e.includes('well-known secret token pattern'))).toBe(
+      true
+    );
+  });
+
+  test('(d) adapter.yaml with a credential-key literal (e.g. token: abc123literal) fails naming adapter.yaml and the key', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    const manifestPath = path.join(dir, 'adapter.yaml');
+    replaceInFile(manifestPath, 'detect: []', 'detect:\n  - signal: file_exists\n    token: abc123literal\n');
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes(manifestPath) && e.includes("'token'") && e.includes('literal value'))
+    ).toBe(true);
+  });
+
+  test('(e) the unmodified good-adapter fixture still passes with {ok:true, errors:[]}', () => {
+    expect(validateAdapterDir(GOOD_DIR)).toEqual({ ok: true, errors: [] });
+  });
+
+  test('toolchain-cli validate (cliValidate) surfaces the same four-check union as validateAdapterDir', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    replaceInFile(
+      path.join(dir, 'adapter.yaml'),
+      'run: ["fixture-tool", "show", "--id", "${id}"]',
+      'run: ["curl", "show", "--id", "${id}"]'
+    );
+    expect(cliValidate({}, [dir])).toEqual(validateAdapterDir(dir));
+  });
+});
+
+describe('TRD-009-TEST: real `node toolchain-cli.js validate` subprocess (PR review finding 1)', () => {
+  test('(f) broken-adapter fixture: non-zero exit, stdout JSON names rogue-tool, SKILL.md and tracker.close', () => {
+    const result = spawnSync(process.execPath, [CLI_PATH, 'validate', BROKEN_DIR, '--json'], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.some((e) => e.includes('rogue-tool'))).toBe(true);
+    expect(parsed.errors.some((e) => e.includes('SKILL.md'))).toBe(true);
+    expect(parsed.errors.some((e) => e.includes('tracker.close'))).toBe(true);
+  });
+
+  test('good-adapter fixture: exit 0, stdout JSON {ok:true, errors:[]}', () => {
+    const result = spawnSync(process.execPath, [CLI_PATH, 'validate', GOOD_DIR, '--json'], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ ok: true, errors: [] });
   });
 });

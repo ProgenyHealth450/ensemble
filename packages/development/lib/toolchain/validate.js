@@ -33,6 +33,19 @@
  * environment variable names (`env: [NAME]`, `${NAME}` interpolation, a bare uppercase
  * identifier) are permitted (TRD-008, PRD REQ-022 AC-022-1).
  *
+ * `validateAdapterDir(adapterDir, opts)` is the single composed static gate: it runs all four
+ * checks above (`validateManifest`, `validateAllowlist`, `validateConformance`, with
+ * `scanCredentials` run over `adapter.yaml`, `SKILL.md` and every other regular file in the
+ * adapter directory, bounded and never following symlinks) and returns the union of their
+ * errors as one `{ok, errors}` envelope, each error naming the adapter, the file and the
+ * offending item (TRD-009, PRD REQ-008/REQ-022/REQ-023, AC-008-1..3, AC-022-1, AC-023-1,
+ * AC-023-3). `toolchain-cli validate <adapter-dir>` calls this one function and does not
+ * duplicate any of the four checks' wiring itself (TRD-009 review finding: a validator with no
+ * production caller enforces nothing). This function is the static gate only: it never
+ * executes a binary and never substitutes a real argument value. The runtime runner (TRD-010,
+ * TRD-011) re-validates every substituted argument against the capability's declared contract
+ * input types before every call, independently of this gate.
+ *
  * ## Known limits
  *
  * `validateAllowlist` enforces the allowlist at binary-plus-subcommand level by design: it
@@ -548,11 +561,134 @@ function validateConformance(adapter, contracts) {
   return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors };
 }
 
+const MAX_SCAN_DEPTH = 6;
+const MAX_SCAN_FILES = 500;
+const MAX_SCAN_FILE_BYTES = 1024 * 1024;
+const BINARY_FILE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip', '.tar', '.gz', '.tgz',
+  '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.mov', '.wasm', '.so', '.dylib', '.exe'
+]);
+
+/**
+ * Collect every regular file under an adapter directory to scan for literal credentials: at
+ * minimum `adapter.yaml` and `SKILL.md` (always included, even if missing, so
+ * `scanCredentials` can report them unreadable), plus every other regular text file found by a
+ * bounded walk of the directory tree. The walk never follows symlinks (a symlinked file or
+ * directory could point outside the adapter directory -- a symlink escape), stops recursing
+ * past `MAX_SCAN_DEPTH`, stops collecting past `MAX_SCAN_FILES`, and skips files over
+ * `MAX_SCAN_FILE_BYTES` or with a known binary extension, so one adapter directory can never
+ * make validation scan an unbounded amount of the filesystem.
+ *
+ * @param {string} adapterDir
+ * @returns {string[]} absolute file paths
+ */
+function collectAdapterTextFiles(adapterDir) {
+  const files = [path.join(adapterDir, 'adapter.yaml'), path.join(adapterDir, 'SKILL.md')];
+  const seen = new Set(files);
+
+  function walk(dir, depth) {
+    if (depth > MAX_SCAN_DEPTH || files.length >= MAX_SCAN_FILES) {
+      return;
+    }
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_error) {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= MAX_SCAN_FILES) {
+        return;
+      }
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(entryPath, depth + 1);
+        continue;
+      }
+      if (
+        !entry.isFile() ||
+        seen.has(entryPath) ||
+        BINARY_FILE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+      ) {
+        continue;
+      }
+      let stat;
+      try {
+        stat = fs.statSync(entryPath);
+      } catch (_error) {
+        continue;
+      }
+      if (stat.size > MAX_SCAN_FILE_BYTES) {
+        continue;
+      }
+      seen.add(entryPath);
+      files.push(entryPath);
+    }
+  }
+
+  walk(adapterDir, 0);
+  return files;
+}
+
+/**
+ * The single composed static validation gate for one adapter directory (TRD-009, PRD REQ-008,
+ * REQ-022, REQ-023, AC-008-1..3, AC-022-1, AC-023-1, AC-023-3): runs `validateManifest`,
+ * `validateAllowlist`, `validateConformance` and `scanCredentials` and returns the union of
+ * their errors as one `{ok, errors}` envelope. This is the only function
+ * `toolchain-cli validate <adapter-dir>` calls; it must not be bypassed or re-wired per check
+ * in the CLI (TRD-009 review finding: a validator with no production caller enforces nothing).
+ *
+ * `validateAllowlist` and `validateConformance` need an already-parsed manifest object; if
+ * `adapter.yaml` is missing or fails to parse as YAML, `validateManifest`'s own error already
+ * names that and those two checks are skipped (there is nothing for them to check against).
+ * They still run whenever a manifest object was parsed, even if it fails ajv schema
+ * validation, so allowlist and conformance defects are surfaced alongside schema defects in
+ * one pass. `scanCredentials` always runs, independently of whether the manifest parsed, over
+ * `adapter.yaml`, `SKILL.md` and every other file `collectAdapterTextFiles` finds.
+ *
+ * @param {string} adapterDir adapter directory containing `adapter.yaml` and `SKILL.md`
+ * @param {{contracts?: Record<string, unknown>}} [opts] `opts.contracts`, when supplied,
+ *   replaces the default `loadContracts()` call (callers that already hold a `loadContracts()`
+ *   result for many adapters should pass it through rather than re-reading the category
+ *   directory per adapter, matching `validateConformance`'s own documented convention above).
+ * @returns {{ok: true, errors: []} | {ok: false, errors: string[]}}
+ */
+function validateAdapterDir(adapterDir, opts = {}) {
+  const manifestPath = path.join(adapterDir, 'adapter.yaml');
+  const errors = [];
+
+  const manifestResult = validateManifest(adapterDir);
+  errors.push(...manifestResult.errors);
+
+  let manifest = null;
+  if (fs.existsSync(manifestPath)) {
+    try {
+      manifest = yaml.load(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (_error) {
+      manifest = null;
+    }
+  }
+
+  if (manifest && typeof manifest === 'object') {
+    errors.push(...validateAllowlist(manifest).errors);
+    const contracts = (opts && opts.contracts) || loadContracts();
+    errors.push(...validateConformance(manifest, contracts).errors);
+  }
+
+  errors.push(...scanCredentials(collectAdapterTextFiles(adapterDir)).errors);
+
+  return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors };
+}
+
 module.exports = {
   validateManifest,
   checkVocabularyBlock,
   validateAllowlist,
   scanCredentials,
   validateConformance,
+  validateAdapterDir,
   ADAPTER_MANIFEST_SCHEMA_PATH
 };
