@@ -232,4 +232,45 @@ describe('validateConfig', () => {
       expect(r.problems.join(' ')).toMatch(/secret_names/);
     });
   });
+
+  describe('output_paths: where a step may leave untracked files', () => {
+    const withOutput = (output_paths) => validateConfig({ ...base(), steps: [{ name: 's', cmd: 'true' }], output_paths });
+
+    test('defaults to the usual install and build output, never to "anywhere"', () => {
+      const r = validateConfig({ ...base(), steps: [{ name: 's', cmd: 'true' }] });
+      expect(r.approvalSet.outputPaths).toEqual(['node_modules', 'coverage', '.cache', 'dist']);
+    });
+
+    test('listed paths replace the defaults and a trailing slash is normalised away', () => {
+      const r = withOutput(['build/', 'out/gen', 'run.log']);
+      expect(r.problems).toEqual([]);
+      expect(r.approvalSet.outputPaths).toEqual(['build', 'out/gen', 'run.log']);
+    });
+
+    test.each([
+      ['an absolute path', ['/etc']],
+      ['a parent traversal', ['../x']],
+      ['a traversal in the middle', ['a/../b']],
+      ['a dot segment', ['a/./b']],
+      ['the git directory', ['.git']],
+      ['inside the git directory', ['a/.git/hooks']],
+      ['a glob', ['node_modules/**']],
+      ['a bare star', ['*']],
+      ['a backslash', ['a\\b']],
+      ['an empty entry', ['']],
+      ['a doubled slash', ['a//b']],
+      ['a home shortcut', ['~/x']],
+      ['a variable', ['$HOME']],
+      ['a space', ['a b']],
+      ['the repository root', ['.']],
+      ['a non-string', [5]],
+      ['a duplicate once normalised', ['a', 'a/']],
+      ['not a list', 'node_modules'],
+    ])('%s is refused', (_n, output_paths) => {
+      const r = withOutput(output_paths);
+      expect(r.ok).toBe(false);
+      expect(r.approvalSet).toBeUndefined();
+      expect(r.problems.join(' ')).toMatch(/output_paths/);
+    });
+  });
 });

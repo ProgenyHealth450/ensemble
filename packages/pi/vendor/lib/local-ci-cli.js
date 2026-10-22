@@ -54,8 +54,8 @@ const SHA_RE = /^[0-9a-fA-F]{40}$/;
 // Payload keys each handler accepts; anything else is rejected (fail closed).
 const CONFIG_KEYS = ['source', 'repoRoot', 'baseRef'];
 const RUN_KEYS = ['repoRoot', 'headSha', 'baseRef'];
-const GATE_KEYS = ['repoRoot', 'headSha', 'baseRef', 'repo', 'dryRun'];
-const MERGE_KEYS = ['headSha', 'statuses', 'repoRoot', 'baseRef', 'reviews'];
+const GATE_KEYS = ['repoRoot', 'headSha', 'baseRef', 'repo', 'pr', 'dryRun'];
+const MERGE_KEYS = ['headSha', 'statuses', 'repoRoot', 'baseRef', 'repo', 'pr', 'reviews'];
 
 const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -76,6 +76,9 @@ const isBaseRef = (v) =>
   !v.split('/').some((part) => part === '' || part === '.' || part.startsWith('.') || part.endsWith('.lock'));
 /** `origin/dev` -> `refs/remotes/origin/dev`; an already-full name is unchanged. */
 const fullRemoteRef = (v) => (v.startsWith('refs/remotes/') ? v : `refs/remotes/${v}`);
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const isRepo = (v) => typeof v === 'string' && v.length <= 140 && REPO_RE.test(v) && !v.startsWith('-') && !v.startsWith('.');
+const isPrNumber = (v) => Number.isInteger(v) && v > 0 && v <= 2147483647;
 
 function shown(name) {
   return typeof name === 'string' ? JSON.stringify(name.slice(0, 40)) : String(name);
@@ -123,6 +126,16 @@ function defaultDeps() {
     postStatus,
     loadCredential,
     now: () => Date.now(),
+    prInfo: ({ repo, pr }) => {
+      // argv elements, never a shell; `repo` and `pr` were validated by isRepo/isPrNumber before this is reached.
+      const r = tool('gh', ['pr', 'view', String(pr), '--repo', repo, '--json', 'baseRefName,headRefOid,state']);
+      if (r.status !== 0) return { ok: false, error: `gh pr view failed: ${String(r.stderr).trim().slice(0, 200) || `exit ${r.status}`}` };
+      try {
+        return { ok: true, info: JSON.parse(r.stdout) };
+      } catch (_e) {
+        return { ok: false, error: 'gh pr view returned output that is not JSON' };
+      }
+    },
     env: process.env,
     fetch: undefined,
   };
@@ -157,6 +170,34 @@ function loadTrustedConfig(deps, repoRoot, baseRef) {
   const source = configBlobSha && showCfg && showCfg.status === 0 ? String(showCfg.stdout) : undefined;
   const cfg = validateConfig(source); // reports a missing config: no defaults
   return { ...cfg, baseSha, ...(source === undefined ? {} : { configBlobSha }) };
+}
+
+/**
+ * Ask GitHub which branch this PR really targets and which commit its head really is, and refuse unless the caller's
+ * `baseRef` and `headSha` say the same. Without this the gate would trust whichever remote-tracking branch the caller
+ * names: a contributor who can push ANY branch could name their own as the base and have its committed config grade the
+ * PR. The answer comes from GitHub, never from the payload, the clone or a config. Fails closed: a lookup that errors,
+ * returns something unexpected, or names a different branch or commit is a refusal, not a pass.
+ * Returns a problem text, or null when baseRef is exactly origin/<baseRefName> and headSha is the PR's current head.
+ */
+function verifyPullRequest(deps, { repo, pr, baseRef, headSha }) {
+  if (typeof deps.prInfo !== 'function') return 'cannot verify the pull request: no GitHub lookup is available';
+  const got = deps.prInfo({ repo, pr });
+  if (!got || got.ok !== true || !isObject(got.info)) return `cannot verify pull request #${pr} of ${repo}: ${(got && got.error) || 'no answer'}`;
+  const { baseRefName, headRefOid, state } = got.info;
+  if (typeof baseRefName !== 'string' || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(baseRefName)) {
+    return `pull request #${pr} reports a base branch this gate cannot use (${shown(baseRefName)})`;
+  }
+  if (typeof headRefOid !== 'string' || !SHA_RE.test(headRefOid)) return `pull request #${pr} reports no usable head commit`;
+  if (state !== 'OPEN') return `pull request #${pr} is ${shown(state)}, not OPEN`;
+  const wantRef = `refs/remotes/origin/${baseRefName}`;
+  if (fullRemoteRef(baseRef) !== wantRef) {
+    return `baseRef ${shown(baseRef)} is not the base branch of pull request #${pr}: GitHub says it targets ${shown(baseRefName)} (expected origin/${baseRefName})`;
+  }
+  if (headRefOid.toLowerCase() !== headSha.toLowerCase()) {
+    return `headSha ${headSha} is not the current head of pull request #${pr} (GitHub reports ${headRefOid}); refusing to grade or merge a different commit`;
+  }
+  return null;
 }
 
 /**
@@ -321,6 +362,10 @@ function runMerge(payload, deps) {
   const refuse = (reason, extra) => ({ ok: false, mergeReady: false, headSha, reason, ...(extra || {}) });
 
   const baseRef = need(payload, 'baseRef', isBaseRef, 'merge');
+  const repo = need(payload, 'repo', isRepo, 'merge');
+  const pr = need(payload, 'pr', isPrNumber, 'merge');
+  const prProblem = verifyPullRequest(deps, { repo, pr, baseRef, headSha });
+  if (prProblem) return refuse(prProblem);
   const cfg = loadGateConfig(deps, repoRoot, baseRef, headSha);
   if (!cfg.ok) return refuse(`local CI config invalid: ${cfg.problems.join('; ')}`);
   const workflowSet = cfg.approvalSet.workflows.map((w) => w.file);
@@ -411,12 +456,15 @@ async function runGateFlow(payload, deps) {
   const pre = preflight(repoRoot, deps);
   if (!pre.ok) return stop('preflight', pre.error, { prerequisite: pre.prerequisite });
 
-  // 2. Approval set and trusted command list: ONLY from the PR's base ref.
+  // 2. Which PR is this? GitHub, not the payload, says which branch it targets and which commit is its head; only then
+  // is the config read, and only from that branch. (Applies to dry runs too: a dry run that reports mergeReady against
+  // a base the author chose would be the same hole.)
+  const repo = need(payload, 'repo', isRepo, 'gate');
+  const pr = need(payload, 'pr', isPrNumber, 'gate');
+  const prProblem = verifyPullRequest(deps, { repo, pr, baseRef, headSha });
+  if (prProblem) return stop('config', prProblem);
   const cfg = loadGateConfig(deps, repoRoot, baseRef, headSha);
   if (!cfg.ok) return stop('config', `local CI config invalid: ${cfg.problems.join('; ')}`);
-  if (!dryRun && !(isText(payload.repo) && /^[\w.-]+\/[\w.-]+$/.test(payload.repo))) {
-    return stop('config', 'repo must be owner/name to post a status');
-  }
 
   // 3. Run in a clean clone at the exact head (the runner owns checkout and cleanup).
   const result = deps.runGate(runnerOptions(repoRoot, headSha, cfg), deps.runnerDeps);

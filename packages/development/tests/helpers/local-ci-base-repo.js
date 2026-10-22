@@ -51,4 +51,36 @@ function cleanupBaseRepos() {
   for (const d of roots.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 }
 
-module.exports = { makeBaseRepo, cleanupBaseRepos, BASE_REF, BASE_BRANCH, CONFIG_PATH };
+/** The PR number and repository the tests pretend to be gating. */
+const PR = 7;
+const REPO = 'o/r';
+
+/**
+ * A `prInfo` dependency standing in for `gh pr view`: GitHub's answer for the PR under test. The default is the honest
+ * one (the PR targets `trusted-base` and its head is the repo's head commit); a test states an attack by overriding a
+ * field, e.g. { baseRefName: 'main' } or { headRefOid: '<other sha>' }. `calls` records every lookup.
+ */
+function prInfoFor(fx, answer = {}) {
+  const calls = [];
+  const prInfo = (args) => {
+    calls.push(args);
+    if (answer.error) return { ok: false, error: answer.error };
+    return { ok: true, info: { baseRefName: BASE_BRANCH, headRefOid: fx.headSha, state: 'OPEN', ...answer } };
+  };
+  prInfo.calls = calls;
+  return prInfo;
+}
+
+/**
+ * A real `gh` executable in a temp dir, for tests that spawn the CLI as a process. It answers `gh pr view` with the
+ * given JSON and exits non-zero for anything else. Returns the directory to put first on PATH.
+ */
+function fakeGhDir(info) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-fakegh-'));
+  roots.push(d);
+  const script = `#!/bin/sh\nif [ "$1" = "pr" ] && [ "$2" = "view" ]; then printf '%s' '${JSON.stringify(info)}'; exit 0; fi\necho "unexpected gh call: $*" >&2\nexit 2\n`;
+  fs.writeFileSync(path.join(d, 'gh'), script, { mode: 0o755 });
+  return d;
+}
+
+module.exports = { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakeGhDir, PR, REPO, BASE_REF, BASE_BRANCH, CONFIG_PATH };

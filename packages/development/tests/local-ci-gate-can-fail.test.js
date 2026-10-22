@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { runGateFlow, runMerge, defaultDeps } = require('../lib/local-ci-cli');
-const { makeBaseRepo, cleanupBaseRepos } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, PR } = require('./helpers/local-ci-base-repo');
 const { runGate } = require('../lib/local-ci-runner');
 const { redact, loadCredential, postStatus } = require('../lib/local-ci-app');
 
@@ -114,7 +114,10 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   let passedReport;
   let failedPosts;
 
-  const payloadFor = (headSha) => ({ repoRoot, headSha, repo: REPO, baseRef });
+  const payloadFor = (headSha) => ({ repoRoot, headSha, repo: REPO, pr: PR, baseRef });
+  const mergePayload = (headSha) => ({ repoRoot, headSha, repo: REPO, pr: PR, baseRef });
+  // Honest PR identity per head: the PR's head is whichever commit is being gated/merged.
+  const depsFor = (headSha) => ({ ...deps, prInfo: prInfoFor({ headSha }) });
 
   beforeAll(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-can-fail-'));
@@ -145,9 +148,9 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
       runnerDeps: { resolveNodeBinDir: () => NODE_BIN_DIR },
     };
 
-    failedReport = await runGateFlow(payloadFor(shaF), deps);
+    failedReport = await runGateFlow(payloadFor(shaF), depsFor(shaF));
     failedPosts = gh.posts.slice();
-    passedReport = await runGateFlow(payloadFor(shaP), deps);
+    passedReport = await runGateFlow(payloadFor(shaP), depsFor(shaP));
   });
 
   afterAll(() => {
@@ -177,7 +180,7 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   });
 
   test('a failure status never satisfies the merge check for the failing head', () => {
-    const verdict = runMerge({ repoRoot, headSha: shaF, baseRef, statuses: failedPosts }, deps);
+    const verdict = runMerge({ ...mergePayload(shaF), statuses: failedPosts }, depsFor(shaF));
     expect(verdict.ok).toBe(false);
     expect(verdict.mergeReady).toBe(false);
   });
@@ -195,20 +198,20 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
   });
 
   test('runMerge accepts the success record for P and refuses it for F', () => {
-    const accepted = runMerge({ repoRoot, headSha: shaP, baseRef, statuses: gh.posts }, deps);
+    const accepted = runMerge({ ...mergePayload(shaP), statuses: gh.posts }, depsFor(shaP));
     expect(accepted.ok).toBe(true);
     expect(accepted.mergeReady).toBe(true);
     expect(accepted.hostedCiWaitRequired).toBe(false);
 
     const successOnly = gh.posts.filter((p) => p.state === 'success');
-    const refused = runMerge({ repoRoot, headSha: shaF, baseRef, statuses: successOnly }, deps);
+    const refused = runMerge({ ...mergePayload(shaF), statuses: successOnly }, depsFor(shaF));
     expect(refused.ok).toBe(false);
     expect(refused.mergeReady).toBe(false);
   });
 
   test('without a credential the gate cannot attest success for P (cannot fake a pass)', async () => {
     const before = gh.posts.length;
-    const noKey = { ...deps, env: { PATH: process.env.PATH }, loadCredential };
+    const noKey = { ...depsFor(shaP), env: { PATH: process.env.PATH }, loadCredential };
     const r = await runGateFlow(payloadFor(shaP), noKey);
     expect(r.mergeReady).toBe(false);
     expect(gh.posts).toHaveLength(before);

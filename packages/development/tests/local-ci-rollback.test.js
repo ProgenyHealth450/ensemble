@@ -15,7 +15,7 @@ const rollout = require('../lib/local-ci-rollout');
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 
-const { makeBaseRepo, cleanupBaseRepos } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, PR, REPO } = require('./helpers/local-ci-base-repo');
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 const REPO_CONFIG = path.join(REPO_ROOT, '.ensemble', 'local-ci.yaml');
 const CONFIG = validateConfig(fs.readFileSync(REPO_CONFIG, 'utf8'));
@@ -271,9 +271,10 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
       runGate: (o) => ({ ok: true, sha: o.headSha, failures: [], unmirrored: [], nodes: [{ node: 22, ok: true, steps: [] }] }),
       loadCredential: () => credential,
       env: {},
+      prInfo: prInfoFor(repo),
     };
     const run = await cli.runGateFlow(
-      { repoRoot: repo.dir, baseRef: repo.baseRef, headSha: repo.headSha, repo: 'o/r' },
+      { repoRoot: repo.dir, baseRef: repo.baseRef, headSha: repo.headSha, repo: REPO, pr: PR },
       deps
     );
     return { run, deps };
@@ -285,7 +286,7 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
     const { run, deps } = await gateThenOpenPr(repo, gh);
     expect(run).toMatchObject({ ok: true, posted: true });
     const prHead = repo.headSha; // the PR is opened for this exact head after the gate ran
-    const ready = cli.runMerge({ headSha: prHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[prHead] || [] }, deps);
+    const ready = cli.runMerge({ headSha: prHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[prHead] || [], repo: REPO, pr: PR }, deps);
     expect(ready).toMatchObject({ mergeReady: true, hostedCiWaitRequired: false });
   });
 
@@ -296,7 +297,7 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
     repo.git('commit', '-q', '--allow-empty', '-m', 'moved head');
     const newHead = repo.git('rev-parse', 'HEAD');
     expect(newHead).not.toBe(repo.headSha);
-    const ready = cli.runMerge({ headSha: newHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[newHead] || [] }, deps);
+    const ready = cli.runMerge({ headSha: newHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[newHead] || [], repo: REPO, pr: PR }, { ...deps, prInfo: prInfoFor({ headSha: newHead }) });
     expect(ready.mergeReady).toBe(false);
   });
 
@@ -309,10 +310,11 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
       runGate: (o) => ({ ok: false, sha: o.headSha, failures: [{ workflow: 'ci.yml', job: 'test', step: 'x', node: 22, message: 'boom' }], unmirrored: [], nodes: [] }),
       loadCredential: () => credential,
       env: {},
+      prInfo: prInfoFor(repo),
     };
-    await cli.runGateFlow({ repoRoot: repo.dir, baseRef: repo.baseRef, headSha: repo.headSha, repo: 'o/r' }, deps);
+    await cli.runGateFlow({ repoRoot: repo.dir, baseRef: repo.baseRef, headSha: repo.headSha, repo: REPO, pr: PR }, deps);
     expect((gh.bySha[repo.headSha] || []).some((s) => s.state === 'success')).toBe(false);
-    expect(cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[repo.headSha] || [] }, deps).mergeReady).toBe(false);
+    expect(cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: gh.bySha[repo.headSha] || [], repo: REPO, pr: PR }, deps).mergeReady).toBe(false);
   });
 });
 

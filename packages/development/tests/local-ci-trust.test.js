@@ -18,7 +18,7 @@ const crypto = require('crypto');
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 const { buildRecord } = require('../lib/local-ci-record');
-const { makeBaseRepo, cleanupBaseRepos, CONFIG_PATH } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, PR, REPO, CONFIG_PATH } = require('./helpers/local-ci-base-repo');
 
 const REPO_CONFIG = path.join(__dirname, '..', '..', '..', '.ensemble', 'local-ci.yaml');
 const TRUSTED_TEXT = fs.readFileSync(REPO_CONFIG, 'utf8');
@@ -38,6 +38,9 @@ function maintainer(config = TRUSTED_TEXT, extra = {}) {
   return { ...repo, blob, short: blob.slice(0, 12) };
 }
 
+/** GitHub's honest answer when a test overrides the base ref: the PR targets that very branch. */
+const prAnswer = (extra) => (extra.baseRef ? { baseRefName: extra.baseRef.replace(/^origin\//, '') } : {});
+
 function fakeFetch() {
   const calls = [];
   const fn = async (url, init) => {
@@ -54,10 +57,10 @@ function fakeFetch() {
 
 const passing = (sha) => ({ ok: true, sha, failures: [], unmirrored: [], nodes: [{ node: 22, ok: true, steps: [] }] });
 
-function makeDeps(runGateImpl) {
+function makeDeps(runGateImpl, fx, answer) {
   const fetch = fakeFetch();
   const runGate = jest.fn(runGateImpl || ((o) => passing(o.headSha)));
-  return { deps: { ...cli.defaultDeps(), fetch, runGate, loadCredential: () => CREDENTIAL, env: {} }, fetch, runGate };
+  return { deps: { ...cli.defaultDeps(), fetch, runGate, loadCredential: () => CREDENTIAL, env: {}, prInfo: fx ? prInfoFor(fx, answer) : undefined }, fetch, runGate };
 }
 
 const SMUGGLED = [
@@ -78,9 +81,9 @@ const SMUGGLED = [
 describe('gate: payload cannot carry config or runner options', () => {
   it.each(SMUGGLED)('rejects payload key %s before anything runs or posts', async (key, value) => {
     const repo = maintainer();
-    const { deps, fetch, runGate } = makeDeps();
+    const { deps, fetch, runGate } = makeDeps(undefined, repo);
     await expect(
-      cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r', [key]: value }, deps)
+      cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, [key]: value }, deps)
     ).rejects.toThrow(new RegExp(`unknown payload key.*"${key}"`));
     expect(runGate).not.toHaveBeenCalled();
     expect(fetch.calls).toHaveLength(0);
@@ -88,20 +91,20 @@ describe('gate: payload cannot carry config or runner options', () => {
 
   it('baseRef is an allowed key: the same payload without a smuggled key goes through', async () => {
     const repo = maintainer();
-    const { deps, runGate } = makeDeps();
-    await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r', dryRun: true }, deps)).resolves.toMatchObject({ ok: true });
+    const { deps, runGate } = makeDeps(undefined, repo);
+    await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, dryRun: true }, deps)).resolves.toMatchObject({ ok: true });
     expect(runGate).toHaveBeenCalledTimes(1);
   });
 
   it('a payload runner override cannot change the required Node versions: it is refused, the runner never sees it', async () => {
     const repo = maintainer();
-    const { deps, runGate } = makeDeps();
+    const { deps, runGate } = makeDeps(undefined, repo);
     await expect(
-      cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r', runner: { nodeVersions: [99] } }, deps)
+      cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, runner: { nodeVersions: [99] } }, deps)
     ).rejects.toThrow(/runner/);
     expect(runGate).not.toHaveBeenCalled();
     // and without the override the runner gets exactly the maintainer's matrix and only the documented option keys
-    await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r', dryRun: true }, deps);
+    await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, dryRun: true }, deps);
     const options = runGate.mock.calls[0][0];
     expect(Object.keys(options).sort()).toEqual(['approvalSet', 'equivalents', 'excludedSteps', 'headSha', 'repoRoot', 'secretNames']);
     expect(options.approvalSet.checks.map((c) => c.matrix['node-version']).filter(Boolean)).toEqual([22, 24]);
@@ -112,8 +115,8 @@ describe('gate: payload cannot carry config or runner options', () => {
     const headText = TRUSTED_TEXT.replace('cmd: npm test', 'cmd: npm run test-attacker');
     const own = maintainer(baseText, { headFiles: { [CONFIG_PATH]: headText } });
     expect(fs.readFileSync(path.join(own.dir, CONFIG_PATH), 'utf8')).toBe(headText); // head really is checked out
-    const { deps, runGate } = makeDeps();
-    await cli.runGateFlow({ repoRoot: own.dir, headSha: own.sha, baseRef: own.baseRef, repo: 'o/r', dryRun: true }, deps);
+    const { deps, runGate } = makeDeps(undefined, own);
+    await cli.runGateFlow({ repoRoot: own.dir, headSha: own.sha, baseRef: own.baseRef, repo: REPO, pr: PR, dryRun: true }, deps);
     const { approvalSet } = runGate.mock.calls[0][0];
     const cmds = approvalSet.steps.map((s) => s.cmd);
     expect(cmds).toContain('npm run test-trusted');
@@ -125,8 +128,8 @@ describe('gate: payload cannot carry config or runner options', () => {
     const repo = maintainer();
     let out = '';
     const code = await cli.main(['gate'], {
-      ...makeDeps().deps,
-      io: { readJson: () => ({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r', config: TRUSTED_TEXT }), write: (s) => (out += s) },
+      ...makeDeps(undefined, repo).deps,
+      io: { readJson: () => ({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, config: TRUSTED_TEXT }), write: (s) => (out += s) },
     });
     expect(code).toBe(1);
     expect(JSON.parse(out).error).toMatch(/unknown payload key.*"config"/);
@@ -134,8 +137,8 @@ describe('gate: payload cannot carry config or runner options', () => {
 
   it('baseRef is required', async () => {
     const repo = maintainer();
-    const { deps, runGate } = makeDeps();
-    await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, repo: 'o/r' }, deps)).rejects.toThrow(/baseRef/);
+    const { deps, runGate } = makeDeps(undefined, repo);
+    await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, repo: REPO, pr: PR }, deps)).rejects.toThrow(/baseRef/);
     expect(runGate).not.toHaveBeenCalled();
   });
 });
@@ -145,7 +148,7 @@ describe('merge: payload cannot carry config', () => {
   const record = buildRecord({ runnerBlobSha: repo.short, workflowSet: WORKFLOW_SET, log: 'run' });
   const status = (over = {}) => ({ context: CONTEXT, state: 'success', description: record.description, sha: repo.sha, ...over });
   const merge = (extra = {}, over = {}) =>
-    cli.runMerge({ headSha: repo.sha, baseRef: repo.baseRef, statuses: [status()], repoRoot: repo.dir, ...extra }, { ...cli.defaultDeps(), ...over });
+    cli.runMerge({ headSha: repo.sha, baseRef: repo.baseRef, statuses: [status()], repoRoot: repo.dir, repo: REPO, pr: PR, ...extra }, { ...cli.defaultDeps(), prInfo: prInfoFor(repo, prAnswer(extra)), ...over });
 
   it('control: a status carrying the base config hash is merge-ready', () => {
     expect(merge()).toMatchObject({ ok: true, mergeReady: true });
@@ -163,11 +166,11 @@ describe('merge: payload cannot carry config', () => {
   });
 
   it('repoRoot is required: there is no fallback to the current directory', () => {
-    expect(() => cli.runMerge({ headSha: repo.sha, baseRef: repo.baseRef, statuses: [status()] }, cli.defaultDeps())).toThrow(/repoRoot/);
+    expect(() => cli.runMerge({ headSha: repo.sha, baseRef: repo.baseRef, statuses: [status()], repo: REPO, pr: PR }, { ...cli.defaultDeps(), prInfo: prInfoFor(repo) })).toThrow(/repoRoot/);
   });
 
   it('baseRef is required', () => {
-    expect(() => cli.runMerge({ headSha: repo.sha, statuses: [status()], repoRoot: repo.dir }, cli.defaultDeps())).toThrow(/baseRef/);
+    expect(() => cli.runMerge({ headSha: repo.sha, statuses: [status()], repoRoot: repo.dir, repo: REPO, pr: PR }, { ...cli.defaultDeps(), prInfo: prInfoFor(repo) })).toThrow(/baseRef/);
   });
 
   it('a status whose record config hash differs from the trusted base blob is refused, naming both hashes', () => {
@@ -185,8 +188,8 @@ describe('merge: payload cannot carry config', () => {
     expect(headBlob).not.toBe(edited.blob);
     const rec = buildRecord({ runnerBlobSha: headBlob.slice(0, 12), workflowSet: WORKFLOW_SET, log: 'run' });
     const r = cli.runMerge(
-      { headSha: edited.sha, baseRef: edited.baseRef, repoRoot: edited.dir, statuses: [{ context: CONTEXT, state: 'success', description: rec.description, sha: edited.sha }] },
-      cli.defaultDeps()
+      { headSha: edited.sha, baseRef: edited.baseRef, repoRoot: edited.dir, statuses: [{ context: CONTEXT, state: 'success', description: rec.description, sha: edited.sha }], repo: REPO, pr: PR },
+      { ...cli.defaultDeps(), prInfo: prInfoFor(edited) }
     );
     expect(r.mergeReady).toBe(false);
   });
@@ -204,14 +207,14 @@ describe('merge: payload cannot carry config', () => {
 
   it('a maintainer config without steps is refused (the command list is required)', () => {
     const bad = maintainer(TRUSTED_TEXT.replace(/\nsteps:[\s\S]*?\n# A workflow step covered/, '\n# A workflow step covered'));
-    const r = cli.runMerge({ headSha: bad.sha, baseRef: bad.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: record.description, sha: bad.sha }], repoRoot: bad.dir }, cli.defaultDeps());
+    const r = cli.runMerge({ headSha: bad.sha, baseRef: bad.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: record.description, sha: bad.sha }], repoRoot: bad.dir, repo: REPO, pr: PR }, { ...cli.defaultDeps(), prInfo: prInfoFor(bad) });
     expect(r.mergeReady).toBe(false);
     expect(r.reason).toMatch(/missing required key "steps"/);
   });
 
   it('no config at the base ref is refused even if the head has one', () => {
     const none = makeBaseRepo({ config: null, headFiles: { [CONFIG_PATH]: TRUSTED_TEXT } });
-    const r = cli.runMerge({ headSha: none.sha, baseRef: none.baseRef, statuses: [status({ sha: none.sha })], repoRoot: none.dir }, cli.defaultDeps());
+    const r = cli.runMerge({ headSha: none.sha, baseRef: none.baseRef, statuses: [status({ sha: none.sha })], repoRoot: none.dir, repo: REPO, pr: PR }, { ...cli.defaultDeps(), prInfo: prInfoFor(none) });
     expect(r.mergeReady).toBe(false);
   });
 });
@@ -219,7 +222,7 @@ describe('merge: payload cannot carry config', () => {
 describe('run and config subcommands', () => {
   it('run accepts only repoRoot, headSha and baseRef and builds the runner options from the base-committed file', () => {
     const repo = maintainer();
-    const { deps, runGate } = makeDeps();
+    const { deps, runGate } = makeDeps(undefined, repo);
     cli.runRun({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef }, deps);
     expect(runGate.mock.calls[0][0].approvalSet).toEqual(TRUSTED.approvalSet);
     for (const bad of [{ options: { nodeVersions: [1] } }, { config: TRUSTED_TEXT }, { remote: 'x' }, { keep: true }, { env: {} }]) {
@@ -230,7 +233,7 @@ describe('run and config subcommands', () => {
 
   it('run requires baseRef and refuses a base equal to the head without running', () => {
     const repo = maintainer();
-    const { deps, runGate } = makeDeps();
+    const { deps, runGate } = makeDeps(undefined, repo);
     expect(() => cli.runRun({ repoRoot: repo.dir, headSha: repo.sha }, deps)).toThrow(/baseRef/);
     repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.sha);
     const r = cli.runRun({ repoRoot: repo.dir, headSha: repo.sha, baseRef: 'origin/pr-self' }, deps);
@@ -259,7 +262,7 @@ describe('merge through the CLI: reviews and context matching', () => {
   const HEAD = repo.sha;
   const record = buildRecord({ runnerBlobSha: repo.short, workflowSet: WORKFLOW_SET, log: 'run' });
   const status = (over = {}) => ({ context: CONTEXT, state: 'success', description: record.description, sha: HEAD, ...over });
-  const merge = (extra = {}, statuses = [status()]) => cli.runMerge({ headSha: HEAD, baseRef: repo.baseRef, statuses, repoRoot: repo.dir, ...extra }, cli.defaultDeps());
+  const merge = (extra = {}, statuses = [status()]) => cli.runMerge({ headSha: HEAD, baseRef: repo.baseRef, statuses, repoRoot: repo.dir, repo: REPO, pr: PR, ...extra }, { ...cli.defaultDeps(), prInfo: prInfoFor(repo) });
   const review = (login, type, state, submittedAt) => ({ author: { login, type }, state, submittedAt });
 
   it('a human reviewer whose latest decisive review is CHANGES_REQUESTED blocks the merge', () => {
@@ -314,16 +317,16 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
   const nodesOk = [{ node: 22, ok: true, steps: [] }];
   const run = async (mk) => {
     const repo = maintainer();
-    const { deps, fetch } = makeDeps(() => mk(repo.sha));
-    const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r' }, deps);
+    const { deps, fetch } = makeDeps(() => mk(repo.sha), repo);
+    const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR }, deps);
     return { r, posts: fetch.statuses().map((p) => p.body.state) };
   };
   const fail = (sha) => ({ kind: 'step-failed', step: 's', node: 22, sha, message: 'm' });
 
   it('control: a clean result is success and posts the exact configured context', async () => {
     const repo = maintainer();
-    const { deps, fetch } = makeDeps();
-    const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r' }, deps);
+    const { deps, fetch } = makeDeps(undefined, repo);
+    const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR }, deps);
     expect(r).toMatchObject({ ok: true, posted: true, mergeReady: true });
     expect(fetch.statuses()[0].body).toMatchObject({ state: 'success', context: CONTEXT });
   });
@@ -353,8 +356,8 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
 
   it('the success record is bound to the trusted base config blob (git rev-parse <baseRef>:path), not to the head file', async () => {
     const repo = maintainer(TRUSTED_TEXT, { headFiles: { [CONFIG_PATH]: TRUSTED_TEXT + '\n# head edit\n' } });
-    const { deps, fetch } = makeDeps();
-    const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'o/r' }, deps);
+    const { deps, fetch } = makeDeps(undefined, repo);
+    const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR }, deps);
     const baseBlob = repo.git('rev-parse', `${repo.baseRef}:${CONFIG_PATH}`);
     const headBlob = repo.git('hash-object', path.join(repo.dir, CONFIG_PATH));
     expect(headBlob).not.toBe(baseBlob);
@@ -366,15 +369,16 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
   it('a base ref that is the head, or does not resolve, posts nothing and runs nothing', async () => {
     const repo = maintainer();
     repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.sha);
-    const { deps, fetch, runGate } = makeDeps();
+    const { deps, fetch, runGate } = makeDeps(undefined, repo);
     // a real remote-tracking ref at the head, and a well-formed one that does not exist: refused by the gate, not the boundary
     for (const baseRef of ['origin/pr-self', 'origin/no-such-branch']) {
-      const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: 'o/r' }, deps);
+      const honestPr = { ...deps, prInfo: prInfoFor(repo, { baseRefName: baseRef.replace(/^origin\//, '') }) };
+      const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: REPO, pr: PR }, honestPr);
       expect(r).toMatchObject({ ok: false, posted: false, mergeReady: false });
     }
     // the head's own SHA, and a bare local branch name, are not remote-tracking refs: refused at the boundary
     for (const baseRef of [repo.sha, 'no-such-branch']) {
-      await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: 'o/r' }, deps)).rejects.toThrow(/baseRef/);
+      await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: REPO, pr: PR }, deps)).rejects.toThrow(/baseRef/);
     }
     expect(runGate).not.toHaveBeenCalled();
     expect(fetch.calls).toHaveLength(0);

@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 const { buildRecord, verifyRecord } = require('../lib/local-ci-record');
-const { makeBaseRepo, cleanupBaseRepos } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakeGhDir, PR } = require('./helpers/local-ci-base-repo');
 
 const CLI_PATH = path.join(__dirname, '..', 'lib', 'local-ci-cli.js');
 const REPO_CONFIG = path.join(__dirname, '..', '..', '..', '.ensemble', 'local-ci.yaml');
@@ -66,7 +66,7 @@ function makeDeps(overrides = {}) {
 }
 
 function gatePayload(repo, extra = {}) {
-  return { repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'owner/name', ...extra };
+  return { repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: 'owner/name', pr: PR, ...extra };
 }
 
 afterAll(cleanupBaseRepos);
@@ -78,7 +78,7 @@ describe('merge readiness', () => {
   const trustedBlob = fixture.git('rev-parse', `${fixture.baseRef}:.ensemble/local-ci.yaml`);
   const record = buildRecord({ runnerBlobSha: trustedBlob, workflowSet: WORKFLOW_SET, log: 'run' });
   const status = (over = {}) => ({ context: CONTEXT, state: 'success', description: record.description, sha: HEAD, ...over });
-  const merge = (statuses, extra = {}) => cli.runMerge({ headSha: HEAD, statuses, repoRoot: fixture.dir, baseRef: fixture.baseRef, ...extra }, cli.defaultDeps());
+  const merge = (statuses, extra = {}) => cli.runMerge({ headSha: HEAD, statuses, repoRoot: fixture.dir, baseRef: fixture.baseRef, repo: 'owner/name', pr: PR, ...extra }, { ...cli.defaultDeps(), prInfo: prInfoFor(fixture) });
 
   it('passing run merges: a verified status bound to the exact head is ready without hosted CI', () => {
     const r = merge([status()]);
@@ -114,11 +114,11 @@ describe('merge readiness', () => {
 
   it('an unusable config refuses rather than guessing', () => {
     const bad = repoWith({ config: 'not: [valid' });
-    const r = cli.runMerge({ headSha: bad.sha, statuses: [status({ sha: bad.sha })], repoRoot: bad.dir, baseRef: bad.baseRef }, cli.defaultDeps());
+    const r = cli.runMerge({ headSha: bad.sha, statuses: [status({ sha: bad.sha })], repoRoot: bad.dir, baseRef: bad.baseRef, repo: 'owner/name', pr: PR }, { ...cli.defaultDeps(), prInfo: prInfoFor(bad) });
     expect(r.mergeReady).toBe(false);
     expect(r.reason).toMatch(/config invalid/);
     const none = repoWith({ config: null });
-    expect(cli.runMerge({ headSha: none.sha, statuses: [status({ sha: none.sha })], repoRoot: none.dir, baseRef: none.baseRef }, cli.defaultDeps()).mergeReady).toBe(false);
+    expect(cli.runMerge({ headSha: none.sha, statuses: [status({ sha: none.sha })], repoRoot: none.dir, baseRef: none.baseRef, repo: 'owner/name', pr: PR }, { ...cli.defaultDeps(), prInfo: prInfoFor(none) }).mergeReady).toBe(false);
   });
 });
 
@@ -126,7 +126,7 @@ describe('gate flow', () => {
   it('a missing or invalid maintainer config stops at the config stage, never runs or posts', async () => {
     for (const config of [null, 'not: [valid', 'workflows: []\n']) {
       const repo = repoWith({ config });
-      const { deps, fetch, runGate } = makeDeps();
+      const { deps, fetch, runGate } = makeDeps({ prInfo: prInfoFor(repo) });
       const r = await cli.runGateFlow(gatePayload(repo), deps);
       expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, stage: 'config' });
       expect(r.error).toMatch(/config invalid/);
@@ -140,7 +140,7 @@ describe('gate flow', () => {
     ['git', { git: () => ({ status: 127, stdout: '', stderr: 'not found' }) }],
   ])('missing %s stops naming it, never runs or posts', async (name, override) => {
     const repo = repoWith();
-    const { deps, fetch, runGate } = makeDeps(override);
+    const { deps, fetch, runGate } = makeDeps({ ...override, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, prerequisite: name });
     expect(runGate).not.toHaveBeenCalled();
@@ -149,7 +149,7 @@ describe('gate flow', () => {
 
   it('dry run reports readiness and posts nothing', async () => {
     const repo = repoWith();
-    const { deps, fetch } = makeDeps();
+    const { deps, fetch } = makeDeps({ prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo, { dryRun: true }), deps);
     expect(r).toMatchObject({ ok: true, dryRun: true, mergeReady: true, posted: false, wouldPost: true });
     expect(fetch.calls).toHaveLength(0);
@@ -157,7 +157,7 @@ describe('gate flow', () => {
 
   it('dry run without a credential is not ready: cannot attest', async () => {
     const repo = repoWith();
-    const { deps, fetch } = makeDeps({ loadCredential: () => ({ credential: null, reason: 'cannot attest' }) });
+    const { deps, fetch } = makeDeps({ loadCredential: () => ({ credential: null, reason: 'cannot attest' }), prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo, { dryRun: true }), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, cannotAttest: true });
     expect(fetch.calls).toHaveLength(0);
@@ -165,7 +165,7 @@ describe('gate flow', () => {
 
   it('no credential publishes nothing and refuses the merge', async () => {
     const repo = repoWith();
-    const { deps, fetch } = makeDeps({ loadCredential: () => ({ credential: null, reason: 'cannot attest' }) });
+    const { deps, fetch } = makeDeps({ loadCredential: () => ({ credential: null, reason: 'cannot attest' }), prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, cannotAttest: true });
     expect(r.error).toContain('cannot attest');
@@ -174,7 +174,7 @@ describe('gate flow', () => {
 
   it('a passing run posts one success status on the exact head that then verifies as merge-ready', async () => {
     const repo = repoWith();
-    const { deps, fetch, runGate } = makeDeps();
+    const { deps, fetch, runGate } = makeDeps({ prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(runGate).toHaveBeenCalledTimes(1);
     expect(runGate.mock.calls[0][0]).toMatchObject({ headSha: repo.sha, repoRoot: path.resolve(repo.dir) });
@@ -188,7 +188,7 @@ describe('gate flow', () => {
     expect(posted[0].body).toMatchObject({ state: 'success', context: CONTEXT });
 
     const ready = cli.runMerge(
-      { headSha: repo.sha, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
+      { headSha: repo.sha, repoRoot: repo.dir, baseRef: repo.baseRef, repo: 'owner/name', pr: PR, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
       deps
     );
     expect(ready.mergeReady).toBe(true);
@@ -198,8 +198,8 @@ describe('gate flow', () => {
     repo.git('commit', '-qm', 'head moves');
     const movedHead = repo.git('rev-parse', 'HEAD');
     const moved = cli.runMerge(
-      { headSha: movedHead, repoRoot: repo.dir, baseRef: repo.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
-      deps
+      { headSha: movedHead, repoRoot: repo.dir, baseRef: repo.baseRef, repo: 'owner/name', pr: PR, statuses: [{ context: CONTEXT, state: 'success', description: posted[0].body.description, sha: repo.sha }] },
+      { ...deps, prInfo: prInfoFor(repo, { headRefOid: movedHead }) }
     );
     expect(moved.mergeReady).toBe(false);
     expect(moved.headMoved).toBe(true);
@@ -214,7 +214,7 @@ describe('gate flow', () => {
       unmirrored: [],
       nodes: [{ node: 22, ok: false, steps: [{ name: 'test', status: 'FAIL' }] }],
     }));
-    const { deps, fetch } = makeDeps({ runGate });
+    const { deps, fetch } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r.ok).toBe(false);
     expect(r.mergeReady).toBe(false);
@@ -235,7 +235,7 @@ describe('gate flow', () => {
       unmirrored: [{ workflow: '.github/workflows/test.yml', job: 'test', step: 'Deploy', reason: 'no configured step mirrors it' }],
       nodes: [],
     }));
-    const { deps, fetch } = makeDeps({ runGate });
+    const { deps, fetch } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r.mergeReady).toBe(false);
     expect(r.failures[0]).toMatchObject({ kind: 'unsupported-step', workflow: '.github/workflows/test.yml', job: 'test', step: 'Deploy', sha: repo.sha });
@@ -249,7 +249,7 @@ describe('gate flow', () => {
   ])('runner failure (%s) never becomes success and posts nothing', async (_n, failure) => {
     const repo = repoWith();
     const runGate = jest.fn(() => ({ ok: false, sha: repo.sha, error: failure.message, failures: [{ ...failure, step: null, node: null, sha: repo.sha }], unmirrored: [], nodes: [] }));
-    const { deps, fetch } = makeDeps({ runGate });
+    const { deps, fetch } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false });
     expect(fetch.calls).toHaveLength(0);
@@ -261,7 +261,7 @@ describe('gate flow', () => {
       { ok: true, sha: repo.sha, failures: [], unmirrored: [], nodes: [] },
       { ok: true, sha: repo.sha, failures: [{ kind: 'step-failed', step: 's', node: 22, sha: repo.sha, message: 'm' }], unmirrored: [], nodes: [{ node: 22, ok: true }] },
     ]) {
-      const { deps, fetch } = makeDeps({ runGate: () => result });
+      const { deps, fetch } = makeDeps({ runGate: () => result, prInfo: prInfoFor(repo) });
       const r = await cli.runGateFlow(gatePayload(repo), deps);
       expect(r.mergeReady).toBe(false);
       expect(fetch.statuses().every((p) => p.body.state !== 'success')).toBe(true);
@@ -298,10 +298,13 @@ describe('CLI boundary and output', () => {
     const fx = repoWith();
     const blob = fx.git('rev-parse', `${fx.baseRef}:.ensemble/local-ci.yaml`);
     const record = buildRecord({ runnerBlobSha: blob, workflowSet: WORKFLOW_SET, log: 'run' });
-    const ok = run(['merge'], JSON.stringify({ headSha: fx.sha, repoRoot: fx.dir, baseRef: fx.baseRef, statuses: [{ context: CONTEXT, state: 'success', description: record.description, sha: fx.sha }] }));
+    const fakeDir = fakeGhDir({ baseRefName: 'trusted-base', headRefOid: fx.sha, state: 'OPEN' });
+    const env = { ...process.env, PATH: fakeDir + path.delimiter + process.env.PATH };
+    const runGh = (args, input) => spawnSync(process.execPath, [CLI_PATH, ...args], { input, encoding: 'utf8', env });
+    const ok = runGh(['merge'], JSON.stringify({ headSha: fx.sha, repoRoot: fx.dir, baseRef: fx.baseRef, repo: 'owner/name', pr: PR, statuses: [{ context: CONTEXT, state: 'success', description: record.description, sha: fx.sha }] }));
     expect(ok.status).toBe(0);
     expect(JSON.parse(ok.stdout).mergeReady).toBe(true);
-    const no = run(['merge'], JSON.stringify({ headSha: fx.sha, repoRoot: fx.dir, baseRef: fx.baseRef, statuses: [] }));
+    const no = runGh(['merge'], JSON.stringify({ headSha: fx.sha, repoRoot: fx.dir, baseRef: fx.baseRef, repo: 'owner/name', pr: PR, statuses: [] }));
     expect(no.status).toBe(1);
     expect(JSON.parse(no.stdout).mergeReady).toBe(false);
   });
@@ -317,7 +320,7 @@ describe('CLI boundary and output', () => {
       unmirrored: [],
       nodes: [],
     });
-    const { deps } = makeDeps({ runGate });
+    const { deps } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     let out = '';
     const code = await cli.main(['gate'], { ...deps, io: { readJson: () => gatePayload(repo), write: (s) => (out += s) } });
     expect(code).toBe(1);

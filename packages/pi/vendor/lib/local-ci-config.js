@@ -13,14 +13,14 @@
  * approvalSet = { workflows:[{file, jobs:[{id, matrix}]}],
  *   checks:[{workflow, job, matrix}], excluded:[{workflow, job, reason}],
  *   excludedSteps:[{workflow, job, step, reason}], steps:[{name, cmd}],
- *   equivalents:[{workflowStep, runs}],
+ *   equivalents:[{workflowStep, runs}], secretNames:[envVarName], outputPaths:[repoRelativePath],
  *   statusContext, appId, botReview:{ skipped, logins } }
  */
 
 const yaml = require('js-yaml');
 
 const TOP_REQUIRED = ['workflows', 'steps', 'status_context', 'app_id'];
-const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'secret_names', 'status_context', 'app_id', 'bot_reviewers'];
+const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'secret_names', 'output_paths', 'status_context', 'app_id', 'bot_reviewers'];
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -202,6 +202,33 @@ function validateSecretNames(value, problems) {
   return out;
 }
 
+// Paths a trusted step is allowed to leave behind as UNTRACKED files (install and build output). Anything else a step
+// creates fails the run, because an untracked file is the one thing a step can plant that a later command, or its own
+// test, reads as permission to pass. Each entry is a repo-relative directory (covers everything under it) or one exact
+// file: no globs, no `..`, no absolute paths, so the matcher is a plain prefix test with nothing to misparse.
+const DEFAULT_OUTPUT_PATHS = ['node_modules', 'coverage', '.cache', 'dist'];
+const OUTPUT_PATH_RE = /^[A-Za-z0-9._@+-]+(\/[A-Za-z0-9._@+-]+)*$/;
+function validateOutputPaths(value, problems) {
+  if (value === undefined || value === null) return [...DEFAULT_OUTPUT_PATHS];
+  if (!Array.isArray(value)) {
+    problems.push('output_paths: must be a list of repo-relative directories or files');
+    return [...DEFAULT_OUTPUT_PATHS];
+  }
+  const out = [];
+  value.forEach((raw, i) => {
+    const p = typeof raw === 'string' ? raw.replace(/\/+$/, '') : raw;
+    const bad = typeof p !== 'string' || !OUTPUT_PATH_RE.test(p) || p.split('/').some((seg) => seg === '.' || seg === '..' || seg === '.git');
+    if (bad) {
+      problems.push(`output_paths[${i}]: must be a plain repo-relative path (letters, digits, . _ @ + - and /), not absolute, not containing "..", "." or ".git", and no globs`);
+    } else if (out.includes(p)) {
+      problems.push(`output_paths[${i}]: duplicate path "${p}"`);
+    } else {
+      out.push(p);
+    }
+  });
+  return out;
+}
+
 function validateBots(value, problems) {
   if (value === undefined || value === null) return { skipped: true, logins: [] };
   if (!Array.isArray(value) || !value.every(isText)) {
@@ -259,6 +286,7 @@ function validateConfig(source) {
   }
   const botReview = validateBots(config.bot_reviewers, problems);
   const secretNames = validateSecretNames(config.secret_names, problems);
+  const outputPaths = validateOutputPaths(config.output_paths, problems);
 
   for (const ex of excluded) {
     const wf = workflows.find((w) => w.file === ex.workflow);
@@ -289,6 +317,7 @@ function validateConfig(source) {
       steps,
       equivalents,
       secretNames,
+      outputPaths,
       statusContext: config.status_context.trim(),
       appId,
       botReview,

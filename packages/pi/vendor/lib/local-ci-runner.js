@@ -25,6 +25,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
@@ -242,13 +243,59 @@ function trackedIntegrity({ dir, sha, deps }) {
     if (mode === '120000') {
       const want = st.isSymbolicLink() ? fs.readlinkSync(abs) : null;
       const h = want === null ? null : deps.git(['hash-object', '--stdin'], { cwd: dir, input: want }).stdout.trim();
-      if (h !== blob) problems.push(`tracked symlink changed: ${rel}`);
+      if (h !== blob) {
+        problems.push(`tracked symlink changed: ${rel}`);
+      } else if (!symlinkStaysInside(dir, abs)) {
+        // The link text is what the tree records, but the steps read whatever it points at. A link that leaves the
+        // clone makes them read the maintainer's disk, not the commit being graded.
+        problems.push(`tracked symlink resolves outside the clone: ${rel}`);
+      }
       continue;
     }
     const h = deps.git(['hash-object', '--no-filters', '--', rel], { cwd: dir });
     if (h.status !== 0 || h.stdout.trim() !== blob) problems.push(`tracked file modified: ${rel}`);
   }
   return problems;
+}
+
+/** True when `abs` (a symlink inside `dir`) resolves to a real path inside the real path of `dir`. Dangling counts as outside. */
+function symlinkStaysInside(dir, abs) {
+  try {
+    const realDir = fs.realpathSync(dir);
+    const real = fs.realpathSync(abs);
+    return real === realDir || real.startsWith(realDir + path.sep);
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
+ * Every file in the clone that is not tracked, whatever the head's .gitignore says (`ls-files --others` without
+ * `--exclude-standard` lists them all; `git status` honours the head's own ignore rules, so a head could hide a planted
+ * file from it). Returns an array of repo-relative paths, or null when git could not answer (callers fail closed).
+ */
+function untrackedFiles({ dir, deps }) {
+  const r = deps.git(['ls-files', '-z', '--others'], { cwd: dir });
+  if (r.status !== 0) return null;
+  return String(r.stdout).split('\0').filter(Boolean);
+}
+
+/** Is `rel` equal to, or inside, one of the allowed output paths (plain directory/file prefixes, no globs)? */
+function isAllowedOutput(rel, outputPaths) {
+  return outputPaths.some((p) => rel === p || rel.startsWith(`${p}/`));
+}
+
+/**
+ * An untracked file is the one thing a step can plant that a later command, or the head's own test, reads as permission
+ * to pass: tracked content is verified byte for byte, but a file that was never in the commit has nothing to compare
+ * with. So after the steps, every untracked file that was not there before must sit under a path the BASE-ref config
+ * lists as build output (`output_paths`). Returns the offending paths, or null when the clone could not be inspected.
+ */
+function unexpectedOutput({ dir, deps, before, outputPaths }) {
+  const after = untrackedFiles({ dir, deps });
+  if (after === null || before === null) return null;
+  const known = new Set(before);
+  return after.filter((rel) => !known.has(rel) && !isAllowedOutput(rel, outputPaths));
 }
 
 /** The clone's own git configuration, so a step that sets core.fsmonitor, hooksPath, sshCommand etc. is detected. */
@@ -357,10 +404,13 @@ const SECRET_NAME_RE = /TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH/i;
 const MIN_SECRET_LENGTH = 6;
 
 /**
- * The only inherited variables a step sees (plus CI, the Node-pinned PATH and the
- * configured secret names). The full maintainer environment is never passed on.
+ * The only inherited variables a step sees (plus CI, a scratch HOME, the Node-pinned PATH and the configured secret
+ * names). The full maintainer environment is never passed on. HOME is NOT inherited: a step runs the PR head's code, and
+ * with the real HOME it could rewrite ~/.gitconfig, ~/.npmrc or shell profiles (which outlive the run) or read ~/.ssh
+ * and ~/.aws. Each run gets a fresh scratch HOME instead; the npm cache is pointed back at the maintainer's real cache so
+ * installs stay warm (npm verifies cache entries by integrity hash).
  */
-const ENV_ALLOWLIST = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR', 'NODE_OPTIONS'];
+const ENV_ALLOWLIST = ['USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR', 'NODE_OPTIONS'];
 
 function inheritedSecretValues(env) {
   const out = [];
@@ -370,9 +420,14 @@ function inheritedSecretValues(env) {
   return out;
 }
 
-function buildStepEnv({ env, secrets, binDir }) {
+function buildStepEnv({ env, secrets, binDir, scratchHome }) {
   const stepEnv = {};
   for (const name of ENV_ALLOWLIST) if (typeof env[name] === 'string') stepEnv[name] = env[name];
+  stepEnv.HOME = scratchHome;
+  const realCache = typeof env.npm_config_cache === 'string' && env.npm_config_cache
+    ? env.npm_config_cache
+    : typeof env.HOME === 'string' && env.HOME ? path.join(env.HOME, '.npm') : null;
+  if (realCache) stepEnv.npm_config_cache = realCache;
   Object.assign(stepEnv, secrets);
   stepEnv.CI = 'true';
   stepEnv.PATH = `${binDir}${path.delimiter}${env.PATH || ''}`;
@@ -487,6 +542,12 @@ function runGate(options, injected) {
   // Baseline of the clone's own git config, taken before any step runs; compared after (a step that sets core.fsmonitor,
   // core.hooksPath, core.sshCommand ... would otherwise change what later git calls in the clone execute).
   const configBefore = cloneGitConfig({ dir, deps });
+  // Untracked files present before any step runs (a fresh clone has none). Output paths come from the base-ref config;
+  // a caller that supplies none gets the defaults, never "everything is allowed".
+  const untrackedBefore = untrackedFiles({ dir, deps });
+  const outputPaths = Array.isArray(opts.approvalSet.outputPaths) ? opts.approvalSet.outputPaths : ['node_modules', 'coverage', '.cache', 'dist'];
+  // A throwaway HOME outside the clone for the steps (see ENV_ALLOWLIST); removed in `finally` whatever happens.
+  const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-home-'));
 
   try {
     // Read the REQUIRED workflows at the PR head as DATA and compare with the
@@ -544,7 +605,7 @@ function runGate(options, injected) {
         fail('node-version', null, major, `required Node ${major} cannot be provided: ${err.message}`);
         continue;
       }
-      const stepEnv = buildStepEnv({ env, secrets, binDir });
+      const stepEnv = buildStepEnv({ env, secrets, binDir, scratchHome });
 
       const ver = deps.run('node --version', { cwd: dir, env: stepEnv });
       const reported = ver.status === 0 ? /^v(\d+)\./.exec(ver.stdout.trim()) : null;
@@ -562,6 +623,14 @@ function runGate(options, injected) {
           node.steps.push({ name: s.name, status: 'FAIL' });
           fail('step-failed', s.name, major, `step "${s.name}" failed on Node ${major} at ${sha} (exit ${r.status}): ${tail(`${r.stdout}\n${r.stderr}`)}`);
         }
+        // After EVERY step, whether it passed or not: a step may only leave untracked files under the base config's
+        // output_paths. Anything else is a file the next command (or this step's own test) could read as permission.
+        const stray = unexpectedOutput({ dir, deps, before: untrackedBefore, outputPaths });
+        if (stray === null) {
+          fail('clone-tampered', s.name, major, `could not inspect the clone for files left by step "${s.name}"; not counting the run`);
+        } else if (stray.length > 0) {
+          fail('unexpected-output', s.name, major, `step "${s.name}" left untracked files outside output_paths (${outputPaths.join(', ')}): ${stray.slice(0, 5).join(', ')}${stray.length > 5 ? `, and ${stray.length - 5} more` : ''}; not counting the run`);
+        }
       }
       node.ok = executedMatches(node.steps, steps) && node.steps.every((x) => x.status === 'PASS');
     }
@@ -573,7 +642,8 @@ function runGate(options, injected) {
     }
 
     // The steps must not have rewritten what they claim to have tested: tracked content is compared by hash against the
-    // tree of `sha` (see trackedIntegrity), and the clone's own git config must be unchanged. Untracked output is fine.
+    // tree of `sha` (see trackedIntegrity), and the clone's own git config must be unchanged. Untracked files are held
+    // to the same standard after every step (see unexpectedOutput), so a step cannot plant one for a later step to read.
     const tampered = trackedIntegrity({ dir, sha, deps });
     if (tampered.length > 0) {
       fail('clone-tampered', null, undefined, `a step changed tracked content of the clean clone at ${sha}; not counting the run: ${tampered.slice(0, 5).join('; ')}${tampered.length > 5 ? `; and ${tampered.length - 5} more` : ''}`);
@@ -590,6 +660,7 @@ function runGate(options, injected) {
     fail('runner-error', null, undefined, result.error);
     return finish();
   } finally {
+    fs.rmSync(scratchHome, { recursive: true, force: true });
     if (!opts.keep) fs.rmSync(dir, { recursive: true, force: true });
   }
 }

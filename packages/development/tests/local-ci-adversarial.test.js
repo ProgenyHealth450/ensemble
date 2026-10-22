@@ -22,6 +22,7 @@ const yaml = require('js-yaml');
 const { runGate, cloneAtSha, sweepStaleClones } = require('../lib/local-ci-runner');
 const { validateConfig } = require('../lib/local-ci-config');
 const cli = require('../lib/local-ci-cli');
+const { prInfoFor, PR } = require('./helpers/local-ci-base-repo');
 
 const MAJOR = Number(process.versions.node.split('.')[0]);
 const BIN_DIR = path.dirname(process.execPath);
@@ -235,8 +236,8 @@ describe('nothing but the maintainer config sets the Node matrix and the command
     const head = makeHead({ scripts: { lint: 'exit 1' }, workflowCmds: ['true'], baseConfig: trusted, extraCommitFiles: { '.ensemble/local-ci.yaml': weak } });
     expect(fs.readFileSync(path.join(head.dir, '.ensemble', 'local-ci.yaml'), 'utf8')).toBe(weak); // head's file is what is on disk
     const report = await cli.runGateFlow(
-      { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', dryRun: true },
-      { ...cli.defaultDeps(), runnerDeps: deps(), env: {}, loadCredential: () => ({ credential: null, reason: 'none' }) }
+      { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', pr: PR, dryRun: true },
+      { ...cli.defaultDeps(), prInfo: prInfoFor({ headSha: head.sha }), runnerDeps: deps(), env: {}, loadCredential: () => ({ credential: null, reason: 'none' }) }
     );
     expect(report.ok).toBe(false);
     expect(report.failures.map((f) => [f.kind, f.step])).toEqual([['step-failed', 'lint']]);
@@ -256,12 +257,17 @@ describe('secrets and environment', () => {
     const r = gate(head, approvalFor([dump]), { env });
     expect(r.ok).toBe(true);
     const seen = JSON.parse(fs.readFileSync(out, 'utf8'));
-    const allowed = new Set(['CI', 'HOME', 'LANG', 'NODE_OPTIONS', 'PATH', 'TERM']);
+    const allowed = new Set(['CI', 'HOME', 'LANG', 'NODE_OPTIONS', 'PATH', 'TERM', 'npm_config_cache']);
     const addedByBash = new Set(['PWD', 'OLDPWD', 'SHLVL', '_', '__CF_USER_TEXT_ENCODING']);
     expect(Object.keys(seen).filter((k) => !allowed.has(k) && !addedByBash.has(k))).toEqual([]);
     for (const k of allowed) expect(seen).toHaveProperty(k);
     for (const k of ['MY_SECRET', 'GITHUB_TOKEN', 'DEPLOY_KEY', 'UNRELATED']) expect(seen).not.toHaveProperty(k);
     expect(seen.CI).toBe('true');
+    // HOME is a throwaway directory, never the maintainer's: a step that writes ~/.gitconfig or reads ~/.ssh touches nothing real.
+    expect(seen.HOME).not.toBe(env.HOME);
+    expect(path.basename(seen.HOME)).toMatch(/^local-ci-home-/);
+    expect(fs.existsSync(seen.HOME)).toBe(false); // removed once the run is over
+    expect(seen.npm_config_cache).toBe(path.join(env.HOME, '.npm')); // installs stay warm
     expect(seen.PATH.split(path.delimiter)[0]).toBe(BIN_DIR);
   });
 
@@ -331,9 +337,10 @@ describe('secrets and environment', () => {
     process.env.DEPLOY_TOKEN = SECRET;
     try {
       const report = await cli.runGateFlow(
-        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r' },
+        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', pr: PR },
         {
           ...cli.defaultDeps(),
+          prInfo: prInfoFor({ headSha: head.sha }),
           fetch,
           env: {},
           loadCredential: () => ({ credential: { appId: '1', privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) } }),
@@ -414,9 +421,105 @@ describe('the steps cannot rewrite what they claim to have tested', () => {
   };
   const kinds = (r) => r.failures.map((f) => f.kind);
 
-  it('control: an honest step that writes untracked and ignored output (coverage/, node_modules) passes', () => {
-    const r = run('mkdir -p coverage node_modules/.cache && echo {} > coverage/x.json && echo c > node_modules/.cache/y && echo out > build-output.txt');
+  it('control: an honest step that writes only configured output (coverage/, node_modules) passes', () => {
+    const r = run('mkdir -p coverage node_modules/.cache && echo {} > coverage/x.json && echo c > node_modules/.cache/y');
     expect(r).toMatchObject({ ok: true, failures: [] });
+  });
+
+  it('a step that leaves an untracked file outside output_paths voids the run, even though it exits 0', () => {
+    // The one thing a step can plant that nothing compares against a commit: a file that was never tracked. Here the
+    // head's own check reads grant.txt and the same step's first command writes it, so every exit status is 0.
+    const cmd = 'node scripts/run.js';
+    const head = makeHead({
+      workflowCmds: [cmd],
+      files: { 'scripts/run.js': "const fs=require('fs');fs.writeFileSync('grant.txt','yes');process.exit(fs.readFileSync('grant.txt','utf8')==='yes'?0:1);\n" },
+    });
+    const r = gate(head, approvalFor([{ name: 'step', cmd }]));
+    expect(r.ok).toBe(false);
+    expect(kinds(r)).toContain('unexpected-output');
+    expect(r.failures.find((f) => f.kind === 'unexpected-output').message).toContain('grant.txt');
+  });
+
+  it('the same step passes when the BASE config lists that path in output_paths (so the check can pass)', () => {
+    const cmd = 'echo ok > grant.txt';
+    const head = makeHead({ workflowCmds: [cmd] });
+    const allowed = validateConfig({
+      workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }],
+      steps: [{ name: 'step', cmd }],
+      output_paths: ['grant.txt'],
+      status_context: 'x/local-ci',
+      app_id: 1,
+    });
+    expect(allowed.ok).toBe(true);
+    expect(gate(head, allowed.approvalSet)).toMatchObject({ ok: true, failures: [] });
+  });
+
+  it("the head's own .gitignore cannot hide a planted file from the check", () => {
+    const cmd = 'echo yes > grant.txt';
+    const head = makeHead({ workflowCmds: [cmd], files: { '.gitignore': 'grant.txt\n.ensemble/local-ci-runs/\n' } });
+    const r = gate(head, approvalFor([{ name: 'step', cmd }]));
+    expect(r.ok).toBe(false);
+    expect(kinds(r)).toContain('unexpected-output');
+  });
+
+  it('a FAILING step that also plants a file is reported for both', () => {
+    const cmd = 'echo x > planted.txt; exit 3';
+    const head = makeHead({ workflowCmds: [cmd] });
+    expect(kinds(gate(head, approvalFor([{ name: 'step', cmd }])))).toEqual(expect.arrayContaining(['step-failed', 'unexpected-output']));
+  });
+
+  it.each([
+    ['a file whose name only starts like an allowed directory', 'echo x > node_modules_x'],
+    ['a file with a newline in its name', "printf x > \"$(printf 'a\\nb')\""],
+    ['.gitmodules', 'echo x > .gitmodules'],
+  ])('%s is not mistaken for allowed output', (_name, cmd) => {
+    expect(kinds(run(cmd))).toContain('unexpected-output');
+  });
+
+  it('a file planted by step 1 is caught after step 1, even though step 2 deletes it', () => {
+    const head = makeHead({ workflowCmds: ['echo x > grant.txt', 'rm -f grant.txt'] });
+    const r = gate(head, approvalFor([{ name: 'plant', cmd: 'echo x > grant.txt' }, { name: 'cleanup', cmd: 'rm -f grant.txt' }]));
+    expect(r.ok).toBe(false);
+    expect(r.failures.find((f) => f.kind === 'unexpected-output')).toMatchObject({ step: 'plant' });
+  });
+
+  it('a tracked symlink that resolves outside the clone voids the run (the steps would read the maintainer disk)', () => {
+    const head = makeHead({ workflowCmds: ['true'] });
+    const outside = path.join(head.tmp, 'outside.txt');
+    fs.writeFileSync(outside, 'PASS\n');
+    fs.symlinkSync(outside, path.join(head.dir, 'link-out'));
+    git(head.dir, 'add', '-A');
+    git(head.dir, 'commit', '-q', '-m', 'symlink out of the clone');
+    const r = gate({ dir: head.dir, sha: git(head.dir, 'rev-parse', 'HEAD'), tmp: head.tmp }, approvalFor([{ name: 'step', cmd: 'true' }]));
+    expect(r.ok).toBe(false);
+    expect(r.failures.find((f) => f.kind === 'clone-tampered').message).toContain('resolves outside the clone');
+  });
+
+  it('a tracked symlink that points at nothing (dangling) is treated as outside, not as clean', () => {
+    const head = makeHead({ workflowCmds: ['true'] });
+    fs.symlinkSync('no-such-target-anywhere', path.join(head.dir, 'dangling'));
+    git(head.dir, 'add', '-A');
+    git(head.dir, 'commit', '-q', '-m', 'dangling symlink');
+    const r = gate({ dir: head.dir, sha: git(head.dir, 'rev-parse', 'HEAD'), tmp: head.tmp }, approvalFor([{ name: 'step', cmd: 'true' }]));
+    expect(r.ok).toBe(false);
+    expect(r.failures.find((f) => f.kind === 'clone-tampered').message).toContain('resolves outside the clone');
+  });
+
+  it.each([
+    ['git write-tree fails', 'write-tree'],
+    ['git ls-tree fails', 'ls-tree'],
+    ['git ls-files (the untracked inventory) fails', 'ls-files'],
+  ])('%s: the run is voided, never read as "no problems"', (_name, sub) => {
+    const head = makeHead({ workflowCmds: ['true'] });
+    const realGit = (args, o = {}) => {
+      const x = spawnSync('git', args, { cwd: o.cwd, input: o.input, encoding: 'utf8', maxBuffer: 1 << 26 });
+      return { status: x.error ? 127 : x.status, stdout: x.stdout || '', stderr: x.stderr || '' };
+    };
+    const r = gate(head, approvalFor([{ name: 'step', cmd: 'true' }]), undefined, {
+      git: (args, o) => (args[0] === sub ? { status: 128, stdout: '', stderr: 'boom' } : realGit(args, o)),
+    });
+    expect(r.ok).toBe(false);
+    expect(kinds(r)).toContain('clone-tampered');
   });
 
   it('control: a tracked symlink and a tracked executable are not mistaken for tampering', () => {
@@ -588,9 +691,10 @@ describe('secrets reach a step only by name from the BASE-ref config, through th
     let report;
     try {
       report = await cli.runGateFlow(
-        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', dryRun: true },
+        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', pr: PR, dryRun: true },
         {
           ...cli.defaultDeps(),
+          prInfo: prInfoFor({ headSha: head.sha }),
           runnerDeps: deps(),
           loadCredential: () => ({ credential: null, reason: 'none' }),
           postStatus: async (a) => { posted.push(a); return { published: true }; },
@@ -644,8 +748,8 @@ describe('secrets reach a step only by name from the BASE-ref config, through th
     let report;
     try {
       report = await cli.runGateFlow(
-        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', dryRun: true },
-        { ...cli.defaultDeps(), runnerDeps: deps(), loadCredential: () => ({ credential: null, reason: 'none' }) }
+        { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', pr: PR, dryRun: true },
+        { ...cli.defaultDeps(), prInfo: prInfoFor({ headSha: head.sha }), runnerDeps: deps(), loadCredential: () => ({ credential: null, reason: 'none' }) }
       );
     } finally {
       if (saved === undefined) delete process.env.REGISTRY_SESSION;
