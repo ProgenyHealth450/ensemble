@@ -3,32 +3,32 @@ document_id: TRD-2026-4dec59b8
 label: trd-local-ci-pr-approval
 kind: trd
 prd_reference: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md
-version: 1.0.11
+version: 1.0.12
 status: Draft
-date: 2026-10-21
+date: 2026-10-22
 design_readiness_score: 4.25
 Constitution compliance: passed
 ---
 
 # TRD-2026-4dec59b8: Local-CI PR Approval
 
-Based on PRD: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md (v1.0.3, Locked)
+Based on PRD: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md (v1.0.4, Locked)
 
 ## Architecture Decision
 
 **Chosen approach (Option C):** A `local-ci-gate` skill owns the editable procedure; a small set of pure-JS helpers in `packages/development/lib/` owns only what must be unforgeable; `pr-merge.yaml` invokes the skill.
 
 - `packages/development/skills/local-ci-gate/SKILL.md` is the single reusable procedure and owns everything a maintainer would plausibly tune (Constitution Rule 8): the order of the run, the messages, the bead wording, and how failures are explained.
-- Pure-JS modules in `packages/development/lib/` own only what grades a claim or protects a boundary (Rules 7 and 8's enforcement exception): run-record verification, bot-vs-human classification, bead dedupe keys, approval-set config validation, and GitHub App credential handling. They make no network calls except the one module whose purpose is to post a status.
+- Pure-JS modules in `packages/development/lib/` own only what grades a claim or protects a boundary (Rules 7 and 8's enforcement exception): run-record verification, bot-vs-human classification, bead dedupe keys, approval-set config validation, and status publishing through `gh`. They make no network calls except the one module whose purpose is to post a status.
 - `packages/git/commands/pr-merge.yaml` calls the skill at its existing Merge phase. It does not restate gate logic.
 - The gate runs in-session in the maintainer's own process. There is no daemon, scheduler or background sweep (Rule 4; REQ-012).
 
 **Alternatives considered (user chose C):**
 
 - **Option A -- prose-only:** fewest files, but head-binding, run-record verification and human/bot classification would be prose a model can misread, and tests could only assert wording. Rejected: the PRD's core property is that evidence cannot be reused across commits.
-- **Option B -- TypeScript runtime in agent-core:** strongest typing, but adds a build/dist surface and pulls editable criteria toward code against Rule 8. Rejected: the one place a real client is tempting (App JWT signing) needs only Node's built-in `crypto`.
+- **Option B -- TypeScript runtime in agent-core:** strongest typing, but adds a build/dist surface and pulls editable criteria toward code against Rule 8. Rejected: the one place a real client is tempting (posting a status) is a single `gh api` call.
 
-**Dependency decision (user approved):** no new dependency. The App's RS256 JWT is signed with Node `crypto`; the REST calls use `fetch`. This avoids the constitution's new-dependency approval gate and keeps the signing path small and auditable.
+**Dependency decision (user approved):** no new dependency. The status is posted by calling the maintainer's own `gh` CLI with an argv array (never a shell string), so there is no HTTP client, no JWT signing and no key handling. **Trust decision (user, 2026-10-22): no GitHub App; trust is honest-actor** (see Security design).
 
 **Rationale:** Option C matches repository precedent (TRD-2026-82b6a138), keeps editable behavior out of TypeScript, and is the minimum code that makes the trust properties testable.
 
@@ -39,8 +39,8 @@ Based on PRD: docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md (v1.0.3, Locked
 | Skill/prompt content | Yes | New `local-ci-gate` skill; edits to `pr-merge.yaml`; per-repository config file |
 | Library/CLI (Node.js) | Yes | `local-ci-*.js` modules and a `local-ci-cli.js` entry in `packages/development/lib/` |
 | Data model | No | Per-run record is a status description string; the sweep ledger is bead labels. No schema/migration. |
-| Infrastructure / external services | Yes | GitHub REST (statuses, App installation token); Node (22 and 24) and git on the maintainer's machine; no Docker required |
-| Security | Yes | App private key; status forgery; untrusted review text; secrets passed to local CI steps |
+| Infrastructure / external services | Yes | GitHub commit statuses through the maintainer's own `gh` login; Node (22 and 24) and git on the maintainer's machine; no Docker required |
+| Security | Yes | Status forgery by any identity with write access (accepted limit); the maintainer's `gh` token; untrusted review text; secrets passed to local CI steps |
 | Packaging/generation | Yes | Pi vendor bundle (`lib-bundler.ts` `ENTRY_FILES`), Pi/Codex/markdown generators |
 
 **Greenfield or brownfield:** brownfield.
@@ -65,7 +65,7 @@ No foundational TRD capabilities matched (`trd-graph-cli capabilities docs/TRD`)
 1. **`SKILL.md` (local-ci-gate)** -- orchestrates a gate run: resolves the PR, fetches the head SHA, delegates the clean clone and CI execution to the runner, calls the CLI to build and verify the run record, publishes the status, and reports. The only component that talks to `git` and `gh`.
 2. **`local-ci-config.js`** -- validates the per-repository config (approval set, excluded jobs, status context name, bot-review handling, tracker). Fails closed on unknown or missing fields (AC-017-3).
 3. **`local-ci-record.js`** -- builds and parses the run record carried in the status description (CI tool version, workflow-set hash, log digest) and verifies it against the PR head and configured set (AC-004-5, AC-004-6, AC-003-1/2).
-4. **`local-ci-app.js`** -- the only network module: signs the App JWT with `crypto`, exchanges it for an installation token, posts the status. Reads the credential from the environment or a gitignored path, never logs it (REQ-018).
+4. **`local-ci-status.js`** -- the only network module: posts the commit status by calling `gh api repos/<owner>/<repo>/statuses/<sha>` with an argv array (never a shell string). Refuses to attest when there is no `gh` login or the post fails, redacts secrets, caps the description at 100 characters, and never reads, logs or stores the `gh` token (REQ-004, REQ-010).
 5. **`local-ci-review.js`** -- classifies review authors by GitHub account `type` (Bot vs User), never by name, and decides whether a review set blocks (AC-006-3, AC-006-4).
 6. **`local-ci-sweep.js`** -- given fetched facts about recently merged PRs, returns the bot findings and hosted-CI failures not yet tracked, using stable dedupe keys (AC-007-2, AC-008-3).
 7. **`local-ci-cli.js`** -- JSON-in/JSON-out entry point wrapping the modules above, with boundary validation (Constitution Rule 2). Added to `lib-bundler.ts` `ENTRY_FILES` so Pi installs ship it.
@@ -78,7 +78,7 @@ pr-merge -> local-ci-gate skill
   1. gh: PR head SHA, base, reviews   -> local-ci-cli review   (classify bot vs human; human CHANGES_REQUESTED blocks)
   2. git clone <tmp> @ <headSha>      -> the TRUSTED command list (from the base ref) run by the runner in <tmp>, once per required Node version; PASS/FAIL = exit status the runner observes
   3. step results + digest            -> local-ci-cli record   (build run record)
-  4. record                           -> local-ci-app post     (JWT -> installation token -> POST status on headSha)
+  4. record                           -> local-ci-status post  (gh api: POST status on headSha, maintainer's own gh login)
   5. gh: read status back             -> local-ci-cli verify   (record matches head + configured set)
   6. verified + no human block        -> gh pr merge
   7. post-merge                       -> local-ci-cli sweep    (open beads for new bot findings / CI failures)
@@ -86,7 +86,7 @@ pr-merge -> local-ci-gate skill
 
 ### Integration points and failure handling
 
-- **Status publish fails or no credential:** the run may complete but publishes nothing and reports it cannot attest (AC-018-2); the merge is refused.
+- **Status publish fails or no `gh` login:** the run may complete but publishes nothing and reports it cannot attest (AC-004-7); the merge is refused.
 - **Prerequisite missing (git, Node, or the repository's CI entry point):** stop before any status is posted, naming the missing prerequisite (AC-015-2).
 - **Head commit cannot be fetched:** stop, publish nothing (AC-003-4).
 - **Verification mismatch (head or workflow set differs):** refuse the merge and print the mismatch (AC-004-6).
@@ -94,42 +94,25 @@ pr-merge -> local-ci-gate skill
 
 ### Security design
 
-- The App private key is read from an environment variable or a gitignored file; it is never written to a status, log or bead (AC-018-1). `redact()` is applied to every string the CLI emits.
-- A status from any identity other than the configured App id does not satisfy verification (AC-004-4); the verifier checks the status creator, not only its name.
+- The maintainer's `gh` token is never read, printed or stored by the gate: it stays inside `gh`, is not passed to CI steps, and `redact()` is applied to every string the CLI emits and strips token-shaped values and the values of `GH_TOKEN`/`GITHUB_TOKEN` (AC-010-2).
+- **Trust model: honest-actor, stated plainly.** Branch protection may require the check `ensemble/local-ci` by name, unpinned (`app_id` null on read, written as `-1`, meaning any source). The verifier does not check who created a status (AC-004-4): a status for the configured context from any identity is accepted if its run record verifies against the PR head SHA, the workflow-set hash, the runner blob hash and the config blob hash. Anyone with write access can therefore forge a status; the gate prevents accidents and agents merging unverified work, not deliberate forgery. A pinned GitHub App could close this later and is out of scope.
 - Review text and comment bodies are untrusted: only structured fields (author type, state, commit, thread resolved flag) are read for classification; bodies are passed to beads as quoted data, never interpreted.
 - **Known limit (accepted in the PRD):** nothing proves the CI steps actually ran; the run record makes careless or stale posts detectable, not impossible.
 
-### Key risk, proven first
+### Key risk, stated openly
 
-The design rests on one unproven fact: a status posted by our own App satisfies a required check pinned to that App's id on a protected branch. GitHub's documentation says a different source is rejected, but not that the owning App is accepted. TRD-001 proves this on a throwaway repository before any other task starts, and records the outcome. If it fails, the PRD's evidence decision must be revisited before PR 2.
+The design rests on honest-actor trust, not on a forge-resistant mechanism (see Security design). One factual dependency is not yet observed: that an unpinned required check named `ensemble/local-ci` is satisfied by a commit status posted with `gh` on a real protected branch. TRD-010's runbook records that observation on the real repository (first real success status, then the requirement, then a PR seen blocked without the status and mergeable with it) and restores the pre-change snapshot if it does not hold.
 
 ## Master Task List
 
-### PR 1: Prove the Trust Mechanism
-**Shippable State:** A maintainer has a recorded, reproducible proof that a status posted by the maintainer-owned GitHub App satisfies a required check pinned to that App on a protected branch, and that the same status posted by a personal token does not, so the rest of the design is known to be buildable.
-
-- [ ] **TRD-001** Create the maintainer-owned GitHub App and prove branch-protection acceptance on a throwaway repository [satisfies REQ-004] (4h)
-  - Target Files: `docs/proofs/local-ci-app-pin-proof.md`
-  - Validates PRD ACs: AC-004-3, AC-004-4
-  - Implementation AC:
-    - [ ] Given a throwaway repository with a protected branch requiring a status pinned to the new App id, when the App posts a success status on a PR head, then the PR becomes mergeable
-    - [ ] Given the same protected branch, when a personal-token status with the identical name is posted, then the PR remains unmergeable and GitHub reports it was not set by the expected app
-    - [ ] Given the experiment is complete, when the result is recorded, then the exact API calls, observed responses and date are written to a proof note in the repository and no credential appears in it
-    - [ ] Given the experiment posts statuses with descriptions of increasing length, when the longest accepted description is found, then that limit is recorded in the proof note so TRD-003's 100-character bound is confirmed as safe or revised
-
-- [ ] **TRD-001-TEST** App-pinned status acceptance and rejection [Verifies TRD-001] [Satisfies REQ-004] [Depends: TRD-001] (2h)
-  - Target Files: `packages/development/tests/local-ci-app-pin-proof.test.js`
-  - Validates PRD ACs: AC-004-3, AC-004-4
-  - Test AC:
-    - [ ] Scenario: owning app satisfies the pin -- Given a branch requiring a status pinned to the App, When the App posts success on the head, Then the PR is mergeable
-    - [ ] Scenario: other identity rejected -- Given the same branch, When a personal token posts the same-named success, Then the PR is not mergeable
-    - [ ] Scenario: stale head not accepted -- Given a success posted on commit A, When commit B is pushed, Then the PR is not mergeable until B has a status
+### PR 1: Gate Configuration
+**Shippable State:** A repository has a validated, user-editable per-repository gate configuration (approval set, excluded jobs, status context, tracker) that fails closed when missing or malformed, so every later task has a trusted source for what the gate runs.
 
 - [ ] **TRD-002** Per-repository gate configuration validator (`local-ci-config.js`) [satisfies REQ-009] [satisfies REQ-011] [satisfies REQ-017] (3h)
   - Target Files: `packages/development/lib/local-ci-config.js`, `.ensemble/local-ci.yaml`
   - Validates PRD ACs: AC-009-1, AC-009-3, AC-011-1, AC-017-1, AC-017-2, AC-017-3
   - Implementation AC:
-    - [ ] Given a config naming workflows, jobs, matrix entries, excluded jobs, the status context and the App id, when `validateConfig` runs, then it returns the normalized approval set
+    - [ ] Given a config naming workflows, jobs, matrix entries, excluded jobs and the status context (an unpinned name; the config carries no app id), when `validateConfig` runs, then it returns the normalized approval set
     - [ ] Given a config with an unknown key, a missing required key or a job both included and excluded, when it runs, then it returns `ok:false` naming each problem and never fills in another repository's defaults
     - [ ] Given no config file, when it runs, then it returns `ok:false` stating the config is missing
     - [ ] Given a repository with no bot reviewers configured, when it runs, then bot-review handling is marked skipped and the config is still valid
@@ -146,21 +129,22 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: no bot reviewers -- Given a repository without bot reviewers, When validated, Then bot handling is skipped without error
 
 ### PR 2: The Gate -- Run, Record, Publish, Verify
-**Shippable State:** A maintainer can run the local gate on a PR and see a status on its head commit, posted by the maintainer-owned App, carrying a verifiable run record; a stale, mismatched or foreign status is rejected, and a failing or unrunnable gate publishes nothing it cannot stand behind.
+**Shippable State:** A maintainer can run the local gate on a PR and see a status on its head commit, posted with the maintainer's own `gh` login, carrying a verifiable run record; a stale or mismatched status is rejected whoever posted it, and a failing or unrunnable gate publishes nothing it cannot stand behind.
 
 - [ ] **TRD-003** Run record builder and verifier (`local-ci-record.js`) [satisfies REQ-003] [satisfies REQ-004] (4h)
   - Target Files: `packages/development/lib/local-ci-record.js`
-  - Validates PRD ACs: AC-003-1, AC-003-2, AC-004-5, AC-004-6
+  - Validates PRD ACs: AC-003-1, AC-003-2, AC-004-4, AC-004-5, AC-004-6
   - Implementation AC:
     - [ ] Given a runner identity, a workflow set and a log, when `buildRecord` runs, then it returns a description of at most 100 characters of the fixed form `ci-local <8-hex> | set:<8-hex> | log:<12-hex>` where the first field is the short git blob hash of the repository's `scripts/ci-local.js` at the PR head, with the log as a digest and never the log text and with the head SHA left implicit because the status is posted on that commit
     - [ ] Given a published description, when `parseRecord` runs, then it round-trips the same fields and rejects a malformed, over-length or truncated string
     - [ ] Given a record, the PR's current head SHA, the commit the status was posted on, and the configured workflow set, when `verifyRecord` runs, then it passes only when the status's commit equals the head SHA and the set hash recomputed from configuration equals `set:`
     - [ ] Given a status posted on commit A and a PR now at commit B, when it runs, then it returns `ok:false` with `headMismatch` naming both SHAs
     - [ ] Given a configured workflow set that has changed since the status was posted, when it runs, then it returns `ok:false` with `setMismatch` naming the difference
+    - [ ] Given a status for the configured context posted by any identity (the maintainer, a collaborator, a personal token), when `verifyRecord` runs, then the creator is not consulted and the result depends only on the commit, the set hash and the record fields (AC-004-4, the stated honest-actor limit)
 
 - [ ] **TRD-003-TEST** Run record binding [Verifies TRD-003] [Satisfies REQ-003] [Satisfies REQ-004] [Depends: TRD-003] (3h)
   - Target Files: `packages/development/tests/local-ci-record.test.js`
-  - Validates PRD ACs: AC-003-1, AC-003-2, AC-004-5, AC-004-6
+  - Validates PRD ACs: AC-003-1, AC-003-2, AC-004-4, AC-004-5, AC-004-6
   - Test AC:
     - [ ] Scenario: record round trip -- Given a built record, When parsed, Then the runner identity, set hash and log digest all match
     - [ ] Scenario: new commit invalidates -- Given a passing record for A, When the PR head becomes B, Then verification fails naming A and B
@@ -169,30 +153,33 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: log never embedded -- Given a log containing a token-shaped string, When the record is built, Then only a digest appears
     - [ ] Scenario: truncated record rejected -- Given a cut-off description, When parsed, Then it returns an error rather than partial fields
     - [ ] Scenario: over-length description rejected -- Given a description longer than 100 characters, When it is built or parsed, Then it is rejected and nothing longer than the bound is ever produced
+    - [ ] Scenario: creator not consulted -- Given two identical records posted by different identities, When verified, Then both pass or fail identically and neither is judged by its author
 
-- [ ] **TRD-004** GitHub App client (`local-ci-app.js`) [satisfies REQ-004] [satisfies REQ-010] [satisfies REQ-018] (5h)
-  - Target Files: `packages/development/lib/local-ci-app.js`, `.gitignore`
-  - Validates PRD ACs: AC-004-1, AC-004-2, AC-010-1, AC-010-2, AC-018-1, AC-018-2, AC-018-3
+- [ ] **TRD-014** gh-based status publisher (`local-ci-status.js`) [satisfies REQ-004] [satisfies REQ-010] [Depends: TRD-003] (4h)
+  - Target Files: `packages/development/lib/local-ci-status.js`
+  - Validates PRD ACs: AC-004-1, AC-004-2, AC-004-7, AC-010-2
   - Implementation AC:
-    - [ ] Given an App id and private key, when `signAppJwt` runs, then it returns an RS256 JWT built only with Node `crypto` and no added dependency
-    - [ ] Given a valid JWT, when `postStatus` runs, then it exchanges for an installation token and posts the state, context and run-record description on the head SHA
-    - [ ] Given no credential, when `postStatus` runs, then it posts nothing and returns `{published:false, reason:'cannot attest'}`
-    - [ ] Given any thrown error or response, when output is produced, then `redact` has removed the key, JWT and token from every string
-    - [ ] Given a key that is no longer valid, when `postStatus` runs, then it returns a clear authentication failure and publishes nothing
-    - [ ] Given the credential is read from the environment or from `.ensemble/local-ci-app.pem`, when the repository is inspected, then `.gitignore` contains a rule that ignores `.ensemble/local-ci-app.pem` and any `*.pem`, and `git check-ignore` confirms it before the first run is allowed to read the file
-    - [ ] Given a run starts, when the preflight executes, then it refuses to read any credential file that `git ls-files` reports as tracked and names the file without printing its contents
+    - [ ] Given a repository `owner/repo`, a 40-hex head SHA, a state, a context and a run-record description, when `postStatus` runs, then it calls `gh api repos/<owner>/<repo>/statuses/<sha>` with an argv array (`execFile`-style, no shell, no string concatenation into a command line) carrying `state`, `context` and `description` as separate fields, after validating the SHA is exactly 40 hex characters and `owner/repo` matches `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`
+    - [ ] Given a passing or failing gate result, when `postStatus` runs, then it posts `success` or `failure` respectively and rejects any other state before making a call
+    - [ ] Given `gh` is not logged in (`gh auth status` exits non-zero) or `gh` is not installed, when `postStatus` runs, then it posts nothing and returns `{published:false, reason:'cannot attest'}` and the caller refuses the merge (AC-004-7)
+    - [ ] Given `gh api` exits non-zero, times out, or returns a response that is not parseable JSON or whose `state` or commit does not match what was posted, when `postStatus` runs, then it returns `{published:false, reason:'post failed'}` with a redacted message and never reports success
+    - [ ] Given a description longer than 100 characters (the bound TRD-003 enforces), when `postStatus` runs, then it is rejected before any call is made
+    - [ ] Given any thrown error, stderr text or response containing a token-shaped string (`ghp_`, `gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`) or the value of `GH_TOKEN` or `GITHUB_TOKEN`, when output is produced, then `redact` has removed it from every returned or logged string
+    - [ ] Given the module is inspected, when it runs, then it never invokes `gh auth token` or `gh auth status --show-token`, never reads or writes a token file, and never places a token in a status, log, bead or argument list
 
-- [ ] **TRD-004-TEST** App client signing, posting and secrecy [Verifies TRD-004] [Satisfies REQ-004] [Satisfies REQ-010] [Satisfies REQ-018] [Depends: TRD-004] (4h)
-  - Target Files: `packages/development/tests/local-ci-app.test.js`
-  - Validates PRD ACs: AC-004-1, AC-004-2, AC-010-1, AC-010-2, AC-018-1, AC-018-2, AC-018-3
+- [ ] **TRD-014-TEST** gh status publisher posting, failing closed and secrecy [Verifies TRD-014] [Satisfies REQ-004] [Satisfies REQ-010] [Depends: TRD-014] (3h)
+  - Target Files: `packages/development/tests/local-ci-status.test.js`
+  - Validates PRD ACs: AC-004-1, AC-004-2, AC-004-7, AC-010-2
   - Test AC:
-    - [ ] Scenario: success status posted -- Given a valid fake credential and a passing result, When posted, Then the request carries state success, the configured context and the run record on the head SHA
+    - [ ] Scenario: success status posted -- Given an injected `gh` runner and a passing result, When posted, Then the call is `gh api repos/<owner>/<repo>/statuses/<sha>` as an argv array with state success, the configured context and the run record
     - [ ] Scenario: failure status posted -- Given a failing result, When posted, Then the state is failure
-    - [ ] Scenario: no credential publishes nothing -- Given no key, When posting is requested, Then no request is made and the result says it cannot attest
-    - [ ] Scenario: key never emitted -- Given an error whose text contains the key, When output is produced, Then the key is absent
-    - [ ] Scenario: JWT is verifiable -- Given the public key, When the JWT is verified, Then the signature and expiry claims are valid
-    - [ ] Scenario: revoked key -- Given an authentication rejection, When posting, Then it fails closed and names the cause without the key
-    - [ ] Scenario: gitignored credential path -- Given the credential file path, When checked against ignore rules, Then it is ignored by git
+    - [ ] Scenario: no shell string -- Given a context or repo containing shell metacharacters, When posted, Then it is rejected or passed as a single argv element and never interpreted by a shell
+    - [ ] Scenario: bad SHA rejected -- Given a SHA that is not 40 hex characters, When posting is requested, Then no call is made
+    - [ ] Scenario: no login publishes nothing -- Given `gh auth status` fails, When posting is requested, Then no status call is made and the result says it cannot attest
+    - [ ] Scenario: post failure fails closed -- Given `gh api` exits non-zero or returns a mismatched response, When posting, Then the result is not published and never success
+    - [ ] Scenario: over-length description rejected -- Given a 101-character description, When posting is requested, Then it is rejected and no call is made
+    - [ ] Scenario: token never emitted -- Given stderr and a response containing a `ghp_` token and the `GH_TOKEN` value, When output is produced, Then neither value appears in any returned or logged string
+    - [ ] Scenario: token commands never run -- Given a recording `gh` runner, When any post path runs, Then no `auth token` or `--show-token` invocation is recorded
 
 - [ ] **TRD-012** Isolated gate runner (clean clone of the PR head, trusted command list, crash-safe cleanup) [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] (5h)
   - Target Files: `packages/development/lib/local-ci-runner.js`
@@ -206,6 +193,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Given a step exits non-zero, when the run completes, then the result is a failure naming the step and the head SHA and is never reported as a pass
     - [ ] Given the runner is interrupted or crashes, when it exits or a later run starts, then the clone is removed in a finally-style cleanup, and a later run first removes clones under `.ensemble/local-ci-runs/` older than a threshold and touches nothing else
     - [ ] Given secrets are needed by a step, when the runner executes, then they come from a gitignored local file or the environment and never from a tracked file, and none appear in the returned result
+    - [ ] Given the maintainer's `gh` token is in the environment (`GH_TOKEN`, `GITHUB_TOKEN`), when the runner executes steps, then neither variable reaches a step unless the base config's `secret_names` lists it, and the token value never appears in the returned result
 
 - [ ] **TRD-012-TEST** Isolated runner [Verifies TRD-012] [Satisfies REQ-003] [Satisfies REQ-009] [Satisfies REQ-010] [Satisfies REQ-015] [Depends: TRD-012] (4h)
   - Target Files: `packages/development/tests/local-ci-runner.test.js`
@@ -220,10 +208,11 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: crash leaves nothing behind -- Given the runner is killed mid-run, When a later run starts, Then the stale clone under the prefix is removed and nothing else is touched
     - [ ] Scenario: foreign directories untouched -- Given a maintainer-created directory outside the prefix, When cleanup runs, Then it is left alone
     - [ ] Scenario: secrets stay out -- Given a step that echoes a secret, When the result is returned, Then the secret value is absent
+    - [ ] Scenario: gh token withheld -- Given `GH_TOKEN` set in the runner's environment and a step that prints its environment, When the runner executes, Then the step does not see it and the result does not contain its value
 
-- [ ] **TRD-005** Gate skill and CLI (`local-ci-gate` skill, `local-ci-cli.js`) [satisfies REQ-001] [satisfies REQ-002] [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] [Depends: TRD-003] [Depends: TRD-004] [Depends: TRD-012] (4h)
+- [ ] **TRD-005** Gate skill and CLI (`local-ci-gate` skill, `local-ci-cli.js`) [satisfies REQ-001] [satisfies REQ-002] [satisfies REQ-003] [satisfies REQ-009] [satisfies REQ-010] [satisfies REQ-015] [Depends: TRD-002] [Depends: TRD-003] [Depends: TRD-014] [Depends: TRD-012] (4h)
   - Target Files: `packages/development/skills/local-ci-gate/SKILL.md`, `packages/development/lib/local-ci-cli.js`, `packages/pi/src/transformers/lib-bundler.ts`
-  - Validates PRD ACs: AC-001-1, AC-001-2, AC-002-1, AC-002-2, AC-003-3, AC-003-4, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
+  - Validates PRD ACs: AC-001-1, AC-001-2, AC-002-1, AC-002-2, AC-003-3, AC-003-4, AC-004-7, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
   - Implementation AC:
     - [ ] Given a PR, when the skill runs, then it obtains a result from the TRD-012 runner for the exact head SHA and the configured approval set, and never runs CI or touches the working tree itself
     - [ ] Given Node, git or the configured CI entry point is unavailable, when the skill starts, then it stops before posting anything and names the missing prerequisite
@@ -232,10 +221,11 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Given the CLI receives malformed or oversized JSON, when it runs, then it rejects it at the boundary without side effects
     - [ ] Given `local-ci-cli.js` is added to `ENTRY_FILES`, when the Pi bundle is built, then it is present and resolvable through `tool-path-resolution`
     - [ ] Given the skill, when it runs a gate, then it delegates checkout, CI execution and cleanup to the runner from TRD-012 and itself only orders the steps, calls the CLI and reports
+    - [ ] Given there is no `gh` login or the TRD-014 publisher reports `published:false`, when the skill reports, then it says it cannot attest, posts nothing else, and the merge is refused (AC-004-7)
 
 - [ ] **TRD-005-TEST** Gate run end to end [Verifies TRD-005] [Satisfies REQ-001] [Satisfies REQ-002] [Satisfies REQ-003] [Satisfies REQ-009] [Satisfies REQ-010] [Satisfies REQ-015] [Depends: TRD-005] [Depends: TRD-012] (5h)
   - Target Files: `packages/development/tests/local-ci-gate-e2e.test.js`
-  - Validates PRD ACs: AC-001-1, AC-001-2, AC-002-1, AC-002-2, AC-003-3, AC-003-4, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
+  - Validates PRD ACs: AC-001-1, AC-001-2, AC-002-1, AC-002-2, AC-003-3, AC-003-4, AC-004-7, AC-009-1, AC-009-2, AC-010-1, AC-015-1, AC-015-2
   - Test AC:
     - [ ] Scenario: passing run merges -- Given a PR whose head has a verified passing status, When the flow runs, Then the merge proceeds without waiting for hosted CI
     - [ ] Scenario: no run refuses -- Given a PR with no local status, When the flow runs, Then the merge is refused and the missing run is reported
@@ -243,6 +233,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: dry run -- Given dry-run, When the flow completes, Then it reports readiness and merges and posts nothing
     - [ ] Scenario: failing step reported -- Given a failing test, When the gate runs, Then the report names workflow, job, step and head SHA
     - [ ] Scenario: runner failure never becomes success -- Given a runner result naming an unsupported step, When the skill reports, Then no success status is posted
+    - [ ] Scenario: cannot attest refuses the merge -- Given the publisher reports no `gh` login or a failed post, When the flow runs, Then it reports it cannot attest and the merge is refused
 
 - [ ] **TRD-006** Gate-can-fail proof (known-bad change) [satisfies REQ-005] [Depends: TRD-005] (3h)
   - Target Files: `packages/development/skills/local-ci-gate/PROOF.md`
@@ -309,17 +300,18 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
 
 - [ ] **TRD-009** Integrate the gate into `pr-merge.yaml` and regenerate [satisfies REQ-001] [satisfies REQ-002] [satisfies REQ-006] [satisfies REQ-007] [satisfies REQ-008] [satisfies REQ-015] [Depends: TRD-005] [Depends: TRD-007] [Depends: TRD-008] (5h)
   - Target Files: `packages/git/commands/pr-merge.yaml`
-  - Validates PRD ACs: AC-001-1, AC-002-1, AC-006-1, AC-006-3, AC-007-1, AC-008-1
+  - Validates PRD ACs: AC-001-1, AC-002-1, AC-004-4, AC-006-1, AC-006-3, AC-007-1, AC-008-1
   - Implementation AC:
     - [ ] Given `pr-merge.yaml`, when edited, then the NEVER-merge-on-CHANGES_REQUESTED and required-checks constraints are replaced by the gate's verdict and the human-review block, and the dry-run, max-rounds and no-test-weakening constraints are preserved unchanged
     - [ ] Given the Merge phase, when it runs, then it calls the `local-ci-gate` skill and does not restate gate logic
     - [ ] Given the sweep, when the merge flow starts, then it runs the sweep before merging and after merging, and records beads through `br`
     - [ ] Given the YAML source changed, when `npm run generate`, `npm run generate:codex` and the Pi generator run, then every generated `pr-merge` artifact reflects the change and `npm run generate:validate` passes
     - [ ] Given `fix-issue` and `implement-trd-beads`, when this change lands, then their review gates are untouched
+    - [ ] Given a status for the configured context, when the merge flow evaluates readiness, then it accepts or refuses it by `verifyRecord` alone and does not accept or reject it on the identity that posted it (AC-004-4), and a PR with only hosted-CI success and no local status is refused (AC-004-3)
 
 - [ ] **TRD-009-TEST** pr-merge integration and generation parity [Verifies TRD-009] [Satisfies REQ-001] [Satisfies REQ-002] [Satisfies REQ-006] [Satisfies REQ-007] [Satisfies REQ-008] [Satisfies REQ-015] [Depends: TRD-009, TRD-007, TRD-008, TRD-005] (4h)
   - Target Files: `packages/development/tests/local-ci-pr-merge-integration.test.js`
-  - Validates PRD ACs: AC-001-1, AC-002-1, AC-006-1, AC-006-3, AC-007-1, AC-008-1
+  - Validates PRD ACs: AC-001-1, AC-002-1, AC-004-4, AC-006-1, AC-006-3, AC-007-1, AC-008-1
   - Test AC:
     - [ ] Scenario: gate precedes merge -- Given the generated command, When its phases are read in order, Then the gate runs before the merge step
     - [ ] Scenario: bot review no longer refuses -- Given the generated constraints, When read, Then CHANGES_REQUESTED from a bot is not a refusal condition and a human one still is
@@ -327,6 +319,7 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: sweep runs around merge -- Given the generated phases, When read, Then the sweep appears before and after the merge
     - [ ] Scenario: runtimes agree -- Given the Pi, Codex and markdown outputs, When compared, Then all contain the same gate and review rules
     - [ ] Scenario: other commands untouched -- Given fix-issue and implement-trd-beads, When their generated output is compared before and after, Then it is identical
+    - [ ] Scenario: author not consulted -- Given the generated skill and constraints, When read, Then readiness depends on the verified run record and not on the status creator, and no GitHub App id or creator check appears
 
 ### PR 4: Rollout, Rollback and Measurement
 **Shippable State:** A maintainer can enable the gate on a repository's protected branch by following a documented procedure, roll back to hosted CI and bot-review gating with a documented procedure, and has a recorded baseline of PR open-to-merge times captured before enablement.
@@ -353,13 +346,15 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
   - Target Files: `packages/development/skills/local-ci-gate/RUNBOOK.md`, `packages/development/skills/local-ci-gate/SKILL.md`
   - Validates PRD ACs: AC-004-3, AC-014-1, AC-016-1
   - Implementation AC:
-    - [ ] Given a repository adopting the gate, when the runbook is followed, then branch protection requires the App-pinned local status and the hosted checks are no longer required, with the exact API calls and a pre-change snapshot of the existing protection recorded
+    - [ ] Given a repository adopting the gate, when the runbook is followed, then branch protection requires the local status as an UNPINNED required check named `ensemble/local-ci` (read back as `app_id: null`, written to GitHub as `-1`, meaning any source) and the hosted checks are no longer required, with the exact API calls and a pre-change snapshot of the existing protection recorded first
     - [ ] Given the local-ci status context has not yet reported successfully on the real repository, when the runbook is followed, then it first posts a real success status on a current head commit, because GitHub only allows a check to be required if it completed successfully in that repository within the past seven days, and only then edits branch protection
     - [ ] Given the gate was enabled, when the rollback section is followed, then protection is restored from the snapshot, hosted checks are required again, and `pr-merge` honors bot reviews as before
     - [ ] Given `fix-issue` or `implement-trd-beads` is about to open a PR, when the optional gate step is used, then the PR opens with the status already published for its head
     - [ ] Given protection changes need an admin, when the runbook is read, then it names which step each adopting repository's owner approves
     - [ ] Given the TRD-013 measurement note does not exist for the repository, when the runbook reaches enablement, then it stops and refuses to proceed
-    - [ ] Given `docs/proofs/local-ci-app-pin-proof.md` (TRD-001) does not exist or records no observed App-status acceptance and personal-token rejection, when the runbook reaches enablement, then it stops and refuses to proceed, because the App client has not been shown to satisfy an App-pinned required check
+    - [ ] Given no pre-change protection snapshot exists, when the runbook reaches the protection edit, then it stops and refuses to proceed
+    - [ ] Given the runbook is read, when it describes the check, then it states plainly that trust is honest-actor: any identity with write access can post a status under that name, `pr-merge` accepts it only if the run record verifies, and a pinned GitHub App is a separate, out-of-scope option for teams that need forge-resistance
+    - [ ] Given protection has been edited, when the runbook verifies it, then it reads the protection back, records that the `ensemble/local-ci` check carries no app pin, and records a PR observed blocked without the status and mergeable with a verified one
 
 - [ ] **TRD-010-TEST** Rollback restores prior protection [Verifies TRD-010] [Satisfies REQ-004] [Satisfies REQ-014] [Satisfies REQ-016] [Depends: TRD-010] (3h)
   - Target Files: `packages/development/tests/local-ci-rollback.test.js`
@@ -368,7 +363,9 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
     - [ ] Scenario: enable then rollback is lossless -- Given a protection snapshot, When the gate is enabled then rolled back, Then protection equals the snapshot
     - [ ] Scenario: hosted checks required again -- Given a rolled-back repository, When a PR has no hosted CI success, Then it cannot merge
     - [ ] Scenario: PR born approved -- Given the optional gate step, When a PR is opened by fix-issue, Then its head already carries the status
-    - [ ] Scenario: enablement refused without the App-pin proof -- Given no proof note (or one with no observed responses), When the runbook gate check runs, Then enablement is refused
+    - [ ] Scenario: unpinned check written -- Given the protection payload the runbook builds, When inspected, Then it requires `ensemble/local-ci` with `app_id: -1`, the hosted checks are absent, and no other source is named
+    - [ ] Scenario: enablement refused without a snapshot -- Given no pre-change snapshot, When the runbook gate check runs, Then the protection edit is refused
+    - [ ] Scenario: enablement refused before the first success status -- Given the context has never reported success on the repository, When the runbook gate check runs, Then it posts a real success status first and edits protection only afterwards
 
 - [ ] **TRD-011** Baseline capture and success-target recording [satisfies REQ-013] (4h)
   - Target Files: `packages/development/lib/local-ci-baseline.js`, `packages/development/skills/local-ci-gate/BASELINE.md`
@@ -395,13 +392,13 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
 | REQ-001 | Local run approves a PR | TRD-005, TRD-009 | TRD-005-TEST, TRD-009-TEST |
 | REQ-002 | The merge command is the entry point | TRD-005, TRD-009 | TRD-005-TEST, TRD-009-TEST |
 | REQ-003 | Evidence is bound to the exact head commit | TRD-003, TRD-005, TRD-012 | TRD-003-TEST, TRD-005-TEST, TRD-012-TEST |
-| REQ-004 | Evidence is published where branch protection can enforce it | TRD-001, TRD-003, TRD-004, TRD-010 | TRD-001-TEST, TRD-003-TEST, TRD-004-TEST, TRD-010-TEST |
+| REQ-004 | Evidence is published where the merge flow and branch protection can see it | TRD-003, TRD-005, TRD-009, TRD-010, TRD-014 | TRD-003-TEST, TRD-005-TEST, TRD-009-TEST, TRD-010-TEST, TRD-014-TEST |
 | REQ-005 | The gate can fail | TRD-006 | TRD-006-TEST |
 | REQ-006 | Bot reviews become non-blocking; human reviews still block | TRD-007, TRD-009 | TRD-007-TEST, TRD-009-TEST |
 | REQ-007 | Bot review findings become tracked work | TRD-008, TRD-009 | TRD-008-TEST, TRD-009-TEST |
 | REQ-008 | Hosted CI remains a safety net | TRD-008, TRD-009 | TRD-008-TEST, TRD-009-TEST |
 | REQ-009 | The local run covers what hosted CI covers | TRD-002, TRD-005, TRD-012, TRD-013 | TRD-002-TEST, TRD-005-TEST, TRD-012-TEST, TRD-013-TEST |
-| REQ-010 | Local run must not leak secrets | TRD-004, TRD-005, TRD-012 | TRD-004-TEST, TRD-005-TEST, TRD-012-TEST |
+| REQ-010 | Local run must not leak secrets | TRD-005, TRD-012, TRD-014 | TRD-005-TEST, TRD-012-TEST, TRD-014-TEST |
 | REQ-011 | Behavior is user-editable, not hardcoded | TRD-002 | TRD-002-TEST |
 | REQ-012 | No second dispatcher | TRD-008 | TRD-008-TEST |
 | REQ-013 | Cycle-time improvement is measured, not assumed | TRD-011, TRD-013 | TRD-011-TEST, TRD-013-TEST |
@@ -409,15 +406,14 @@ The design rests on one unproven fact: a status posted by our own App satisfies 
 | REQ-015 | Clear failure reporting | TRD-005, TRD-009, TRD-012 | TRD-005-TEST, TRD-009-TEST, TRD-012-TEST |
 | REQ-016 | Applies to the PR-producing commands' boundaries | TRD-010 | TRD-010-TEST |
 | REQ-017 | Per-repository configuration | TRD-002 | TRD-002-TEST |
-| REQ-018 | The app credential is protected | TRD-004 | TRD-004-TEST |
 
 ## Sprint Planning
 
 Informational only; `implement-trd-beads` does not parse this section.
 
-## Sprint 1: Prove and build the gate
-- PR 1 (TRD-001, TRD-002) -- 12h including tests. TRD-001 is the go/no-go for the App client.
-- PR 2 (TRD-003, TRD-004, TRD-012, TRD-005, TRD-006) -- 40h including tests.
+## Sprint 1: Build the gate
+- PR 1 (TRD-002) -- 6h including tests.
+- PR 2 (TRD-003, TRD-014, TRD-012, TRD-005, TRD-006) -- 38h including tests.
 
 ## Sprint 2: Integrate and roll out
 - PR 3 (TRD-007 to TRD-009) -- 24h including tests.
@@ -425,42 +421,42 @@ Informational only; `implement-trd-beads` does not parse this section.
 
 ## Architecture Self-Critique
 
-1. **Gap, sequencing (resolved):** TRD-001 needs a real GitHub App and a throwaway repository, which only the maintainer can create, so it is human-assisted. TRD-004 originally declared `[Depends: TRD-001]` so the App client could not be built before the proof. **Superseded by user decision on 2026-10-21 (1.0.6):** the App client is built first against a locally generated RSA key and an injected `fetch`, and TRD-001's live proof is instead a hard gate on the pull request and on the enablement runbook (TRD-010). The proof is not dropped: until `docs/proofs/local-ci-app-pin-proof.md` exists, three things stay unproven (an App-posted status satisfies a check pinned to that App while a personal-token status does not; the longest status description GitHub accepts, against the module's 100-character bound; whether the JWT `iss` should be the numeric App id or the client id). TRD-002 and TRD-003 are pure modules and proceed in parallel, by decision.
+1. **Gap, trust and sequencing (resolved by user decision, 1.0.12):** earlier versions required a maintainer-owned GitHub App, a live proof (TRD-001) that an App-posted status satisfies an App-pinned check, and an App client (TRD-004). The user removed the App because creating, installing and holding a key for it was a barrier to entry. The status is now posted with the maintainer's own `gh` login (TRD-014), the required check is unpinned, and trust is honest-actor: any identity with write access can post a status, and the gate accepts it only if the run record verifies. TRD-001, TRD-001-TEST, TRD-004 and TRD-004-TEST are deleted; the statements about them in 1.0.1, 1.0.6 and 1.0.8 are superseded. What stays unproven is that an unpinned required check is satisfied by a `gh` status on the real repository and the longest description GitHub accepts (TRD-014 enforces 100, below the working limit of 140); TRD-010's runbook observes the first at enablement.
 2. **Gap, contradiction with an existing module:** `pr-review-remote.js` classifies bots by a configured login list, while PRD AC-006-4 requires classification by GitHub account type. Resolution: TRD-007 is a separate module that reads `type`; `pr-review-remote.js` is left untouched because `fix-issue` and `implement-trd-beads` still depend on its fail-closed behavior.
 3. **Gap, tracker coupling:** The sweep creates beads through `br`, which exists in this repository but not necessarily in an adopting repository such as Foreman. Resolution: the tracker is a config field (TRD-002); the sweep returns structured items, and the skill hands them to whichever tracker the config names.
 4. **Missing failure path:** if the status is posted but the PR head moves before the merge call, the merge could race. Resolution: the merge step re-reads the head SHA and re-verifies immediately before calling `gh pr merge` (TRD-005, TRD-009).
 
 ## Dependency and Estimate Review
 
-- **Longest chain:** TRD-001 -> TRD-004 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST (depth 6, computed from declared dependencies; 31 declared edges, no forward dependencies, no cycles). The head of the chain is the human-assisted proof, which is the real schedule risk. Three orderings were deliberately left undeclared because the tasks can be built and tested independently: TRD-007 and TRD-008 on TRD-002 (both are pure modules tested with fixtures), and TRD-011 on TRD-013 (they share only a recording location).
+- **Longest chain:** TRD-003 -> TRD-014 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST (depth 6; TRD-002 -> TRD-012 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST is an equally long alternative). Computed by walking the `dependsOn` arrays from `trd-cli.js parse`: 30 declared edges, no forward dependencies, no cycles (earlier rows of this document said 31 edges; the same count over the previous version gives 30). The chain no longer starts with a human-assisted proof, so no task on it needs anything only the maintainer can create. Three orderings were deliberately left undeclared because the tasks can be built and tested independently: TRD-007 and TRD-008 on TRD-002 (both are pure modules tested with fixtures), and TRD-011 on TRD-013 (they share only a recording location).
 - **Estimate risk:** TRD-012 (5h) bundles the clean clone of an arbitrary head commit, running the repository's `ci:local` under each required Node version, mirroring the `validate.yml` steps `ci:local` omits, and crash-safe cleanup. The Node-version provisioning (`ci:local --node` downloads Node and does not work offline unless cached) is the most likely to overrun. TRD-005 was reduced to 4h by moving the runner out.
-- **Estimate consistency:** the module tasks (TRD-002, 003, 007) are 3-4h; the three with I/O or external systems (TRD-004, TRD-008, TRD-012) are 5h.
+- **Estimate consistency:** the module tasks (TRD-002, 003, 007) are 3-4h; the I/O or external-system tasks are TRD-014 (4h) and TRD-008 and TRD-012 (5h).
 
 ## Testability Review
 
 - Every implementation task has a paired `-TEST` task with one Scenario per validated AC group.
-- TRD-001 and TRD-006 are proofs against a real protected branch and a real failing test respectively; they cannot be satisfied by mocks, which is deliberate (Constitution Rule 7).
-- AC-018-3 (credential rotation) is covered by the runbook in TRD-010 and the revoked-key scenario in TRD-004-TEST; the rotation procedure itself is documented, not automated.
+- TRD-006 is a proof against a real failing test and cannot be satisfied by mocks, which is deliberate (Constitution Rule 7). The first real success status and the protection read-back in TRD-010 are exercised against injected GitHub responses in tests and against the real repository only at enablement.
+- Secret handling (REQ-010) is covered by the redaction and token-command scenarios in TRD-014-TEST and the `GH_TOKEN` scenario in TRD-012-TEST. With no App there is no private key and no rotation procedure.
 
 ## Design Readiness Gate
 
 | Dimension | Score | Note |
 |---|---|---|
-| Architecture completeness | 4 | Components, data flow, failure handling, security design and the runner boundary are defined; the App-acceptance behavior and the status description cap are explicitly deferred to TRD-001. |
-| Task coverage | 4 | All 18 requirements have implementation and test tasks (matrix regenerated from task annotations). Nine requirements have fewer than 3 PRD ACs (REQ-001, 002, 005, 010, 011, 012, 014, 015, 016), below create-trd's BDD minimum; recorded here instead of editing the locked PRD. |
-| Dependency clarity | 5 | Dependencies are now declared on every implementation task that has a prerequisite; the graph is acyclic, has no forward dependencies, and TRD-001 genuinely heads the longest chain. |
+| Architecture completeness | 4 | Components, data flow, failure handling, security design and the runner boundary are defined; the trust model is stated as honest-actor, the status description is capped at 100 characters (below the working 140 limit, unconfirmed against GitHub), and whether an unpinned required check is satisfied by a `gh` status is observed at enablement (TRD-010). |
+| Task coverage | 4 | All 17 requirements have implementation and test tasks (matrix regenerated from task annotations). Nine requirements have fewer than 3 PRD ACs (REQ-001, 002, 005, 010, 011, 012, 014, 015, 016), below create-trd's BDD minimum; recorded here instead of editing the locked PRD. |
+| Dependency clarity | 5 | Dependencies are declared on every implementation task that has a prerequisite; the graph is acyclic, has no forward dependencies, and the longest chain is computed in the Dependency and Estimate Review. |
 | Estimate confidence | 4 | Granular and consistent after splitting the runner out of TRD-005; the cost of a clean clone plus `npm ci` per required Node version, and the unmirrored `validate.yml` steps, remain the main uncertainty and now have a measuring task (TRD-013). |
 
 **Overall: 4.25 (PASS).** Previous: 4.0.
 
 ## Notes
 
-- **Total tasks:** 26 (13 implementation, 13 test). **Total estimate:** 97h (PR 1: 12h, PR 2: 40h, PR 3: 24h, PR 4: 21h). Figures are derived from the TRD parser, not hand-counted.
-- **Constitution compliance:** passed (`docs/standards/constitution.md`). Rule 1 (no secrets): TRD-004 owns the credential ignore rule and a tracked-file preflight; TRD-012 keeps workflow secrets out of results. Rule 2 (input validation): TRD-005 CLI boundary and TRD-002 config validation. Rule 3 (tests accompany features): every task has a `-TEST` pair. Rule 4 (no second dispatcher): TRD-008 and REQ-012. Rule 6 (reachable from entry point): TRD-009 wires the gate into `pr-merge`. Rule 7 (a check can fail): TRD-001, TRD-006. Rule 8 (user-editable behavior in skills): the skill and config own procedure and policy. Rule 9: no test pins another actor's write order.
+- **Total tasks:** 24 (12 implementation, 12 test). **Total estimate:** 89h (PR 1: 6h, PR 2: 38h, PR 3: 24h, PR 4: 21h). Figures are derived from the TRD parser, not hand-counted.
+- **Constitution compliance:** passed (`docs/standards/constitution.md`). Rule 1 (no secrets): TRD-014 owns the never-handle-the-`gh`-token rule and redaction; TRD-012 keeps workflow secrets and `GH_TOKEN` out of steps and results. Rule 2 (input validation): TRD-005 CLI boundary and TRD-002 config validation. Rule 3 (tests accompany features): every task has a `-TEST` pair. Rule 4 (no second dispatcher): TRD-008 and REQ-012. Rule 6 (reachable from entry point): TRD-009 wires the gate into `pr-merge`. Rule 7 (a check can fail): TRD-006. Rule 8 (user-editable behavior in skills): the skill and config own procedure and policy. Rule 9: no test pins another actor's write order.
 - **Open decision carried forward:** the numeric cycle-time target and minimum post-change cohort are set after the baseline (TRD-011), per PRD REQ-013.
-- **Status description and head SHA (resolved by PRD 1.0.2):** GitHub's status description is length-capped (working limit 140 characters, unconfirmed in current documentation and checked by TRD-001), so the head SHA is carried implicitly by the commit the status is posted on, and `verifyRecord` checks that commit. PRD AC-004-5 was reworded in v1.0.2 to say exactly this, so this is no longer an interpretation of the PRD but its stated requirement.
+- **Status description and head SHA (resolved by PRD 1.0.2):** GitHub's status description is length-capped (working limit 140 characters, unconfirmed in current documentation), so TRD-003 bounds the record at 100 characters, TRD-014 refuses anything longer, the head SHA is carried implicitly by the commit the status is posted on, and `verifyRecord` checks that commit. PRD AC-004-5 was reworded in v1.0.2 to say exactly this, so this is no longer an interpretation of the PRD but its stated requirement.
 - **Departure from the literal request, by user decision:** the original request said to run CI locally "using act". `dev` already ships `npm run ci:local`, a tested clean-clone runner (PR #184), and the user chose to wrap it instead of building an `act` runner. The `act-local-ci` skill is unchanged and remains available for repositories or workflows `ci:local` does not mirror.
-- **PRD wording aligned (resolved):** PRD-2026-4dec59b8 originally named `act` and a container runtime (Solution text, AC-004-5, AC-009-2, AC-015-2) while this TRD uses `ci:local`. At the user's request the PRD was re-locked at v1.0.2 with runner-neutral wording, with the same 18 requirements and 47 acceptance criteria. The beads that quote those three criteria were refreshed to match. AC-004-5 now names the runner identity and states that the head SHA is established by the commit the status is posted on, which also removes the earlier PRD-versus-TRD interpretation in the note above.
+- **PRD wording aligned (resolved):** PRD-2026-4dec59b8 originally named `act` and a container runtime (Solution text, AC-004-5, AC-009-2, AC-015-2) while this TRD uses `ci:local`. At the user's request the PRD was re-locked at v1.0.2 with runner-neutral wording, with the same 18 requirements and 47 acceptance criteria (PRD 1.0.4 has 17 and 45 after the GitHub App and REQ-018 were removed). The beads that quote those three criteria were refreshed to match. AC-004-5 now names the runner identity and states that the head SHA is established by the commit the status is posted on, which also removes the earlier PRD-versus-TRD interpretation in the note above.
 - **Measured premise check (2026-10-21):** hosted required CI on this repository takes about 2.5 to 3 minutes (`test` 153-192s, `validate` 44-62s, run in parallel). A local run through `ci:local` is a sequential install, scripts-tests, validate, generate-validate, drift and test on one Node version at a time, so it is unlikely to be faster than hosted CI, especially across the Node 22 and 24 matrix. TRD-013 measures this before any repository enables the gate; the speedup for a repository comes from removing the bot-review wait, not from run time.
 
 ## Changelog
@@ -479,3 +475,4 @@ Informational only; `implement-trd-beads` does not parse this section.
 | 2026-10-21 | 1.0.9 | Security redesign of TRD-012 after an independent adversarial review (no requirement or AC id changed; reverses the 1.0.3 choice to wrap `ci:local`). Reproduced against the real modules: the first design believed a `name PASS` table printed by the PR head's own `scripts/ci-local.js` (and `require()`d that file), so a head whose `npm run lint` and `npm run test` failed was approved; the approval set came from the working tree or the caller's payload, so with the PR branch checked out a PR that rewrote `.ensemble/local-ci.yaml` and its workflow to `true` was approved; a `bash -c` step passed when a middle command failed, which hosted CI fails; a workflow committed as a symlink was read from outside the clone; inherited environment secrets were not redacted. Now: the runner runs a trusted `steps` list from `.ensemble/local-ci.yaml` itself under `bash -e -o pipefail`, grades only exit statuses it observes, and never loads the head's `ci:local`; that file is read only with `git show <baseRef>:.ensemble/local-ci.yaml` (the PR's base branch, as `pull_request_target` does), `baseRef` is required, the head cannot be its own base, and the record carries the trusted config's blob hash; the payload cannot carry config, paths, scripts or runner options; a workflow resolving outside the clone is refused; steps get a minimal environment and credential-named values are redacted. `extra_steps` was replaced by `steps`. Consequence accepted: a PR that changes the gate is graded by the previous config and its change takes effect after merge. |
 | 2026-10-21 | 1.0.10 | Hardening after a second adversarial review (no requirement or AC id changed). Reproduced and fixed: a base that is a descendant of (or equal to) the head is refused; `baseRef` must be a remote-tracking ref verified with `git show-ref`, so a local branch, SHA or reflog spelling cannot stand in for the PR's base; the run is voided if tracked file content, the index, HEAD or the clone's git config change during the steps (content comparison, since `assume-unchanged`/`skip-worktree` defeat git's own view; untracked output is allowed); the status record carries 12 hex of the config blob and `merge` requires it; optional `secret_names` (names only, base-ref config only) lets a step receive a configured secret, with configured values redacted. Residual trust recorded: the base branch name comes from GitHub's `baseRefName`, so a less-protected branch that a PR targets is graded by its own config. Delivered in ea0baeb. |
 | 2026-10-21 | 1.0.11 | Hardening after a third adversarial review (no requirement or AC id changed; supersedes two statements in 1.0.10). Reproduced and fixed: `gate` and `merge` now require `repo` and `pr` and ask GitHub (`gh pr view`) for the PR's base branch, head commit and state BEFORE any config is read, refusing unless `baseRef` is exactly `origin/<that base>`, the PR is OPEN and `headSha` is its current head (1.0.10 said the base name came from GitHub's `baseRefName`; it actually came from the caller, so a contributor-pushed branch carrying a weaker config could be named as the base and approve a failing head); after every step the run is voided if a new untracked file lies outside the base config's `output_paths` (default `node_modules`, `coverage`, `.cache`, `dist`), superseding 1.0.10's statement that untracked output is allowed, because an untracked file is what a step can plant for a later command to read as permission to pass; steps run under a throwaway `HOME` (npm cache still the maintainer's) so they cannot rewrite `~/.gitconfig` or read `~/.ssh`; a tracked symlink resolving outside the clone, dangling links included, voids the run. Consequence accepted: the gate runs the head's own code and cannot stop a head's tests from asserting less; and `gate`/`merge` now need the maintainer's `gh` session at run time. |
+| 2026-10-22 | 1.0.12 | **User decision: the maintainer-owned GitHub App is removed** (barrier to entry); the PRD moved to 1.0.4 (REQ-018 and AC-018-1/2/3 deleted, AC-004-4 reversed into an explicit honest-actor limit, AC-004-7 added). Trust is now honest-actor: the status is posted with the maintainer's own `gh` login, the required check `ensemble/local-ci` is unpinned (`app_id` null, written as `-1`), and any identity with write access can post a status that `pr-merge` accepts only if its run record verifies. **Deleted:** TRD-001 and TRD-001-TEST (App creation and app-pin proof) and TRD-004 and TRD-004-TEST (App client). **Added:** TRD-014 and TRD-014-TEST (gh-based status publisher, `local-ci-status.js`; `[Depends: TRD-003]`), new ids because TRD-004 is not reused with a different meaning. **Changed:** TRD-005 depends on TRD-014 instead of TRD-004 and gains the cannot-attest AC; TRD-003 gains the creator-not-consulted AC; TRD-009 gains the accept-by-record-only AC; TRD-010 enables protection with an unpinned check, requires a snapshot first and a first real success status before the check is required, and drops the App-pin-proof refusal AC and scenario; TRD-012 withholds `GH_TOKEN`/`GITHUB_TOKEN` from steps; TRD-002 no longer carries an App id. Removed the RS256 JWT dependency decision, the App-private-key security design, `local-ci-app.js` and the "one unproven fact" paragraph. Recomputed from the parser: 24 tasks (12 implementation, 12 test), 89h (PR 1 6h, PR 2 38h, PR 3 24h, PR 4 21h), longest chain TRD-003 -> TRD-014 -> TRD-005 -> TRD-009 -> TRD-010 -> TRD-010-TEST (depth 6), 30 declared edges. **Supersedes** the 1.0.1 statement that TRD-001 gates TRD-004 and heads the longest chain, the 1.0.6 and 1.0.8 sequencing decisions about TRD-001 (and 1.0.8's refusal AC and scenario for a missing App-pin proof), and the claim that AC-004-4 required the posting identity to be the App. |
