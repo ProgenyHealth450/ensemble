@@ -85,6 +85,18 @@ accidents and unverified agent merges. It does not stop deliberate forgery by
 someone with write access. A repository that needs forge-resistance would need
 a pinned GitHub App, which is separate future work and is not part of this gate.
 
+## A PR branch that is behind its base is refused
+
+The gate reads its configuration from the PR's **base** branch and compares the PR head's workflows with it. A PR whose
+branch was cut before the base last changed a required workflow is therefore refused, not skipped: it reports
+`unsupported-step` for every workflow step the base's configuration does not mirror, and posts nothing. This was seen on
+the first real run against an open PR (a branch 116 commits behind `dev`, whose `test.yml` still had Python steps that
+`dev` had since removed). The refusal is correct: the head's workflows are not the ones the gate was configured for.
+
+What to do: have the PR author update the branch from the base (merge or rebase) and re-run. The operator should not
+edit another author's branch. A refusal like this is not evidence the gate is broken, and it is not a reason to loosen
+`.ensemble/local-ci.yaml`.
+
 ## Rollback
 
 1. `planRollback({snapshot})` using the stored snapshot returns one
