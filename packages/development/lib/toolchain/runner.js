@@ -545,7 +545,23 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
             }
 
             const schemaFileName = CATEGORY_NORMALIZED_SCHEMA[capability.split('.')[0]];
-            const validateNormalized = schemaFileName && getNormalizedValidator(schemaFileName);
+            let validateNormalized;
+            if (schemaFileName) {
+              try {
+                validateNormalized = getNormalizedValidator(schemaFileName);
+              } catch (schemaError) {
+                resolve({
+                  ok: false,
+                  error: {
+                    code: 'TOOL_FAILED',
+                    message:
+                      `${adapterId}: capability '${capability}' could not load its normalized ` +
+                      `schema: ${schemaError.message}`
+                  }
+                });
+                return;
+              }
+            }
             if (validateNormalized && !validateNormalized(mapped)) {
               const firstError = validateNormalized.errors && validateNormalized.errors[0];
               const detail = firstError

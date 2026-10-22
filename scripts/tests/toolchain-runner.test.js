@@ -461,6 +461,78 @@ describe('runCapability: output mapping + normalized schema validation when cap.
     expect(result.ok).toBe(true);
     expect(result.data).toBe(rawStdout);
   });
+
+  test('(v) parse present + the normalized schema itself fails to load (missing/unreadable/invalid JSON) -> TOOL_FAILED naming the schema-load failure, never throws/crashes uncaught (reviewer P2: getNormalizedValidator had no try/catch inside the execFile callback)', async () => {
+    jest.resetModules();
+    const actualReadFileSync = jest.requireActual('fs').readFileSync;
+    const schemaReadError = new Error("EACCES: permission denied, open 'work-item.json'");
+    const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((filePath, encoding) => {
+      if (String(filePath).endsWith('work-item.json')) {
+        throw schemaReadError;
+      }
+      return actualReadFileSync(filePath, encoding);
+    });
+
+    try {
+      const { execFile: freshExecFile } = require('child_process');
+      const { runCapability: freshRunCapability } = require('../../packages/development/lib/toolchain/runner');
+
+      freshExecFile.mockImplementation((file, cmdArgs, options, callback) => {
+        setImmediate(() => callback(null, JSON.stringify({ id: 'A-1', title: 'Fix the bug' }), ''));
+      });
+
+      const adapter = minimalAdapter({
+        capabilities: {
+          'tracker.show': {
+            run: ['fixture-tool', 'show', '--id', '${id}'],
+            parse: { format: 'json', root: '$', map: { id: '$.id', title: '$.title' } }
+          }
+        }
+      });
+
+      const result = await freshRunCapability(adapter, 'tracker.show', { id: 'A-1' });
+
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: 'TOOL_FAILED',
+          message: expect.stringContaining(
+            "fixture-tracker: capability 'tracker.show' could not load its normalized schema:"
+          )
+        }
+      });
+      expect(result).not.toHaveProperty('data');
+    } finally {
+      readSpy.mockRestore();
+      jest.resetModules();
+    }
+  });
+
+  test('(vi) a non-.show tracker capability (tracker.create) whose mapped output declares only id still validates against the shared normalized schema and resolves ok:true (reviewer P2: category-keyed validation is not falsely narrower than .show)', async () => {
+    const stdout = JSON.stringify({ id: 'A-99' });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, stdout, ''));
+    });
+
+    const adapter = minimalAdapter({
+      capabilities: {
+        'tracker.create': {
+          run: ['fixture-tool', 'create', '--title', '${title}'],
+          parse: { format: 'json', root: '$', map: { id: '$.id' } }
+        }
+      }
+    });
+
+    const result = await runCapability(adapter, 'tracker.create', { title: 'New work item' });
+
+    expect(result).toEqual({
+      ok: true,
+      capability: 'tracker.create',
+      adapter: 'fixture-tracker',
+      source: null,
+      data: { id: 'A-99' }
+    });
+  });
 });
 
 describe('runCapability: manifest ${name} placeholder translation (reconciles TRD-010/TRD-011 syntax)', () => {
