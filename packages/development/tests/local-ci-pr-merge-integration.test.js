@@ -3,14 +3,19 @@
  *
  * Reads the pr-merge YAML source with js-yaml and the four GENERATED outputs
  * from disk. Structure is asserted (phase order, which refusal conditions
- * exist, preserved constraints equal to their committed text); regenerate
+ * exist, preserved constraints equal to their pre-change text); regenerate
  * (npm run generate && generate:pi && generate:codex) after editing the source,
  * this test fails on stale output.
+ *
+ * This test reads NO git history. Hosted CI checks out with `fetch-depth: 1`, and the local
+ * gate clones the head, so an old commit's tree is not there; an earlier version shelled out to
+ * `git show <old sha>` and failed on every hosted run. The pre-change file is a committed fixture
+ * instead.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const yaml = require('js-yaml');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -21,7 +26,7 @@ const GENERATED_REL = {
   piSkill: 'packages/pi/skills/ensemble-pr-merge/SKILL.md',
   codexSkill: 'packages/codex/.codex/skills/commands/ensemble-pr-merge/SKILL.md',
 };
-// Commands this change must not touch: every generated artifact, committed vs working tree.
+// Commands this change must not touch: pinned by SHA-256 in a fixture (no git history needed).
 const UNTOUCHED_REL = [
   'packages/development/commands/fix-issue.yaml',
   'packages/development/commands/implement-trd-beads.yaml',
@@ -37,18 +42,18 @@ const UNTOUCHED_REL = [
 
 const flat = (t) => t.replace(/\s+/g, ' ').trim();
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
-const gitShowAt = (ref, rel) =>
-  execFileSync('git', ['show', `${ref}:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
-const gitShow = (rel) => gitShowAt('HEAD', rel);
+const sha256 = (rel) => crypto.createHash('sha256').update(fs.readFileSync(path.join(REPO_ROOT, rel))).digest('hex');
 
-// pr-merge.yaml as it was BEFORE this feature changed it: the last commit that touched it on dev
-// (1d96158). A fixed commit that already exists on the shared branches, so it survives this
-// branch being rebased or squash-merged; HEAD would not work (it becomes the new file once the
-// change is committed) and a moving ref such as origin/dev would break the day dev takes it.
-const PR_MERGE_BEFORE = '1d96158a1fc14549b76aef73368aee3cacd53f26';
+const FIXTURES = path.join(__dirname, 'fixtures', 'pr-merge');
+// pr-merge.yaml exactly as it was BEFORE the local-ci gate changed it (taken from dev at 1d96158, the last commit that
+// touched it). The test compares the new source against this to prove safety constraints were preserved.
+const PRE_CHANGE_FIXTURE = path.join(FIXTURES, 'pr-merge.before-local-ci.yaml');
+// SHA-256 of each UNTOUCHED_REL file when this change was made. If you legitimately edit one of those commands, the
+// "other commands untouched" test fails and prints the one-line command that refreshes this file.
+const UNTOUCHED_HASHES = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'untouched-commands.sha256.json'), 'utf8'));
 
 const source = yaml.load(read(SOURCE_REL));
-const committed = yaml.load(gitShowAt(PR_MERGE_BEFORE, SOURCE_REL));
+const committed = yaml.load(fs.readFileSync(PRE_CHANGE_FIXTURE, 'utf8'));
 const generated = Object.fromEntries(Object.entries(GENERATED_REL).map(([k, rel]) => [k, flat(read(rel))]));
 
 const phases = source.workflow.phases;
@@ -240,7 +245,18 @@ describe('runtimes agree on gate and review rules', () => {
 });
 
 describe('other commands untouched', () => {
-  test.each(UNTOUCHED_REL)('%s equals its committed content', (rel) => {
-    expect(read(rel)).toBe(gitShow(rel));
+  const refresh =
+    'If you changed this command on purpose, refresh the pin: from the repo root run\n' +
+    '  node -e "const fs=require(\'fs\'),c=require(\'crypto\');const f=\'packages/development/tests/fixtures/pr-merge/untouched-commands.sha256.json\';' +
+    'const o=JSON.parse(fs.readFileSync(f));for(const k of Object.keys(o))o[k]=c.createHash(\'sha256\').update(fs.readFileSync(k)).digest(\'hex\');' +
+    'fs.writeFileSync(f,JSON.stringify(o,null,2)+\'\\n\')"';
+
+  test('every pinned file is one this test guards, and every guarded file is pinned', () => {
+    expect(Object.keys(UNTOUCHED_HASHES).sort()).toEqual([...UNTOUCHED_REL].sort());
+  });
+
+  test.each(UNTOUCHED_REL)('%s still has the content pinned when the gate was added', (rel) => {
+    const actual = sha256(rel);
+    if (actual !== UNTOUCHED_HASHES[rel]) throw new Error(`${rel} changed (sha256 ${actual}, pinned ${UNTOUCHED_HASHES[rel]}).\n${refresh}`);
   });
 });
