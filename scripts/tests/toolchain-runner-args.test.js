@@ -261,20 +261,27 @@ describe('buildArgv: explicit null values are treated as "no value supplied" (fa
   });
 });
 
-describe('buildArgv: never spawns a process (Implementation AC 7)', () => {
-  test('the module code never requires or spawns child_process', () => {
+describe('buildArgv: never spawns a process via a shell (Implementation AC 7, TRD-011 AC 3)', () => {
+  test('the file never sets a shell option to true and never calls a bare exec(), only execFile(', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
       path.join(__dirname, '..', '..', 'packages', 'development', 'lib', 'toolchain', 'runner.js'),
       'utf8'
     );
-    // The module header documents, in prose, that future beads (TRD-011) will use
-    // child_process; only an actual require/import of it in code would be a violation.
-    expect(source).not.toMatch(/require\(\s*['"]child_process['"]\s*\)/);
-    expect(source).not.toMatch(/\bexecFile\s*\(/);
-    expect(source).not.toMatch(/\bexec\s*\(/);
-    expect(source).not.toMatch(/\bspawn\s*\(/);
+    // TRD-011's own Implementation AC states this exact permanent constraint verbatim: a
+    // command not granted the shell tool cannot call the runner, verified by `grep -n
+    // "shell:\s*true|exec("` over this file returning zero matches. `runCapability` (TRD-011)
+    // legitimately calls `execFile(`, which must NOT trip this pattern -- the regex below is
+    // anchored with `\b` so `exec(` only matches a bare `exec(` call, never the `exec` prefix
+    // inside `execFile(`.
+    const forbiddenPattern = /shell:\s*true|\bexec\(/;
+    expect(source).not.toMatch(forbiddenPattern);
+    // Prove the assertion above actually discriminates: the forbidden pattern must not
+    // false-positive against the legitimate `execFile(` call, and `execFile(` must be present
+    // (TRD-011's `runCapability`, the only place in this file that spawns a process).
+    expect(forbiddenPattern.test('execFile(')).toBe(false);
+    expect(source).toMatch(/\bexecFile\(/);
   });
 
   test('buildArgv returns a plain array of strings, never a shell-concatenated string', () => {

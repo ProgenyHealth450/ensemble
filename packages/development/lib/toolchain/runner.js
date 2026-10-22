@@ -1,17 +1,18 @@
 'use strict';
 
 /**
- * Runner: template substitution and argument validation (TRD-2026-8d825f54 TRD-010,
- * PRD REQ-022, REQ-023).
+ * Runner: template substitution, argument validation and process execution (TRD-2026-8d825f54
+ * TRD-010, TRD-011, PRD REQ-022, REQ-023).
  *
  * `buildArgv(runTemplate, args, contract)` is the first half of the runner described in the
  * TRD's System Architecture (Data Flow step 4): it substitutes `{name}` placeholders found
  * inside a capability's argv template with validated argument values and returns a flat argv
- * array, with no shell ever involved. It never spawns a process; `runCapability` (TRD-011, a
- * later bead in this same file) is the only function in this module that executes a binary,
- * using `child_process.execFile` with `shell:false` against the argv this function returns.
- * Do not add process-spawning, output-mapping (`mapOutput`, TRD-012) or capability-requirement
- * (`requireCapabilities`, TRD-013) code here; those are separate beads with separate review.
+ * array, with no shell ever involved. It never spawns a process itself; `runCapability`
+ * (TRD-011, documented in its own section below) is the only function in this module -- and,
+ * per the TRD, the only path anywhere in the toolchain -- that executes a binary, using
+ * `child_process.execFile` with `shell:false` against the argv this function returns. Do not
+ * add output-mapping (`mapOutput`, TRD-012) or capability-requirement (`requireCapabilities`,
+ * TRD-013) code here; those remain separate beads with separate review.
  *
  * Substitution contract:
  * - A `{name}` placeholder may appear anywhere inside an argv template string; every
@@ -52,19 +53,21 @@
  * `categories/*.yaml`) attaches a type to a capability input today; they carry plain name
  * arrays (`inputs: [id]`). TRD-010 is the first task that needs typed inputs, so this module
  * defines its own minimal `contract` object (above) used only by `buildArgv` and this file's
- * test. It is intentionally not yet part of `category-contract-schema.json`. TRD-011 is
- * responsible for assembling a real `contract` value from the resolved category contract and
- * adapter manifest before calling `buildArgv`; it may need to extend this shape (for example
- * to carry per-input descriptions) — extend it there, not by inventing a second shape here.
+ * test. It is intentionally not yet part of `category-contract-schema.json`. `runCapability`
+ * (TRD-011) assembles a real `contract` value from the resolved capability before calling
+ * `buildArgv`; today that value is `{inputs: {}, variants: cap.variants}` because category
+ * contracts still carry no per-input type information (see `contracts.js`/`categories/*.yaml`)
+ * -- extend this shape there if a future task needs typed inputs, not by inventing a second
+ * shape here.
  *
  * This module's placeholder syntax is `{name}` (no leading `$`), matching TRD-010's own
  * Implementation AC verbatim (`["br","show","{id}"]`). This is a different token than the
  * `${name}` syntax documented for adapter manifest `capabilities[].run[]` templates
- * (`adapter-manifest-schema.json`, `validate.js`'s `extractRunPlaceholders`). TRD-011, which
- * assembles the real call from a resolved adapter manifest, is responsible for reconciling the
- * two (for example by translating `${name}` manifest templates into the `{name}` form before
- * calling `buildArgv`, or by converting this function's pattern once the manifest format is
- * finalized) — do not change either pattern here as a side effect of this task.
+ * (`adapter-manifest-schema.json`, `validate.js`'s `extractRunPlaceholders`). `runCapability`
+ * (TRD-011), which assembles the real call from a resolved adapter manifest, reconciles the two
+ * by translating `${name}` manifest templates into the `{name}` form before calling
+ * `buildArgv` (see its own section below) -- do not change either pattern here as a side effect
+ * of unrelated work.
  *
  * ## Known limits
  *
@@ -84,7 +87,73 @@
  * them is present in `args`, the later one (in `Object.keys` order) wins; this is an untested
  * edge case kept minimal because every capability in this repo uses at most one variant
  * selector today.
+ *
+ * ## runCapability (TRD-011)
+ *
+ * `runCapability(adapter, capability, args, opts)` is the second half of the runner: it
+ * resolves a capability from an already-parsed, already-validated adapter manifest (the same
+ * shape `validate.js` consumes), builds its argv via `buildArgv` above, re-validates that argv
+ * against the manifest's own `binaries`/`allowlist` at runtime, and is the ONLY function in
+ * this module -- and, per the TRD, the only path anywhere in the toolchain -- that spawns a
+ * process. It always spawns via `child_process.execFile` with `shell` explicitly set to
+ * `false` and `killSignal` set to `'SIGKILL'` (see the execFile call below): `opts
+ * .execFileOptions` is spread FIRST into the options object and `timeout`/`killSignal`/`shell`
+ * are applied LAST so a caller can never override any of the three -- not a truthy shell
+ * option, not a weaker `killSignal` -- so a substituted argument is never reinterpreted as
+ * shell syntax (PRD REQ-023) and a hung/SIGTERM-ignoring child is always actually killed on
+ * timeout.
+ *
+ * Manifest `capabilities[].run[]` templates use `${name}` placeholders (see
+ * `adapter-manifest-schema.json` and `validate.js`'s `extractRunPlaceholders`), while
+ * `buildArgv` above expects the bare `{name}` form documented earlier in this header.
+ * `runCapability` is the reconciliation point the "Design note" above points to: before calling
+ * `buildArgv` it rewrites every `${name}` occurrence in the manifest's `run` template to
+ * `{name}`, then proceeds exactly as `buildArgv` already documents. No other function in this
+ * file performs this rewrite.
+ *
+ * Runtime allowlist check: `validate.js#validateAllowlist` is a STATIC check -- it validates a
+ * manifest's own declared `run` templates against its own `binaries`/`allowlist` at
+ * install/validate time, before any placeholder substitution (see that function's own header).
+ * `runCapability` performs its own, separate check on the real, substituted `argv` array
+ * immediately before spawning: `argv[0]` must be one of `adapter.binaries`, and the matching
+ * `adapter.allowlist` entry's `sub` must include `argv[1]`. This is an intentional, documented
+ * duplication, not a refactor of `validateAllowlist`, because it operates on a concrete argv
+ * array rather than a manifest template string. Any failure here returns `NOT_ALLOWED` and
+ * never spawns a process.
+ *
+ * Envelope contract (TRD System Architecture): on success, resolves to
+ * `{ok:true, capability, adapter: adapter.adapter, source, data}`, where `data` is the raw
+ * stdout string from the child process and `source` is `opts.source` passed through verbatim
+ * (defaulting to `null`) -- `runCapability` never re-derives or infers a source, that is
+ * `config.js`/`adapters.js`'s responsibility. On failure, resolves to
+ * `{ok:false, error:{code, message}}` with one of:
+ * - `NOT_ALLOWED`: the capability is not declared by the adapter, a `buildArgv`/`selectTemplate`
+ *   `NOT_ALLOWED` error was thrown (an invalid variant selector), or the runtime allowlist check
+ *   above rejected the resolved argv. Every `NOT_ALLOWED` message names the adapter and the
+ *   capability, binary or subcommand that failed.
+ * - `INVALID_ARG`: bubbled up unchanged from `buildArgv`/`resolveArg` (missing/malformed
+ *   argument value); never thrown past `runCapability`'s own boundary, always converted here.
+ * - `TIMEOUT`: the child process exceeded `opts.timeoutMs` (default 60000ms) and was killed
+ *   (`execFile`'s own `timeout`/`killSignal` options do the killing; this function only
+ *   recognizes `error.killed`/`error.signal` on the callback and reports it). The message names
+ *   the adapter, the capability and the configured timeout.
+ * - `TOOL_FAILED`: any other `execFile` callback error (binary not found, non-zero exit, and so
+ *   on). The message names the adapter and the capability and includes the child's stderr (or
+ *   the raw error message when stderr is empty).
+ *
+ * `runCapability` never lets a `child_process`, parsing or validation exception escape
+ * uncaught: every branch above is reached through a try/catch or an `execFile` callback, never
+ * a thrown error crossing this function's own boundary.
+ *
+ * ## Known limits (runCapability)
+ *
+ * `data` is the raw, unparsed stdout string: TRD-012's `mapOutput` plus Ajv normalization
+ * against `packages/development/toolchain/schemas/normalized/*.json` has not landed yet, so
+ * callers see exactly what the child process printed. See the inline comment at
+ * `runCapability`'s success branch for the exact spot TRD-012 will change.
  */
+
+const { execFile } = require('child_process');
 
 const PLACEHOLDER_TEST_PATTERN = /\{[^{}]+\}/;
 const PLACEHOLDER_REPLACE_PATTERN = /\{([^{}]+)\}/g;
@@ -232,6 +301,169 @@ function buildArgv(runTemplate, args = {}, contract = {}) {
   });
 }
 
+const MANIFEST_PLACEHOLDER_PATTERN = /\$\{([^{}]+)\}/g;
+const DEFAULT_TIMEOUT_MS = 60000;
+
+/**
+ * Rewrite a manifest `capabilities[].run[]` template's `${name}` placeholders (the syntax
+ * `adapter.yaml` files use) into the bare `{name}` form `buildArgv` expects (see this file's
+ * header, "runCapability" section). Non-string elements and elements with no `${name}`
+ * placeholder pass through unchanged. Does not mutate `run`; returns a new array (or `run`
+ * itself unchanged when it is not an array, so `buildArgv`'s own type check reports the error).
+ *
+ * @param {unknown} run a capability's manifest `run` template
+ * @returns {unknown} the translated template, or `run` unchanged when it is not an array
+ */
+function translateManifestTemplate(run) {
+  if (!Array.isArray(run)) {
+    return run;
+  }
+  return run.map((element) =>
+    typeof element === 'string' ? element.replace(MANIFEST_PLACEHOLDER_PATTERN, '{$1}') : element
+  );
+}
+
+/**
+ * Runtime counterpart to `validate.js#validateAllowlist`: that function statically checks a
+ * manifest's own declared `run` templates against its own `binaries`/`allowlist` at
+ * install/validate time, before any placeholder substitution. This function instead checks the
+ * real, already-substituted `argv` array immediately before `runCapability` spawns it, mirroring
+ * `validateAllowlist`'s binary/subcommand lookup logic (see its own header for why this
+ * duplication is intentional).
+ *
+ * @param {string} adapterId `adapter.adapter`, used only to name the adapter in the message
+ * @param {string[]} binaries `adapter.binaries`
+ * @param {{bin: string, sub?: string[]}[]} allowlist `adapter.allowlist`
+ * @param {string[]} argv the substituted argv about to be spawned
+ * @returns {string|null} a message naming the offending binary/subcommand when denied, else
+ *   `null` when `argv` is permitted
+ */
+function denyRuntimeAllowlist(adapterId, binaries, allowlist, argv) {
+  const bin = argv[0];
+  if (!binaries.includes(bin)) {
+    return `${adapterId}: resolved call to binary '${bin}' which is not declared in 'binaries'`;
+  }
+
+  const entry = allowlist.find((candidate) => candidate && candidate.bin === bin);
+  if (!entry) {
+    return `${adapterId}: resolved call to '${bin}' but '${bin}' has no 'allowlist' entry`;
+  }
+
+  const sub = argv.length > 1 ? argv[1] : undefined;
+  const allowedSubs = (Array.isArray(entry.sub) && entry.sub) || [];
+  if (sub === undefined || !allowedSubs.includes(sub)) {
+    return (
+      `${adapterId}: resolved call '${bin} ${sub}' is not permitted by the allowlist for '${bin}' ` +
+      `(allowed subcommands: ${allowedSubs.join(', ') || '(none)'})`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Execute one capability of a resolved, already-validated adapter manifest and resolve to the
+ * runner envelope (TRD-011, TRD System Architecture; PRD REQ-023). See this file's header,
+ * "runCapability" section, for the full envelope/error-code contract. Never throws: every
+ * failure mode resolves to `{ok:false, error:{code, message}}` instead.
+ *
+ * @param {{adapter: string, binaries?: string[], allowlist?: {bin:string,sub?:string[]}[],
+ *   capabilities?: Record<string, {run: string[], variants?: Record<string, Record<string,
+ *   string[]>>}>}} adapter a parsed, already-validated adapter manifest
+ * @param {string} capability the capability id to invoke, e.g. `tracker.show`
+ * @param {Record<string, unknown>} [args] argument values keyed by placeholder name
+ * @param {{timeoutMs?: number, source?: unknown, execFileOptions?: object}} [opts]
+ * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:string}|
+ *   {ok:false, error:{code:string, message:string}}>}
+ */
+async function runCapability(adapter, capability, args = {}, opts = {}) {
+  const adapterId = (adapter && adapter.adapter) || '(unknown adapter)';
+  const cap = adapter && adapter.capabilities && adapter.capabilities[capability];
+
+  if (!cap) {
+    return {
+      ok: false,
+      error: {
+        code: 'NOT_ALLOWED',
+        message: `capability '${capability}' is not declared by adapter '${adapterId}'`
+      }
+    };
+  }
+
+  let argv;
+  try {
+    const translatedTemplate = translateManifestTemplate(cap.run);
+    argv = buildArgv(translatedTemplate, args, { inputs: {}, variants: cap.variants });
+  } catch (error) {
+    return {
+      ok: false,
+      error: { code: error.code || 'INVALID_ARG', message: error.message }
+    };
+  }
+
+  const binaries = (adapter && Array.isArray(adapter.binaries) && adapter.binaries) || [];
+  const allowlist = (adapter && Array.isArray(adapter.allowlist) && adapter.allowlist) || [];
+  const denialMessage = denyRuntimeAllowlist(adapterId, binaries, allowlist, argv);
+  if (denialMessage) {
+    return { ok: false, error: { code: 'NOT_ALLOWED', message: denialMessage } };
+  }
+
+  const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        argv[0],
+        argv.slice(1),
+        { ...opts.execFileOptions, timeout: timeoutMs, killSignal: 'SIGKILL', shell: false },
+        (error, stdout, stderr) => {
+          if (error) {
+            if (error.killed || error.signal) {
+              resolve({
+                ok: false,
+                error: {
+                  code: 'TIMEOUT',
+                  message:
+                    `${adapterId}: capability '${capability}' exceeded its timeout of ` +
+                    `${timeoutMs}ms and was killed`
+                }
+              });
+              return;
+            }
+            const detail = (stderr && String(stderr).trim()) || error.message;
+            resolve({
+              ok: false,
+              error: {
+                code: 'TOOL_FAILED',
+                message: `${adapterId}: capability '${capability}' failed: ${detail}`
+              }
+            });
+            return;
+          }
+          resolve({
+            ok: true,
+            capability,
+            adapter: adapterId,
+            source: opts.source ?? null,
+            // TRD-012 will replace this raw passthrough with mapOutput(stdout, cap.parse) + Ajv
+            // validation against the normalized schema; do not add output mapping here.
+            data: stdout
+          });
+        }
+      );
+    } catch (error) {
+      resolve({
+        ok: false,
+        error: {
+          code: 'TOOL_FAILED',
+          message: `${adapterId}: capability '${capability}' could not be started: ${error.message}`
+        }
+      });
+    }
+  });
+}
+
 module.exports = {
-  buildArgv
+  buildArgv,
+  runCapability
 };
