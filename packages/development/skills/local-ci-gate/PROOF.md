@@ -94,17 +94,46 @@ the real modules and now fixed with a test that fails on the old behaviour:
   or hide changes with `assume-unchanged`/`skip-worktree`, and still pass. The
   run is voided if tracked content, the index, HEAD or the clone's git config
   differ afterwards (compared by content, since `git status` can be told to
-  lie). Untracked output is allowed because honest steps write it.
+  lie). Untracked files are handled separately, below.
 - The status record bound only 8 hex of the config blob and tolerated its
   absence. It carries 12 hex and `merge` refuses a record without it.
 - `secret_names` could not actually be configured, so a step that needed a
   secret had no way to receive it. Names come from the base-ref config only; values
   from the maintainer's environment or a gitignored file, and are redacted.
 
-Residual trust: `baseRef` is taken from GitHub's `baseRefName` for the PR, which
-an author chooses among existing branches. A branch protected less strictly than
-`dev` and targeted by a PR would be graded by its own config. Branch protection,
-not this gate, decides which branches may be targeted.
+A third review found more, again reproduced and fixed with tests that fail on the old
+behaviour:
+
+- A contributor with push access to ANY branch could push one carrying a weaker
+  `.ensemble/local-ci.yaml` and pass it as `baseRef`; the failing head was approved
+  (`ok=true`, `mergeReady=true`). `gate` and `merge` now require `repo` and `pr`,
+  and ask GitHub for the PR's base branch and head commit before reading any
+  config; the base must be exactly `origin/<that branch>`, the PR must be OPEN and
+  `headSha` its current head. A failed lookup refuses.
+- Untracked files were deliberately ignored, so a step could write one that its own
+  check (or a later step) read as permission to pass. Every step is now followed by
+  an inventory (`git ls-files --others`, which the head's `.gitignore` cannot
+  influence); a new untracked file outside the base config's `output_paths`
+  (default `node_modules`, `coverage`, `.cache`, `dist`) voids the run.
+- Steps inherited the maintainer's real `HOME`, so a step could edit `~/.gitconfig`
+  or `~/.npmrc` for every later run, or read `~/.ssh`. Each run now gets a throwaway
+  `HOME`; the npm cache still points at the maintainer's so installs stay warm.
+- A tracked symlink pointing outside the clone was accepted because only the link
+  text was compared. It now voids the run, a dangling link included.
+
+Residual trust, stated plainly:
+
+- The gate runs the PR head's own code (`npm test`). A head can always make its OWN
+  tests pass or skip; the gate controls which commands run, in what environment, and
+  what they may leave behind, not what the head's tests assert. Human review remains
+  the control for the contents of the tests themselves.
+- A PR that legitimately targets a less strictly protected branch is graded by that
+  branch's config. Branch protection, not this gate, decides which branches a PR may
+  target.
+- The npm cache is shared with the maintainer's. npm verifies entries by integrity
+  hash, so this is far narrower than a writable `HOME`, but it is not zero.
+- The base is looked up with the maintainer's own `gh` authentication; the gate
+  cannot be stronger than that session.
 
 This is evidence the gate resists the specific hostile heads above. It is not a
 proof that no other hostile head exists.

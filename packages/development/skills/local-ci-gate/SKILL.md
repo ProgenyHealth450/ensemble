@@ -48,8 +48,8 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
    `gh api repos/$REPO/commits/$HEAD_SHA/status` plus the statuses of earlier
    PR commits, as `[{context, state, description, sha}]` (`sha` = commit the
    status is on).
-2. `merge` with `{headSha, statuses, repoRoot, baseRef}` (add `reviews` when known).
-   `baseRef` is the PR's base branch, fetched fresh first (for example
+2. `merge` with `{headSha, statuses, repoRoot, baseRef, repo, pr}` (add `reviews` when known).
+   `repo` is `owner/name` and `pr` the PR number. `baseRef` is the PR's base branch, fetched fresh first (for example
    `git fetch origin $BASE_BRANCH`, then `origin/$BASE_BRANCH`); it is required.
 3. `mergeReady:true`: report ready to merge **without waiting for hosted CI**,
    quoting the record. `mergeReady:false`: report the CLI `reason` verbatim and
@@ -59,8 +59,8 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
 
 ### `gate`
 
-1. `gate` with `{repoRoot, headSha, baseRef, repo, dryRun}` (`baseRef` as for
-   `merge`: the freshly fetched `origin/<baseRefName>`). The CLI orders: prerequisites
+1. `gate` with `{repoRoot, headSha, baseRef, repo, pr, dryRun}` (`baseRef` as for
+   `merge`: the freshly fetched `origin/<baseRefName>`; `pr` is the PR number). The CLI orders: prerequisites
    (Node, git), config, run, record, post.
 2. Read the result and report, in this order of precedence:
    - `prerequisite` set: say which prerequisite is missing and that nothing was
@@ -93,41 +93,51 @@ after it merges. The maintainer's working tree, local edits and checked-out
 branch are irrelevant.
 
 `baseRef` is required (`config`, `run`, `merge`, `gate`) and must be a
-remote-tracking ref of the PR's base branch, fetched fresh: `origin/<branch>`
-or `refs/remotes/<remote>/<branch>`. Local branches, SHAs, `HEAD`, `@`, and any
-revision syntax (`@{n}`, `^`, `~`, `:`, `..`) are refused, because the PR author
-can move a local branch or a descendant of the head. The CLI also refuses a base
-that is the head, a descendant of the head, or shares no history with it.
+remote-tracking ref, fetched fresh: `origin/<branch>` or
+`refs/remotes/<remote>/<branch>`. Local branches, SHAs, `HEAD`, `@` and revision
+syntax (`@{n}`, `^`, `~`, `:`, `..`) are refused, as is a base that is the head,
+a descendant of it, or shares no history with it.
 
-`steps` lists the exact commands, in order. The runner runs each itself in the
-clean clone, once per required Node version, under `bash -e -o pipefail` (as
-GitHub Actions does, so a failure in the middle of a step fails it). PASS is an
-exit status of exactly 0 that the runner observed; a signal, a missing status or
-a failed start is a failure. Nothing in the PR head (`scripts/ci-local.js`,
-printed tables, its own config) is loaded, executed or believed. A head workflow
-step that `steps`/`equivalents` do not cover fails the gate; a head dropping a
-step from its own workflow changes nothing; a workflow file that resolves
-outside the clone is refused. After the steps the run is voided if any tracked
-file differs from the head's tree (compared by content, which `git status` is
-not), the index changed, the HEAD moved or the clone's git config changed.
-Untracked output (`node_modules`, `coverage/`) is fine.
+The caller does not decide which branch is the PR's base. `gate` and `merge`
+require `repo` (`owner/name`) and `pr` (number) and ask GitHub (`gh pr view`)
+BEFORE any config is read; they refuse unless `baseRef` is exactly
+`origin/<the PR's base branch>`, the PR is OPEN, and `headSha` is its current head.
+Otherwise a contributor could push a branch carrying a weaker config and name it
+as the base. A failed lookup is a refusal. `run` and `config` never post or
+authorise a merge.
 
-Steps run under a minimal environment (PATH, HOME, CI, LANG, TERM, TMPDIR and a
-few more). A step sees a secret only if its NAME is in the base-ref config's
-`secret_names`; the value comes from the maintainer's environment or the
-gitignored `.ensemble/local-ci.secrets.env`, never from the config, the head or
-the payload. Values of configured secrets, and of any inherited variable whose
-name contains TOKEN, SECRET, KEY, PASSWORD, CREDENTIAL or AUTH, are redacted
-from everything returned. A step can still print or send a secret it was given
-in a form redaction cannot recognise (encoded, split); list only secrets you
-accept a trusted step handling.
+`steps` lists the exact commands, in order. The runner runs each in the clean
+clone, once per required Node version, under `bash -e -o pipefail` (as GitHub
+Actions does). PASS is an exit status of exactly 0 that the runner observed; a
+signal, a missing status or a failed start is a failure.
+Nothing in the PR head (`scripts/ci-local.js`, printed tables, its own config) is
+loaded, executed or believed. A head workflow step that `steps`/`equivalents` do
+not cover fails the gate; a head dropping a step from its own workflow changes
+nothing; a workflow file resolving outside the clone is refused.
+The run is voided if, afterwards, any tracked file differs from the head's tree
+(compared by content, not `git status`), a tracked symlink resolves outside the
+clone, the index, HEAD or the clone's git config changed. After EVERY step it is
+also voided if the step left an untracked file outside the base config's
+`output_paths` (default `node_modules`, `coverage`, `.cache`, `dist`; plain
+repo-relative paths, no globs): an untracked file is what a step can plant for a
+later command to read as permission to pass, and the head's `.gitignore` cannot
+hide it. A build that writes elsewhere lists that path.
+
+Steps get a minimal environment (PATH, CI, LANG, TERM, TMPDIR and a few more).
+`HOME` is a throwaway directory deleted afterwards, so a step cannot rewrite
+`~/.gitconfig` or read `~/.ssh`; the npm cache stays the maintainer's. A step sees
+a secret only if its NAME is in the base config's `secret_names`; the value comes
+from the maintainer's environment or the gitignored
+`.ensemble/local-ci.secrets.env`. Configured secrets, and inherited variables named
+like TOKEN, SECRET, KEY, PASSWORD, CREDENTIAL or AUTH, are redacted from all output;
+a step can still emit a secret in a form redaction cannot recognise, so list only
+secrets you accept a trusted step handling.
 
 The payload cannot carry config, paths, scripts or runner options (`gate`:
-`repoRoot, headSha, baseRef, repo, dryRun`; `merge`: `headSha, statuses,
-repoRoot, baseRef, reviews`); other keys are rejected. The status record's first
-field is the first 12 hex of the git blob hash of the base-ref config, which
-covers the whole command list; `merge` requires it and refuses a status recorded
-under a different config blob.
+`repoRoot, headSha, baseRef, repo, pr, dryRun`; `merge`: `headSha, statuses,
+repoRoot, baseRef, repo, pr, reviews`); other keys are rejected. The status
+record's first field is 12 hex of the base-ref config's git blob hash, covering the
+whole command list; `merge` requires it and refuses a different one.
 
 ---
 
