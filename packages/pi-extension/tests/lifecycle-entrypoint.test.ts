@@ -896,7 +896,11 @@ describe("a handler that times out and a start handler that blocks (AC-015-4)", 
     const project = makeProject({
       hooks: {
         hooks: {
-          slow: { type: "shell", command: "./scripts/slow.sh", args: ["slow"], on_error: "continue", timeout_ms: 300 },
+          // slow.sh must get far enough to write its first trace line and its pid before this timeout kills it. A shell
+          // starting under a loaded machine (a whole workspace's jest runs in parallel) can take hundreds of ms, so 300 ms
+          // made this test fail intermittently with `slow begin` missing from the trace. It still outlasts the budget:
+          // slow.sh sleeps 30 s.
+          slow: { type: "shell", command: "./scripts/slow.sh", args: ["slow"], on_error: "continue", timeout_ms: 2000 },
           after: recorder("after"),
           finish: recorder("finish"),
         },
@@ -932,7 +936,7 @@ describe("a handler that times out and a start handler that blocks (AC-015-4)", 
     expect(pid).toBeGreaterThan(1);
     expect(() => process.kill(-pid, 0)).toThrow(/ESRCH/);
     expectQuiet(host);
-  });
+  }, 30_000);
 
   it("on_error block: a failing start handler makes the input handled, runs no later handler, and the end for the blocked run is failed", async () => {
     const project = makeProject({
