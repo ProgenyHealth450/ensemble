@@ -279,6 +279,115 @@ describe('runPreflight: concurrent health checks (Implementation AC bullet 4)', 
 });
 
 /**
+ * TRD-014-TEST Test AC Scenarios 1-3, exercised through a genuinely real spawned process for
+ * each: a real missing-on-PATH binary really raises `ENOENT`, a real spawned process really
+ * exits non-zero, and a real spawned process is really killed by `execFile`'s own
+ * `timeout`/`killSignal` enforcement -- rather than the scripted `execFile.mockImplementation`
+ * callbacks this file uses elsewhere. `execFile` here is the SAME automocked function
+ * `runner.js` already holds (no module-reload tricks: an earlier attempt using
+ * `jest.isolateModules` + `jest.doMock` to get a fresh, truly-unmocked module graph hung
+ * indefinitely -- pre-requiring `runner.js`/`preflight.js` at this file's top, as the `main`
+ * import above does, left the isolated require's own `execFile` destructure unreachable by any
+ * later remock); instead `execFile.mockImplementation` is pointed at the REAL
+ * `child_process.execFile` (`jest.requireActual`) for just this describe block, so the mock
+ * becomes a thin pass-through to the genuine OS-level call while `toHaveBeenCalledTimes`
+ * keeps working exactly as in every other describe block, and the shared top-level `afterEach`
+ * (`execFile.mockReset()`) already restores the automock before the next describe block runs.
+ */
+describe('runPreflight: real process spawning, not a scripted mock (TRD-014-TEST scenarios)', () => {
+  beforeEach(() => {
+    const realExecFile = jest.requireActual('child_process').execFile;
+    execFile.mockImplementation((...args) => realExecFile(...args));
+  });
+
+  test('Scenario 1: missing tool halts preflight before any side effect, naming the failing check', async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { tracker: 'real-missing-tool-tracker' });
+    mkInstalledAdapter(projectRoot, 'real-missing-tool-tracker', {
+      binaries: ['definitely-not-a-real-toolchain-binary-9f3c'],
+      allowlist: [{ bin: 'definitely-not-a-real-toolchain-binary-9f3c', sub: ['--version'] }],
+      health: [
+        {
+          id: 'version',
+          // Genuinely not on PATH: the real execFile really raises ENOENT.
+          run: ['definitely-not-a-real-toolchain-binary-9f3c', '--version'],
+          timeoutMs: 2000
+        }
+      ]
+    });
+
+    const ctx = { projectRoot, env: {} };
+    const result = await runPreflight({ categories: ['tracker'], runId: 'real-r1' }, ctx);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('HEALTH_FAILED');
+    expect(result.error.message).toContain('real-missing-tool-tracker');
+    expect(result.error.message).toContain('version');
+    expect(fs.existsSync(preflightRecordPath(projectRoot, 'real-r1'))).toBe(false);
+    expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  test('Scenario 2: expired authentication halts a non-interactive run, naming the adapter and the check', async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { tracker: 'real-expired-auth-tracker' });
+    mkInstalledAdapter(projectRoot, 'real-expired-auth-tracker', {
+      binaries: [process.execPath],
+      allowlist: [{ bin: process.execPath, sub: ['-e'] }],
+      health: [
+        {
+          id: 'auth',
+          // Really spawned, really exits 1 (standing in for expired credentials).
+          run: [process.execPath, '-e', 'process.exit(1)'],
+          timeoutMs: 2000
+        }
+      ]
+    });
+
+    const ctx = { projectRoot, env: {} };
+    const result = await runPreflight(
+      { categories: ['tracker'], runId: 'real-r2', nonInteractive: true },
+      ctx
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('HEALTH_FAILED');
+    expect(result.error.message).toContain('real-expired-auth-tracker');
+    expect(result.error.message).toContain('auth');
+    expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  test('Scenario 3: a health check that genuinely exceeds its timeout is really killed and halts naming it as timed out', async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { tracker: 'real-timeout-tracker' });
+    mkInstalledAdapter(projectRoot, 'real-timeout-tracker', {
+      binaries: [process.execPath],
+      allowlist: [{ bin: process.execPath, sub: ['-e'] }],
+      health: [
+        {
+          id: 'slow-check',
+          // Really sleeps 2s; the 100ms timeoutMs below must really kill the child via
+          // execFile's own `timeout`/`killSignal` options before that -- no fake timer.
+          run: [process.execPath, '-e', 'setTimeout(() => {}, 2000)'],
+          timeoutMs: 100
+        }
+      ]
+    });
+
+    const ctx = { projectRoot, env: {} };
+    const started = Date.now();
+    const result = await runPreflight({ categories: ['tracker'], runId: 'real-r3' }, ctx);
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(1000);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('HEALTH_FAILED');
+    expect(result.error.message).toContain('timed out');
+    expect(result.error.message).toContain('slow-check');
+    expect(execFile).toHaveBeenCalledTimes(1);
+  }, 3000);
+});
+
+/**
  * TRD-014-TEST AC-013-1 (fifth bullet): the `toolchain-cli run` subcommand refuses a
  * side-effecting capability with no passing preflight record, spawning nothing.
  */
