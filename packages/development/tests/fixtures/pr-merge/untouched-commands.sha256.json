@@ -1,0 +1,12 @@
+{
+  "packages/development/commands/fix-issue.yaml": "ddbc995e6ab46d27f277ee7ccd88af2fa21f1b2b16756e3061e0ed6b26dc84cb",
+  "packages/development/commands/implement-trd-beads.yaml": "6f5f23c88b7834ce71e36d804dab7f95d9ec7f010a7ec0a124c47059e1a18b8a",
+  "packages/development/commands/ensemble/fix-issue.md": "4638eaca03e098e82c64b3eadd7690427844a0a37bd2bf1df608b99d9e4b5903",
+  "packages/development/commands/ensemble/implement-trd-beads.md": "a8260f2ff4551a0d8088ac34928520a3b511826a9dc3a3809e13d7557c8d47b5",
+  "packages/pi/prompts/ensemble-fix-issue.md": "7133488f75ccb831ed5472801449e1f58ca4bc397bbfd03464750dec82058d99",
+  "packages/pi/prompts/ensemble-implement-trd-beads.md": "747b02d9904412f7961c90f42035b0f12ca00c27cc778b110bc4ae52c3056af3",
+  "packages/pi/skills/ensemble-fix-issue/SKILL.md": "befaf7ad554f4e9f555260a88bbf687df80dfa0690d06a8d1c33aceadb69a5b8",
+  "packages/pi/skills/ensemble-implement-trd-beads/SKILL.md": "8a80f91d3ecd0fa2c18f4da2933f11395738ed670304b4ea607937df7013e8aa",
+  "packages/codex/.codex/skills/commands/ensemble-fix-issue/SKILL.md": "8348d1eb971d074cac9ff2ce2868ebc66eb48a83d546550f49c2c8025314363a",
+  "packages/codex/.codex/skills/commands/ensemble-implement-trd-beads/SKILL.md": "ce8dd9f6841309d9d7220111d727c19f2242c34aa04f6781f9b4a9f2cccf7250"
+}

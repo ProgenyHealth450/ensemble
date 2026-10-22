@@ -10,6 +10,8 @@ paths = [
   '''^packages/agent-core/tests/lifecycle-hooks/payload\.test\.ts$''',
   # Fake aws-style / ghp_ strings that exercise telemetry redaction.
   '''^packages/core/test/ensemble/behavior/telemetry_test\.exs$''',
+  # Fake PEM / jwt / ghp_ strings that exercise the local CI gate's output redaction (it must remove them).
+  '''^packages/development/tests/local-ci-status\.test\.js$''',
   # Documentation example tokens.
   '''^docs/guides/refinement-review-collab\.md$''',
 ]

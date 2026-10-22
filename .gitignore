@@ -48,3 +48,10 @@ CLAUDE.local.md
 # committing one would change the PR head SHA and invalidate the very
 # review it records.
 .ensemble/pr-review/
+
+# Local CI gate (TRD-012): throwaway clean clones of PR heads, and the optional
+# local secrets file the runner reads. Neither may ever be committed; the runner
+# also refuses a secrets file that git tracks or does not ignore.
+.ensemble/local-ci-runs/
+.ensemble/local-ci.secrets.env
+

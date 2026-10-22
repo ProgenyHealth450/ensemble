@@ -32,9 +32,9 @@ parallel, then re-verified against live state until green, then merged.
 **2. Baseline Findings Manifest**
    Same manifest shape is rebuilt at the top of every round.
 
-- Checks: gh pr checks <PR_NUMBER> --json name,state,bucket,workflow,link,description. Include every check in FAILURE, ERROR, CANCELLED, TIMED_OUT, or PENDING (pending ones must be watched to a terminal state before merge).
-- Reviews: gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews; for CHANGES_REQUESTED fetch unresolved threads via gh api graphql (reviewThreads, isResolved:false) -- one entry per thread.
-- If nothing is failing/pending and reviewDecision is not CHANGES_REQUESTED and mergeable == MERGEABLE: skip to Merge and Report.
+- Checks: run the local-ci-gate skill for the current head; its verdict (verified pass for this exact head, or no/failed/stale run) replaces waiting on hosted checks. Pass the skill the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef. A failed gate run is a finding of kind check. Hosted checks are not watched to completion.
+- Reviews: gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews; classify each reviewer by the account type field (Bot vs User), never by name. For a HUMAN reviewer whose latest decisive review is CHANGES_REQUESTED fetch unresolved threads via gh api graphql (reviewThreads, isResolved:false) -- one entry per thread. Bot-authored CHANGES_REQUESTED reviews and bot threads are not findings that block merge.
+- If the gate reports a verified pass for this head and no human reviewer's latest decisive review is CHANGES_REQUESTED and mergeable == MERGEABLE: skip to Merge and Report.
 - Otherwise write a numbered manifest of { finding_id, kind: check|review_thread, name, raw_log_excerpt_or_comment_body, link }.
 
 ### Phase 2: Classification and Routing
@@ -64,7 +64,7 @@ parallel, then re-verified against live state until green, then merged.
 
 **1. Re-Verify Against Live State**
 
-- Rebuild the manifest from scratch (never reuse the pre-round one): gh pr checks and gh pr view --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus.
+- Rebuild the manifest from scratch (never reuse the pre-round one): re-run the local-ci-gate skill for the new head and gh pr view --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus.
 - Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
 - Manifest empty and mergeable == MERGEABLE: proceed to Merge and Report.
 - Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
@@ -75,13 +75,17 @@ parallel, then re-verified against live state until green, then merged.
 **1. Merge**
    Delegate to git-workflow.
 
-- Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision; if not MERGEABLE or CHANGES_REQUESTED, abort and run another verification round.
+- Run the local-ci-gate skill for the current head, passing the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef; do not restate or reimplement its logic. If it reports no run, a failed run, or a stale run, abort and run another verification round.
+- Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision,latestReviews; if not MERGEABLE or a human reviewer's latest decisive review is CHANGES_REQUESTED (bots excluded, by account type), abort and run another verification round.
+- Run the sweep BEFORE merging: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 - If --dry-run: stop and report merge-readiness without merging.
-- Merge with gh pr merge using the repo's configured merge method (check branch protection/repo settings; do not assume); delete the source branch unless it is long-lived.
+- Merge with gh pr merge using the repo's configured merge method (check branch protection/repo settings; do not assume); do NOT delete the source branch in this step.
+- Run the sweep AFTER merging and BEFORE deleting the source branch: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
+- Only after the post-merge sweep has run, delete the source branch unless it is long-lived.
 - Comment on the PR summarizing each remediated finding, its owner, and the round count.
 
    **Delegation:** @git-workflow
-   PR is fully green and approved: merge per repo convention and clean up the branch.
+   The local-ci-gate skill reports a verified pass for the exact head and no human reviewer's latest decisive review is CHANGES_REQUESTED: merge per repo convention and clean up the branch.
 
 **2. Final Report**
 

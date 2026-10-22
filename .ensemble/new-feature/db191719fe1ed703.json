@@ -1,0 +1,108 @@
+{
+  "runId": "db191719fe1ed703",
+  "projectRoot": "/Users/ldangelo/Development/Sunstone/ensemble.local-ci",
+  "idea": "move the PR approval process from waiting for ci and coderabbit to finish to using act to run the ci locally...  We are waiting WAY too long for PR's to land.",
+  "status": "active",
+  "stage": "pr_create",
+  "stageOutcome": {
+    "kind": "success",
+    "detail": "PR opened: https://github.com/Sunstone-Partners/ensemble/pull/189 (base dev, head feature/trd-2026-4dec59b8-local-ci-pr-approval)",
+    "recordedAt": "2026-10-22T18:06:07.544Z"
+  },
+  "artifacts": [
+    {
+      "type": "prd",
+      "path": "docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "PRD-2026-4dec59b8",
+      "version": "1.0.0",
+      "producingStage": "prd_create",
+      "recordedAt": "2026-10-21T15:32:49.245Z"
+    },
+    {
+      "type": "prd",
+      "path": "docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "PRD-2026-4dec59b8",
+      "version": "1.0.1",
+      "producingStage": "prd_refine",
+      "recordedAt": "2026-10-21T15:46:56.268Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.0",
+      "producingStage": "trd_create",
+      "recordedAt": "2026-10-21T15:55:13.590Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.1",
+      "producingStage": "trd_refine",
+      "recordedAt": "2026-10-21T16:04:58.449Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.3",
+      "producingStage": "beads_plan",
+      "recordedAt": "2026-10-21T16:21:57.357Z"
+    },
+    {
+      "type": "prd",
+      "path": "docs/PRD/PRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "PRD-2026-4dec59b8",
+      "version": "1.0.2",
+      "producingStage": "prd_refine",
+      "recordedAt": "2026-10-21T16:27:24.071Z"
+    },
+    {
+      "type": "trd",
+      "path": "docs/TRD/TRD-2026-4dec59b8-local-ci-pr-approval.md",
+      "documentId": "TRD-2026-4dec59b8",
+      "version": "1.0.4",
+      "producingStage": "beads_plan",
+      "recordedAt": "2026-10-21T16:27:24.071Z"
+    }
+  ],
+  "beadRefs": [
+    "br-0unz",
+    "br-nxaq",
+    "br-uj3q",
+    "br-w4m1",
+    "br-y50c",
+    "br-tz2q",
+    "br-1ux2",
+    "br-38lv",
+    "br-4yq7",
+    "br-w97n",
+    "br-uy3w",
+    "br-yet1",
+    "br-wior",
+    "br-34fl",
+    "br-kkha",
+    "br-1l6l",
+    "br-bxqk",
+    "br-4peh",
+    "br-ffjm",
+    "br-wj2v",
+    "br-zu6a",
+    "br-6zi6",
+    "br-f6zj",
+    "br-3sa9",
+    "br-tzzc",
+    "br-mbzh",
+    "br-2wg1",
+    "br-5x9k",
+    "br-zb81",
+    "br-jwwm",
+    "br-8u2c"
+  ],
+  "implementationApprovedAt": "2026-10-21T16:31:58.721Z",
+  "prApprovedAt": "2026-10-22T18:04:40.991Z",
+  "revision": 11,
+  "createdAt": "2026-10-21T15:30:55.595Z",
+  "updatedAt": "2026-10-22T18:06:07.545Z"
+}
