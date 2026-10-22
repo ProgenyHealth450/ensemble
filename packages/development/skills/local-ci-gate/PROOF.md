@@ -151,18 +151,53 @@ and no token of its own: it posts through the maintainer's `gh` login, so the
 test needs no credential either. The test asserts this file is unchanged by the
 repository's `redact` (no token- or PEM-shaped text).
 
+## Live experiment (2026-10-22): real runs, a real status post, real branch protection
+
+Two separate real experiments. Neither used a fake `gh api`; the only stand-in was `gh pr view` in the gate runs
+(no PR to `dev` was open), and that is stated where it applies.
+
+**1. The real gate, end to end, on this repository.** The unmodified CLI (`local-ci-cli.js gate`, `dryRun`) cloned a
+commit, resolved Node 22 and Node 24 with `npx -p node@<major>`, and ran the nine trusted steps on each. It passed three
+runs in a row (`nodes: 22 ok, 24 ok`, stage `attest`). Getting there found, and fixed, what the fakes could not:
+
+- every step first failed `unexpected-output`: this npm-workspace monorepo writes into `packages/{agent-core,pi,pi-extension}/node_modules`
+  and `packages/{pi,agent-core}/dist`, now listed in `output_paths`;
+- `npm test` (hosted CI too) wrote 21 `.beads` runtime files into the repository, because two `trd-cli` tests ran `br`
+  in the repo root; the tests now run from their throwaway directory (21 files before, 0 after);
+- a failing step's report kept only its last ~4000 characters, hiding the cause; the full output is now retained;
+- that retained output exposed a flaky test (`packages/pi-extension` AC-015-4, a 300 ms budget); it failed 7 of 8 full
+  runs under contention and 0 of 8 with a 2000 ms budget.
+
+**2. A real GitHub repository with an UNPINNED required check** (`ensemble/local-ci`, written as `app_id: -1`, read back as
+`app_id: null`). Observed on a throwaway public repo (private repos on this plan cannot be protected):
+
+| Situation | GitHub merge state | Merge attempt |
+|---|---|---|
+| no status posted | `BLOCKED` | refused by branch policy |
+| `failure` status from `postStatus` | `BLOCKED` | refused |
+| `success` status from `postStatus` (55-char record) | `UNSTABLE` (inferred: a non-required bot status was still `pending`; a later PR with the same bot `success` was `CLEAN`) | **merged** |
+| hand-typed `success`, description `hand typed, nothing ran`, no run | `CLEAN` | not attempted |
+
+The last row is the honest-actor limit, observed: GitHub cannot tell a hand-typed status from the gate's. The protection
+against accidents lives in `pr-merge`. Fed the same real statuses, `runMerge` returned `mergeReady: true` for the genuine
+record and refused the hand-typed one ("not a well-formed local CI record") and a well-formed record with another
+config hash ("recorded config 000000000000 differs from trusted config ..."). A record copied verbatim from a real run
+would still pass: that is the stated residual trust, not a defect.
+
+Also observed against the real API: a 55-character description was accepted (only that length was tried, not the 100
+character cap the module enforces); branch protection accepted a required check that had never reported; and with
+`enforce_admins: true` the repository admin was refused when no status existed and could merge once it was green.
+
 ## Not proven
 
-- A full real `ci:local` run against a real PR head (`npm ci`, Node 22 and
-  Node 24, the repository's real suites) has NOT been done.
-- The two-version Node matrix (22 and 24) that this repository's real config
-  requires was NOT exercised: the stand-in config required a single Node major,
-  the one running the test. The runner's per-version resolution and its "a
-  version that cannot be provided fails the gate" path are covered by the
-  runner's own tests, not by this proof.
-- A real GitHub status post with the maintainer's own `gh` login has NOT been done
-  as part of this proof; the posts above were captured by an in-memory recorder
-  standing in for `gh`. No real network call was made.
-- Therefore this note does not by itself justify enabling the gate on a
-  protected branch; the live proof (a real PR head, a real post, and the
-  branch-protection behaviour) is still open.
+- **`gh pr view` was a stand-in** in every gate run. The real call (`baseRefName`, `headRefOid`, `state`) has not been
+  exercised against an open PR to `dev`; it is a documented `gh` command, but not observed here.
+- **The gate has never posted a status itself on this repository.** Every gate run was `dryRun`. The post path was
+  exercised for real on the throwaway repo through `postStatus`, with a record built from the real config blob, not
+  through a full non-dry gate run.
+- **The check has not been required on `Sunstone-Partners/ensemble`'s `dev`.** The throwaway repo shows the mechanism
+  works; it does not show how `dev`'s existing App-pinned hosted checks and `enforce_admins` interact with replacing
+  them. The runbook's snapshot, apply, read-back and rollback steps have not been run against `dev`.
+- **Intermittent failures remain possible.** One flaky test was found and fixed. Others may exist; the retained log
+  (`.ensemble/local-ci-runs/logs/`) is how to find them.
+- A record copied verbatim from a real run satisfies `pr-merge` (honest-actor trust; see the runbook).

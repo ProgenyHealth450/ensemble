@@ -237,14 +237,26 @@ describe('PROOF.md (TRD-006 proof note)', () => {
     expect(text).toMatch(/\bsuccess\b/);
   });
 
-  test('has a Not proven section naming the real run and the real status post', () => {
+  test('records the live experiment: the real gate run on both Node versions and the real GitHub behaviour', () => {
+    const m = /^#{2,3} Live experiment[^\n]*$([\s\S]*?)(?=^#{1,3} |\s*$(?![\s\S]))/im.exec(text);
+    expect(m).not.toBeNull();
+    const body = m[1];
+    expect(body).toMatch(/Node 22/);
+    expect(body).toMatch(/Node 24/);
+    // the observed protection behaviour, one line per situation, including the honest-actor limit
+    expect(body).toMatch(/BLOCKED/);
+    expect(body).toMatch(/hand typed/i);
+    expect(body).toMatch(/honest-actor/i);
+  });
+
+  test('Not proven still names what has NOT been done: the real gh pr view, a non-dry post, and enabling it on dev', () => {
     const m = /^#{2,3} Not proven\s*$([\s\S]*?)(?=^#{1,3} |\s*$(?![\s\S]))/im.exec(text);
     expect(m).not.toBeNull();
     const body = m[1];
-    expect(body).toMatch(/npm ci/);
-    expect(body).toMatch(/Node 22/);
-    expect(body).toMatch(/Node 24/);
-    expect(body).toMatch(/GitHub/);
+    expect(body).toMatch(/gh pr view/);
+    expect(body).toMatch(/dryRun|dry run/i);
+    expect(body).toMatch(/`dev`/);
+    expect(body).toMatch(/not (been )?(observed|exercised|run|required)|has never|has not been/i);
   });
 
   test('contains no credential: nothing in it is token- or PEM-shaped', () => {
