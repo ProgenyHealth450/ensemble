@@ -272,6 +272,9 @@ function runnerOptions(repoRoot, headSha, cfg) {
     excludedSteps: cfg.approvalSet.excludedSteps,
     // Names from the BASE-ref config only; values come from the environment or the fixed gitignored secrets file.
     secretNames: cfg.approvalSet.secretNames,
+    // A failing step's FULL output is kept here (redacted, capped, owner-only); the report keeps only a short tail. The
+    // directory is under .ensemble/local-ci-runs/, which is gitignored, and the stale-clone sweep skips it (not a SHA name).
+    failureLogDir: path.join(repoRoot, '.ensemble', 'local-ci-runs', 'logs'),
   };
 }
 

@@ -75,7 +75,7 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
      posted with the maintainer's `gh` login: not logged in, or the post failed),
      that nothing was published and the merge is refused.
    - `failures` non-empty: list each with workflow, job, step, node and the
-     exact head SHA (full 40 hex), plus `message`. A failing or unsupported step
+     exact head SHA (full 40 hex), plus `message` and its `full output:` file. A failing or unsupported step
      is never success; at most a failure status was posted.
    - `error` without failures (unfetchable head, unprovidable Node,
      malformed config): report it as a refusal.

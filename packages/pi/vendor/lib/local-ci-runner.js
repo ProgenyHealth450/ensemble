@@ -396,6 +396,34 @@ function tail(text) {
   return t.length > OUTPUT_TAIL ? `...${t.slice(-OUTPUT_TAIL)}` : t;
 }
 
+/** A failing step's retained output is capped: a runaway test must not fill the disk. */
+const FAILURE_LOG_MAX = 2 * 1024 * 1024;
+
+/**
+ * Keep the FULL output of a failing step so the cause can be read later; the report itself keeps only a short tail, which
+ * for a long test run is just the last passing lines. The file name is built from the commit SHA, an integer Node major and
+ * the step name reduced to [A-Za-z0-9._-], never from anything else the head controls. The text is run through the same
+ * redaction as the report (with the secret values known NOW), capped, and written owner-only. Writing a log must never
+ * change a verdict, so any problem returns null instead of throwing.
+ */
+function writeFailureLog({ dir, sha, major, stepName, cmd, status, stdout, stderr, secretValues }) {
+  try {
+    if (typeof dir !== 'string' || dir === '') return null;
+    const safeStep = String(stepName || 'step').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60) || 'step';
+    const safeSha = /^[0-9a-fA-F]{7,64}$/.test(String(sha)) ? String(sha) : 'unknown';
+    const node = Number.isInteger(major) ? major : 0;
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = path.join(dir, `${safeSha.slice(0, 12)}-node${node}-${safeStep}.log`);
+    let body = `step: ${stepName}\nnode: ${node}\ncommit: ${sha}\nexit: ${status}\ncommand:\n${cmd}\n\n----- stdout -----\n${stdout || ''}\n\n----- stderr -----\n${stderr || ''}\n`;
+    body = redact(body, secretValues);
+    if (body.length > FAILURE_LOG_MAX) body = `${body.slice(0, FAILURE_LOG_MAX)}\n[truncated at ${FAILURE_LOG_MAX} characters]\n`;
+    fs.writeFileSync(file, body, { mode: 0o600 });
+    return file;
+  } catch (_e) {
+    return null;
+  }
+}
+
 /**
  * Inherited variables whose NAME looks like a credential. Their VALUES (length
  * >= MIN_SECRET_LENGTH) are redacted from everything the runner returns.
@@ -469,6 +497,8 @@ function validateSteps(steps) {
  *   remote         git remote to fetch a missing head from (default origin)
  *   staleMs, now   stale-clone threshold and clock
  *   keep           keep the clone (debugging only)
+ *   failureLogDir  directory to keep the FULL output of each failing step (redacted with the report's secret
+ *                  values, capped at 2 MB, owner-only); the report names the file. Off when omitted.
  *
  * Required Node versions come ONLY from the approval set matrices. Nothing from the
  * PR head is loaded or executed by the runner itself: head files are read as data
@@ -621,7 +651,10 @@ function runGate(options, injected) {
           node.steps.push({ name: s.name, status: 'PASS' });
         } else {
           node.steps.push({ name: s.name, status: 'FAIL' });
-          fail('step-failed', s.name, major, `step "${s.name}" failed on Node ${major} at ${sha} (exit ${r.status}): ${tail(`${r.stdout}\n${r.stderr}`)}`);
+          const logFile = opts.failureLogDir
+            ? writeFailureLog({ dir: opts.failureLogDir, sha, major, stepName: s.name, cmd: s.cmd, status: r.status, stdout: r.stdout, stderr: r.stderr, secretValues })
+            : null;
+          fail('step-failed', s.name, major, `step "${s.name}" failed on Node ${major} at ${sha} (exit ${r.status})${logFile ? `; full output: ${logFile}` : ''}: ${tail(`${r.stdout}\n${r.stderr}`)}`);
         }
         // After EVERY step, whether it passed or not: a step may only leave untracked files under the base config's
         // output_paths. Anything else is a file the next command (or this step's own test) could read as permission.

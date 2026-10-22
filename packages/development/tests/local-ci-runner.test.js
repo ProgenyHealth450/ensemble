@@ -511,6 +511,106 @@ describe('local-ci-runner: failing steps', () => {
   });
 });
 
+describe('local-ci-runner: failure log retention', () => {
+  const SECRET = 'logsecret-VALUE-4471';
+  let logDir;
+  beforeEach(() => {
+    logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-faillog-'));
+  });
+  afterEach(() => fs.rmSync(logDir, { recursive: true, force: true }));
+  const failing = (name, out) => (cmd) =>
+    CI_STEPS.find((x) => x.cmd === cmd && x.name === name) ? { status: 1, stdout: out.stdout || '', stderr: out.stderr || '' } : { status: 0, stdout: '', stderr: '' };
+  const files = () => fs.readdirSync(logDir);
+
+  test('a failing step keeps its FULL output, including the part the report tail drops, and the report names the file', () => {
+    const head = 'FAIL tests/the-real-culprit.test.js\n  ● the real culprit › explodes';
+    const flood = 'PASS tests/a-passing-suite.test.js\n'.repeat(400); // far longer than the report's short tail
+    const r = gate({ failureLogDir: logDir }, fakeDeps({ onCmd: failing('test', { stdout: `${head}\n${flood}` }) }));
+    const f = r.failures.find((x) => x.kind === 'step-failed' && x.node === 22);
+    expect(f.message).not.toContain('the-real-culprit'); // the tail alone loses the cause: this is the gap
+    const file = files().find((n) => n.includes('node22') && n.includes('test'));
+    expect(file).toBeDefined();
+    expect(f.message).toContain(path.join(logDir, file));
+    const text = fs.readFileSync(path.join(logDir, file), 'utf8');
+    expect(text).toContain('the-real-culprit.test.js');
+    expect(text).toContain('exit: 1');
+    expect(text).toContain(shaB);
+  });
+
+  test('a secret in a failing step output never reaches the log file or the report', () => {
+    const deps = fakeDeps({ onCmd: failing('test', { stdout: `token=${SECRET}`, stderr: `again ${SECRET}` }) });
+    const r = gate({ failureLogDir: logDir, secretNames: ['LOG_TOKEN'], env: { PATH: '/usr/bin', LOG_TOKEN: SECRET } }, deps);
+    expect(files().length).toBeGreaterThan(0);
+    for (const n of files()) expect(fs.readFileSync(path.join(logDir, n), 'utf8')).not.toContain(SECRET);
+    expect(JSON.stringify(r)).not.toContain(SECRET);
+    expect(fs.readFileSync(path.join(logDir, files()[0]), 'utf8')).toContain('[REDACTED');
+  });
+
+  test('nothing is written ANYWHERE when the option is omitted, and passing steps write nothing', () => {
+    const real = fs.writeFileSync;
+    const logWrites = [];
+    const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation((file, ...rest) => {
+      if (/-node\d+-.+\.log$/.test(String(file))) logWrites.push(String(file));
+      return real.call(fs, file, ...rest);
+    });
+    try {
+      gate({}, fakeDeps({ onCmd: failing('test', { stdout: 'boom' }) })); // failing step, option omitted
+      expect(logWrites).toEqual([]);
+      gate({ failureLogDir: logDir }, fakeDeps()); // option given, but every step passes
+      expect(logWrites).toEqual([]);
+      gate({ failureLogDir: logDir }, fakeDeps({ onCmd: failing('test', { stdout: 'boom' }) })); // control: this DOES write
+      expect(logWrites.length).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(files().every((n) => /-node\d+-.+\.log$/.test(n))).toBe(true);
+  });
+
+  test('a step name with path separators still gets one flat, safely named log file per Node version, inside the directory', () => {
+    // Real commands (so the head's workflows still mirror the trusted list and the steps actually run), hostile names.
+    // `deploy/prod:../x` has a separator before any `..`: used raw it would name a subdirectory that does not exist,
+    // the write would fail, and the log would silently vanish. Sanitised, it is one file the report points at.
+    const hostile = {
+      ...approvalSet,
+      steps: [
+        { name: 'install', cmd: 'npm ci --legacy-peer-deps' },
+        { name: 'validate', cmd: 'npm run validate' },
+        { name: 'deploy/prod:../x', cmd: 'npm test' },
+      ],
+    };
+    const outside = path.join(logDir, '..', 'x');
+    const r = gate({ failureLogDir: logDir, approvalSet: hostile }, fakeDeps({ onCmd: (cmd) => (cmd === 'npm test' ? { status: 1, stdout: 'boom', stderr: '' } : { status: 0, stdout: '', stderr: '' }) }));
+    const f = r.failures.find((x) => x.kind === 'step-failed');
+    expect(f).toBeDefined();
+    expect(fs.existsSync(outside)).toBe(false);
+    // one log per required Node version (22 and 24), each a single flat file inside the directory
+    expect(files()).toHaveLength(2);
+    for (const n of files()) {
+      expect(n).toMatch(/^[A-Za-z0-9._-]+$/);
+      expect(fs.statSync(path.join(logDir, n)).isFile()).toBe(true);
+    }
+    expect(f.message).toContain(path.join(logDir, files().find((n) => n.includes('node22'))));
+  });
+
+  test('a log that cannot be written never changes the verdict: the step still fails with its tail', () => {
+    const blocker = path.join(logDir, 'a-file-not-a-directory');
+    fs.writeFileSync(blocker, 'x');
+    const r = gate({ failureLogDir: path.join(blocker, 'logs') }, fakeDeps({ onCmd: failing('test', { stdout: 'boom-visible' }) }));
+    expect(r.ok).toBe(false);
+    const f = r.failures.find((x) => x.kind === 'step-failed');
+    expect(f.message).toContain('boom-visible');
+    expect(f.message).not.toContain('full output:');
+  });
+
+  test('an enormous output is capped', () => {
+    const huge = 'x'.repeat(3 * 1024 * 1024);
+    gate({ failureLogDir: logDir }, fakeDeps({ onCmd: failing('test', { stdout: huge }) }));
+    const text = fs.readFileSync(path.join(logDir, files()[0]), 'utf8');
+    expect(text.length).toBeLessThan(2 * 1024 * 1024 + 200);
+    expect(text).toContain('[truncated at');
+  });
+});
+
 describe('local-ci-runner: crash safety', () => {
   const OLD = new Date('2020-01-01T00:00:00Z');
 

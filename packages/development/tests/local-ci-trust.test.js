@@ -88,7 +88,9 @@ describe('gate: payload cannot carry config or runner options', () => {
     // and without the override the runner gets exactly the maintainer's matrix and only the documented option keys
     await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, dryRun: true }, deps);
     const options = runGate.mock.calls[0][0];
-    expect(Object.keys(options).sort()).toEqual(['approvalSet', 'equivalents', 'excludedSteps', 'headSha', 'repoRoot', 'secretNames']);
+    expect(Object.keys(options).sort()).toEqual(['approvalSet', 'equivalents', 'excludedSteps', 'failureLogDir', 'headSha', 'repoRoot', 'secretNames']);
+    // where failing-step logs go is fixed by the CLI under the repo's gitignored runs directory, never taken from the payload
+    expect(options.failureLogDir).toBe(require('path').join(repo.dir, '.ensemble', 'local-ci-runs', 'logs'));
     expect(options.approvalSet.checks.map((c) => c.matrix['node-version']).filter(Boolean)).toEqual([22, 24]);
   });
 
