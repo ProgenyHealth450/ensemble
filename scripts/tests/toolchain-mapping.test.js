@@ -103,6 +103,31 @@ describe('mapOutput: statusMap value translation (Implementation AC 2)', () => {
     });
     expect(result).toEqual({ id: 'X-1' });
   });
+
+  test('statusMap declared against a lines-format array result fails closed with BAD_OUTPUT naming the shape, rather than silently ignoring it (reviewer Finding 7)', () => {
+    const stdout = 'In Progress\nOpen\n';
+    expect(() =>
+      mapOutput(stdout, { format: 'lines', statusMap: { 'In Progress': 'in_progress' } })
+    ).toThrow(/array/);
+
+    try {
+      mapOutput(stdout, { format: 'lines', statusMap: { 'In Progress': 'in_progress' } });
+      throw new Error('expected mapOutput to throw');
+    } catch (err) {
+      expect(err.code).toBe('BAD_OUTPUT');
+      expect(err.message).toMatch(/array/);
+    }
+  });
+
+  test('a manifest that supplies map alongside statusMap against array-shaped raw output still works (the documented escape hatch)', () => {
+    const stdout = JSON.stringify(['In Progress']);
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { status: '$[0]' },
+      statusMap: { 'In Progress': 'in_progress' }
+    });
+    expect(result).toEqual({ status: 'in_progress' });
+  });
 });
 
 describe('mapOutput: two adapters, same capability, both validate against the normalized schema (Implementation AC 4)', () => {
@@ -729,6 +754,27 @@ describe('mutation-restore proof', () => {
     expect(parsedDocument.status).toBe('in_progress');
 
     parseSpy.mockRestore();
+  });
+
+  test('the statusMap array guard (reviewer Finding 7) actually discriminates: disabling it silently returns the raw array instead of throwing', () => {
+    const needle = "    if (Array.isArray(result)) {\n      throw badOutputError(";
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(
+      needle,
+      "    if (false) {\n      throw badOutputError("
+    );
+    expect(mutated).not.toBe(originalSource);
+
+    const mutatedMapping = loadMutant('statusmap-array-guard', mutated);
+    // With the array guard disabled, a lines-format array result with a declared statusMap is
+    // silently returned unchanged instead of throwing BAD_OUTPUT -- the real (unmutated) test
+    // above ("statusMap declared against a lines-format array result fails closed...") would
+    // now fail.
+    const result = mutatedMapping.mapOutput('In Progress\nOpen\n', {
+      format: 'lines',
+      statusMap: { 'In Progress': 'in_progress' }
+    });
+    expect(result).toEqual(['In Progress', 'Open']);
   });
 });
 

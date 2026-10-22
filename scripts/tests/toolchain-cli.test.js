@@ -9,6 +9,10 @@ const os = require('os');
 const path = require('path');
 
 const { resolve, explain, main } = require('../../packages/development/lib/toolchain-cli');
+const {
+  makeMutantToolchainRoot,
+  mutateAndRequire
+} = require('./fixtures/toolchain/mutant-toolchain-copy');
 
 const CATEGORIES = [
   'host',
@@ -278,4 +282,171 @@ describe('TRD-004-TEST: resolve performance budget', () => {
     const median = sorted[Math.floor(sorted.length / 2)];
     expect(median).toBeLessThan(500);
   }, 10000);
+});
+
+/**
+ * Installs a minimal, always-successful `tracker.show` adapter under `projectRoot`, so a
+ * `run` call that reaches adapter resolution (as a mutated, weakened `parseArgs` would wrongly
+ * let through) actually completes `ok:true`/exit 0 -- making "did parseArgs stop this before
+ * resolving anything" an observable `code` difference, not just an internal detail.
+ */
+function mkRunnableTrackerProject() {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-parseargs-'));
+  tempDirs.push(projectRoot);
+  mkProjectConfig(projectRoot, 'tracker: fixture-parseargs-tracker\n');
+  const skillDir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', 'fixture-parseargs-tracker');
+  fs.mkdirSync(skillDir, { recursive: true });
+  const yaml = require('js-yaml');
+  const manifest = {
+    adapter: 'fixture-parseargs-tracker',
+    version: '1.0.0',
+    categories: ['tracker'],
+    contract: { tracker: '1.0' },
+    binaries: [process.execPath],
+    allowlist: [{ bin: process.execPath, sub: ['-e'] }],
+    env: [],
+    health: [],
+    detect: [],
+    capabilities: {
+      'tracker.show': { run: [process.execPath, '-e', 'process.stdout.write("ok")'] }
+    }
+  };
+  fs.writeFileSync(path.join(skillDir, 'adapter.yaml'), yaml.dump(manifest));
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# fixture-parseargs-tracker\n');
+  return projectRoot;
+}
+
+describe('parseArgs (reviewer Finding 5): --run-id/--arg strict validation', () => {
+  test('--run-id with nothing after it is INVALID_ARG naming the flag, not a silent undefined runId', async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    const code = await main(['run', 'tracker.show', '--run-id', '--json'], { projectRoot, env: {} });
+    expect(code).toBe(1);
+  });
+
+  test('--run-id immediately followed by another flag is INVALID_ARG, never silently takes the flag as its value', async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    const code = await main(['run', 'tracker.show', '--run-id', '--arg', 'id=x', '--json'], {
+      projectRoot,
+      env: {}
+    });
+    expect(code).toBe(1);
+  });
+
+  test('--arg with nothing after it is INVALID_ARG, never silently dropped', async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    const code = await main(['run', 'tracker.show', '--arg', '--json'], { projectRoot, env: {} });
+    expect(code).toBe(1);
+  });
+
+  test("--arg 'oops' (no '=') is INVALID_ARG naming the malformed value, never silently dropped", async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    const code = await main(['run', 'tracker.show', '--arg', 'oops', '--json'], {
+      projectRoot,
+      env: {}
+    });
+    expect(code).toBe(1);
+  });
+
+  test("--arg '=v' (empty key) is INVALID_ARG, never silently dropped", async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    const code = await main(['run', 'tracker.show', '--arg', '=v', '--json'], {
+      projectRoot,
+      env: {}
+    });
+    expect(code).toBe(1);
+  });
+
+  test('a well-formed --run-id and --arg still work exactly as before (regression guard)', async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    const code = await main(['run', 'tracker.show', '--run-id', 'r1', '--arg', 'id=x', '--json'], {
+      projectRoot,
+      env: {}
+    });
+    expect(code).toBe(0);
+  });
+
+  test('the JSON envelope for an INVALID_ARG error is printed when --json is present anywhere in argv', async () => {
+    const projectRoot = mkRunnableTrackerProject();
+    let stdout = '';
+    const original = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => {
+      stdout += chunk;
+      return true;
+    };
+    try {
+      await main(['run', 'tracker.show', '--arg', 'oops', '--json'], { projectRoot, env: {} });
+    } finally {
+      process.stdout.write = original;
+    }
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe('INVALID_ARG');
+  });
+});
+
+describe('mutation-restore proof: reviewer Finding 5 actually discriminates', () => {
+  test('removing the --run-id flag-like-value guard lets a malformed --run-id silently proceed to run the capability', async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        "      const value = rest[i + 1];\n" +
+        "      if (typeof value !== 'string' || value.startsWith('--')) {\n" +
+        "        return invalidArg(\n" +
+        "          `--run-id requires a value (got ${value === undefined ? 'nothing' : JSON.stringify(value)})`\n" +
+        "        );\n" +
+        "      }\n" +
+        "      runId = value;";
+      const replacement = "      const value = rest[i + 1];\n      runId = value;";
+      const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+      const projectRoot = mkRunnableTrackerProject();
+      const code = await mutatedCli.main(['run', 'tracker.show', '--run-id', '--json'], {
+        projectRoot,
+        env: {}
+      });
+      // With the guard removed, `--run-id` silently swallows the next flag token as its
+      // "value" and the (non-side-effecting) capability still runs to completion (exit 0) --
+      // exactly what the real (unmutated) "INVALID_ARG naming the flag" test above disproves.
+      expect(code).toBe(0);
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test("removing the --arg malformed-pair guard lets 'oops' (no '=') silently proceed instead of erroring", async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        "      const pair = rest[i + 1];\n" +
+        "      if (typeof pair !== 'string' || pair.startsWith('--')) {\n" +
+        "        return invalidArg(\n" +
+        "          `--arg requires a 'key=value' value (got ${pair === undefined ? 'nothing' : JSON.stringify(pair)})`\n" +
+        "        );\n" +
+        "      }\n" +
+        "      const eqIndex = pair.indexOf('=');\n" +
+        "      if (eqIndex <= 0) {\n" +
+        "        return invalidArg(`--arg value ${JSON.stringify(pair)} is not in 'key=value' form`);\n" +
+        "      }\n" +
+        "      args[pair.slice(0, eqIndex)] = pair.slice(eqIndex + 1);";
+      const replacement =
+        "      const pair = rest[i + 1];\n" +
+        "      if (typeof pair === 'string') {\n" +
+        "        const eqIndex = pair.indexOf('=');\n" +
+        "        if (eqIndex > 0) { args[pair.slice(0, eqIndex)] = pair.slice(eqIndex + 1); }\n" +
+        "      }";
+      const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+      const projectRoot = mkRunnableTrackerProject();
+      const code = await mutatedCli.main(['run', 'tracker.show', '--arg', 'oops', '--json'], {
+        projectRoot,
+        env: {}
+      });
+      // With the guard removed, a malformed '--arg oops' is silently dropped (old behavior) and
+      // the capability still runs to completion (exit 0) -- exactly what the real (unmutated)
+      // "INVALID_ARG naming the malformed value" test above disproves.
+      expect(code).toBe(0);
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
 });

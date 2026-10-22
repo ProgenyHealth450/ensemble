@@ -18,6 +18,13 @@
  *   `sideEffect:true` capability (per its category contract, `contracts.js#loadContracts`) via
  *   `recordSideEffect`, and on the first failure calls `recordFailure` with every side effect
  *   completed so far and returns immediately.
+ * - `readLedgerEntries(runId, ctx)` reads every entry `recordSideEffect` has appended for
+ *   `runId` back off disk, across every separate process that has called it under the same run
+ *   id -- `toolchain-cli.js`'s `run` subcommand (TRD review Finding 2) is this helper's
+ *   production caller: it builds a failing `run` invocation's failure-record
+ *   `completedSideEffects` list from this, since a side-effecting capability can be invoked by
+ *   several separate `toolchain-cli run ... --run-id R` process invocations in sequence, each a
+ *   fresh process with no in-memory record of a prior invocation's side effects.
  *
  * On-disk record shapes:
  * - `ledger-<runId>.jsonl`: one line per completed side-effecting capability,
@@ -107,9 +114,56 @@ function recordSideEffect(runId, entry, ctx = {}) {
   const projectRoot = ctx.projectRoot || process.cwd();
   const dir = stateDir(projectRoot);
   fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `ledger-${runId}.jsonl`);
+  const filePath = ledgerPath(projectRoot, runId);
   fs.appendFileSync(filePath, `${JSON.stringify(redactRecord(entry))}\n`);
   return filePath;
+}
+
+/**
+ * @param {string} projectRoot
+ * @param {string} runId
+ * @returns {string} `<projectRoot>/.ensemble/state/toolchain/ledger-<runId>.jsonl`
+ */
+function ledgerPath(projectRoot, runId) {
+  return path.join(stateDir(projectRoot), `ledger-${runId}.jsonl`);
+}
+
+/**
+ * Read back every entry `recordSideEffect` has appended for `runId` so far, across every
+ * process that has called it under this same run id (TRD-015; `toolchain-cli.js`'s `run`
+ * subcommand, TRD review Finding 2, reads this to build a failure record's
+ * `completedSideEffects` list across SEPARATE CLI invocations sharing one `--run-id`, since
+ * each invocation is a fresh process with no in-memory memory of the previous one's side
+ * effects). Fails closed, never throws: a missing ledger file (no side effect recorded yet)
+ * returns `[]`; a corrupt/partial JSON line is skipped rather than aborting the whole read, so
+ * one malformed line never hides every entry recorded before and after it.
+ *
+ * @param {string} runId
+ * @param {{projectRoot?: string}} [ctx]
+ * @returns {Record<string, unknown>[]} entries in the order they were appended
+ */
+function readLedgerEntries(runId, ctx = {}) {
+  assertValidRunId(runId);
+  const projectRoot = ctx.projectRoot || process.cwd();
+  let raw;
+  try {
+    raw = fs.readFileSync(ledgerPath(projectRoot, runId), 'utf8');
+  } catch {
+    return [];
+  }
+
+  const entries = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed));
+    } catch {
+      // A corrupt line is skipped, not fatal -- fail closed by ignoring it, never by throwing
+      // and losing every entry around it.
+    }
+  }
+  return entries;
 }
 
 /**
@@ -234,5 +288,6 @@ async function runSequence(adapter, steps, options = {}, ctx = {}) {
 module.exports = {
   recordSideEffect,
   recordFailure,
+  readLedgerEntries,
   runSequence
 };

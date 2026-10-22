@@ -45,6 +45,18 @@
  * capabilities in a hot loop should memoize `loadContracts()`'s result itself rather than
  * calling this function repeatedly; no caching is added here since none of the real callers in
  * this repo are a hot loop (preflight check, one-off CLI subcommand).
+ *
+ * ## Not yet reachable from a shipped entry point
+ *
+ * `requireCapabilities` has no production caller anywhere in this repo today (TRD review
+ * Finding: an enforcement function with no caller enforces nothing). Command-level
+ * `capabilities: {required, optional}` declarations on a command YAML, and the code that reads
+ * one and calls this function before dispatching the command's body, arrive with TRD-022 (PR 5,
+ * which depends on TRD-013, this file's own task). Do not invent a caller here or elsewhere in
+ * this wave to make this function "used"; `./runner.js#runCapability` calling
+ * `lookupContractCapability` directly (see that export's own doc above) is a different,
+ * already-wired code path and does not substitute for `requireCapabilities` itself being
+ * reachable.
  */
 
 const { loadContracts } = require('./contracts');

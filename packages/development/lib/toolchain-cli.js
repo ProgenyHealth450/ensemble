@@ -22,13 +22,24 @@
  *                      Invoke one capability (for example `tracker.close`) through
  *                      `runCapability()` in `./toolchain/runner.js` (TRD-011), against the
  *                      adapter `resolveCategory()`/`loadAdapter()` select for the capability's
- *                      category (`capability.split('.')[0]`). When the capability's category
- *                      contract (`./toolchain/contracts.js#loadContracts()`) marks it
+ *                      category (`capability.split('.')[0]`), with `cwd` always explicitly set
+ *                      to `ctx.projectRoot` (TRD review Finding 6: an adapter's relative
+ *                      executables must resolve against the project root, never whatever
+ *                      directory the CLI process happened to start in). When the capability's
+ *                      category contract (`./toolchain/contracts.js#loadContracts()`) marks it
  *                      `sideEffect:true`, a passing preflight record for `--run-id` is required
  *                      first (`./toolchain/preflight.js#hasPassingPreflightRecord`, TRD-014,
  *                      PRD REQ-013): missing or failed preflight returns `PREFLIGHT_REQUIRED`
  *                      and never resolves an adapter or spawns anything. `--arg k=v` may repeat
- *                      to supply the capability's argument values.
+ *                      to supply the capability's argument values. A side-effecting
+ *                      capability's SUCCESS appends one entry to `ledger-<runId>.jsonl`
+ *                      (`./toolchain/ledger.js#recordSideEffect`, TRD System Architecture data-
+ *                      flow step 4); its FAILURE instead writes `failure-<runId>.json`
+ *                      (`#recordFailure`, data-flow step 6) naming every side-effecting
+ *                      capability completed so far under this run id, read back from the
+ *                      ledger itself (`#readLedgerEntries`), since each `toolchain-cli run`
+ *                      invocation is its own process with no memory of an earlier one under the
+ *                      same `--run-id`. No retry, no resume, exactly one `runCapability` call.
  *
  * Output:
  *   - Default (no `--json`): a human-readable table with columns `category`, `adapter`,
@@ -82,6 +93,7 @@ const { runCapability } = require('./toolchain/runner');
 const { loadContracts } = require('./toolchain/contracts');
 const { hasPassingPreflightRecord } = require('./toolchain/preflight');
 const { validateAdapterDir } = require('./toolchain/validate');
+const { recordSideEffect, recordFailure, readLedgerEntries } = require('./toolchain/ledger');
 
 const CATEGORIES = [
   'host',
@@ -163,12 +175,12 @@ function validate(ctx = {}, positionals = []) {
 }
 
 /**
- * `run <capability> [--run-id <id>] [--arg k=v ...]` subcommand handler (TRD-014, PRD REQ-013,
- * AC-013-1/2/3). Looks up whether `capability` is declared `sideEffect:true` by its category
- * contract (`loadContracts()`, `./toolchain/contracts.js`; the category is derived as
- * `capability.split('.')[0]`, mirroring the same ~5-line lookup technique used elsewhere in
- * this wave — this is a deliberate, small duplication, not a shared helper, since the two
- * callers must not depend on each other's new files this wave).
+ * `run <capability> [--run-id <id>] [--arg k=v ...]` subcommand handler (TRD-014, TRD-015, PRD
+ * REQ-013, REQ-014, AC-013-1/2/3, AC-014-1/2/3). Looks up whether `capability` is declared
+ * `sideEffect:true` by its category contract (`loadContracts()`, `./toolchain/contracts.js`;
+ * the category is derived as `capability.split('.')[0]`, mirroring the same ~5-line lookup
+ * technique used elsewhere in this wave — this is a deliberate, small duplication, not a shared
+ * helper, since the two callers must not depend on each other's new files this wave).
  *
  * When the capability is side-effecting and `hasPassingPreflightRecord(runId, ctx)`
  * (`./toolchain/preflight.js`, TRD-014) is `false` — including when `--run-id` was omitted
@@ -177,14 +189,29 @@ function validate(ctx = {}, positionals = []) {
  *
  * Otherwise (the capability is not side-effecting, or a passing preflight record exists for
  * `runId`), resolves the capability's adapter via `resolveCategory`/`loadAdapter` and invokes
- * it via `runCapability` (TRD-011), returning its envelope unchanged.
+ * it via `runCapability` (TRD-011) with `execFileOptions.cwd` explicitly set to
+ * `ctx.projectRoot` (TRD review Finding 6) — never the ambient `process.cwd()` a caller's
+ * shell happened to be in.
+ *
+ * TRD-015 ledger wiring (TRD review Finding 2: this used to end at `runCapability` and never
+ * touched `./toolchain/ledger.js`, so neither data-flow step 4 nor step 6 was reachable from
+ * any shipped entry point): when the capability is side-effecting,
+ * - on success, `recordSideEffect` appends one entry to `ledger-<runId>.jsonl` and the
+ *   envelope is returned unchanged;
+ * - on failure, `readLedgerEntries(runId, ctx)` reads every capability already recorded under
+ *   this `--run-id` (across every earlier `toolchain-cli run` invocation sharing it, not just
+ *   this process) and `recordFailure` writes `failure-<runId>.json` naming them; the returned
+ *   envelope gains `completedSideEffects` (that same list) and `failureRecord` (the paths
+ *   `recordFailure` wrote to) alongside the unchanged `error`.
+ * A non-side-effecting capability never touches the ledger at all, success or failure.
  *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.close`
  * @param {{runId?: string, args?: Record<string, string>}} [parsed] the `--run-id`/`--arg`
  *   values `parseArgs` extracted from argv
  * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:string} |
- *   {ok:false, error:{code:string, message:string}}>}
+ *   {ok:false, error:{code:string, message:string}, completedSideEffects?: string[],
+ *   failureRecord?: {filePath:string, artifactPath:string|null}}>}
  */
 async function run(ctx = {}, positionals = [], parsed = {}) {
   const capability = positionals[0];
@@ -230,7 +257,34 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
     return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
   }
 
-  return runCapability(loaded.manifest, capability, args, {});
+  const projectRoot = ctx.projectRoot || process.cwd();
+  const result = await runCapability(loaded.manifest, capability, args, {
+    execFileOptions: { cwd: projectRoot }
+  });
+
+  if (!sideEffect) {
+    return result;
+  }
+
+  if (result.ok) {
+    recordSideEffect(
+      runId,
+      { capability, adapter: adapterId, args, timestamp: new Date().toISOString() },
+      { projectRoot }
+    );
+    return result;
+  }
+
+  const completedSideEffects = readLedgerEntries(runId, { projectRoot }).map(
+    (entry) => entry.capability
+  );
+  const { filePath, artifactPath } = recordFailure(
+    runId,
+    { adapter: adapterId, capability, completedSideEffects, error: result.error },
+    { projectRoot, env: ctx.env }
+  );
+
+  return { ...result, completedSideEffects, failureRecord: { filePath, artifactPath } };
 }
 
 const HANDLERS = { resolve, explain, validate, run };
@@ -261,9 +315,20 @@ function renderTable(data) {
  * `explain` (which ignore `positionals` entirely) are unaffected when those flags are absent,
  * which is always true for every subcommand except `run`.
  *
+ * TRD review Finding 5: `--run-id`/`--arg` used to blindly consume the NEXT token as their
+ * value even when that token was itself another flag (e.g. `--run-id --json` used to silently
+ * set `runId` to the literal string `'--json'`), and a malformed `--arg` value (`oops` with no
+ * `=`, or `=v` with an empty key) was silently dropped rather than reported. Both are now
+ * explicit, named `INVALID_ARG` errors returned via the `error` field below: `main()` prints
+ * them and exits non-zero instead of silently proceeding with a wrong or missing value. Because
+ * a flag-looking token can therefore never be consumed as a `--run-id`/`--arg` value, the
+ * top-level `--json` flag below is unambiguously a real flag wherever it appears in `argv`,
+ * never something that was actually meant as an `--arg`'s value.
+ *
  * @param {string[]} argv
  * @returns {{subcommand: string|undefined, json: boolean, positionals: string[],
- *   runId: string|undefined, args: Record<string, string>}}
+ *   runId: string|undefined, args: Record<string, string>,
+ *   error?: {code: string, message: string}}}
  */
 function parseArgs(argv) {
   const list = Array.isArray(argv) ? argv : [];
@@ -279,22 +344,41 @@ function parseArgs(argv) {
   const args = {};
   const positionals = [];
 
+  const invalidArg = (message) => ({
+    subcommand,
+    json,
+    positionals,
+    runId,
+    args,
+    error: { code: 'INVALID_ARG', message }
+  });
+
   for (let i = 0; i < rest.length; i += 1) {
     const token = rest[i];
     if (token === '--json') {
       continue;
     } else if (token === '--run-id') {
-      i += 1;
-      runId = rest[i];
-    } else if (token === '--arg') {
-      i += 1;
-      const pair = rest[i];
-      if (typeof pair === 'string') {
-        const eqIndex = pair.indexOf('=');
-        if (eqIndex > 0) {
-          args[pair.slice(0, eqIndex)] = pair.slice(eqIndex + 1);
-        }
+      const value = rest[i + 1];
+      if (typeof value !== 'string' || value.startsWith('--')) {
+        return invalidArg(
+          `--run-id requires a value (got ${value === undefined ? 'nothing' : JSON.stringify(value)})`
+        );
       }
+      runId = value;
+      i += 1;
+    } else if (token === '--arg') {
+      const pair = rest[i + 1];
+      if (typeof pair !== 'string' || pair.startsWith('--')) {
+        return invalidArg(
+          `--arg requires a 'key=value' value (got ${pair === undefined ? 'nothing' : JSON.stringify(pair)})`
+        );
+      }
+      const eqIndex = pair.indexOf('=');
+      if (eqIndex <= 0) {
+        return invalidArg(`--arg value ${JSON.stringify(pair)} is not in 'key=value' form`);
+      }
+      args[pair.slice(0, eqIndex)] = pair.slice(eqIndex + 1);
+      i += 1;
     } else {
       positionals.push(token);
     }
@@ -332,6 +416,11 @@ function printResult(subcommand, json, result) {
       process.stdout.write(String(result.data) + '\n');
     } else {
       process.stderr.write(`${result.error.code}: ${result.error.message}\n`);
+      if (Array.isArray(result.completedSideEffects)) {
+        process.stderr.write(
+          `Completed side effects: ${result.completedSideEffects.join(', ') || '(none)'}\n`
+        );
+      }
     }
     return;
   }
@@ -354,7 +443,17 @@ function printResult(subcommand, json, result) {
  */
 function main(argv, ctx = { projectRoot: process.cwd(), env: process.env }) {
   const parsed = parseArgs(argv);
-  const { subcommand, json, positionals } = parsed;
+  const { subcommand, json, positionals, error } = parsed;
+
+  if (error) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ ok: false, error }) + '\n');
+    } else {
+      process.stderr.write(`${error.code}: ${error.message}\n`);
+    }
+    return 1;
+  }
+
   const handler = subcommand && HANDLERS[subcommand];
 
   if (!handler) {

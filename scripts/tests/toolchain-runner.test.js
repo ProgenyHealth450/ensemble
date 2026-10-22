@@ -17,7 +17,11 @@ const path = require('path');
 const yaml = require('js-yaml');
 const { execFile } = require('child_process');
 
-const { buildArgv, runCapability } = require('../../packages/development/lib/toolchain/runner');
+const { buildArgv, runCapability, buildChildEnv } = require('../../packages/development/lib/toolchain/runner');
+const {
+  makeMutantToolchainRoot,
+  mutateAndRequire
+} = require('./fixtures/toolchain/mutant-toolchain-copy');
 
 const GOOD_ADAPTER_FIXTURE_PATH = path.join(
   __dirname,
@@ -634,5 +638,192 @@ describe('runCapability: mutation-sweep coverage for malformed-manifest fail-ope
       }
     });
     expect(result.error.message).toContain('synchronous spawn failure');
+  });
+});
+
+describe('buildChildEnv: child environment allowlist (reviewer Finding 1, TRD trust boundary 2)', () => {
+  test('an undeclared parent secret never appears in the built child env', () => {
+    const parentEnv = { PATH: '/usr/bin', MY_SECRET: 'SECRET-ABC-123' };
+    const env = buildChildEnv([], parentEnv);
+    expect(env).toEqual({ PATH: '/usr/bin' });
+    expect(env.MY_SECRET).toBeUndefined();
+  });
+
+  test('a name the adapter declares in env[] IS passed through when the parent has it set', () => {
+    const parentEnv = { PATH: '/usr/bin', GITHUB_TOKEN: 'ghp_realtoken' };
+    const env = buildChildEnv(['GITHUB_TOKEN'], parentEnv);
+    expect(env.GITHUB_TOKEN).toBe('ghp_realtoken');
+  });
+
+  test('a declared name absent from the parent is simply absent, never undefined-valued', () => {
+    const parentEnv = { PATH: '/usr/bin' };
+    const env = buildChildEnv(['GITHUB_TOKEN'], parentEnv);
+    expect(Object.prototype.hasOwnProperty.call(env, 'GITHUB_TOKEN')).toBe(false);
+  });
+
+  test('base allowlist vars pass through when set; an arbitrary unrelated var does not', () => {
+    const parentEnv = {
+      PATH: '/bin',
+      HOME: '/home/x',
+      USER: 'x',
+      LOGNAME: 'x',
+      LANG: 'en_US.UTF-8',
+      TMPDIR: '/tmp',
+      TERM: 'xterm',
+      TZ: 'UTC',
+      OTHER: 'nope'
+    };
+    const env = buildChildEnv([], parentEnv);
+    expect(env).toEqual({
+      PATH: '/bin',
+      HOME: '/home/x',
+      USER: 'x',
+      LOGNAME: 'x',
+      LANG: 'en_US.UTF-8',
+      TMPDIR: '/tmp',
+      TERM: 'xterm',
+      TZ: 'UTC'
+    });
+  });
+
+  test('every LC_* variable passes through regardless of a fixed name list', () => {
+    const parentEnv = { PATH: '/bin', LC_ALL: 'C', LC_CTYPE: 'en_US.UTF-8', NOT_LC: 'nope' };
+    const env = buildChildEnv([], parentEnv);
+    expect(env.LC_ALL).toBe('C');
+    expect(env.LC_CTYPE).toBe('en_US.UTF-8');
+    expect(env.NOT_LC).toBeUndefined();
+  });
+
+  test('a caller-supplied execFileOptions.env override can replace an already-allowed value but cannot widen the allowed set', () => {
+    const parentEnv = { PATH: '/bin' };
+    const env = buildChildEnv([], parentEnv, { PATH: '/custom/bin', MY_SECRET: 'leak-attempt' });
+    expect(env.PATH).toBe('/custom/bin');
+    expect(env.MY_SECRET).toBeUndefined();
+  });
+
+  test('a non-array adapterEnvNames (malformed manifest) is treated as no declared names, fail-closed', () => {
+    const parentEnv = { PATH: '/bin', MY_SECRET: 'x' };
+    const env = buildChildEnv('MY_SECRET', parentEnv);
+    expect(env.MY_SECRET).toBeUndefined();
+  });
+});
+
+describe('runCapability: the child env execFile receives is filtered, never the full parent env (reviewer Finding 1)', () => {
+  test('execFile is called with a filtered env object excluding an undeclared real process.env secret', async () => {
+    const originalSecret = process.env.FIXTURE_UNDECLARED_SECRET;
+    process.env.FIXTURE_UNDECLARED_SECRET = 'SECRET-ABC-123';
+    try {
+      execFile.mockImplementation((file, cmdArgs, options, callback) => {
+        setImmediate(() => callback(null, '{}', ''));
+      });
+
+      const adapter = minimalAdapter({ env: ['GITHUB_TOKEN'] });
+      await runCapability(adapter, 'tracker.show', { id: 'bd-1' });
+
+      const [, , calledOptions] = execFile.mock.calls[0];
+      expect(calledOptions.env).toBeDefined();
+      expect(calledOptions.env.FIXTURE_UNDECLARED_SECRET).toBeUndefined();
+      expect(calledOptions.env.PATH).toBe(process.env.PATH);
+    } finally {
+      if (originalSecret === undefined) delete process.env.FIXTURE_UNDECLARED_SECRET;
+      else process.env.FIXTURE_UNDECLARED_SECRET = originalSecret;
+    }
+  });
+
+  test('execFile is called with a declared env name actually present when the parent process has it set', async () => {
+    const originalToken = process.env.FIXTURE_DECLARED_TOKEN;
+    process.env.FIXTURE_DECLARED_TOKEN = 'ghp_realvalue';
+    try {
+      execFile.mockImplementation((file, cmdArgs, options, callback) => {
+        setImmediate(() => callback(null, '{}', ''));
+      });
+
+      const adapter = minimalAdapter({ env: ['FIXTURE_DECLARED_TOKEN'] });
+      await runCapability(adapter, 'tracker.show', { id: 'bd-1' });
+
+      const [, , calledOptions] = execFile.mock.calls[0];
+      expect(calledOptions.env.FIXTURE_DECLARED_TOKEN).toBe('ghp_realvalue');
+    } finally {
+      if (originalToken === undefined) delete process.env.FIXTURE_DECLARED_TOKEN;
+      else process.env.FIXTURE_DECLARED_TOKEN = originalToken;
+    }
+  });
+});
+
+describe('runCapability: TOOL_FAILED message is redacted and length-bounded (reviewer Finding 4)', () => {
+  test('a secret-shaped value in stderr never reaches the envelope message verbatim', async () => {
+    const secret = `ghp_${'x'.repeat(36)}`;
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => {
+        const error = new Error('Command failed with exit code 1');
+        callback(error, '', `fixture-tool: denied, saw credential ${secret}\n`);
+      });
+    });
+
+    const adapter = minimalAdapter();
+    const result = await runCapability(adapter, 'tracker.show', { id: 'bd-1' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('TOOL_FAILED');
+    expect(result.error.message).not.toContain(secret);
+    expect(result.error.message).toContain('[REDACTED:');
+  });
+
+  test('an overly long stderr detail is truncated, not grown unbounded into the envelope message', async () => {
+    const hugeStderr = 'x'.repeat(10000);
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => {
+        const error = new Error('Command failed with exit code 1');
+        callback(error, '', hugeStderr);
+      });
+    });
+
+    const adapter = minimalAdapter();
+    const result = await runCapability(adapter, 'tracker.show', { id: 'bd-1' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error.message.length).toBeLessThan(hugeStderr.length);
+    expect(result.error.message).toContain('[truncated]');
+  });
+});
+
+describe('mutation-restore proof: reviewer Findings 1 and 4 actually discriminate', () => {
+  test('bypassing buildChildEnv filtering lets an undeclared parent secret reach the child env', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle = 'function buildChildEnv(adapterEnvNames, parentEnv, callerEnvOverride) {';
+      const replacement = `${needle}\n  return { ...parentEnv };`;
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const env = mutatedRunner.buildChildEnv([], { PATH: '/bin', MY_SECRET: 'SECRET-ABC-123' });
+      // With the filter bypassed, the undeclared secret leaks straight through -- exactly what
+      // the real (unmutated) "an undeclared parent secret never appears" test above disproves.
+      expect(env.MY_SECRET).toBe('SECRET-ABC-123');
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('removing the adapter-declared-names loop lets a declared env name stop reaching the child', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        "  for (const name of Array.isArray(adapterEnvNames) ? adapterEnvNames : []) {\n" +
+        "    if (typeof name === 'string') allowedNames.add(name);\n" +
+        "  }";
+      const replacement = '  // adapter-declared-names loop removed by mutation';
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const env = mutatedRunner.buildChildEnv(['GITHUB_TOKEN'], {
+        PATH: '/bin',
+        GITHUB_TOKEN: 'ghp_realtoken'
+      });
+      // With the declared-names loop removed, a name the adapter explicitly declares in
+      // `env[]` no longer reaches the child -- exactly what the real (unmutated) "a name the
+      // adapter declares in env[] IS passed through" test above disproves.
+      expect(env.GITHUB_TOKEN).toBeUndefined();
+    } finally {
+      mutantRoot.cleanup();
+    }
   });
 });

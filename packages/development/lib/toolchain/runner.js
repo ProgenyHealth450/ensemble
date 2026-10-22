@@ -97,11 +97,58 @@
  * this module -- and, per the TRD, the only path anywhere in the toolchain -- that spawns a
  * process. It always spawns via `child_process.execFile` with `shell` explicitly set to
  * `false` and `killSignal` set to `'SIGKILL'` (see the execFile call below): `opts
- * .execFileOptions` is spread FIRST into the options object and `timeout`/`killSignal`/`shell`
- * are applied LAST so a caller can never override any of the three -- not a truthy shell
- * option, not a weaker `killSignal` -- so a substituted argument is never reinterpreted as
- * shell syntax (PRD REQ-023) and a hung/SIGTERM-ignoring child is always actually killed on
- * timeout.
+ * .execFileOptions` is spread FIRST into the options object and `env`/`timeout`/`killSignal`/
+ * `shell` are applied LAST so a caller can never override any of the four -- not a truthy
+ * shell option, not a weaker `killSignal`, not a wider `env` -- so a substituted argument is
+ * never reinterpreted as shell syntax (PRD REQ-023), a hung/SIGTERM-ignoring child is always
+ * actually killed on timeout, and a child process never inherits a credential the resolved
+ * adapter did not declare (see "Child environment" below, Threat Model trust boundary 2).
+ *
+ * ## Child environment (TRD trust boundary 2, "credentials from environment variable names
+ * the manifest declares, never values")
+ *
+ * The child process NEVER inherits the runner's full `process.env` (a P1 finding fixed here: a
+ * parent secret with no entry in any adapter's `env[]` used to reach every adapter's child
+ * regardless). `buildChildEnv(adapterEnvNames, parentEnv, callerEnvOverride)` below builds the
+ * exact object passed as `execFile`'s `env` option instead, as the union of:
+ * - `BASE_ENV_ALLOWLIST` (`PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `TMPDIR`, `TERM`, `TZ`)
+ *   plus every `LC_*`-prefixed variable -- the small, documented set most POSIX binaries need
+ *   merely to execute and resolve themselves on `PATH`, never a credential;
+ * - every name in the resolved adapter's own `env[]` (manifest variable NAMES only) that the
+ *   real parent environment actually has set.
+ * Each is copied from `parentEnv` (`process.env`, unless a test injects `opts.parentEnv`) only
+ * when present there -- an allowlisted or declared name the parent never set is simply absent
+ * from the child's env, never `undefined`-valued. A caller-supplied `opts.execFileOptions.env`
+ * is folded in LAST, but only for keys that already passed this same allow/declare test: a
+ * caller may override the VALUE of an already-allowed variable, never widen the set the child
+ * receives -- this is the "merged only after the same filtering" choice the review asked for,
+ * not a silent re-widening door. `preflight.js`'s health checks reach this same filtering for
+ * free: they call this file's own `runCapability` (see that module's header), never spawning a
+ * process of their own.
+ *
+ * ## Timeout containment: the whole process tree, not just the direct child
+ *
+ * `execFile`'s own `timeout`/`killSignal` options (always applied, per above) kill only the
+ * DIRECT child `execFile` itself spawned -- proven by direct experiment on this repo's pinned
+ * Node versions: `child_process.execFile` does NOT forward a `detached` option to the `spawn`
+ * call it makes internally (it forwards only `cwd`/`env`/`gid`/`shell`/`signal`/`uid`/
+ * `windowsHide`/`windowsVerbatimArguments`), so the direct child is never made the leader of
+ * its own process group through `execFile` alone, and a plain `process.kill(-pid, ...)` cannot
+ * target a group that does not exist (a P2 finding: a tool that spawns a further child and
+ * detaches it -- e.g. `spawn(cmd, {detached:true}).unref()` -- used to survive the timeout,
+ * reparented to pid 1, after the direct child was killed). Since `execFile` must remain the
+ * only spawning primitive in this module (see this file's top-level header; never a shell,
+ * no `spawn`), containment instead tracks the direct child's REAL descendant set by POSIX pid
+ * table (`listProcessTable`/`collectDescendants` below, via `ps -A -o pid=,ppid=`, no shell),
+ * polled every `PROCESS_TREE_POLL_MS` while the call is in flight, and on timeout every pid
+ * seen in the last poll (plus the direct child's own pid) is sent `SIGKILL` directly
+ * (`killPidsSafe`), independent of process groups entirely. This reaches an ordinary
+ * descendant regardless of whether its immediate parent (the direct child) has already been
+ * reaped by the time the kill runs. Polling is skipped entirely on `win32` and whenever the
+ * mocked/stubbed `execFile` this module is given returns no real `ChildProcess` (every pid
+ * check in this module tolerates `child`/`child.pid` being absent, which is exactly what every
+ * `jest.mock('child_process')`-based test in this repo's suite already does) -- see "Known
+ * limits" below for what this containment strategy still cannot reach.
  *
  * Manifest `capabilities[].run[]` templates use `${name}` placeholders (see
  * `adapter-manifest-schema.json` and `validate.js`'s `extractRunPlaceholders`), while
@@ -138,13 +185,17 @@
  *   capability, binary or subcommand that failed.
  * - `INVALID_ARG`: bubbled up unchanged from `buildArgv`/`resolveArg` (missing/malformed
  *   argument value); never thrown past `runCapability`'s own boundary, always converted here.
- * - `TIMEOUT`: the child process exceeded `opts.timeoutMs` (default 60000ms) and was killed
- *   (`execFile`'s own `timeout`/`killSignal` options do the killing; this function only
- *   recognizes `error.killed`/`error.signal` on the callback and reports it). The message names
- *   the adapter, the capability and the configured timeout.
+ * - `TIMEOUT`: the child process exceeded `opts.timeoutMs` (default 60000ms) and was killed,
+ *   together with every descendant pid this module's polling had observed by then (see
+ *   "Timeout containment" above). The message names the adapter, the capability and the
+ *   configured timeout.
  * - `TOOL_FAILED`: any other `execFile` callback error (binary not found, non-zero exit, and so
  *   on). The message names the adapter and the capability and includes the child's stderr (or
- *   the raw error message when stderr is empty).
+ *   the raw error message when stderr is empty), passed through `redactSecrets` (same function
+ *   `ledger.js`/`preflight.js` use for their own on-disk records) and truncated to
+ *   `MAX_TOOL_FAILED_DETAIL_LENGTH` characters before it ever leaves this function -- a failing
+ *   tool's stderr is attacker- or misconfiguration-influenced input the CLI prints verbatim, so
+ *   it must never carry a credential or grow unbounded (reviewer Finding 4).
  * - `BAD_OUTPUT`: only reachable when the resolved capability declares a `parse` block
  *   (TRD-012). Either `mapOutput` threw (malformed stdout relative to `parse`, e.g. unparsable
  *   JSON or a `map` path that does not resolve) or the mapped value failed Ajv validation
@@ -163,14 +214,34 @@
  * `parse` gets `mapOutput`'s own `BAD_OUTPUT` checks, just no additional Ajv shape check, since
  * no normalized schema ships for that category yet. Extend `CATEGORY_NORMALIZED_SCHEMA` when
  * one does, rather than special-casing a category in this function.
+ *
+ * The process-tree timeout containment above is POSIX-only (`listProcessTable` returns `[]` on
+ * `win32`, so only `execFile`'s own direct-child kill applies there -- document, do not fake,
+ * a Windows guarantee this module cannot make without `taskkill /T`, which is out of scope).
+ * Even on POSIX it cannot reach a descendant that detaches itself into a brand-new session
+ * (`spawn(cmd, {detached:true})`, which calls `setsid()` regardless of what process group its
+ * own immediate parent is in) AFTER this module's last poll before the kill, or one spawned so
+ * quickly after the previous poll that it both starts and finishes inside one
+ * `PROCESS_TREE_POLL_MS` window; this is a fundamental property of POSIX process groups/
+ * sessions, not a gap a tighter poll interval alone can close. The fix here substantially
+ * narrows the reviewer's reproduction (an ordinary, non-self-detaching descendant is now always
+ * killed) without claiming a stronger guarantee (cgroups/job objects) this task does not ask
+ * for and this repo has no dependency budget to add.
+ *
+ * `buildChildEnv`'s base allowlist is POSIX-oriented (`HOME`/`LOGNAME`/`TMPDIR` have no
+ * standard Windows equivalent); a `win32` adapter binary needing `SystemRoot`/`ComSpec`/
+ * `USERPROFILE` must declare those names in its own manifest `env[]` like any other variable
+ * it needs -- this module does not special-case Windows base variables, since every adapter
+ * shipped in this repo targets POSIX tools today.
  */
 
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const resolve = require('./resolve');
 const fs = require('fs');
 const path = require('path');
 const Ajv = require('ajv');
 const { mapOutput } = require('./mapping');
+const { redactSecrets } = require('../complexity-analyzer');
 
 const PLACEHOLDER_TEST_PATTERN = /\{[^{}]+\}/;
 const PLACEHOLDER_REPLACE_PATTERN = /\{([^{}]+)\}/g;
@@ -431,6 +502,131 @@ function describeNormalizedSchemaError(error) {
   return `${atPath}: ${error.message || 'invalid'}`;
 }
 
+const BASE_ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'TMPDIR', 'TERM', 'TZ'];
+const LC_ENV_PREFIX_PATTERN = /^LC_/;
+const MAX_TOOL_FAILED_DETAIL_LENGTH = 4000;
+const PROCESS_TREE_POLL_MS = 100;
+
+/**
+ * Build the exact environment object a capability's child process receives (see this file's
+ * header, "Child environment"). Never the parent's full `process.env`: only
+ * `BASE_ENV_ALLOWLIST`/`LC_*` plus the resolved adapter's own declared `env[]` names, each only
+ * when actually set in `parentEnv`; `callerEnvOverride` (`opts.execFileOptions.env`) is merged
+ * last but filtered through this exact same allow/declare test, so it can override an already-
+ * allowed value but never widen the set of variables the child receives.
+ *
+ * @param {unknown} adapterEnvNames the resolved adapter manifest's own `env[]` (expected
+ *   `string[]`; anything else is treated as no declared names, fail-closed)
+ * @param {NodeJS.ProcessEnv} parentEnv the real parent environment to filter
+ * @param {unknown} [callerEnvOverride] `opts.execFileOptions.env`, if supplied
+ * @returns {NodeJS.ProcessEnv}
+ */
+function buildChildEnv(adapterEnvNames, parentEnv, callerEnvOverride) {
+  const allowedNames = new Set(BASE_ENV_ALLOWLIST);
+  for (const name of Array.isArray(adapterEnvNames) ? adapterEnvNames : []) {
+    if (typeof name === 'string') allowedNames.add(name);
+  }
+
+  const env = {};
+  const source = (parentEnv && typeof parentEnv === 'object' && parentEnv) || {};
+  for (const key of Object.keys(source)) {
+    if (allowedNames.has(key) || LC_ENV_PREFIX_PATTERN.test(key)) {
+      env[key] = source[key];
+    }
+  }
+
+  if (callerEnvOverride && typeof callerEnvOverride === 'object') {
+    for (const [key, value] of Object.entries(callerEnvOverride)) {
+      if (allowedNames.has(key) || LC_ENV_PREFIX_PATTERN.test(key)) {
+        env[key] = value;
+      }
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Best-effort, POSIX-only process-table snapshot (`pid`/`ppid` pairs for every process `ps`
+ * currently reports), used only to find a timed-out capability's surviving descendants (see
+ * `collectDescendants`/`killPidsSafe` and this file's header, "Timeout containment"). Never
+ * throws and never involves a shell: a missing `ps`, a mocked/stubbed `child_process` module (as
+ * every test in this repo's suite that exercises this file provides), or any parse failure all
+ * resolve to `[]`, meaning simply "no descendants found this poll".
+ *
+ * @returns {{pid: number, ppid: number}[]}
+ */
+function listProcessTable() {
+  if (process.platform === 'win32') return [];
+  let raw;
+  try {
+    raw = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], {
+      encoding: 'utf8',
+      timeout: 2000,
+      windowsHide: true
+    });
+  } catch {
+    return [];
+  }
+  if (typeof raw !== 'string') return [];
+
+  const rows = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const [pidText, ppidText] = trimmed.split(/\s+/);
+    const pid = Number(pidText);
+    const ppid = Number(ppidText);
+    if (Number.isInteger(pid) && Number.isInteger(ppid)) rows.push({ pid, ppid });
+  }
+  return rows;
+}
+
+/**
+ * Every transitive descendant pid of `rootPid` in a `{pid, ppid}` table snapshot (breadth-first
+ * over the parent-of relation), never including `rootPid` itself.
+ *
+ * @param {number} rootPid
+ * @param {{pid: number, ppid: number}[]} rows
+ * @returns {Set<number>}
+ */
+function collectDescendants(rootPid, rows) {
+  const childrenByParent = new Map();
+  for (const { pid, ppid } of rows) {
+    if (!childrenByParent.has(ppid)) childrenByParent.set(ppid, []);
+    childrenByParent.get(ppid).push(pid);
+  }
+  const found = new Set();
+  const queue = [rootPid];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const kid of childrenByParent.get(current) || []) {
+      if (!found.has(kid)) {
+        found.add(kid);
+        queue.push(kid);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * SIGKILL every pid in `pids`, swallowing every error (already exited, no permission, pid
+ * reused by an unrelated process by the time this runs): best-effort timeout cleanup, never a
+ * source of a thrown error back to `runCapability`'s own caller.
+ *
+ * @param {Iterable<number>} pids
+ */
+function killPidsSafe(pids) {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // Already gone, or never existed -- nothing to clean up.
+    }
+  }
+}
+
 /**
  * Execute one capability of a resolved, already-validated adapter manifest and resolve to the
  * runner envelope (TRD-011, TRD-012, TRD System Architecture; PRD REQ-023, REQ-002, REQ-022).
@@ -443,11 +639,14 @@ function describeNormalizedSchemaError(error) {
  * @param {string} capability the capability id to invoke, e.g. `tracker.show`
  * @param {Record<string, unknown>} [args] argument values keyed by placeholder name
  * @param {{timeoutMs?: number, source?: unknown, execFileOptions?: object, categoriesDir?:
- *   string}} [opts] `categoriesDir` is forwarded to `resolve.lookupContractCapability`'s
- *   category-contract lookup in the `!cap` branch below; defaults to that function's own
- *   default (the real `packages/development/toolchain/categories` directory) when omitted, so
- *   no existing caller is affected -- it exists solely so tests can inject a fixture contract
- *   directory without touching the real on-disk contracts.
+ *   string, parentEnv?: NodeJS.ProcessEnv}} [opts] `categoriesDir` is forwarded to
+ *   `resolve.lookupContractCapability`'s category-contract lookup in the `!cap` branch below;
+ *   defaults to that function's own default (the real
+ *   `packages/development/toolchain/categories` directory) when omitted, so no existing caller
+ *   is affected -- it exists solely so tests can inject a fixture contract directory without
+ *   touching the real on-disk contracts. `parentEnv` defaults to `process.env` and exists
+ *   solely so a test can inject a fake parent environment for `buildChildEnv` to filter without
+ *   mutating real process state.
  * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:(string|unknown)}|
  *   {ok:false, error:{code:string, message:string}}>}
  */
@@ -500,16 +699,42 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
   }
 
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const childEnv = buildChildEnv(
+    adapter && adapter.env,
+    opts.parentEnv || process.env,
+    opts.execFileOptions && opts.execFileOptions.env
+  );
 
   return new Promise((resolve) => {
+    let pollTimer = null;
+    let descendantPids = new Set();
+
+    const stopTracking = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    let child;
     try {
-      execFile(
+      child = execFile(
         argv[0],
         argv.slice(1),
-        { ...opts.execFileOptions, timeout: timeoutMs, killSignal: 'SIGKILL', shell: false },
+        {
+          ...opts.execFileOptions,
+          env: childEnv,
+          timeout: timeoutMs,
+          killSignal: 'SIGKILL',
+          shell: false
+        },
         (error, stdout, stderr) => {
+          stopTracking();
+
           if (error) {
             if (error.killed || error.signal) {
+              const rootPid = child && typeof child.pid === 'number' ? child.pid : null;
+              killPidsSafe(rootPid === null ? descendantPids : [rootPid, ...descendantPids]);
               resolve({
                 ok: false,
                 error: {
@@ -521,12 +746,17 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
               });
               return;
             }
-            const detail = (stderr && String(stderr).trim()) || error.message;
+            const rawDetail = (stderr && String(stderr).trim()) || error.message;
+            const redactedDetail = redactSecrets(rawDetail).text;
+            const boundedDetail =
+              redactedDetail.length > MAX_TOOL_FAILED_DETAIL_LENGTH
+                ? `${redactedDetail.slice(0, MAX_TOOL_FAILED_DETAIL_LENGTH)}... [truncated]`
+                : redactedDetail;
             resolve({
               ok: false,
               error: {
                 code: 'TOOL_FAILED',
-                message: `${adapterId}: capability '${capability}' failed: ${detail}`
+                message: `${adapterId}: capability '${capability}' failed: ${boundedDetail}`
               }
             });
             return;
@@ -589,7 +819,19 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
           });
         }
       );
+
+      const rootPid = child && typeof child.pid === 'number' ? child.pid : null;
+      if (rootPid !== null && process.platform !== 'win32') {
+        pollTimer = setInterval(() => {
+          const rows = listProcessTable();
+          if (rows.length > 0) {
+            descendantPids = collectDescendants(rootPid, rows);
+          }
+        }, PROCESS_TREE_POLL_MS);
+        if (typeof pollTimer.unref === 'function') pollTimer.unref();
+      }
     } catch (error) {
+      stopTracking();
       resolve({
         ok: false,
         error: {
@@ -603,5 +845,6 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
 
 module.exports = {
   buildArgv,
+  buildChildEnv,
   runCapability
 };

@@ -63,6 +63,15 @@
  * has no `status` property at all, `statusMap` (if supplied) is simply unused — this is not an
  * error, since not every capability's normalized shape has a status.
  *
+ * When `statusMap` is supplied but the result is an ARRAY (e.g. `format:'lines'` with no `map`,
+ * or a `root`/`map` that resolves to an array), there is no top-level `status` field for
+ * `statusMap` to ever examine — the manifest author's own declared `statusMap` could never be
+ * satisfied by this shape. This is fail-closed, not silently unused (TRD review Finding 7,
+ * TRD-012 AC 2 intent): `mapOutput` throws `BAD_OUTPUT` naming the array shape, rather than
+ * quietly returning the raw array as if the declared `statusMap` had been honored. A manifest
+ * that needs status translation against a `'lines'`/array-shaped tool output must supply a
+ * `map` that projects a `status` field first.
+ *
  * ## Dotted-path grammar (`resolvePath`)
  *
  * Supported, exactly:
@@ -299,18 +308,25 @@ function mapOutput(stdout, parse) {
     result = baseValue;
   }
 
-  if (
-    statusMap &&
-    result !== null &&
-    typeof result === 'object' &&
-    !Array.isArray(result) &&
-    Object.prototype.hasOwnProperty.call(result, 'status')
-  ) {
-    const rawStatus = result.status;
-    if (!Object.prototype.hasOwnProperty.call(statusMap, rawStatus)) {
-      throw badOutputError(`mapOutput: status value ${JSON.stringify(rawStatus)} has no entry in parse.statusMap`);
+  if (statusMap) {
+    if (Array.isArray(result)) {
+      throw badOutputError(
+        `mapOutput: parse.statusMap is declared but the mapped result is an array of length ` +
+          `${result.length} (no top-level 'status' field to translate); supply 'map' to ` +
+          `project a 'status' field, or drop 'statusMap'`
+      );
     }
-    result.status = statusMap[rawStatus];
+    if (
+      result !== null &&
+      typeof result === 'object' &&
+      Object.prototype.hasOwnProperty.call(result, 'status')
+    ) {
+      const rawStatus = result.status;
+      if (!Object.prototype.hasOwnProperty.call(statusMap, rawStatus)) {
+        throw badOutputError(`mapOutput: status value ${JSON.stringify(rawStatus)} has no entry in parse.statusMap`);
+      }
+      result.status = statusMap[rawStatus];
+    }
   }
 
   return result;
