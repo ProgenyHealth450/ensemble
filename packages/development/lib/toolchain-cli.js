@@ -65,26 +65,27 @@
  *
  * `resolve(ctx)`/`explain(ctx)` accept the same `{projectRoot, env, detect}` context that
  * `resolveCategory()` accepts and pass it straight through for every category, unmodified.
- * `detect` is the TRD-016 detection-engine injection point: it does not exist in production yet
- * (callers simply omit it, and `resolveCategory` falls through to the shipped default), but
- * tests may inject a stub `detect` function to exercise the `source:'detection'` path end to
- * end without this module building any real detection logic.
+ * `detect` is the TRD-016 detection-engine injection point (`./toolchain/detect.js#detectAdapter`):
+ * `main()`'s default `ctx` (used by every real CLI invocation) wires it in automatically, so
+ * `resolve`/`explain`/`run` detect a real adapter from repo signals when config and env-compat
+ * decline to resolve a category. A caller that supplies its own `ctx` (including every existing
+ * test) gets exactly what it passes -- no detect, or a stub detect -- unaffected by this.
  *
  * `main(argv, ctx)` takes an optional second `ctx` argument purely so callers (tests) can
  * exercise the full argv-parsing/JSON/table-rendering path against an injected
- * `{projectRoot, env, detect}` without relying on `process.cwd()`/`process.env`/an unavailable
+ * `{projectRoot, env, detect}` without depending on `process.cwd()`/`process.env`/the real
  * detection engine. Real invocations never pass it, so `ctx` always defaults to
- * `{projectRoot: process.cwd(), env: process.env}`, matching this command's documented
- * behavior exactly. `main()` returns a plain `number` exit code for every subcommand except
+ * `{projectRoot: process.cwd(), env: process.env, detect: detectAdapter}`, matching this
+ * command's documented behavior exactly.
+ * `main()` returns a plain `number` exit code for every subcommand except
  * `run`, which is inherently asynchronous (it may call `runCapability`, which spawns a child
  * process): for `run` it returns a `Promise<number>` instead. This is the one place the return
  * type varies; the `if (require.main === module)` guard below handles both uniformly via
  * `Promise.resolve(...)`, and every synchronous subcommand's direct callers (including the
  * existing test suite) keep receiving a plain number exactly as before.
  *
- * Non-goals (out of scope for this task, left to later tasks): no real detection engine
- * (TRD-016), no `preflight`/`confirm-status`/`confirm-record` subcommands (TRD-011, TRD-017,
- * TRD-018).
+ * Non-goals (out of scope for this task, left to later tasks): no `preflight`/`confirm-status`/
+ * `confirm-record` subcommands (TRD-011, TRD-017, TRD-018).
  */
 
 const { resolveCategory } = require('./toolchain/config');
@@ -95,6 +96,7 @@ const { hasPassingPreflightRecord } = require('./toolchain/preflight');
 const { validateAdapterDir } = require('./toolchain/validate');
 const { recordSideEffect, recordFailure, readLedgerEntries } = require('./toolchain/ledger');
 const { isValidRunId, invalidRunIdMessage } = require('./toolchain/run-id');
+const { detectAdapter } = require('./toolchain/detect');
 
 const CATEGORIES = [
   'host',
@@ -131,7 +133,8 @@ function resolveAll(ctx = {}) {
     return { ok: true, data };
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
-    return { ok: false, error: { code: 'RESOLVE_FAILED', message } };
+    const code = err && err.code ? err.code : 'RESOLVE_FAILED';
+    return { ok: false, error: { code, message } };
   }
 }
 
@@ -453,11 +456,12 @@ function printResult(subcommand, json, result) {
  *
  * @param {string[]} argv `process.argv.slice(2)`
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx] Defaults to
- *   `{projectRoot: process.cwd(), env: process.env}`; real invocations never override this.
+ *   `{projectRoot: process.cwd(), env: process.env, detect: detectAdapter}`; real invocations
+ *   never override this.
  * @returns {number|Promise<number>} process exit code; a `Promise<number>` only for the `run`
  *   subcommand (see this file's header doc).
  */
-function main(argv, ctx = { projectRoot: process.cwd(), env: process.env }) {
+function main(argv, ctx = { projectRoot: process.cwd(), env: process.env, detect: detectAdapter }) {
   const parsed = parseArgs(argv);
   const { subcommand, json, positionals, error } = parsed;
 
