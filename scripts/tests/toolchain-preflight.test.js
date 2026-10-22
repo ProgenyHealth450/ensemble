@@ -612,7 +612,16 @@ describe('toolchain-cli run: remaining branches', () => {
 
     const { returned: code, stdout } = await captureStdoutAsync(() =>
       main(
-        ['run', 'tracker.create', '--run-id', 'good-run', '--arg', 'title=Fix it', '--json'],
+        [
+          'run',
+          'tracker.create',
+          '--run-id',
+          'good-run',
+          '--arg',
+          'title=Fix it',
+          '--non-interactive',
+          '--json'
+        ],
         ctx
       )
     );

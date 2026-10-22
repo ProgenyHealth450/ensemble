@@ -63,8 +63,8 @@ function copyDirJsFiles(srcDir, destDir, extensions) {
  * is likely to need.
  *
  * @returns {{root: string, libDir: string, toolchainLibDir: string,
- *   runnerPath: string, ledgerPath: string, cliPath: string, mappingPath: string,
- *   complexityAnalyzerPath: string, cleanup: () => void}}
+ *   runnerPath: string, confirmPath: string, ledgerPath: string, cliPath: string,
+ *   mappingPath: string, complexityAnalyzerPath: string, cleanup: () => void}}
  */
 function makeMutantToolchainRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-mutant-'));
@@ -100,6 +100,7 @@ function makeMutantToolchainRoot() {
     libDir,
     toolchainLibDir,
     runnerPath: path.join(toolchainLibDir, 'runner.js'),
+    confirmPath: path.join(toolchainLibDir, 'confirm.js'),
     ledgerPath: path.join(toolchainLibDir, 'ledger.js'),
     cliPath: path.join(libDir, 'toolchain-cli.js'),
     mappingPath: path.join(toolchainLibDir, 'mapping.js'),

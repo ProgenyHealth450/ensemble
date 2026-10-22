@@ -264,7 +264,16 @@ describe('reviewer Finding 2: ledger append and failure record wired through too
     // 1) success: tracker.create appends one ledger entry.
     const { returned: codeA } = await captureStdout(() =>
       main(
-        ['run', 'tracker.create', '--run-id', runId, '--arg', `counterPath=${counterPath}`, '--json'],
+        [
+          'run',
+          'tracker.create',
+          '--run-id',
+          runId,
+          '--arg',
+          `counterPath=${counterPath}`,
+          '--non-interactive',
+          '--json'
+        ],
         ctx
       )
     );
@@ -290,7 +299,16 @@ describe('reviewer Finding 2: ledger append and failure record wired through too
     // 3) failure: tracker.update fails; the failure record lists tracker.create as completed.
     const { returned: codeB, stdout: stdoutB } = await captureStdout(() =>
       main(
-        ['run', 'tracker.update', '--run-id', runId, '--arg', `counterPath=${counterPath}`, '--json'],
+        [
+          'run',
+          'tracker.update',
+          '--run-id',
+          runId,
+          '--arg',
+          `counterPath=${counterPath}`,
+          '--non-interactive',
+          '--json'
+        ],
         ctx
       )
     );
@@ -380,7 +398,16 @@ describe('mutation-restore proof: reviewer Findings 2 and 6 actually discriminat
 
       await runPreflight({ categories: ['tracker'], runId }, ctx);
       const code = await mutatedCli.main(
-        ['run', 'tracker.create', '--run-id', runId, '--arg', `counterPath=${counterPath}`, '--json'],
+        [
+          'run',
+          'tracker.create',
+          '--run-id',
+          runId,
+          '--arg',
+          `counterPath=${counterPath}`,
+          '--non-interactive',
+          '--json'
+        ],
         ctx
       );
       expect(code).toBe(0);
@@ -414,7 +441,16 @@ describe('mutation-restore proof: reviewer Findings 2 and 6 actually discriminat
 
       await runPreflight({ categories: ['tracker'], runId }, ctx);
       await mutatedCli.main(
-        ['run', 'tracker.update', '--run-id', runId, '--arg', `counterPath=${counterPath}`, '--json'],
+        [
+          'run',
+          'tracker.update',
+          '--run-id',
+          runId,
+          '--arg',
+          `counterPath=${counterPath}`,
+          '--non-interactive',
+          '--json'
+        ],
         ctx
       );
 

@@ -30,8 +30,14 @@
  *                      `sideEffect:true`, a passing preflight record for `--run-id` is required
  *                      first (`./toolchain/preflight.js#hasPassingPreflightRecord`, TRD-014,
  *                      PRD REQ-013): missing or failed preflight returns `PREFLIGHT_REQUIRED`
- *                      and never resolves an adapter or spawns anything. `--arg k=v` may repeat
- *                      to supply the capability's argument values. A side-effecting
+ *                      and never resolves an adapter or spawns anything. Once resolved, a
+ *                      side-effecting capability's adapter must also be confirmed for this
+ *                      session (`./toolchain/confirm.js#confirmStatus`, TRD-017, PRD REQ-011):
+ *                      an unconfirmed adapter returns `CONFIRMATION_REQUIRED` and never calls
+ *                      `loadAdapter`/`runCapability`; non-interactive runs (`--non-interactive`,
+ *                      `ENSEMBLE_NON_INTERACTIVE=1`, a set `FOREMAN_TASK_TITLE`, or `CI=true`)
+ *                      are auto-confirmed and logged, never silently skipped. `--arg k=v` may
+ *                      repeat to supply the capability's argument values. A side-effecting
  *                      capability's SUCCESS appends one entry to `ledger-<runId>.jsonl`
  *                      (`./toolchain/ledger.js#recordSideEffect`, TRD System Architecture data-
  *                      flow step 4); its FAILURE instead writes `failure-<runId>.json`
@@ -85,7 +91,9 @@
  * existing test suite) keep receiving a plain number exactly as before.
  *
  * Non-goals (out of scope for this task, left to later tasks): no `preflight`/`confirm-status`/
- * `confirm-record` subcommands (TRD-011, TRD-017, TRD-018).
+ * `confirm-record` subcommands (TRD-011, TRD-018); `run`'s side-effecting-capability path now
+ * enforces `confirm.js#confirmStatus` (TRD-017) but has no way to call `recordConfirmation`
+ * from the CLI yet — that remains TRD-018.
  */
 
 const { resolveCategory } = require('./toolchain/config');
@@ -97,6 +105,7 @@ const { validateAdapterDir } = require('./toolchain/validate');
 const { recordSideEffect, recordFailure, readLedgerEntries } = require('./toolchain/ledger');
 const { isValidRunId, invalidRunIdMessage } = require('./toolchain/run-id');
 const { detectAdapter } = require('./toolchain/detect');
+const { confirmStatus } = require('./toolchain/confirm');
 
 const CATEGORIES = [
   'host',
@@ -263,10 +272,39 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
   }
 
   let adapterId;
+  let source;
   try {
-    adapterId = resolveCategory(category, ctx).value;
+    const resolved = resolveCategory(category, ctx);
+    adapterId = resolved.value;
+    source = resolved.source;
   } catch (error) {
     return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+  }
+
+  if (sideEffect) {
+    const confirmation = confirmStatus(category, {
+      projectRoot: ctx.projectRoot || process.cwd(),
+      env: ctx.env || process.env,
+      nonInteractive: Boolean(parsed.nonInteractive),
+      sideEffect: true,
+      adapter: adapterId,
+      source,
+      runId
+    });
+
+    if (confirmation.required !== false && confirmation.confirmed !== true) {
+      return {
+        ok: false,
+        error: {
+          code: 'CONFIRMATION_REQUIRED',
+          message:
+            `capability '${capability}' is side-effecting and adapter '${adapterId}' ` +
+            `(source: ${source}) has not been confirmed for category '${category}' in this ` +
+            `session; run an interactive session once to confirm, or set ` +
+            `--non-interactive/ENSEMBLE_NON_INTERACTIVE=1/CI=true for a non-interactive run`
+        }
+      };
+    }
   }
 
   let loaded;
@@ -359,6 +397,7 @@ function parseArgs(argv) {
   // `--json` itself lands in `subcommand` (list[0]), and the "missing subcommand" error path
   // below still needs `json:true` in that case.
   const json = list.includes('--json');
+  const nonInteractive = list.includes('--non-interactive');
   let runId;
   const args = {};
   const positionals = [];
@@ -366,6 +405,7 @@ function parseArgs(argv) {
   const invalidArg = (message) => ({
     subcommand,
     json,
+    nonInteractive,
     positionals,
     runId,
     args,
@@ -375,6 +415,8 @@ function parseArgs(argv) {
   for (let i = 0; i < rest.length; i += 1) {
     const token = rest[i];
     if (token === '--json') {
+      continue;
+    } else if (token === '--non-interactive') {
       continue;
     } else if (token === '--run-id') {
       const value = rest[i + 1];
@@ -403,7 +445,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { subcommand, json, positionals, runId, args };
+  return { subcommand, json, nonInteractive, positionals, runId, args };
 }
 
 /**
