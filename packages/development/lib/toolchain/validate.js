@@ -36,15 +36,25 @@
  * `validateAdapterDir(adapterDir, opts)` is the single composed static gate: it runs all four
  * checks above (`validateManifest`, `validateAllowlist`, `validateConformance`, with
  * `scanCredentials` run over `adapter.yaml`, `SKILL.md` and every other regular file in the
- * adapter directory, bounded and never following symlinks) and returns the union of their
- * errors as one `{ok, errors}` envelope, each error naming the adapter, the file and the
- * offending item (TRD-009, PRD REQ-008/REQ-022/REQ-023, AC-008-1..3, AC-022-1, AC-023-1,
- * AC-023-3). `toolchain-cli validate <adapter-dir>` calls this one function and does not
- * duplicate any of the four checks' wiring itself (TRD-009 review finding: a validator with no
- * production caller enforces nothing). This function is the static gate only: it never
- * executes a binary and never substitutes a real argument value. The runtime runner (TRD-010,
- * TRD-011) re-validates every substituted argument against the capability's declared contract
- * input types before every call, independently of this gate.
+ * adapter directory, found by `collectAdapterTextFiles`) and returns the union of their errors
+ * as one `{ok, errors}` envelope, each error naming the adapter, the file and the offending
+ * item (TRD-009, PRD REQ-008/REQ-022/REQ-023, AC-008-1..3, AC-022-1, AC-023-1, AC-023-3).
+ * `toolchain-cli validate <adapter-dir>` calls this one function and does not duplicate any of
+ * the four checks' wiring itself (TRD-009 review finding: a validator with no production
+ * caller enforces nothing). This function is the static gate only: it never executes a binary
+ * and never substitutes a real argument value. The runtime runner (TRD-010, TRD-011)
+ * re-validates every substituted argument against the capability's declared contract input
+ * types before every call, independently of this gate.
+ *
+ * `collectAdapterTextFiles`'s walk of the adapter directory never follows symlinks and is
+ * bounded by `MAX_SCAN_DEPTH`, `MAX_SCAN_FILES` and `MAX_SCAN_FILE_BYTES` so one adapter
+ * directory can never make validation scan an unbounded amount of the filesystem. Hitting any
+ * of those caps is fail-closed, not a silent skip: it is reported as a distinct error naming
+ * the cap and what was not scanned, folded into `validateAdapterDir`'s errors, so a planted
+ * credential sitting beyond a cap cannot make this gate return `{ok: true}` (PR review
+ * finding: the caps must fail loudly, not pass silently). Only a binary file extension or a
+ * symlink is skipped silently -- those are legitimately not text to scan, not an incomplete
+ * scan.
  *
  * ## Known limits
  *
@@ -573,21 +583,42 @@ const BINARY_FILE_EXTENSIONS = new Set([
  * Collect every regular file under an adapter directory to scan for literal credentials: at
  * minimum `adapter.yaml` and `SKILL.md` (always included, even if missing, so
  * `scanCredentials` can report them unreadable), plus every other regular text file found by a
- * bounded walk of the directory tree. The walk never follows symlinks (a symlinked file or
- * directory could point outside the adapter directory -- a symlink escape), stops recursing
- * past `MAX_SCAN_DEPTH`, stops collecting past `MAX_SCAN_FILES`, and skips files over
- * `MAX_SCAN_FILE_BYTES` or with a known binary extension, so one adapter directory can never
- * make validation scan an unbounded amount of the filesystem.
+ * bounded walk of the directory tree.
+ *
+ * The walk never follows symlinks (a symlinked file or directory could point outside the
+ * adapter directory -- a symlink escape): `fs.readdirSync(dir, { withFileTypes: true })`
+ * yields `Dirent` entries whose `isDirectory()`/`isFile()` describe the directory entry itself
+ * (an `lstat`, not a `stat`), so a symlink -- to a file or to a directory -- is neither a
+ * `Dirent` directory nor a `Dirent` file and falls out of both branches below without ever
+ * resolving the link target; `Dirent#isSymbolicLink()` is deliberately not also checked, since
+ * it would be redundant with that fact. Do not reclassify entries with `fs.statSync` (which
+ * follows symlinks) or this silent, load-bearing protection is lost; the CLI-level symlink
+ * test below exists specifically to catch that regression.
+ *
+ * Caps bound the walk so one adapter directory can never make validation scan an unbounded
+ * amount of the filesystem: recursion stops past `MAX_SCAN_DEPTH`, collection stops past
+ * `MAX_SCAN_FILES`, and a file over `MAX_SCAN_FILE_BYTES` is not read. Hitting any of these
+ * caps is fail-closed, not a silent skip: a distinct entry in the returned `errors` names the
+ * adapter directory (or, for an oversized file, the file itself) and the cap that was hit, so
+ * a credential planted beyond a cap cannot make `validateAdapterDir` return `{ok: true}`
+ * (PR review finding: the previous bare `return`/`continue` on every cap dropped files with no
+ * record, so a planted credential past a cap silently passed). A binary-extension file is the
+ * only skip that stays silent: it is legitimately not text to scan, not an incomplete scan.
  *
  * @param {string} adapterDir
- * @returns {string[]} absolute file paths
+ * @returns {{files: string[], errors: string[]}} absolute file paths to scan, plus any
+ *   fail-closed cap errors naming what was not scanned
  */
 function collectAdapterTextFiles(adapterDir) {
   const files = [path.join(adapterDir, 'adapter.yaml'), path.join(adapterDir, 'SKILL.md')];
   const seen = new Set(files);
+  const errors = [];
+  let depthCapped = false;
+  let uncheckedFileCount = 0;
 
   function walk(dir, depth) {
-    if (depth > MAX_SCAN_DEPTH || files.length >= MAX_SCAN_FILES) {
+    if (depth > MAX_SCAN_DEPTH) {
+      depthCapped = true;
       return;
     }
     let entries;
@@ -597,12 +628,6 @@ function collectAdapterTextFiles(adapterDir) {
       return;
     }
     for (const entry of entries) {
-      if (files.length >= MAX_SCAN_FILES) {
-        return;
-      }
-      if (entry.isSymbolicLink()) {
-        continue;
-      }
       const entryPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(entryPath, depth + 1);
@@ -615,6 +640,10 @@ function collectAdapterTextFiles(adapterDir) {
       ) {
         continue;
       }
+      if (files.length >= MAX_SCAN_FILES) {
+        uncheckedFileCount += 1;
+        continue;
+      }
       let stat;
       try {
         stat = fs.statSync(entryPath);
@@ -622,6 +651,10 @@ function collectAdapterTextFiles(adapterDir) {
         continue;
       }
       if (stat.size > MAX_SCAN_FILE_BYTES) {
+        errors.push(
+          `${entryPath}: credential scan incomplete: file exceeds MAX_SCAN_FILE_BYTES ` +
+            `(${MAX_SCAN_FILE_BYTES}); not scanned`
+        );
         continue;
       }
       seen.add(entryPath);
@@ -630,7 +663,21 @@ function collectAdapterTextFiles(adapterDir) {
   }
 
   walk(adapterDir, 0);
-  return files;
+
+  if (depthCapped) {
+    errors.push(
+      `${adapterDir}: credential scan incomplete: MAX_SCAN_DEPTH (${MAX_SCAN_DEPTH}) reached; ` +
+        'some subdirectories were not scanned'
+    );
+  }
+  if (uncheckedFileCount > 0) {
+    errors.push(
+      `${adapterDir}: credential scan incomplete: MAX_SCAN_FILES (${MAX_SCAN_FILES}) reached; ` +
+        `${uncheckedFileCount} file(s) unchecked`
+    );
+  }
+
+  return { files, errors };
 }
 
 /**
@@ -647,7 +694,10 @@ function collectAdapterTextFiles(adapterDir) {
  * They still run whenever a manifest object was parsed, even if it fails ajv schema
  * validation, so allowlist and conformance defects are surfaced alongside schema defects in
  * one pass. `scanCredentials` always runs, independently of whether the manifest parsed, over
- * `adapter.yaml`, `SKILL.md` and every other file `collectAdapterTextFiles` finds.
+ * `adapter.yaml`, `SKILL.md` and every other file `collectAdapterTextFiles` finds; any cap
+ * error `collectAdapterTextFiles` itself reports (a file or directory it had to skip to stay
+ * bounded) is folded into these errors too, so a credential planted beyond a cap fails this
+ * gate instead of passing silently (PR review finding).
  *
  * @param {string} adapterDir adapter directory containing `adapter.yaml` and `SKILL.md`
  * @param {{contracts?: Record<string, unknown>}} [opts] `opts.contracts`, when supplied,
@@ -678,7 +728,8 @@ function validateAdapterDir(adapterDir, opts = {}) {
     errors.push(...validateConformance(manifest, contracts).errors);
   }
 
-  errors.push(...scanCredentials(collectAdapterTextFiles(adapterDir)).errors);
+  const scanResult = collectAdapterTextFiles(adapterDir);
+  errors.push(...scanResult.errors, ...scanCredentials(scanResult.files).errors);
 
   return errors.length === 0 ? { ok: true, errors: [] } : { ok: false, errors };
 }

@@ -302,3 +302,64 @@ describe('TRD-009-TEST: real `node toolchain-cli.js validate` subprocess (PR rev
     expect(JSON.parse(result.stdout)).toEqual({ ok: true, errors: [] });
   });
 });
+
+describe('TRD-009-TEST: credential-scan caps fail closed instead of silently dropping files (independent re-review finding 1)', () => {
+  test('a planted credential past MAX_SCAN_FILES yields ok:false naming the cap, never a silent ok:true', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    const fillerDir = path.join(dir, 'filler');
+    fs.mkdirSync(fillerDir);
+    for (let i = 0; i < 510; i += 1) {
+      fs.writeFileSync(path.join(fillerDir, `filler-${i}.txt`), 'nothing to see here\n');
+    }
+    const secretDir = path.join(dir, 'zz');
+    fs.mkdirSync(secretDir);
+    fs.writeFileSync(path.join(secretDir, 'secret.yaml'), 'password: hunter2secret\n');
+
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes('MAX_SCAN_FILES') && e.includes('500'))).toBe(true);
+  });
+
+  test('a file over MAX_SCAN_FILE_BYTES yields ok:false naming that file', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    const bigFilePath = path.join(dir, 'oversized.txt');
+    fs.writeFileSync(bigFilePath, 'a'.repeat(1024 * 1024 + 1));
+
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes(bigFilePath) && e.includes('MAX_SCAN_FILE_BYTES'))).toBe(true);
+  });
+
+  test('nesting deeper than MAX_SCAN_DEPTH yields ok:false naming the cap', () => {
+    const dir = mkMutableGoodAdapterCopy();
+    let nested = dir;
+    for (let i = 0; i < 7; i += 1) {
+      nested = path.join(nested, `d${i}`);
+      fs.mkdirSync(nested);
+    }
+    fs.writeFileSync(path.join(nested, 'unreachable.txt'), 'password: hunter2secret\n');
+
+    const result = validateAdapterDir(dir);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.includes('MAX_SCAN_DEPTH') && e.includes('6'))).toBe(true);
+  });
+});
+
+describe('TRD-009-TEST: credential-scan walk never follows symlinks out of the adapter directory (independent re-review finding 2)', () => {
+  test('a symlinked file and a symlinked directory pointing outside the adapter, each hiding a planted credential, are not followed', () => {
+    const dir = mkMutableGoodAdapterCopy();
+
+    const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-external-'));
+    tempDirs.push(externalRoot);
+    const externalFile = path.join(externalRoot, 'external-secret.yaml');
+    fs.writeFileSync(externalFile, 'password: hunter2secret\n');
+    const externalDir = path.join(externalRoot, 'external-dir');
+    fs.mkdirSync(externalDir);
+    fs.writeFileSync(path.join(externalDir, 'nested-secret.yaml'), 'password: hunter2secret\n');
+
+    fs.symlinkSync(externalFile, path.join(dir, 'linked-file.yaml'), 'file');
+    fs.symlinkSync(externalDir, path.join(dir, 'linked-dir'), 'dir');
+
+    expect(cliValidate({}, [dir])).toEqual({ ok: true, errors: [] });
+  });
+});
