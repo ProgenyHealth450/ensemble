@@ -2,26 +2,24 @@
 
 /**
  * Rollout / rollback (TRD-010-TEST). Real local-ci-* modules. GitHub is a
- * fake in-memory protection store and a fake fetch; no network, no credential,
+ * fake in-memory protection store and a fake status publisher; no network, no login,
  * no real branch protection is read or changed.
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 
 const rollout = require('../lib/local-ci-rollout');
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 
-const { makeBaseRepo, cleanupBaseRepos, prInfoFor, PR, REPO } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakePostStatus, PR, REPO } = require('./helpers/local-ci-base-repo');
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 const REPO_CONFIG = path.join(REPO_ROOT, '.ensemble', 'local-ci.yaml');
 const CONFIG = validateConfig(fs.readFileSync(REPO_CONFIG, 'utf8'));
 const CONTEXT = CONFIG.approvalSet.statusContext;
 const NOW = '2026-10-21T12:00:00.000Z';
-const APP_ID = 424242;
 // The hosted required checks the local gate covers, taken from the real approval set: the job name, plus
 // "<job> (<node>)" for each matrix entry (how GitHub names them).
 const COVERED = CONFIG.approvalSet.checks.map((c) => (c.matrix && c.matrix['node-version'] ? `${c.job} (${c.matrix['node-version']})` : c.job));
@@ -121,14 +119,14 @@ describe('snapshotProtection', () => {
 });
 
 describe('planEnable / planRollback', () => {
-  test('enable plan requires exactly the pinned local status and drops hosted checks, preserving the rest', () => {
+  test('enable plan requires exactly the local status BY NAME (unpinned, written as -1) and drops hosted checks, preserving the rest', () => {
     const s = snap({ ...recordedProtection(), enforce_admins: { enabled: true }, required_pull_request_reviews: { required_approving_review_count: 2, url: 'u' }, restrictions: { users: [], teams: [{ slug: 'core' }], apps: [] } });
-    const plan = rollout.planEnable({ snapshot: s, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED });
+    const plan = rollout.planEnable({ snapshot: s, statusContext: CONTEXT, replaces: COVERED });
     expect(plan.ok).toBe(true);
     const change = plan.steps.filter((x) => x.changesProtection);
     expect(change).toHaveLength(1);
     expect(change[0]).toMatchObject({ method: 'PATCH', path: '/repos/o/r/branches/dev/protection/required_status_checks' });
-    expect(change[0].body).toEqual({ strict: false, checks: [{ context: CONTEXT, app_id: APP_ID }] });
+    expect(change[0].body).toEqual({ strict: false, checks: [{ context: CONTEXT, app_id: -1 }] });
     expect(change[0].removes).toEqual(['validate', 'test (22)', 'test (24)']);
     // Only the checks endpoint is touched, so reviews/restrictions/enforce_admins stay as they were.
     expect(plan.steps.every((x) => !/enforce_admins|required_pull_request_reviews|restrictions/.test(x.path))).toBe(true);
@@ -143,34 +141,38 @@ describe('planEnable / planRollback', () => {
   test('strict is preserved when true', () => {
     const r = recordedProtection();
     r.required_status_checks.strict = true;
-    const plan = rollout.planEnable({ snapshot: snap(r), statusContext: CONTEXT, appId: APP_ID, replaces: COVERED });
+    const plan = rollout.planEnable({ snapshot: snap(r), statusContext: CONTEXT, replaces: COVERED });
     expect(plan.steps[0].body.strict).toBe(true);
   });
 
-  test.each([
-    ['config placeholder', 'REPLACE_WITH_GITHUB_APP_ID'],
-    ['missing', undefined],
-    ['zero', 0],
-    ['negative (any-app marker)', -1],
-    ['fraction', 1.5],
-    ['numeric string', '15368'],
-  ])('refuses an unusable App id: %s', (_n, appId) => {
-    const r = rollout.planEnable({ snapshot: snap(), statusContext: CONTEXT, appId, replaces: COVERED });
-    expect(r.ok).toBe(false);
-    expect(r.steps).toBeUndefined();
+  test('the local check is added UNPINNED: app_id null on read, written as -1 (any app); appId is neither required nor accepted', () => {
+    const plan = rollout.planEnable({ snapshot: snap(), statusContext: CONTEXT, replaces: COVERED });
+    expect(plan.ok).toBe(true);
+    const body = plan.steps.find((x) => x.changesProtection).body;
+    expect(body.checks).toEqual([{ context: CONTEXT, app_id: -1 }]);
+    expect(JSON.stringify(plan)).not.toMatch(/"app_id":null/);
+    // A leftover appId (a number, a placeholder, junk) cannot pin the check: it is ignored, never written.
+    for (const appId of [15368, 424242, 'REPLACE_WITH_GITHUB_APP_ID', -1, 0, undefined]) {
+      const again = rollout.planEnable({ snapshot: snap(), statusContext: CONTEXT, appId, replaces: COVERED });
+      expect(again.ok).toBe(true);
+      expect(again.steps.find((x) => x.changesProtection).body.checks).toEqual([{ context: CONTEXT, app_id: -1 }]);
+    }
+    // After GitHub stores it, the read side sees null again (so a later rollback snapshot is lossless).
+    const fake = fakeGithub(recordedProtection());
+    fake.applyPlan(plan);
+    expect(fake.store.required_status_checks.checks).toEqual([{ context: CONTEXT, app_id: null }]);
   });
 
   test('refuses a missing status context or an invalid snapshot', () => {
-    expect(rollout.planEnable({ snapshot: snap(), statusContext: '', appId: APP_ID, replaces: COVERED }).ok).toBe(false);
-    expect(rollout.planEnable({ snapshot: { repo: 'o/r' }, statusContext: CONTEXT, appId: APP_ID }).ok).toBe(false);
+    expect(rollout.planEnable({ snapshot: snap(), statusContext: '', replaces: COVERED }).ok).toBe(false);
+    expect(rollout.planEnable({ snapshot: { repo: 'o/r' }, statusContext: CONTEXT }).ok).toBe(false);
     expect(rollout.planRollback({ snapshot: null }).ok).toBe(false);
   });
 
-  test('the repo config still carries the App id placeholder, which enablement refuses', () => {
+  test('the repo config carries no app_id key, so there is nothing to pin', () => {
     const raw = fs.readFileSync(REPO_CONFIG, 'utf8');
-    const m = /app_id:\s*(\S+)/.exec(raw);
-    expect(m).not.toBeNull();
-    expect(rollout.planEnable({ snapshot: snap(), statusContext: CONTEXT, appId: Number(m[1]), replaces: COVERED }).ok).toBe(false);
+    expect(raw).not.toMatch(/^\s*app_id\s*:/m);
+    expect(CONFIG.ok).toBe(true);
   });
 
   test('rollback plan restores the original checks with their original app ids', () => {
@@ -187,7 +189,7 @@ describe('planEnable / planRollback', () => {
     const s = snap(r);
     expect(rollout.planRollback({ snapshot: s }).steps[0].body.checks[0]).toEqual({ context: 'validate', app_id: -1 });
     const fake = fakeGithub(r);
-    fake.applyPlan(rollout.planEnable({ snapshot: s, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED }));
+    fake.applyPlan(rollout.planEnable({ snapshot: s, statusContext: CONTEXT, replaces: COVERED }));
     fake.applyPlan(rollout.planRollback({ snapshot: s }));
     expect(snap(fake.store)).toEqual(s);
   });
@@ -208,10 +210,10 @@ describe('scenario: enable then rollback is lossless', () => {
     const s = snap(original);
     const fake = fakeGithub(original);
 
-    fake.applyPlan(rollout.planEnable({ snapshot: s, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED }));
+    fake.applyPlan(rollout.planEnable({ snapshot: s, statusContext: CONTEXT, replaces: COVERED }));
     // The enabled state really differs: otherwise the round trip would prove nothing.
     expect(snap(fake.store)).not.toEqual(s);
-    expect(fake.store.required_status_checks.checks).toEqual([{ context: CONTEXT, app_id: APP_ID }]);
+    expect(fake.store.required_status_checks.checks).toEqual([{ context: CONTEXT, app_id: null }]);
 
     fake.applyPlan(rollout.planRollback({ snapshot: s }));
     expect(snap(fake.store)).toEqual(s);
@@ -220,15 +222,17 @@ describe('scenario: enable then rollback is lossless', () => {
 });
 
 describe('scenario: hosted checks required again', () => {
-  test('a rolled-back repository refuses a PR with no hosted CI success; the enabled one merges on the local status alone', () => {
+  test('a rolled-back repository refuses a PR with no hosted CI success; the enabled one merges on the local status alone, whoever posted it', () => {
     const s = snap();
     const fake = fakeGithub(recordedProtection());
-    const localOnly = [{ context: CONTEXT, state: 'success', app_id: APP_ID }];
+    const localOnly = [{ context: CONTEXT, state: 'success', app_id: 424242 }];
 
-    fake.applyPlan(rollout.planEnable({ snapshot: s, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED }));
+    fake.applyPlan(rollout.planEnable({ snapshot: s, statusContext: CONTEXT, replaces: COVERED }));
     expect(canMerge(fake.store, localOnly)).toBe(true);
-    // A personal-token status with the same context does not satisfy the App-pinned check.
-    expect(canMerge(fake.store, [{ context: CONTEXT, state: 'success', app_id: 1 }])).toBe(false);
+    // The check is required by name, unpinned (honest-actor trust): a status from any poster satisfies it, and a
+    // status with a different context does not.
+    expect(canMerge(fake.store, [{ context: CONTEXT, state: 'success', app_id: 1 }])).toBe(true);
+    expect(canMerge(fake.store, [{ context: 'some/other-check', state: 'success', app_id: 1 }])).toBe(false);
 
     fake.applyPlan(rollout.planRollback({ snapshot: s }));
     expect(canMerge(fake.store, localOnly)).toBe(false);
@@ -239,8 +243,6 @@ describe('scenario: hosted checks required again', () => {
 });
 
 describe('scenario: PR born approved (optional pre-PR gate step)', () => {
-  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const credential = { credential: { appId: '12345', privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) } };
   afterAll(() => cleanupBaseRepos());
 
   function repoWithHead() {
@@ -249,27 +251,18 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
   }
 
   function fakeGithubStatuses() {
-    const bySha = {};
-    const fetch = async (url, init) => {
-      const reply = (o) => ({ status: 200, json: async () => o });
-      if (url.endsWith('/installation')) return reply({ id: 7 });
-      if (url.endsWith('/access_tokens')) return reply({ token: 'ghs_' + 'x'.repeat(36) });
-      const m = /\/statuses\/([0-9a-f]{40})$/.exec(url);
-      if (m) {
-        const body = JSON.parse(init.body);
-        (bySha[m[1]] = bySha[m[1]] || []).push({ context: body.context, state: body.state, description: body.description, sha: m[1] });
-      }
-      return reply({ id: 1 });
-    };
-    return { fetch, bySha };
+    const poster = fakePostStatus();
+    const bySha = new Proxy({}, {
+      get: (_t, sha) => poster.calls.filter((c) => c.sha === sha).map((c) => ({ context: c.context, state: c.state, description: c.description, sha: c.sha })),
+    });
+    return { postStatus: poster, bySha };
   }
 
   async function gateThenOpenPr(repo, gh) {
     const deps = {
       ...cli.defaultDeps(),
-      fetch: gh.fetch,
+      postStatus: gh.postStatus,
       runGate: (o) => ({ ok: true, sha: o.headSha, failures: [], unmirrored: [], nodes: [{ node: 22, ok: true, steps: [] }] }),
-      loadCredential: () => credential,
       env: {},
       prInfo: prInfoFor(repo),
     };
@@ -306,9 +299,8 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
     const gh = fakeGithubStatuses();
     const deps = {
       ...cli.defaultDeps(),
-      fetch: gh.fetch,
+      postStatus: gh.postStatus,
       runGate: (o) => ({ ok: false, sha: o.headSha, failures: [{ workflow: 'ci.yml', job: 'test', step: 'x', node: 22, message: 'boom' }], unmirrored: [], nodes: [] }),
-      loadCredential: () => credential,
       env: {},
       prInfo: prInfoFor(repo),
     };
@@ -318,97 +310,72 @@ describe('scenario: PR born approved (optional pre-PR gate step)', () => {
   });
 });
 
-describe('scenario: enablement refused without the App-pin proof', () => {
+describe('scenario: enablement preconditions', () => {
   const dirs = [];
   afterAll(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 
-  const GOOD_PROOF = [
-    '# App pin proof',
-    '',
-    '## App status accepted',
-    'Date: 2026-10-22',
-    'Response: HTTP 201',
-    '',
-    '## Personal-token status rejected',
-    'Date: 2026-10-22',
-    'Response: HTTP 422',
-    '',
-  ].join('\n');
   const GOOD_MEASUREMENT = 'Verdict: faster\n';
 
-  function fixture({ proof, measurement = GOOD_MEASUREMENT, baseline = '# baseline\n' } = {}) {
+  function fixture({ measurement = GOOD_MEASUREMENT, baseline = '# baseline\n' } = {}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-precond-'));
     dirs.push(dir);
-    const paths = { measurementNote: path.join(dir, 'm.md'), proofNote: path.join(dir, 'proof.md'), baselineNote: path.join(dir, 'b.md') };
+    const paths = { measurementNote: path.join(dir, 'm.md'), baselineNote: path.join(dir, 'b.md') };
     if (measurement !== null) fs.writeFileSync(paths.measurementNote, measurement);
-    if (proof !== undefined && proof !== null) fs.writeFileSync(paths.proofNote, proof);
     if (baseline !== null) fs.writeFileSync(paths.baselineNote, baseline);
     return paths;
   }
   const check = (paths, hasReportedSuccess = true) => rollout.checkEnablementPreconditions({ paths, hasReportedSuccess });
 
-  test('refuses today against the real repository paths', () => {
+  test('no proof note exists or is mentioned: the App-pin proof is gone from the preconditions', () => {
     expect(fs.existsSync(path.join(REPO_ROOT, 'docs', 'proofs', 'local-ci-app-pin-proof.md'))).toBe(false);
-    const r = rollout.checkEnablementPreconditions({ repoRoot: REPO_ROOT, hasReportedSuccess: true });
-    expect(r.ok).toBe(false);
-    expect(reasonsOf(r)).toMatch(/App-pin proof note missing/);
-    expect(reasonsOf(r)).toMatch(/TRD-001 is open/);
+    for (const r of [
+      rollout.checkEnablementPreconditions({ repoRoot: REPO_ROOT, hasReportedSuccess: true }),
+      check(fixture(), false),
+      check(fixture({ measurement: null, baseline: null }), false),
+      rollout.checkEnablementPreconditions({}),
+    ]) expect(reasonsOf(r)).not.toMatch(/proof|App-pin|\bApp\b/i);
   });
 
-  test('all four preconditions satisfied is the only way to ok', () => {
-    const r = check(fixture({ proof: GOOD_PROOF }));
-    expect(r).toEqual({ ok: true, reasons: [] });
+  test('a proofNote path is neither read nor required', () => {
+    const paths = { ...fixture(), proofNote: '/nonexistent/proof.md' };
+    expect(check(paths)).toEqual({ ok: true, reasons: [] });
+  });
+
+  test('refuses against the real repository paths while the measurement is unfilled', () => {
+    const r = rollout.checkEnablementPreconditions({ repoRoot: REPO_ROOT, hasReportedSuccess: true });
+    expect(r.ok).toBe(false);
+    expect(reasonsOf(r)).toMatch(/measurement note/);
+  });
+
+  test('measurement filled, baseline present and a reported success is the only way to ok', () => {
+    expect(check(fixture())).toEqual({ ok: true, reasons: [] });
   });
 
   test('refuses when the measurement note is missing, unfilled or unmeasured', () => {
     for (const measurement of [null, 'TEMPLATE-UNFILLED\nVerdict: faster\n', 'Verdict: unmeasured\n']) {
-      const r = check(fixture({ proof: GOOD_PROOF, measurement }));
+      const r = check(fixture({ measurement }));
       expect(r.ok).toBe(false);
       expect(reasonsOf(r)).toMatch(/measurement note/);
     }
   });
 
-  test('refuses on no proof, an empty proof, a proof without observed responses, or one missing a section', () => {
-    const cases = {
-      none: null,
-      empty: '',
-      'headings only': '## App status accepted\n\n## Personal-token status rejected\n',
-      'no date': GOOD_PROOF.replace(/^Date:.*$/gm, ''),
-      'acceptance recorded as an error': GOOD_PROOF.replace('HTTP 201', 'HTTP 422'),
-      'rejection recorded as success': GOOD_PROOF.replace('HTTP 422', 'HTTP 201'),
-      'only acceptance': GOOD_PROOF.split('## Personal-token')[0],
-      'only rejection': '## Personal-token status rejected\nDate: 2026-10-22\nResponse: HTTP 422\n',
-    };
-    for (const [name, proof] of Object.entries(cases)) {
-      const r = check(fixture({ proof }));
-      expect([name, r.ok]).toEqual([name, false]);
-    }
-  });
-
-  test('refuses a proof note that contains a credential', () => {
-    const jwt = 'eyJ' + 'a'.repeat(20) + '.' + 'b'.repeat(20) + '.' + 'c'.repeat(20);
-    const r = check(fixture({ proof: `${GOOD_PROOF}\nToken: ${jwt}\n` }));
-    expect(r.ok).toBe(false);
-    expect(reasonsOf(r)).toMatch(/credential/);
-  });
-
   test('refuses until the local status has reported success, naming the seven-day rule', () => {
     for (const fact of [false, undefined, 'yes']) {
-      const r = rollout.checkEnablementPreconditions({ paths: fixture({ proof: GOOD_PROOF }), hasReportedSuccess: fact });
+      const r = rollout.checkEnablementPreconditions({ paths: fixture(), hasReportedSuccess: fact });
       expect(r.ok).toBe(false);
       expect(reasonsOf(r)).toMatch(/seven days/);
     }
   });
 
   test('refuses when the baseline note is missing', () => {
-    const r = check(fixture({ proof: GOOD_PROOF, baseline: null }));
+    const r = check(fixture({ baseline: null }));
     expect(r.ok).toBe(false);
     expect(reasonsOf(r)).toMatch(/baseline note missing/);
   });
 
   test('collects every reason, not just the first', () => {
-    const r = check(fixture({ proof: null, measurement: null, baseline: null }), false);
-    expect(r.reasons.length).toBeGreaterThanOrEqual(4);
+    const r = check(fixture({ measurement: null, baseline: null }), false);
+    expect(r.reasons.length).toBeGreaterThanOrEqual(3);
   });
 
   test('nothing to resolve paths from refuses', () => {
@@ -420,7 +387,7 @@ describe('owner approval', () => {
   test('every protection-changing step in the plans is marked as needing owner approval and is named in the approval list', () => {
     const s = snap();
     const steps = [
-      ...rollout.planEnable({ snapshot: s, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED }).steps,
+      ...rollout.planEnable({ snapshot: s, statusContext: CONTEXT, replaces: COVERED }).steps,
       ...rollout.planRollback({ snapshot: s }).steps,
     ];
     const changing = steps.filter((x) => x.changesProtection);
@@ -437,11 +404,9 @@ describe('owner approval', () => {
   });
 });
 
-describe('ensure the proof structure is documented', () => {
-  test('RUNBOOK.md names the exact headings the checker requires', () => {
+describe('the runbook names every owner-approved step', () => {
+  test('RUNBOOK.md names each step the plans mark as needing owner approval', () => {
     const runbook = fs.readFileSync(path.join(__dirname, '..', 'skills', 'local-ci-gate', 'RUNBOOK.md'), 'utf8');
-    expect(runbook).toContain(rollout.ACCEPTED_HEADING);
-    expect(runbook).toContain(rollout.REJECTED_HEADING);
     for (const a of rollout.OWNER_APPROVALS) expect(runbook).toContain(a.step);
   });
 });
@@ -472,10 +437,10 @@ describe('against a RECORDED real GitHub response (not a hand-written fixture)',
 
   test('enable then rollback restores the real protection exactly', () => {
     const snap = rollout.snapshotProtection(real(), { repo: 'Sunstone-Partners/ensemble', branch: 'dev', now: NOW }).snapshot;
-    const enable = rollout.planEnable({ snapshot: snap, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED });
+    const enable = rollout.planEnable({ snapshot: snap, statusContext: CONTEXT, replaces: COVERED });
     expect(enable.ok).toBe(true);
     const required = (steps) => steps.find((s) => s.method === 'PATCH').body.checks.map((c) => [c.context, c.app_id]);
-    expect(required(enable.steps)).toEqual([[CONTEXT, APP_ID]]);
+    expect(required(enable.steps)).toEqual([[CONTEXT, -1]]);
     const rollback = rollout.planRollback({ snapshot: snap });
     expect(rollback.ok).toBe(true);
     expect(required(rollback.steps)).toEqual([
@@ -499,23 +464,23 @@ describe('enable replaces only the checks the gate covers', () => {
   const patchChecks = (plan) => plan.steps.find((s) => s.method === 'PATCH').body.checks.map((c) => [c.context, c.app_id]);
 
   test('a required check the gate does not run stays required', () => {
-    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, appId: APP_ID, replaces: COVERED });
+    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, replaces: COVERED });
     expect(plan.ok).toBe(true);
     expect(patchChecks(plan)).toEqual([
       ['security/gitleaks', 15368],
       ['deploy-preview', 99],
-      [CONTEXT, APP_ID],
+      [CONTEXT, -1],
     ]);
     expect(plan.keeps).toEqual(['security/gitleaks', 'deploy-preview']);
   });
 
   test('the covered hosted checks are the ones removed, and the plan says so', () => {
-    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, appId: APP_ID, replaces: COVERED });
+    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, replaces: COVERED });
     expect(plan.steps.find((s) => s.method === 'PATCH').removes).toEqual(COVERED);
   });
 
   test('a name in replaces that is not currently required is refused, not ignored', () => {
-    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, appId: APP_ID, replaces: ['validate', 'tset (22)'] });
+    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, replaces: ['validate', 'tset (22)'] });
     expect(plan.ok).toBe(false);
     expect(plan.problems.join(' ')).toMatch(/tset \(22\)/);
     expect(plan.steps).toBeUndefined();
@@ -527,7 +492,7 @@ describe('enable replaces only the checks the gate covers', () => {
     ['not a list', 'validate'],
     ['blank entry', ['validate', '  ']],
   ])('replaces %s is refused', (_n, replaces) => {
-    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, appId: APP_ID, replaces });
+    const plan = rollout.planEnable({ snapshot: withExtras(), statusContext: CONTEXT, replaces });
     expect(plan.ok).toBe(false);
     expect(plan.steps).toBeUndefined();
   });
@@ -559,9 +524,9 @@ describe('the rollout subcommand of the gate CLI (how an installed copy reaches 
     const snap = call({ action: 'snapshot', input: { response: realResponse(), repo: 'Sunstone-Partners/ensemble', branch: 'dev', now: NOW } });
     expect(snap.code).toBe(0);
     expect(snap.out.ok).toBe(true);
-    const enable = call({ action: 'plan-enable', input: { snapshot: snap.out.snapshot, statusContext: CONTEXT, appId: APP_ID, replaces: COVERED } });
+    const enable = call({ action: 'plan-enable', input: { snapshot: snap.out.snapshot, statusContext: CONTEXT, replaces: COVERED } });
     expect(enable.code).toBe(0);
-    expect(enable.out.steps.find((s) => s.method === 'PATCH').body.checks).toEqual([{ context: CONTEXT, app_id: APP_ID }]);
+    expect(enable.out.steps.find((s) => s.method === 'PATCH').body.checks).toEqual([{ context: CONTEXT, app_id: -1 }]);
     const back = call({ action: 'plan-rollback', input: { snapshot: snap.out.snapshot } });
     expect(back.out.steps.find((s) => s.method === 'PATCH').body.checks.map((c) => c.context)).toEqual(COVERED);
   });
@@ -570,7 +535,8 @@ describe('the rollout subcommand of the gate CLI (how an installed copy reaches 
     const r = call({ action: 'preconditions', input: { repoRoot: REPO_ROOT, hasReportedSuccess: true } });
     expect(r.code).toBe(1);
     expect(r.out.ok).toBe(false);
-    expect(r.out.reasons.join(' ')).toMatch(/proof/i);
+    expect(r.out.reasons.join(' ')).toMatch(/measurement/i);
+    expect(r.out.reasons.join(' ')).not.toMatch(/proof/i);
   });
 
   test('an inherited or unknown action is rejected, and a missing input is rejected', () => {
@@ -578,10 +544,10 @@ describe('the rollout subcommand of the gate CLI (how an installed copy reaches 
     expect(call({ action: 'snapshot' }).code).toBe(1);
   });
 
-  test('a plan with a placeholder app id never reaches a step list through the CLI', () => {
+  test('plan-enable through the CLI needs no app id and writes the check unpinned (-1)', () => {
     const snap = call({ action: 'snapshot', input: { response: realResponse(), repo: 'o/r', branch: 'dev', now: NOW } }).out.snapshot;
     const r = call({ action: 'plan-enable', input: { snapshot: snap, statusContext: CONTEXT, appId: 'REPLACE_WITH_GITHUB_APP_ID', replaces: COVERED } });
-    expect(r.code).toBe(1);
-    expect(r.out.steps).toBeUndefined();
+    expect(r.code).toBe(0);
+    expect(r.out.steps.find((x) => x.method === 'PATCH').body.checks).toEqual([{ context: CONTEXT, app_id: -1 }]);
   });
 });

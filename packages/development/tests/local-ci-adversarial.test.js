@@ -15,14 +15,13 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 
 const { runGate, cloneAtSha, sweepStaleClones } = require('../lib/local-ci-runner');
 const { validateConfig } = require('../lib/local-ci-config');
 const cli = require('../lib/local-ci-cli');
-const { prInfoFor, PR } = require('./helpers/local-ci-base-repo');
+const { prInfoFor, fakePostStatus, PR } = require('./helpers/local-ci-base-repo');
 
 const MAJOR = Number(process.versions.node.split('.')[0]);
 const BIN_DIR = path.dirname(process.execPath);
@@ -45,7 +44,6 @@ function approvalFor(steps, equivalents) {
     steps,
     ...(equivalents ? { equivalents } : {}),
     status_context: 'x/local-ci',
-    app_id: 1,
   });
   if (!cfg.ok) throw new Error(cfg.problems.join('; '));
   return cfg.approvalSet;
@@ -203,7 +201,6 @@ describe('nothing but the maintainer config sets the Node matrix and the command
       workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR, MAJOR + 1] } }] }],
       steps: [LINT, TEST],
       status_context: 'x/l',
-      app_id: 1,
     }).approvalSet;
     const asked = [];
     const r = runGate(
@@ -228,7 +225,6 @@ describe('nothing but the maintainer config sets the Node matrix and the command
       steps,
       ...extra,
       status_context: 'x/local-ci',
-      app_id: 1,
     });
     const weak = cfgText([{ name: 'noop', cmd: 'true' }]);
     const trusted = cfgText([{ name: 'lint', cmd: 'npm run lint' }], { equivalents: [{ workflowStep: 'true', runs: 'lint' }] });
@@ -237,7 +233,7 @@ describe('nothing but the maintainer config sets the Node matrix and the command
     expect(fs.readFileSync(path.join(head.dir, '.ensemble', 'local-ci.yaml'), 'utf8')).toBe(weak); // head's file is what is on disk
     const report = await cli.runGateFlow(
       { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', pr: PR, dryRun: true },
-      { ...cli.defaultDeps(), prInfo: prInfoFor({ headSha: head.sha }), runnerDeps: deps(), env: {}, loadCredential: () => ({ credential: null, reason: 'none' }) }
+      { ...cli.defaultDeps(), prInfo: prInfoFor({ headSha: head.sha }), runnerDeps: deps(), env: {} }
     );
     expect(report.ok).toBe(false);
     expect(report.failures.map((f) => [f.kind, f.step])).toEqual([['step-failed', 'lint']]);
@@ -269,6 +265,27 @@ describe('secrets and environment', () => {
     expect(fs.existsSync(seen.HOME)).toBe(false); // removed once the run is over
     expect(seen.npm_config_cache).toBe(path.join(env.HOME, '.npm')); // installs stay warm
     expect(seen.PATH.split(path.delimiter)[0]).toBe(BIN_DIR);
+  });
+
+  it('GH_TOKEN and GITHUB_TOKEN in the maintainer environment never reach a step that prints its env, nor the result', () => {
+    const GH = 'maintainer-gh-login-token-1111';
+    const GITHUB = 'maintainer-github-token-2222';
+    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lci-ghtok-')), 'env.json');
+    tmpRoots.push(path.dirname(out));
+    const printer = { name: 'printenv', cmd: 'node scripts/printenv.js' };
+    const head = makeHead({
+      workflowCmds: [printer.cmd],
+      files: { 'scripts/printenv.js': `const e = JSON.stringify(process.env); require('fs').writeFileSync(${JSON.stringify(out)}, e); console.log(e); console.error(e); process.exit(1);\n` },
+    });
+    const r = gate(head, approvalFor([printer]), { env: { ...baseEnv(), GH_TOKEN: GH, GITHUB_TOKEN: GITHUB } });
+    expect(r.ok).toBe(false); // the step ran (and printed its whole environment)
+    const seen = JSON.parse(fs.readFileSync(out, 'utf8'));
+    expect(seen).not.toHaveProperty('GH_TOKEN');
+    expect(seen).not.toHaveProperty('GITHUB_TOKEN');
+    const text = JSON.stringify(r);
+    expect(text).toContain('PATH'); // the printed environment really is in the result
+    expect(text).not.toContain(GH);
+    expect(text).not.toContain(GITHUB);
   });
 
   it('a configured secret reaches the step but a step that prints it never leaks it into the result', () => {
@@ -314,25 +331,16 @@ describe('secrets and environment', () => {
     expect(JSON.stringify(r)).toContain('abc cab');
   });
 
-  it('the failure status posted to GitHub and the CLI report never contain an inherited secret', async () => {
+  it('the failure status posted with gh and the CLI report never contain an inherited secret', async () => {
     const SECRET = 'inherited-deploy-token-9f2c';
     const head = makeHead({
       baseConfig: yaml.dump({
         workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }],
         steps: [LINT, TEST],
         status_context: 'x/local-ci',
-        app_id: 1,
       }),
     });
-    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-    const posted = [];
-    const fetch = async (url, init) => {
-      const reply = (o) => ({ status: 200, json: async () => o });
-      if (url.endsWith('/installation')) return reply({ id: 7 });
-      if (url.endsWith('/access_tokens')) return reply({ token: 'ghs_' + 'x'.repeat(36) });
-      if (/\/statuses\//.test(url)) posted.push(JSON.parse(init.body));
-      return reply({ id: 1 });
-    };
+    const poster = fakePostStatus();
     const previous = process.env.DEPLOY_TOKEN;
     process.env.DEPLOY_TOKEN = SECRET;
     try {
@@ -341,16 +349,15 @@ describe('secrets and environment', () => {
         {
           ...cli.defaultDeps(),
           prInfo: prInfoFor({ headSha: head.sha }),
-          fetch,
+          postStatus: poster,
           env: {},
-          loadCredential: () => ({ credential: { appId: '1', privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) } }),
           runnerDeps: deps({ run: (cmd) => (cmd === 'node --version' ? { status: 0, stdout: process.version, stderr: '' } : { status: 1, stdout: `boom ${SECRET}`, stderr: SECRET }) }),
         }
       );
       expect(report.ok).toBe(false);
-      expect(posted.map((p) => p.state)).toEqual(['failure']);
+      expect(poster.statuses().map((p) => p.body.state)).toEqual(['failure']);
       expect(JSON.stringify(report)).not.toContain(SECRET);
-      expect(JSON.stringify(posted)).not.toContain(SECRET);
+      expect(JSON.stringify(poster.calls)).not.toContain(SECRET);
       expect(JSON.stringify(report)).toContain('[REDACTED]');
     } finally {
       if (previous === undefined) delete process.env.DEPLOY_TOKEN;
@@ -448,7 +455,6 @@ describe('the steps cannot rewrite what they claim to have tested', () => {
       steps: [{ name: 'step', cmd }],
       output_paths: ['grant.txt'],
       status_context: 'x/local-ci',
-      app_id: 1,
     });
     expect(allowed.ok).toBe(true);
     expect(gate(head, allowed.approvalSet)).toMatchObject({ ok: true, failures: [] });
@@ -666,7 +672,6 @@ describe('secrets reach a step only by name from the BASE-ref config, through th
       workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }],
       steps: [{ name: 'show', cmd: 'node scripts/show.js' }],
       status_context: 'x/local-ci',
-      app_id: 1,
       ...extra,
     });
   // The step records which of the two variables it can see (outside the clone) and prints the value (to test redaction).
@@ -696,8 +701,7 @@ describe('secrets reach a step only by name from the BASE-ref config, through th
           ...cli.defaultDeps(),
           prInfo: prInfoFor({ headSha: head.sha }),
           runnerDeps: deps(),
-          loadCredential: () => ({ credential: null, reason: 'none' }),
-          postStatus: async (a) => { posted.push(a); return { published: true }; },
+          postStatus: (a) => { posted.push(a); return { published: true }; },
         }
       );
     } finally {
@@ -740,7 +744,6 @@ describe('secrets reach a step only by name from the BASE-ref config, through th
         steps: [{ name: 'leak', cmd: 'node scripts/leak.js' }],
         secret_names: ['REGISTRY_SESSION'],
         status_context: 'x/local-ci',
-        app_id: 1,
       }),
     });
     const saved = process.env.REGISTRY_SESSION;
@@ -749,7 +752,7 @@ describe('secrets reach a step only by name from the BASE-ref config, through th
     try {
       report = await cli.runGateFlow(
         { repoRoot: head.dir, headSha: head.sha, baseRef: 'origin/trusted-base', repo: 'o/r', pr: PR, dryRun: true },
-        { ...cli.defaultDeps(), prInfo: prInfoFor({ headSha: head.sha }), runnerDeps: deps(), loadCredential: () => ({ credential: null, reason: 'none' }) }
+        { ...cli.defaultDeps(), prInfo: prInfoFor({ headSha: head.sha }), runnerDeps: deps() }
       );
     } finally {
       if (saved === undefined) delete process.env.REGISTRY_SESSION;

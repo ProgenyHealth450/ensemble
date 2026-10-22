@@ -5,21 +5,20 @@
  * path. A real git repo is built in a temp dir with a base commit, a deliberately
  * failing commit F and a fixing commit P, under ONE unchanged configuration.
  * Real: git clone, the trusted command run by the runner (bash -c), non-zero exit, runGate,
- * runGateFlow, postStatus (RS256 JWT signing with a throwaway in-memory key),
- * loadCredential (env), runMerge. Fake: only the network (`fetch`).
+ * runGateFlow, the real postStatus (its `gh api` argv is built and parsed for real), runMerge.
+ * Fake: only the `gh` process (an injected `run`) standing in for GitHub.
  * Not exercised: npm ci, Node downloads, the repo's real suites, real GitHub.
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const { runGateFlow, runMerge, defaultDeps } = require('../lib/local-ci-cli');
 const { makeBaseRepo, cleanupBaseRepos, prInfoFor, PR } = require('./helpers/local-ci-base-repo');
 const { runGate } = require('../lib/local-ci-runner');
-const { redact, loadCredential, postStatus } = require('../lib/local-ci-app');
+const { redact, postStatus } = require('../lib/local-ci-status');
 
 const NODE_MAJOR = Number(process.versions.node.split('.')[0]);
 const NODE_BIN_DIR = path.dirname(process.execPath);
@@ -38,7 +37,6 @@ steps:
   - name: unit-check
     cmd: node scripts/unit-check.js
 status_context: ${CONTEXT}
-app_id: 12345
 `;
 
 const WORKFLOW_YAML = `name: proof
@@ -82,23 +80,21 @@ function commit(root, message, files) {
   return git(root, 'rev-parse', 'HEAD');
 }
 
-/** In-memory fake of the GitHub API: records every status post. */
+/** In-memory fake of `gh`: records every argv it is run with and every status post it accepts; `down` makes it fail like a 403. */
 function fakeGitHub() {
   const posts = [];
-  const fetch = async (url, init) => {
-    const method = (init && init.method) || 'GET';
-    const reply = (status, body) => ({ status, json: async () => body });
-    if (method === 'GET' && /\/installation$/.test(url)) return reply(200, { id: 7 });
-    if (method === 'POST' && /\/access_tokens$/.test(url)) return reply(201, { token: 'installation-token-for-test' });
-    const m = /\/repos\/([^/]+\/[^/]+)\/statuses\/([0-9a-f]+)$/.exec(url);
-    if (method === 'POST' && m) {
-      const body = JSON.parse(init.body);
-      posts.push({ repo: m[1], sha: m[2], state: body.state, context: body.context, description: body.description });
-      return reply(201, { id: posts.length });
-    }
-    return reply(404, {});
+  const runs = [];
+  const state = { down: false };
+  const run = (cmd, argv) => {
+    runs.push({ cmd, argv });
+    if (state.down) return { status: 1, stdout: '', stderr: 'gh: Resource not accessible (HTTP 403)' };
+    const m = /^repos\/([^/]+\/[^/]+)\/statuses\/([0-9a-f]+)$/.exec(argv[3] || '');
+    if (cmd !== 'gh' || argv[0] !== 'api' || argv[1] !== '-X' || argv[2] !== 'POST' || !m) return { status: 2, stdout: '', stderr: 'unexpected gh call' };
+    const field = (k) => argv.find((a, i) => argv[i - 1] === '-f' && a.startsWith(`${k}=`)).slice(k.length + 1);
+    posts.push({ repo: m[1], sha: m[2], state: field('state'), context: field('context'), description: field('description') });
+    return { status: 0, stdout: JSON.stringify({ id: posts.length }), stderr: '' };
   };
-  return { fetch, posts };
+  return { run, runs, posts, state };
 }
 
 describe('local CI gate can fail and can pass (TRD-006)', () => {
@@ -137,13 +133,11 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
     shaF = fixture.headSha;
     shaP = commit(repoRoot, 'P: fix the unit check', { 'scripts/unit-check.js': UNIT_PASSING });
 
-    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-    const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
     gh = fakeGitHub();
     deps = {
       ...defaultDeps(),
-      env: { ...process.env, LOCAL_CI_APP_ID: '12345', LOCAL_CI_APP_PRIVATE_KEY: pem },
-      fetch: gh.fetch,
+      env: { ...process.env },
+      postStatus: (req) => postStatus({ ...req, run: gh.run, env: {} }),
       runGate,
       runnerDeps: { resolveNodeBinDir: () => NODE_BIN_DIR },
     };
@@ -209,16 +203,26 @@ describe('local CI gate can fail and can pass (TRD-006)', () => {
     expect(refused.mergeReady).toBe(false);
   });
 
-  test('without a credential the gate cannot attest success for P (cannot fake a pass)', async () => {
+  test('when gh cannot post, the gate cannot attest success for P (cannot fake a pass)', async () => {
     const before = gh.posts.length;
-    const noKey = { ...depsFor(shaP), env: { PATH: process.env.PATH }, loadCredential };
-    const r = await runGateFlow(payloadFor(shaP), noKey);
-    expect(r.mergeReady).toBe(false);
-    expect(gh.posts).toHaveLength(before);
+    gh.state.down = true;
+    try {
+      const r = await runGateFlow(payloadFor(shaP), depsFor(shaP));
+      expect(r.mergeReady).toBe(false);
+      expect(r.posted).toBe(false);
+      expect(gh.posts).toHaveLength(before);
+    } finally {
+      gh.state.down = false;
+    }
   });
 
-  test('the transport used by the proof is the real postStatus', () => {
-    expect(deps.postStatus).toBe(postStatus);
+  test('the transport used by the proof is the real postStatus: gh api -X POST as an argv array, nothing else', () => {
+    expect(gh.runs.length).toBeGreaterThanOrEqual(2);
+    for (const { cmd, argv } of gh.runs) {
+      expect(cmd).toBe('gh');
+      expect(argv.slice(0, 3)).toEqual(['api', '-X', 'POST']);
+      expect(argv[3]).toMatch(/^repos\/example-org\/example-repo\/statuses\/[0-9a-f]{40}$/);
+    }
   });
 });
 

@@ -86,9 +86,5 @@ excluded_steps:
 # Name of the commit status the gate posts on the PR head.
 status_context: ensemble/local-ci
 
-# GitHub App that posts the status. Placeholder only: set the real numeric App id
-# locally; never put a private key or token in this file.
-app_id: REPLACE_WITH_GITHUB_APP_ID
-
 # No bot reviewers (e.g. CodeRabbit) are required; list logins here to enable bot-review handling.
 bot_reviewers: []

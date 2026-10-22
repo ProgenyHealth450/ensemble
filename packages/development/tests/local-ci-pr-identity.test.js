@@ -21,10 +21,10 @@ afterAll(cleanupBaseRepos);
 const WORKFLOW = '.github/workflows/ci.yml';
 const MAJOR = Number(process.versions.node.split('.')[0]);
 const wf = (cmds) => yaml.dump({ name: 'ci', on: ['push'], jobs: { ci: { 'runs-on': 'ubuntu-latest', strategy: { matrix: { 'node-version': [MAJOR] } }, steps: cmds.map((run) => ({ run })) } } });
-const cfg = (steps) => yaml.dump({ workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }], steps, status_context: 'x/local-ci', app_id: 1 });
+const cfg = (steps) => yaml.dump({ workflows: [{ file: WORKFLOW, jobs: [{ id: 'ci', matrix: { 'node-version': [MAJOR] } }] }], steps, status_context: 'x/local-ci' });
 const STRICT = cfg([{ name: 'Build', cmd: 'node scripts/build.js' }, { name: 'Test', cmd: 'node scripts/test.js' }]);
 
-const noNetwork = { loadCredential: () => ({ credential: null, reason: 'none' }), postStatus: async () => ({ published: true }) };
+const noNetwork = { postStatus: () => ({ published: true }) };
 const stub = (extra) => ({ ...cli.defaultDeps(), ...noNetwork, runGate: () => ({ ok: true, failures: [], unmirrored: [], nodes: [{ node: MAJOR, ok: true, steps: [] }] }), ...extra });
 const gatePayload = (fx, over) => ({ repoRoot: fx.dir, headSha: fx.headSha, baseRef: fx.baseRef, repo: REPO, pr: PR, dryRun: true, ...over });
 const mergePayload = (fx, over) => ({ repoRoot: fx.dir, headSha: fx.headSha, baseRef: fx.baseRef, repo: REPO, pr: PR, statuses: [], ...over });

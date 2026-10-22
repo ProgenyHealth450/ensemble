@@ -1,6 +1,6 @@
 ---
 name: local-ci-gate
-description: Run or check the local CI gate for a PR head. Runs ci:local in a clean clone at the exact head SHA via the runner, posts a signed commit status, and decides merge-readiness without waiting for hosted CI. Use before merging a PR in a repo with .ensemble/local-ci.yaml; not for hosted-CI debugging.
+description: Run or check the local CI gate for a PR head. Runs ci:local in a clean clone at the exact head SHA via the runner, posts a commit status with the maintainer's own gh login, and decides merge-readiness without waiting for hosted CI. Use before merging a PR in a repo with .ensemble/local-ci.yaml; not for hosted-CI debugging.
 ---
 
 # Local CI Gate
@@ -65,8 +65,9 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
 2. Read the result and report, in this order of precedence:
    - `prerequisite` set: say which prerequisite is missing and that nothing was
      run or posted. Do not fall back to merging.
-   - `cannotAttest:true`: say the gate cannot attest (no GitHub App
-     credential), that nothing was published and the merge is refused.
+   - `cannotAttest:true`: say the gate cannot attest (the status could not be
+     posted with the maintainer's `gh` login: not logged in, or the post failed),
+     that nothing was published and the merge is refused.
    - `failures` non-empty: list each with workflow, job, step, node and the
      exact head SHA (full 40 hex), plus `message`. A failing or unsupported step
      is never success; at most a failure status was posted.
@@ -83,7 +84,13 @@ refusal. Payloads over 1 MiB or malformed JSON are rejected with no effect.
 
 ---
 
-## Trust and provenance
+## Trust model and provenance
+
+The status is posted with the maintainer's own `gh` login, so `gate` and `merge`
+need that `gh` session. Any identity with write access can post a status under
+the agreed name; `pr-merge` verifies the head SHA, the run record and the review
+state but not who posted it. The gate stops accidents and unverified agent
+merges, not deliberate forgery.
 
 Required commands and the approval set come ONLY from `.ensemble/local-ci.yaml`
 as committed at the PR's BASE branch (`git show <baseRef>:.ensemble/local-ci.yaml`),
@@ -165,6 +172,6 @@ preconditions hold; never change branch protection from this skill.
 
 - Success exists only as a status posted by the CLI on the exact head.
 - Report CLI output as given; do not soften, reinterpret or truncate SHAs.
-- No credential, secret or key is ever printed; the CLI redacts, so do not
-  re-read credential files.
+- No token or secret is ever printed; the CLI redacts. `gh` holds its own login;
+  never read or pass tokens.
 - Hosted CI is not consulted for readiness; mention it only if asked.

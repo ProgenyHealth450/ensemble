@@ -14,13 +14,13 @@
  *   checks:[{workflow, job, matrix}], excluded:[{workflow, job, reason}],
  *   excludedSteps:[{workflow, job, step, reason}], steps:[{name, cmd}],
  *   equivalents:[{workflowStep, runs}], secretNames:[envVarName], outputPaths:[repoRelativePath],
- *   statusContext, appId, botReview:{ skipped, logins } }
+ *   statusContext, botReview:{ skipped, logins } }
  */
 
 const yaml = require('js-yaml');
 
-const TOP_REQUIRED = ['workflows', 'steps', 'status_context', 'app_id'];
-const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'secret_names', 'output_paths', 'status_context', 'app_id', 'bot_reviewers'];
+const TOP_REQUIRED = ['workflows', 'steps', 'status_context'];
+const TOP_ALLOWED = ['workflows', 'steps', 'excluded', 'excluded_steps', 'equivalents', 'secret_names', 'output_paths', 'status_context', 'bot_reviewers'];
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -266,7 +266,8 @@ function validateConfig(source) {
   }
 
   const problems = [];
-  checkKeys(config, TOP_ALLOWED, TOP_REQUIRED, 'config', problems);
+  // app_id gets its own explanatory problem below instead of the generic unknown-key line.
+  checkKeys(Object.fromEntries(Object.entries(config).filter(([k]) => k !== 'app_id')), TOP_ALLOWED, TOP_REQUIRED, 'config', problems);
 
   const workflows = 'workflows' in config ? validateWorkflows(config.workflows, problems) : [];
   const excluded = validateExcluded(config.excluded, problems);
@@ -277,12 +278,8 @@ function validateConfig(source) {
   if ('status_context' in config && !isText(config.status_context)) {
     problems.push('status_context: must be non-empty text');
   }
-  let appId = '';
   if ('app_id' in config) {
-    const id = config.app_id;
-    if (isText(id)) appId = id.trim();
-    else if (Number.isInteger(id) && id > 0) appId = String(id);
-    else problems.push('app_id: must be a positive integer or non-empty placeholder text');
+    problems.push('app_id: the GitHub App was removed; the gate posts the status with the maintainer\'s own gh login, so delete the app_id key');
   }
   const botReview = validateBots(config.bot_reviewers, problems);
   const secretNames = validateSecretNames(config.secret_names, problems);
@@ -319,7 +316,6 @@ function validateConfig(source) {
       secretNames,
       outputPaths,
       statusContext: config.status_context.trim(),
-      appId,
       botReview,
     },
   };

@@ -55,6 +55,3 @@ CLAUDE.local.md
 .ensemble/local-ci-runs/
 .ensemble/local-ci.secrets.env
 
-# Local CI GitHub App private key (TRD-004): never commit a credential.
-.ensemble/local-ci-app.pem
-*.pem

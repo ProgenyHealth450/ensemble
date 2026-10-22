@@ -3,51 +3,33 @@
 /**
  * The trusted config is the PR's BASE-BRANCH ref, read with git (`git show <baseRef>:...`),
  * never the maintainer's working tree. Real temp git repos, the real CLI handlers, a fake
- * GitHub fetch and an injected runner result (no Node download, no network).
+ * status publisher and an injected runner result (no Node download, no network).
  */
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const cli = require('../lib/local-ci-cli');
 const { buildRecord } = require('../lib/local-ci-record');
-const { makeBaseRepo, cleanupBaseRepos, prInfoFor, REPO, PR } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakePostStatus, REPO, PR } = require('./helpers/local-ci-base-repo');
 
 afterAll(cleanupBaseRepos);
 
 const major = Number(process.versions.node.split('.')[0]);
 const cfg = (steps, extra = '') =>
-  `workflows:\n  - file: .github/workflows/ci.yml\n    jobs:\n      - id: ci\n        matrix:\n          node-version: [${major}]\nsteps:\n${steps}\nstatus_context: x/local-ci\napp_id: 1\n${extra}`;
+  `workflows:\n  - file: .github/workflows/ci.yml\n    jobs:\n      - id: ci\n        matrix:\n          node-version: [${major}]\nsteps:\n${steps}\nstatus_context: x/local-ci\n${extra}`;
 const WF = (run) => `name: ci\non: [push]\njobs:\n  ci:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${run}\n`;
 const STRICT = cfg('  - name: real-check\n    cmd: exit 1');
 const WEAK = cfg('  - name: real-check\n    cmd: "true"');
 const CTX = 'x/local-ci';
 
-const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-const CREDENTIAL = { credential: { appId: '1', privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) } };
-
-function fakeFetch() {
-  const calls = [];
-  const fn = async (url, init) => {
-    calls.push({ url, body: init.body ? JSON.parse(init.body) : null });
-    const reply = (o) => ({ status: 200, json: async () => o });
-    if (url.endsWith('/installation')) return reply({ id: 7 });
-    if (url.endsWith('/access_tokens')) return reply({ token: 'ghs_' + 'x'.repeat(36) });
-    return reply({ id: 99 });
-  };
-  fn.statuses = () => calls.filter((c) => /\/statuses\//.test(c.url));
-  fn.calls = calls;
-  return fn;
-}
-
 const passing = (options) => ({ ok: true, sha: options.headSha, failures: [], unmirrored: [], nodes: [{ node: major, ok: true, steps: [] }] });
 
 function deps(fx, over = {}) {
-  const fetch = fakeFetch();
+  const poster = fakePostStatus();
   const runGate = jest.fn(passing);
-  return { d: { ...cli.defaultDeps(), fetch, runGate, loadCredential: () => CREDENTIAL, env: {}, prInfo: prInfoFor(fx), ...over }, fetch, runGate };
+  return { d: { ...cli.defaultDeps(), postStatus: poster, runGate, env: {}, prInfo: prInfoFor(fx), ...over }, poster, runGate };
 }
 
 /** Base: strict config; head (checked out): rewrites config + workflow so the required command is `true`. */
@@ -66,7 +48,7 @@ describe('(a) a head that rewrites its own config is graded by the BASE config, 
     const repo = weakenedHead();
     expect(repo.git('rev-parse', 'HEAD')).toBe(repo.headSha); // maintainer's working tree IS the head
     expect(fs.readFileSync(path.join(repo.dir, '.ensemble/local-ci.yaml'), 'utf8')).toBe(WEAK);
-    const { d, fetch, runGate } = deps(repo);
+    const { d, poster, runGate } = deps(repo);
     const r = await cli.runGateFlow(payload(repo), d);
     expect(runGate).toHaveBeenCalledTimes(1);
     expect(runGate.mock.calls[0][0].approvalSet.steps.map((s) => s.cmd || s.run || JSON.stringify(s))).toEqual(
@@ -74,7 +56,7 @@ describe('(a) a head that rewrites its own config is graded by the BASE config, 
     );
     expect(JSON.stringify(runGate.mock.calls[0][0].approvalSet.steps)).not.toContain('"true"');
     expect(r.ok).toBe(true);
-    const desc = fetch.statuses()[0].body.description;
+    const desc = poster.statuses()[0].body.description;
     expect(desc.startsWith(`ci-local ${blobAt(repo, repo.baseRef).slice(0, 12)} `)).toBe(true);
     expect(desc.startsWith(`ci-local ${blobAt(repo, 'HEAD').slice(0, 12)} `)).toBe(false);
   });
@@ -99,8 +81,7 @@ describe('(a) a head that rewrites its own config is graded by the BASE config, 
     const head = repo.git('rev-parse', 'HEAD');
     const d = {
       ...cli.defaultDeps(),
-      loadCredential: () => CREDENTIAL,
-      fetch: fakeFetch(),
+      postStatus: fakePostStatus(),
       prInfo: prInfoFor(repo, { headRefOid: head }),
       runnerDeps: { resolveNodeBinDir: () => path.dirname(process.execPath) },
       env: { PATH: process.env.PATH, HOME: process.env.HOME },
@@ -202,13 +183,13 @@ describe('(d) the head is not its own base, and a descendant of the head is not 
     repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.headSha);
     const asHead = { ...payload(repo), baseRef: 'origin/pr-self' };
     const prInfo = prInfoFor(repo, { baseRefName: 'pr-self' });
-    const { d, runGate, fetch } = deps(repo, { prInfo });
+    const { d, runGate, poster } = deps(repo, { prInfo });
     const g = await cli.runGateFlow(asHead, d);
     expect(g).toMatchObject({ ok: false, mergeReady: false, stage: 'config' });
     expect(g.error).toMatch(/own base/);
     expect(g.error).toContain(repo.headSha);
     expect(runGate).not.toHaveBeenCalled();
-    expect(fetch.calls).toHaveLength(0);
+    expect(poster.calls).toHaveLength(0);
     expect(cli.runRun({ repoRoot: repo.dir, headSha: repo.headSha, baseRef: 'origin/pr-self' }, d).ok).toBe(false);
     const m = cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: 'origin/pr-self', repo: REPO, pr: PR, statuses: [] }, { ...cli.defaultDeps(), prInfo });
     expect(m.mergeReady).toBe(false);
@@ -298,11 +279,11 @@ describe('(f) a status produced under a different config blob is refused by merg
 describe('(g) gate -> merge round trip', () => {
   it('the posted record carries the trusted blob and merge accepts it for the same base config only', async () => {
     const repo = makeBaseRepo({ config: STRICT });
-    const { d, fetch } = deps(repo);
+    const { d, poster } = deps(repo);
     const r = await cli.runGateFlow(payload(repo), d);
     expect(r).toMatchObject({ ok: true, posted: true, mergeReady: true });
-    const post = fetch.statuses()[0];
-    expect(post.url).toContain(`/statuses/${repo.headSha}`);
+    const post = poster.statuses()[0];
+    expect(post.sha).toBe(repo.headSha);
     expect(post.body.description.startsWith(`ci-local ${blobAt(repo, repo.baseRef).slice(0, 12)} `)).toBe(true);
     const status = { context: CTX, state: 'success', description: post.body.description, sha: repo.headSha };
     const merge = () => cli.runMerge({ headSha: repo.headSha, repoRoot: repo.dir, baseRef: repo.baseRef, repo: REPO, pr: PR, statuses: [status] }, { ...cli.defaultDeps(), prInfo: prInfoFor(repo) });

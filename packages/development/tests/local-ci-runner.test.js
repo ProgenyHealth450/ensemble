@@ -32,7 +32,6 @@ steps:
   - name: test
     cmd: npm test
 status_context: ensemble/local-ci
-app_id: 123
 `;
 
 const VALIDATE_YML = `
@@ -283,7 +282,6 @@ steps:
   - name: validate
     cmd: npm run validate
 status_context: ensemble/local-ci
-app_id: 1
 `).approvalSet;
     const deps = fakeDeps();
     const r = runGate({ repoRoot: repo, headSha: shaB, approvalSet: noMatrix }, deps);

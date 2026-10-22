@@ -11,7 +11,6 @@ const base = () => ({
   workflows: [{ file: 'a.yml', jobs: [{ id: 'build' }] }],
   steps: [{ name: 'test', cmd: 'npm test' }],
   status_context: 'x/local-ci',
-  app_id: 123,
 });
 
 describe('validateConfig', () => {
@@ -22,7 +21,8 @@ describe('validateConfig', () => {
     const ids = r.approvalSet.checks.map((c) => [c.job, c.matrix['node-version']]);
     expect(ids).toEqual([['validate', undefined], ['test', 22], ['test', 24]]);
     expect(r.approvalSet.statusContext).toBe('ensemble/local-ci');
-    expect(r.approvalSet.appId).toMatch(/^REPLACE_/);
+    expect(r.approvalSet.appId).toBeUndefined();
+    expect(Object.keys(r.approvalSet)).not.toContain('appId');
   });
 
   test('excluded job is recorded in the normalized set with its reason', () => {
@@ -89,9 +89,28 @@ describe('validateConfig', () => {
   test('each missing required key is named', () => {
     const r = validateConfig({});
     expect(r.ok).toBe(false);
-    for (const k of ['workflows', 'steps', 'status_context', 'app_id']) {
+    for (const k of ['workflows', 'steps', 'status_context']) {
       expect(r.problems.join('\n')).toContain(`missing required key "${k}"`);
     }
+  });
+
+  test.each([['a number', 123], ['zero', 0], ['an object', {}], ['a placeholder', 'REPLACE_WITH_GITHUB_APP_ID'], ['null', null]])(
+    'an app_id key (%s) is REJECTED with a message naming it: the GitHub App is gone',
+    (_n, value) => {
+      const r = validateConfig({ ...base(), app_id: value });
+      expect(r.ok).toBe(false);
+      expect(r.approvalSet).toBeUndefined();
+      expect(r.problems.join('\n')).toMatch(/app_id/);
+      expect(r.problems.join('\n')).toMatch(/gh login/);
+      expect(r.problems.join('\n')).not.toMatch(/unknown key "app_id"/);
+    }
+  );
+
+  test('a config without app_id validates and carries no app identity', () => {
+    const r = validateConfig(base());
+    expect(r.ok).toBe(true);
+    expect(r.approvalSet.statusContext).toBe('x/local-ci');
+    expect(JSON.stringify(r.approvalSet)).not.toMatch(/app_?id/i);
   });
 
   test('job both included and excluded is a problem', () => {
@@ -112,8 +131,6 @@ describe('validateConfig', () => {
   });
 
   test.each([
-    ['app_id zero', { app_id: 0 }],
-    ['app_id object', { app_id: {} }],
     ['workflows string', { workflows: 'a.yml' }],
     ['empty workflows', { workflows: [] }],
     ['bad matrix', { workflows: [{ file: 'a.yml', jobs: [{ id: 'x', matrix: { n: [] } }] }] }],

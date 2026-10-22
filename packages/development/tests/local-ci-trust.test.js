@@ -7,27 +7,23 @@
  * (the JSON payload) cannot supply, replace or shrink them, and cannot smuggle
  * runner options. Also: the merge/gate verdict logic is exercised THROUGH the CLI
  * entry points (human vs bot reviews, status-context case, result gating).
- * Real modules, real temp git repos; fake only the GitHub network and the runner
- * result. No network, no real credential.
+ * Real modules, real temp git repos; fake only the status publisher and the runner
+ * result. No network, no real login.
  */
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 const { buildRecord } = require('../lib/local-ci-record');
-const { makeBaseRepo, cleanupBaseRepos, prInfoFor, PR, REPO, CONFIG_PATH } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakePostStatus, PR, REPO, CONFIG_PATH } = require('./helpers/local-ci-base-repo');
 
 const REPO_CONFIG = path.join(__dirname, '..', '..', '..', '.ensemble', 'local-ci.yaml');
 const TRUSTED_TEXT = fs.readFileSync(REPO_CONFIG, 'utf8');
 const TRUSTED = validateConfig(TRUSTED_TEXT);
 const CONTEXT = TRUSTED.approvalSet.statusContext;
 const WORKFLOW_SET = TRUSTED.approvalSet.workflows.map((w) => w.file);
-
-const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-const CREDENTIAL = { credential: { appId: '12345', privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) } };
 
 afterAll(cleanupBaseRepos);
 
@@ -41,26 +37,12 @@ function maintainer(config = TRUSTED_TEXT, extra = {}) {
 /** GitHub's honest answer when a test overrides the base ref: the PR targets that very branch. */
 const prAnswer = (extra) => (extra.baseRef ? { baseRefName: extra.baseRef.replace(/^origin\//, '') } : {});
 
-function fakeFetch() {
-  const calls = [];
-  const fn = async (url, init) => {
-    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : null });
-    const reply = (obj) => ({ status: 200, json: async () => obj });
-    if (url.endsWith('/installation')) return reply({ id: 7 });
-    if (url.endsWith('/access_tokens')) return reply({ token: 'ghs_' + 'x'.repeat(36) });
-    return reply({ id: 99 });
-  };
-  fn.calls = calls;
-  fn.statuses = () => calls.filter((c) => /\/statuses\//.test(c.url));
-  return fn;
-}
-
 const passing = (sha) => ({ ok: true, sha, failures: [], unmirrored: [], nodes: [{ node: 22, ok: true, steps: [] }] });
 
 function makeDeps(runGateImpl, fx, answer) {
-  const fetch = fakeFetch();
+  const post = fakePostStatus();
   const runGate = jest.fn(runGateImpl || ((o) => passing(o.headSha)));
-  return { deps: { ...cli.defaultDeps(), fetch, runGate, loadCredential: () => CREDENTIAL, env: {}, prInfo: fx ? prInfoFor(fx, answer) : undefined }, fetch, runGate };
+  return { deps: { ...cli.defaultDeps(), postStatus: post, runGate, env: {}, prInfo: fx ? prInfoFor(fx, answer) : undefined }, post, runGate };
 }
 
 const SMUGGLED = [
@@ -81,12 +63,12 @@ const SMUGGLED = [
 describe('gate: payload cannot carry config or runner options', () => {
   it.each(SMUGGLED)('rejects payload key %s before anything runs or posts', async (key, value) => {
     const repo = maintainer();
-    const { deps, fetch, runGate } = makeDeps(undefined, repo);
+    const { deps, post, runGate } = makeDeps(undefined, repo);
     await expect(
       cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR, [key]: value }, deps)
     ).rejects.toThrow(new RegExp(`unknown payload key.*"${key}"`));
     expect(runGate).not.toHaveBeenCalled();
-    expect(fetch.calls).toHaveLength(0);
+    expect(post.calls).toHaveLength(0);
   });
 
   it('baseRef is an allowed key: the same payload without a smuggled key goes through', async () => {
@@ -317,18 +299,18 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
   const nodesOk = [{ node: 22, ok: true, steps: [] }];
   const run = async (mk) => {
     const repo = maintainer();
-    const { deps, fetch } = makeDeps(() => mk(repo.sha), repo);
+    const { deps, post } = makeDeps(() => mk(repo.sha), repo);
     const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR }, deps);
-    return { r, posts: fetch.statuses().map((p) => p.body.state) };
+    return { r, posts: post.statuses().map((p) => p.body.state) };
   };
   const fail = (sha) => ({ kind: 'step-failed', step: 's', node: 22, sha, message: 'm' });
 
   it('control: a clean result is success and posts the exact configured context', async () => {
     const repo = maintainer();
-    const { deps, fetch } = makeDeps(undefined, repo);
+    const { deps, post } = makeDeps(undefined, repo);
     const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR }, deps);
     expect(r).toMatchObject({ ok: true, posted: true, mergeReady: true });
-    expect(fetch.statuses()[0].body).toMatchObject({ state: 'success', context: CONTEXT });
+    expect(post.statuses()[0].body).toMatchObject({ state: 'success', context: CONTEXT });
   });
 
   it('ok:true with a recorded failure is NOT success', async () => {
@@ -356,20 +338,20 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
 
   it('the success record is bound to the trusted base config blob (git rev-parse <baseRef>:path), not to the head file', async () => {
     const repo = maintainer(TRUSTED_TEXT, { headFiles: { [CONFIG_PATH]: TRUSTED_TEXT + '\n# head edit\n' } });
-    const { deps, fetch } = makeDeps(undefined, repo);
+    const { deps, post } = makeDeps(undefined, repo);
     const r = await cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef: repo.baseRef, repo: REPO, pr: PR }, deps);
     const baseBlob = repo.git('rev-parse', `${repo.baseRef}:${CONFIG_PATH}`);
     const headBlob = repo.git('hash-object', path.join(repo.dir, CONFIG_PATH));
     expect(headBlob).not.toBe(baseBlob);
     expect(r.record.runner).toBe(baseBlob.slice(0, 12));
     expect(r.record.runner).not.toBe(headBlob.slice(0, 12));
-    expect(fetch.statuses()[0].body.description).toContain(`ci-local ${baseBlob.slice(0, 12)}`);
+    expect(post.statuses()[0].body.description).toContain(`ci-local ${baseBlob.slice(0, 12)}`);
   });
 
   it('a base ref that is the head, or does not resolve, posts nothing and runs nothing', async () => {
     const repo = maintainer();
     repo.git('update-ref', 'refs/remotes/origin/pr-self', repo.sha);
-    const { deps, fetch, runGate } = makeDeps(undefined, repo);
+    const { deps, post, runGate } = makeDeps(undefined, repo);
     // a real remote-tracking ref at the head, and a well-formed one that does not exist: refused by the gate, not the boundary
     for (const baseRef of ['origin/pr-self', 'origin/no-such-branch']) {
       const honestPr = { ...deps, prInfo: prInfoFor(repo, { baseRefName: baseRef.replace(/^origin\//, '') }) };
@@ -381,6 +363,6 @@ describe('gate through the CLI: a pass needs ok, no failures, no unmirrored step
       await expect(cli.runGateFlow({ repoRoot: repo.dir, headSha: repo.sha, baseRef, repo: REPO, pr: PR }, deps)).rejects.toThrow(/baseRef/);
     }
     expect(runGate).not.toHaveBeenCalled();
-    expect(fetch.calls).toHaveLength(0);
+    expect(post.calls).toHaveLength(0);
   });
 });

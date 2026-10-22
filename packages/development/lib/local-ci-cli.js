@@ -11,7 +11,7 @@
  *   config   {source|repoRoot, baseRef}            validateConfig (source: text check only)
  *   record   {action: build|parse|verify, input}   buildRecord / parseRecord / verifyRecord
  *   run      {repoRoot, headSha, baseRef}          runGate (never publishes)
- *   post     {input:{repo,sha,state,context,description}}  postStatus
+ *   post     {input:{repo,sha,state,context,description}}  postStatus (maintainer's own gh login)
  *   review   {action: classify|decide, reviews}    classifyReviews / decideBlock
  *   sweep    {facts, trackedKeys}                  findUntracked
  *   timing   {action: ready|verdict|record|fidelity|note, input}
@@ -25,6 +25,9 @@
  * clone and the payload are never consulted for config. Payloads cannot carry config,
  * paths, scripts or runner options: unknown keys are rejected.
  *
+ * TRUST (honest actor): the status is posted with the maintainer's own `gh` login. pr-merge verifies the head-SHA binding,
+ * the run record and review state; it does NOT verify who posted the status. There is no GitHub App, key or token here.
+ *
  * FAIL CLOSED: malformed or oversized (> MAX_STDIN_BYTES) JSON is rejected
  * before any handler runs (exit 1, `{error}`, no side effects). Every string
  * emitted passes through redact(). A result with `ok:false` exits 1.
@@ -35,7 +38,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { buildRecord, parseRecord, verifyRecord } = require('./local-ci-record');
-const { postStatus, loadCredential, redact, MAX_DESCRIPTION, CANNOT_ATTEST } = require('./local-ci-app');
+const { postStatus, redact, MAX_DESCRIPTION, CANNOT_ATTEST } = require('./local-ci-status');
 const { classifyReviews, decideBlock } = require('./local-ci-review');
 const { findUntracked } = require('./local-ci-sweep');
 const timing = require('./local-ci-timing');
@@ -124,8 +127,6 @@ function defaultDeps() {
     readFile: (p) => fs.readFileSync(p, 'utf8'),
     runGate,
     postStatus,
-    loadCredential,
-    now: () => Date.now(),
     prInfo: ({ repo, pr }) => {
       // argv elements, never a shell; `repo` and `pr` were validated by isRepo/isPrNumber before this is reached.
       const r = tool('gh', ['pr', 'view', String(pr), '--repo', repo, '--json', 'baseRefName,headRefOid,state']);
@@ -137,7 +138,6 @@ function defaultDeps() {
       }
     },
     env: process.env,
-    fetch: undefined,
   };
 }
 
@@ -288,8 +288,7 @@ function runRun(payload, deps) {
 
 async function runPost(payload, deps) {
   const input = need(payload, 'input', isObject, 'post');
-  const found = deps.loadCredential({ env: deps.env, cwd: payload.repoRoot || process.cwd() });
-  return deps.postStatus({ ...input, credential: found && found.credential, fetch: deps.fetch, now: deps.now() });
+  return deps.postStatus(input);
 }
 
 const REVIEW_ACTIONS = Object.freeze({
@@ -331,7 +330,6 @@ const ROLLOUT_ACTIONS = Object.freeze({
   'plan-enable': (input) => rollout.planEnable(input),
   'plan-rollback': (input) => rollout.planRollback(input),
   preconditions: (input) => rollout.checkEnablementPreconditions(input),
-  proof: (input) => rollout.checkProofNote(input.text),
 });
 
 /** Plans are DATA: this subcommand never calls GitHub and never changes protection. */
@@ -479,17 +477,15 @@ async function runGateFlow(payload, deps) {
     result.nodes.length > 0 &&
     result.nodes.every((n) => n.ok === true);
 
-  const found = deps.loadCredential({ env: deps.env, cwd: repoRoot });
-  const credential = found && found.credential ? found.credential : null;
   const post = (state, description) =>
-    deps.postStatus({ repo: payload.repo, sha: headSha, state, context: cfg.approvalSet.statusContext, description, credential, fetch: deps.fetch, now: deps.now() });
+    deps.postStatus({ repo: payload.repo, sha: headSha, state, context: cfg.approvalSet.statusContext, description });
 
   // 4. Anything but a clean pass is a refusal; at most a FAILURE status is published.
   if (!passed) {
     report.failures = describeFailures(result, cfg.approvalSet.equivalents);
     report.error = result.error || 'local CI did not pass';
     const reportable = report.failures.filter((f) => REPORTABLE_KINDS.has(f.kind));
-    if (!dryRun && credential && reportable.length > 0) {
+    if (!dryRun && reportable.length > 0) {
       const f = reportable[0];
       const published = await post('failure', clip(`ci-local failed: ${f.workflow} / ${f.job} / ${f.step} @ ${headSha.slice(0, 8)}`));
       report.posted = published.published === true;
@@ -498,11 +494,8 @@ async function runGateFlow(payload, deps) {
     return report;
   }
 
-  // 5. Success is only ever claimed with a credential, and only by posting it.
+  // 5. Success is only ever claimed by actually posting it with the maintainer's gh login.
   report.stage = 'attest';
-  if (!credential) {
-    return { ...report, cannotAttest: true, error: `${CANNOT_ATTEST}: ${(found && found.reason) || 'no credential'}; nothing published, merge refused` };
-  }
   if (dryRun) return { ...report, ok: true, mergeReady: true, wouldPost: true };
 
   const record = buildRecord({
@@ -518,7 +511,10 @@ async function runGateFlow(payload, deps) {
   report.record = record.fields;
   report.ok = report.posted;
   report.mergeReady = report.posted;
-  if (!report.posted) report.error = published.reason || 'status was not published';
+  if (!report.posted) {
+    report.cannotAttest = true;
+    report.error = `${CANNOT_ATTEST}: could not publish with gh: ${published.reason || 'status was not published'}; merge refused`;
+  }
   return report;
 }
 

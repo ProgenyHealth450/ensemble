@@ -1,21 +1,20 @@
 'use strict';
 
 /**
- * Gate end to end (TRD-005-TEST). Real local-ci-* modules, a real signed App
- * JWT (throwaway RSA key) and a fake fetch; the runner result is injected
- * because running CI needs Node downloads. No network, no real credential.
+ * Gate end to end (TRD-005-TEST). Real local-ci-* modules and a fake synchronous `postStatus` (the gate publishes with
+ * the maintainer's own `gh` login); the runner result is injected because running CI needs Node downloads.
+ * No network, no real login.
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const cli = require('../lib/local-ci-cli');
 const { validateConfig } = require('../lib/local-ci-config');
 const { buildRecord, verifyRecord } = require('../lib/local-ci-record');
-const { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakeGhDir, PR } = require('./helpers/local-ci-base-repo');
+const { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakePostStatus, fakeGhDir, postedArgs, PR } = require('./helpers/local-ci-base-repo');
 
 const CLI_PATH = path.join(__dirname, '..', 'lib', 'local-ci-cli.js');
 const REPO_CONFIG = path.join(__dirname, '..', '..', '..', '.ensemble', 'local-ci.yaml');
@@ -25,25 +24,6 @@ const CONTEXT = CONFIG.approvalSet.statusContext;
 if (typeof CONTEXT !== 'string' || CONTEXT === '') throw new Error('fixture config has no status context');
 const OTHER = 'b'.repeat(40);
 
-const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
-const PEM = privateKey.export({ type: 'pkcs8', format: 'pem' });
-const CREDENTIAL = { credential: { appId: '12345', privateKey: PEM } };
-
-/** Fake GitHub API: records every call, answers the three the App client makes. */
-function fakeFetch() {
-  const calls = [];
-  const fn = async (url, init) => {
-    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : null });
-    const reply = (obj) => ({ status: 200, json: async () => obj });
-    if (url.endsWith('/installation')) return reply({ id: 7 });
-    if (url.endsWith('/access_tokens')) return reply({ token: 'ghs_' + 'x'.repeat(36) });
-    return reply({ id: 99 });
-  };
-  fn.calls = calls;
-  fn.statuses = () => calls.filter((c) => /\/statuses\//.test(c.url));
-  return fn;
-}
-
 /** A repo whose base ref carries the trusted config (`config` overrides its text, null omits it); the head is checked out. */
 function tempRepo({ config } = {}) {
   return makeBaseRepo({ config: config === undefined ? fs.readFileSync(REPO_CONFIG, 'utf8') : config });
@@ -52,17 +32,16 @@ function tempRepo({ config } = {}) {
 const passingRun = (sha) => ({ ok: true, sha, failures: [], unmirrored: [], nodes: [{ node: 22, ok: true, steps: [] }, { node: 24, ok: true, steps: [] }] });
 
 function makeDeps(overrides = {}) {
-  const fetch = fakeFetch();
+  const post = fakePostStatus();
   const runGate = jest.fn((options) => passingRun(options.headSha));
   const deps = {
     ...cli.defaultDeps(),
-    fetch,
+    postStatus: post,
     runGate,
-    loadCredential: () => CREDENTIAL,
     env: {},
     ...overrides,
   };
-  return { deps, fetch, runGate };
+  return { deps, post, runGate };
 }
 
 function gatePayload(repo, extra = {}) {
@@ -84,6 +63,20 @@ describe('merge readiness', () => {
     const r = merge([status()]);
     expect(r).toMatchObject({ ok: true, mergeReady: true, headSha: HEAD, hostedCiWaitRequired: false });
     expect(verifyRecord({ description: record.description, statusCommitSha: HEAD, headSha: HEAD, runnerBlobSha: trustedBlob, workflowSet: WORKFLOW_SET }).ok).toBe(true);
+  });
+
+  it('HONEST-ACTOR LIMIT (deliberate): a verifying status is accepted whoever posted it; merge never consults the creator', () => {
+    const posters = [
+      { creator: { login: 'some-unrelated-user', type: 'User' } },
+      { creator: { login: 'ensemble-local-ci[bot]', type: 'Bot' }, app_id: 424242, app: { id: 424242, slug: 'other-app' } },
+      { creator: null },
+      {},
+    ];
+    for (const who of posters) expect(merge([status(who)])).toMatchObject({ ok: true, mergeReady: true });
+    // ...while the checks merge DOES make still bite on the very same posters: the head binding and the record.
+    expect(merge([status({ creator: { login: 'some-unrelated-user' }, sha: OTHER })]).mergeReady).toBe(false);
+    const forged = buildRecord({ runnerBlobSha: 'c0ffee123456', workflowSet: WORKFLOW_SET, log: 'run' });
+    expect(merge([status({ creator: { login: 'some-unrelated-user' }, description: forged.description })]).mergeReady).toBe(false);
   });
 
   it('no run refuses and reports the missing run', () => {
@@ -126,12 +119,12 @@ describe('gate flow', () => {
   it('a missing or invalid maintainer config stops at the config stage, never runs or posts', async () => {
     for (const config of [null, 'not: [valid', 'workflows: []\n']) {
       const repo = repoWith({ config });
-      const { deps, fetch, runGate } = makeDeps({ prInfo: prInfoFor(repo) });
+      const { deps, post, runGate } = makeDeps({ prInfo: prInfoFor(repo) });
       const r = await cli.runGateFlow(gatePayload(repo), deps);
       expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, stage: 'config' });
       expect(r.error).toMatch(/config invalid/);
       expect(runGate).not.toHaveBeenCalled();
-      expect(fetch.calls).toHaveLength(0);
+      expect(post.calls).toHaveLength(0);
     }
   });
 
@@ -140,41 +133,41 @@ describe('gate flow', () => {
     ['git', { git: () => ({ status: 127, stdout: '', stderr: 'not found' }) }],
   ])('missing %s stops naming it, never runs or posts', async (name, override) => {
     const repo = repoWith();
-    const { deps, fetch, runGate } = makeDeps({ ...override, prInfo: prInfoFor(repo) });
+    const { deps, post, runGate } = makeDeps({ ...override, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, prerequisite: name });
     expect(runGate).not.toHaveBeenCalled();
-    expect(fetch.calls).toHaveLength(0);
+    expect(post.calls).toHaveLength(0);
   });
 
   it('dry run reports readiness and posts nothing', async () => {
     const repo = repoWith();
-    const { deps, fetch } = makeDeps({ prInfo: prInfoFor(repo) });
+    const { deps, post } = makeDeps({ prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo, { dryRun: true }), deps);
     expect(r).toMatchObject({ ok: true, dryRun: true, mergeReady: true, posted: false, wouldPost: true });
-    expect(fetch.calls).toHaveLength(0);
+    expect(post.calls).toHaveLength(0);
   });
 
-  it('dry run without a credential is not ready: cannot attest', async () => {
+  it('dry run never invokes gh at all (it cannot know whether gh could post), even when gh would fail', async () => {
     const repo = repoWith();
-    const { deps, fetch } = makeDeps({ loadCredential: () => ({ credential: null, reason: 'cannot attest' }), prInfo: prInfoFor(repo) });
+    const { deps, post } = makeDeps({ postStatus: fakePostStatus({ fail: 'gh not logged in' }), prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo, { dryRun: true }), deps);
-    expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, cannotAttest: true });
-    expect(fetch.calls).toHaveLength(0);
+    expect(r).toMatchObject({ ok: true, dryRun: true, posted: false, wouldPost: true });
+    expect(post.calls).toHaveLength(0);
   });
 
-  it('no credential publishes nothing and refuses the merge', async () => {
+  it('gh could not publish: nothing published, merge refused', async () => {
     const repo = repoWith();
-    const { deps, fetch } = makeDeps({ loadCredential: () => ({ credential: null, reason: 'cannot attest' }), prInfo: prInfoFor(repo) });
+    const { deps, post } = makeDeps({ postStatus: fakePostStatus({ fail: 'gh not logged in' }), prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false, cannotAttest: true });
     expect(r.error).toContain('cannot attest');
-    expect(fetch.calls).toHaveLength(0);
+    expect(post.calls).toHaveLength(0);
   });
 
   it('a passing run posts one success status on the exact head that then verifies as merge-ready', async () => {
     const repo = repoWith();
-    const { deps, fetch, runGate } = makeDeps({ prInfo: prInfoFor(repo) });
+    const { deps, post, runGate } = makeDeps({ prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(runGate).toHaveBeenCalledTimes(1);
     expect(runGate.mock.calls[0][0]).toMatchObject({ headSha: repo.sha, repoRoot: path.resolve(repo.dir) });
@@ -182,9 +175,9 @@ describe('gate flow', () => {
     expect(runGate.mock.calls[0][0].approvalSet).toEqual(CONFIG.approvalSet);
     expect(r).toMatchObject({ ok: true, posted: true, mergeReady: true });
 
-    const posted = fetch.statuses();
+    const posted = post.statuses();
     expect(posted).toHaveLength(1);
-    expect(posted[0].url).toContain(`/statuses/${repo.sha}`);
+    expect(posted[0].sha).toBe(repo.sha);
     expect(posted[0].body).toMatchObject({ state: 'success', context: CONTEXT });
 
     const ready = cli.runMerge(
@@ -214,14 +207,14 @@ describe('gate flow', () => {
       unmirrored: [],
       nodes: [{ node: 22, ok: false, steps: [{ name: 'test', status: 'FAIL' }] }],
     }));
-    const { deps, fetch } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
+    const { deps, post } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r.ok).toBe(false);
     expect(r.mergeReady).toBe(false);
     expect(r.failures).toHaveLength(1);
     expect(r.failures[0]).toMatchObject({ step: 'test', sha: repo.sha, job: 'node 22' });
     expect(r.failures[0].workflow).toBeTruthy();
-    const posted = fetch.statuses();
+    const posted = post.statuses();
     expect(posted.map((p) => p.body.state)).toEqual(['failure']);
     expect(posted[0].body.description).toContain('test');
   });
@@ -235,11 +228,11 @@ describe('gate flow', () => {
       unmirrored: [{ workflow: '.github/workflows/test.yml', job: 'test', step: 'Deploy', reason: 'no configured step mirrors it' }],
       nodes: [],
     }));
-    const { deps, fetch } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
+    const { deps, post } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r.mergeReady).toBe(false);
     expect(r.failures[0]).toMatchObject({ kind: 'unsupported-step', workflow: '.github/workflows/test.yml', job: 'test', step: 'Deploy', sha: repo.sha });
-    expect(fetch.statuses().every((p) => p.body.state !== 'success')).toBe(true);
+    expect(post.statuses().every((p) => p.body.state !== 'success')).toBe(true);
   });
 
   it.each([
@@ -249,10 +242,10 @@ describe('gate flow', () => {
   ])('runner failure (%s) never becomes success and posts nothing', async (_n, failure) => {
     const repo = repoWith();
     const runGate = jest.fn(() => ({ ok: false, sha: repo.sha, error: failure.message, failures: [{ ...failure, step: null, node: null, sha: repo.sha }], unmirrored: [], nodes: [] }));
-    const { deps, fetch } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
+    const { deps, post } = makeDeps({ runGate, prInfo: prInfoFor(repo) });
     const r = await cli.runGateFlow(gatePayload(repo), deps);
     expect(r).toMatchObject({ ok: false, mergeReady: false, posted: false });
-    expect(fetch.calls).toHaveLength(0);
+    expect(post.calls).toHaveLength(0);
   });
 
   it('a runner claiming ok with zero nodes or failures present is not success', async () => {
@@ -261,10 +254,10 @@ describe('gate flow', () => {
       { ok: true, sha: repo.sha, failures: [], unmirrored: [], nodes: [] },
       { ok: true, sha: repo.sha, failures: [{ kind: 'step-failed', step: 's', node: 22, sha: repo.sha, message: 'm' }], unmirrored: [], nodes: [{ node: 22, ok: true }] },
     ]) {
-      const { deps, fetch } = makeDeps({ runGate: () => result, prInfo: prInfoFor(repo) });
+      const { deps, post } = makeDeps({ runGate: () => result, prInfo: prInfoFor(repo) });
       const r = await cli.runGateFlow(gatePayload(repo), deps);
       expect(r.mergeReady).toBe(false);
-      expect(fetch.statuses().every((p) => p.body.state !== 'success')).toBe(true);
+      expect(post.statuses().every((p) => p.body.state !== 'success')).toBe(true);
     }
   });
 });
@@ -347,14 +340,37 @@ describe('CLI boundary and output', () => {
     expect((await call('record', { action: 'constructor', input: {} })).code).toBe(1);
   });
 
-  it('post without a credential publishes nothing: cannot attest', async () => {
-    const fetch = fakeFetch();
+  it('post where gh could not publish reports published:false with the reason', async () => {
+    const post = fakePostStatus({ fail: 'gh not logged in' });
     const r = await cli.runPost(
       { input: { repo: 'owner/name', sha: OTHER, state: 'success', context: CONTEXT, description: 'd' } },
-      { ...cli.defaultDeps(), fetch, loadCredential: () => ({ credential: null, reason: 'cannot attest' }) }
+      { ...cli.defaultDeps(), postStatus: post }
     );
-    expect(r.published).toBe(false);
-    expect(r.reason).toBe('cannot attest');
-    expect(fetch.calls).toHaveLength(0);
+    expect(r).toMatchObject({ published: false, reason: 'gh not logged in' });
+    expect(post.calls).toHaveLength(1);
+  });
+
+  it('the real process posts through gh as an argv array, with the maintainer login (no token on argv)', () => {
+    const fx = repoWith();
+    const ghDir = fakeGhDir({ baseRefName: 'trusted-base', headRefOid: fx.sha, state: 'OPEN' });
+    const env = { ...process.env, PATH: ghDir + path.delimiter + process.env.PATH, GH_TOKEN: 'sekrit-token-value-1' };
+    const input = { input: { repo: 'owner/name', sha: OTHER, state: 'success', context: CONTEXT, description: 'd' } };
+    const r = spawnSync(process.execPath, [CLI_PATH, 'post'], { input: JSON.stringify(input), encoding: 'utf8', env });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout)).toMatchObject({ published: true, sha: OTHER, state: 'success', context: CONTEXT });
+    expect(postedArgs(ghDir)).toEqual(['api', '-X', 'POST', `repos/owner/name/statuses/${OTHER}`, '-f', 'state=success', '-f', `context=${CONTEXT}`, '-f', 'description=d']);
+    expect(r.stdout + r.stderr).not.toContain('sekrit-token-value-1');
+  });
+
+  it('the real process refuses (exit 1, nothing published) when gh cannot post', () => {
+    const fx = repoWith();
+    const ghDir = fakeGhDir({ baseRefName: 'trusted-base', headRefOid: fx.sha, state: 'OPEN' }, { postFails: true });
+    const env = { ...process.env, PATH: ghDir + path.delimiter + process.env.PATH, GH_TOKEN: 'sekrit-token-value-1' };
+    const input = { input: { repo: 'owner/name', sha: OTHER, state: 'success', context: CONTEXT, description: 'd' } };
+    const r = spawnSync(process.execPath, [CLI_PATH, 'post'], { input: JSON.stringify(input), encoding: 'utf8', env });
+    expect(JSON.parse(r.stdout)).toMatchObject({ published: false });
+    expect(JSON.parse(r.stdout).reason).toMatch(/403/);
+    expect(postedArgs(ghDir)).toEqual([]);
+    expect(r.stdout + r.stderr).not.toContain('sekrit-token-value-1');
   });
 });

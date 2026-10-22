@@ -30,9 +30,9 @@ It then drives, for F and then P:
   post), which calls
 - the real `runGate` from `lib/local-ci-runner.js`: a real `git clone` at the
   exact head SHA, a real subprocess, the real non-zero exit;
-- the real `postStatus` and `loadCredential` from `lib/local-ci-app.js`, signing
-  with a throwaway RSA key generated in memory for the run. Only the network
-  `fetch` is faked, by an in-memory recorder of status posts;
+- the real `postStatus` from `lib/local-ci-status.js`, whose `gh api` call is an
+  argv array with no shell. An in-memory recorder stands in for `gh`, so no
+  network call is made;
 - the real `runMerge` to decide merge readiness from the recorded statuses.
 
 Node binaries were not downloaded: the runner was given the Node that runs the
@@ -134,15 +134,22 @@ Residual trust, stated plainly:
   hash, so this is far narrower than a writable `HOME`, but it is not zero.
 - The base is looked up with the maintainer's own `gh` authentication; the gate
   cannot be stronger than that session.
+- Honest actor. The status is posted with the maintainer's own `gh` login and the
+  required check is unpinned, so any identity with write access can post a status
+  under that name. `pr-merge` verifies the head-SHA binding, the run record (runner
+  blob hash, workflow-set hash, log digest) and review state; it does NOT verify who
+  posted the status. The gate prevents accidents and unverified agent merges, not
+  deliberate forgery by someone with write access.
 
 This is evidence the gate resists the specific hostile heads above. It is not a
 proof that no other hostile head exists.
 
 ## Credentials
 
-No credential appears in this note or in the repository. The signing key existed
-only in memory for the duration of the test. The test asserts this file is
-unchanged by the repository's `redact` (no token- or PEM-shaped text).
+No credential appears in this note or in the repository. The gate holds no key
+and no token of its own: it posts through the maintainer's `gh` login, so the
+test needs no credential either. The test asserts this file is unchanged by the
+repository's `redact` (no token- or PEM-shaped text).
 
 ## Not proven
 
@@ -153,8 +160,9 @@ unchanged by the repository's `redact` (no token- or PEM-shaped text).
   the one running the test. The runner's per-version resolution and its "a
   version that cannot be provided fails the gate" path are covered by the
   runner's own tests, not by this proof.
-- A real GitHub status post by the real GitHub App has NOT been done; the proof
-  above used a fake `fetch`. No real network call was made.
+- A real GitHub status post with the maintainer's own `gh` login has NOT been done
+  as part of this proof; the posts above were captured by an in-memory recorder
+  standing in for `gh`. No real network call was made.
 - Therefore this note does not by itself justify enabling the gate on a
   protected branch; the live proof (a real PR head, a real post, and the
   branch-protection behaviour) is still open.

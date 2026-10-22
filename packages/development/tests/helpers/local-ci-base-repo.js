@@ -72,15 +72,43 @@ function prInfoFor(fx, answer = {}) {
 }
 
 /**
- * A real `gh` executable in a temp dir, for tests that spawn the CLI as a process. It answers `gh pr view` with the
- * given JSON and exits non-zero for anything else. Returns the directory to put first on PATH.
+ * An in-process stand-in for `postStatus` (the gate's one outward call). Synchronous, like the real one. By default it
+ * records the request and reports it published; `fail` makes it report `{ published: false, reason }`, i.e. `gh` could
+ * not post. `calls` is every request; `statuses()` the ones that were published, as { sha, body: {state,context,description} }.
  */
-function fakeGhDir(info) {
+function fakePostStatus({ fail } = {}) {
+  const calls = [];
+  const fn = (req) => {
+    calls.push(req);
+    if (fail) return { published: false, reason: typeof fail === 'string' ? fail : 'gh could not post the status' };
+    return { published: true, repo: req.repo, sha: req.sha, state: req.state, context: req.context, id: 99 };
+  };
+  fn.calls = calls;
+  fn.statuses = () => calls.map((c) => ({ sha: c.sha, repo: c.repo, body: { state: c.state, context: c.context, description: c.description } }));
+  return fn;
+}
+
+/**
+ * A real `gh` executable in a temp dir, for tests that spawn the CLI as a process. It answers `gh pr view` with the
+ * given JSON, answers `gh api -X POST repos/<repo>/statuses/<sha> -f k=v ...` (recording the argv, one arg per line, to
+ * `<dir>/posted.txt`, and replying with an id) unless `postFails` is set, in which case it fails like a 403, and exits
+ * non-zero for anything else. Returns the directory to put first on PATH; read `<dir>/posted.txt` for what was posted.
+ */
+function fakeGhDir(info, { postFails = false } = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'local-ci-fakegh-'));
   roots.push(d);
-  const script = `#!/bin/sh\nif [ "$1" = "pr" ] && [ "$2" = "view" ]; then printf '%s' '${JSON.stringify(info)}'; exit 0; fi\necho "unexpected gh call: $*" >&2\nexit 2\n`;
+  const post = postFails
+    ? `echo "gh: HTTP 403: Resource not accessible" >&2; exit 1`
+    : `for a in "$@"; do printf '%s\\n' "$a" >> '${path.join(d, 'posted.txt')}'; done; printf '%s' '{"id":99}'; exit 0`;
+  const script = `#!/bin/sh\nif [ "$1" = "pr" ] && [ "$2" = "view" ]; then printf '%s' '${JSON.stringify(info)}'; exit 0; fi\nif [ "$1" = "api" ] && [ "$2" = "-X" ] && [ "$3" = "POST" ]; then ${post}; fi\necho "unexpected gh call: $*" >&2\nexit 2\n`;
   fs.writeFileSync(path.join(d, 'gh'), script, { mode: 0o755 });
   return d;
 }
 
-module.exports = { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakeGhDir, PR, REPO, BASE_REF, BASE_BRANCH, CONFIG_PATH };
+/** The argv lines a fake `gh` recorded for its `api` POSTs ([] if none). */
+function postedArgs(ghDir) {
+  const f = path.join(ghDir, 'posted.txt');
+  return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) : [];
+}
+
+module.exports = { makeBaseRepo, cleanupBaseRepos, prInfoFor, fakePostStatus, fakeGhDir, postedArgs, PR, REPO, BASE_REF, BASE_BRANCH, CONFIG_PATH };

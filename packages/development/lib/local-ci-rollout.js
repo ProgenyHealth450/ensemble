@@ -7,7 +7,7 @@
  * branch-protection response and gets back a snapshot or a PLAN (an ordered
  * list of {method, path, body} calls) that the repository owner reviews and
  * applies. Enablement preconditions read only local files plus facts the caller
- * injects. FAIL CLOSED: a malformed response, a placeholder App id or a missing
+ * injects. FAIL CLOSED: a malformed response or a missing
  * precondition refuses rather than guessing.
  *
  * Only the required-status-check list is edited (PATCH
@@ -19,12 +19,8 @@
 const fs = require('fs');
 const path = require('path');
 const { checkEnablementReady } = require('./local-ci-timing');
-const { redact } = require('./local-ci-app');
 
 const SKILL_DIR = ['packages', 'development', 'skills', 'local-ci-gate'];
-const PROOF_PATH = ['docs', 'proofs', 'local-ci-app-pin-proof.md'];
-const ACCEPTED_HEADING = '## App status accepted';
-const REJECTED_HEADING = '## Personal-token status rejected';
 
 /**
  * Which step the repository owner (a branch-protection admin) approves. Every
@@ -32,8 +28,8 @@ const REJECTED_HEADING = '## Personal-token status rejected';
  */
 const OWNER_APPROVALS = Object.freeze([
   Object.freeze({ step: 'snapshot', approver: 'repository admin', needed: false, what: 'read-only GET of the current protection; no approval beyond read access to the setting' }),
-  Object.freeze({ step: 'first-success-status', approver: 'repository owner', needed: true, what: 'approves publishing the first real local-ci success status from the App on a current head commit' }),
-  Object.freeze({ step: 'enable-protection', approver: 'repository admin', needed: true, what: 'approves the required-status-check change (local App-pinned status required, hosted checks no longer required)' }),
+  Object.freeze({ step: 'first-success-status', approver: 'repository owner', needed: true, what: 'approves publishing the first real local-ci success status, with the maintainer\'s own gh login, on a current head commit' }),
+  Object.freeze({ step: 'enable-protection', approver: 'repository admin', needed: true, what: 'approves the required-status-check change (local-ci check required by name, unpinned; hosted checks no longer required)' }),
   Object.freeze({ step: 'rollback-protection', approver: 'repository admin', needed: true, what: 'approves restoring the snapshot (hosted checks required again)' }),
 ]);
 
@@ -149,17 +145,15 @@ const verifyStep = (snapshot) => ({
 });
 
 /**
- * Plan making the local App-pinned status the required check and dropping the
- * hosted ones. Does not perform anything. `appId` must be a positive integer.
+ * Plan making the local status the required check, UNPINNED (app_id null on
+ * read, written to GitHub as -1 = any source), and dropping the hosted ones.
+ * Does not perform anything.
  */
-function planEnable({ snapshot, statusContext, appId, replaces } = {}) {
+function planEnable({ snapshot, statusContext, replaces } = {}) {
   const bad = validSnapshot(snapshot);
   if (bad) return refuse(bad);
   const problems = [];
   if (typeof statusContext !== 'string' || statusContext.trim() === '') problems.push('statusContext must be a non-empty string');
-  if (!Number.isInteger(appId) || appId <= 0) {
-    problems.push(`appId must be a positive integer (got ${typeof appId === 'string' ? JSON.stringify(appId) : String(appId)}); a placeholder or missing App id refuses`);
-  }
   // `replaces` names the required checks the local gate covers (the approval set's job names). Only those
   // are removed; every OTHER required check (a secret scan, a deploy preview) stays required, because the
   // gate does not run it. A name that is not currently required is refused, not ignored: it is almost
@@ -179,7 +173,7 @@ function planEnable({ snapshot, statusContext, appId, replaces } = {}) {
     steps: [
       step('enable-protection', snapshot, {
         strict: snapshot.required_status_checks.strict,
-        checks: [...writeChecks(kept), { context: statusContext, app_id: appId }],
+        checks: writeChecks([...kept, { context: statusContext, app_id: null }]),
       }, { removes: [...replaces] }),
       verifyStep(snapshot),
     ],
@@ -203,37 +197,10 @@ function planRollback({ snapshot } = {}) {
 }
 
 /**
- * Proof-note structure check. The note must have both headed sections, each with
- * a `Response: HTTP <code>` line (2xx for acceptance, 4xx for rejection) and a
- * `Date: YYYY-MM-DD` line, and must contain no credential (redact is the oracle).
- */
-function checkProofNote(text) {
-  if (typeof text !== 'string' || text.trim() === '') return { ok: false, reasons: ['proof note is empty'] };
-  const reasons = [];
-  const section = (heading) => {
-    const start = text.indexOf(heading);
-    if (start < 0) return null;
-    const rest = text.slice(start + heading.length);
-    const next = rest.search(/^## /m);
-    return next < 0 ? rest : rest.slice(0, next);
-  };
-  const check = (heading, codePattern, what) => {
-    const body = section(heading);
-    if (body === null) return reasons.push(`proof note lacks the section "${heading}"`);
-    if (!codePattern.test(body)) reasons.push(`"${heading}" records no observed ${what} response line`);
-    if (!/^Date: \d{4}-\d{2}-\d{2}\s*$/m.test(body)) reasons.push(`"${heading}" records no "Date: YYYY-MM-DD" line`);
-  };
-  check(ACCEPTED_HEADING, /^Response: HTTP 2\d\d\b/m, 'App-status acceptance (HTTP 2xx)');
-  check(REJECTED_HEADING, /^Response: HTTP 4\d\d\b/m, 'personal-token rejection (HTTP 4xx)');
-  if (redact(text) !== text) reasons.push('proof note contains something that looks like a credential');
-  return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
-}
-
-/**
  * Enablement preconditions. Returns {ok, reasons[]}; ok only when every one holds.
- * `repoRoot` locates default files; `paths` ({measurementNote, proofNote,
- * baselineNote}) overrides them. `hasReportedSuccess` is a caller-supplied fact:
- * the local status context has already reported success on the repository.
+ * `repoRoot` locates default files; `paths` ({measurementNote, baselineNote})
+ * overrides them. `hasReportedSuccess` is a caller-supplied fact: the local
+ * status context has already reported success on the repository.
  */
 function checkEnablementPreconditions({ repoRoot, paths, hasReportedSuccess } = {}) {
   const reasons = [];
@@ -241,27 +208,12 @@ function checkEnablementPreconditions({ repoRoot, paths, hasReportedSuccess } = 
   const root = typeof repoRoot === 'string' && repoRoot !== '' ? repoRoot : null;
   const resolve = (key, parts) => (typeof given[key] === 'string' && given[key] !== '' ? given[key] : root ? path.join(root, ...parts) : null);
   const measurement = resolve('measurementNote', [...SKILL_DIR, 'MEASUREMENT.md']);
-  const proof = resolve('proofNote', PROOF_PATH);
   const baseline = resolve('baselineNote', [...SKILL_DIR, 'BASELINE.md']);
 
   if (measurement === null) reasons.push('measurement note: no repoRoot or paths.measurementNote given');
   else {
     const r = checkEnablementReady({ notePath: measurement });
     if (!r.ok) reasons.push(`measurement note: ${r.reason}`);
-  }
-
-  if (proof === null) reasons.push('App-pin proof: no repoRoot or paths.proofNote given');
-  else {
-    let text = null;
-    try {
-      text = fs.readFileSync(proof, 'utf8');
-    } catch (e) {
-      reasons.push(`App-pin proof note missing at ${proof}: the App client has not been shown to satisfy an App-pinned required check (TRD-001 is open)`);
-    }
-    if (text !== null) {
-      const r = checkProofNote(text);
-      if (!r.ok) for (const x of r.reasons) reasons.push(`App-pin proof note: ${x}`);
-    }
   }
 
   if (hasReportedSuccess !== true) {
@@ -276,11 +228,8 @@ function checkEnablementPreconditions({ repoRoot, paths, hasReportedSuccess } = 
 
 module.exports = {
   OWNER_APPROVALS,
-  ACCEPTED_HEADING,
-  REJECTED_HEADING,
   snapshotProtection,
   planEnable,
   planRollback,
-  checkProofNote,
   checkEnablementPreconditions,
 };
