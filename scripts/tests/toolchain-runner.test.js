@@ -15,12 +15,13 @@ jest.mock('child_process');
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 
 const {
   buildArgv,
   runCapability,
   buildChildEnv,
+  listProcessTable,
   killVerifiedPidsSafe
 } = require('../../packages/development/lib/toolchain/runner');
 const {
@@ -56,6 +57,7 @@ function minimalAdapter(overrides = {}) {
 
 beforeEach(() => {
   execFile.mockReset();
+  execFileSync.mockReset();
 });
 
 describe('runCapability: unknown capability (Implementation AC 1)', () => {
@@ -947,4 +949,262 @@ describe('mutation-restore proof: reviewer round-2 Finding 1 (recycled-pid kill)
       mutantRoot.cleanup();
     }
   });
+});
+
+describe('listProcessTable: real ps-output parsing contract (reviewer round 3, P2)', () => {
+  test('a real macOS-shaped ps line (pid, ppid, lstart with internal spaces) parses to one row', () => {
+    execFileSync.mockReturnValue('  452     1 Fri Oct 16 08:43:48 2026\n');
+
+    expect(listProcessTable()).toEqual([
+      { pid: 452, ppid: 1, startedAt: 'Fri Oct 16 08:43:48 2026' }
+    ]);
+  });
+
+  test('a real procps-ng-Linux-shaped ps line parses to one row', () => {
+    execFileSync.mockReturnValue(' 7781  7780 Fri Oct 16 08:43:48 2026\n');
+
+    expect(listProcessTable()).toEqual([
+      { pid: 7781, ppid: 7780, startedAt: 'Fri Oct 16 08:43:48 2026' }
+    ]);
+  });
+
+  test('non-empty ps output with no lstart column at all (every line malformed) returns null, never []', () => {
+    // Simulates a `ps` that does not support the combined `pid=,ppid=,lstart=` invocation and
+    // silently prints only the columns it understands instead of erroring (reviewer round 3,
+    // P2) -- every line here has only 2 tokens, so every row fails the `tokens.length < 3`
+    // check and none survive into the returned table.
+    execFileSync.mockReturnValue('  452     1\n  453     1\n');
+
+    expect(listProcessTable()).toBeNull();
+  });
+
+  test('ps throwing (missing binary, non-zero exit) returns null', () => {
+    execFileSync.mockImplementation(() => {
+      throw new Error('spawn ps ENOENT');
+    });
+
+    expect(listProcessTable()).toBeNull();
+  });
+});
+
+describe('killVerifiedPidsSafe: fails CLOSED when verification itself cannot be trusted (reviewer round 3, P2)', () => {
+  let killSpy;
+
+  beforeEach(() => {
+    killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    killSpy.mockRestore();
+  });
+
+  test('reader returning null (e.g. a ps that cannot report lstart) reports verification failure and kills nothing', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => null;
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(false);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('reader throwing synchronously never escapes this function and still reports verification failure', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => {
+      throw new Error('ps exploded');
+    };
+
+    let verified;
+    expect(() => {
+      verified = killVerifiedPidsSafe(identities, fakeTable);
+    }).not.toThrow();
+
+    expect(verified).toBe(false);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('an identity with no recorded startedAt (undefined) can never be verified, even if the reader would otherwise succeed', () => {
+    const identities = new Map([[123, undefined]]);
+    const fakeTable = jest.fn(() => [{ pid: 123, ppid: 1, startedAt: 'Wed Oct 22 10:00:00 2026' }]);
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(false);
+    expect(fakeTable).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('an identity with an empty-string startedAt is treated the same as undefined', () => {
+    const identities = new Map([[123, '']]);
+    const fakeTable = jest.fn(() => [{ pid: 123, ppid: 1, startedAt: '' }]);
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(false);
+    expect(fakeTable).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('the round-2 happy-path behaviors are unaffected: a verified identity is still killed, a mismatched one is still left alone', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => [{ pid: 123, ppid: 1, startedAt: 'Wed Oct 22 10:00:00 2026' }];
+
+    expect(killVerifiedPidsSafe(identities, fakeTable)).toBe(true);
+    expect(killSpy).toHaveBeenCalledWith(123, 'SIGKILL');
+  });
+});
+
+describe('mutation-restore proof: reviewer round-3 Finding 1 (fail-closed ps verification) actually discriminates', () => {
+  test('removing the identity startedAt guard lets an unverifiable identity report success without even reading the table', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        '  for (const startedAt of identities.values()) {\n' +
+        "    if (!startedAt) return false; // no recorded start time -- can never be verified.\n" +
+        '  }\n' +
+        '\n' +
+        '  let currentRows;';
+      const replacement = '  let currentRows;';
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const identities = new Map([[123, undefined]]);
+      const fakeTable = jest.fn(() => []);
+
+      const verified = mutatedRunner.killVerifiedPidsSafe(identities, fakeTable);
+
+      // With the guard removed, the function falls through to the table read, which here comes
+      // back empty and already correctly reports `false` for a DIFFERENT reason -- so flip the
+      // fake table to a shape that WOULD otherwise verify, to prove the guard (not the
+      // table-emptiness check) is what the real code relies on.
+      const fakeTableThatWouldMatch = jest.fn(() => [{ pid: 123, ppid: 1, startedAt: undefined }]);
+      const verifiedWithMatchingButUndefinedIdentity = mutatedRunner.killVerifiedPidsSafe(
+        identities,
+        fakeTableThatWouldMatch
+      );
+
+      expect(verified).toBe(false);
+      expect(verifiedWithMatchingButUndefinedIdentity).toBe(true);
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('removing the try/catch around the table read lets a throwing reader escape as an uncaught exception', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        '  let currentRows;\n' +
+        '  try {\n' +
+        '    currentRows = listProcessTableFn();\n' +
+        '  } catch {\n' +
+        '    return false; // the reader itself threw -- verification impossible, never let this escape.\n' +
+        '  }';
+      const replacement = '  const currentRows = listProcessTableFn();';
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+      const fakeTable = () => {
+        throw new Error('ps exploded');
+      };
+
+      // With the try/catch removed, the throw escapes this function entirely -- exactly what
+      // the real (unmutated) "reader throwing synchronously never escapes" test above disproves.
+      expect(() => mutatedRunner.killVerifiedPidsSafe(identities, fakeTable)).toThrow('ps exploded');
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('removing the null-collapsing check in listProcessTable lets a ps with no usable lstart column return [] instead of null (real process)', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        '  // Non-empty `ps` output that did not yield even one valid row is indistinguishable from "ps\n' +
+        '  // cannot do what we asked" (see header above) -- never return it as if it meant something.\n' +
+        '  if (rows.length === 0) return null;\n' +
+        '  return rows;';
+      const replacement = '  return rows;';
+      mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const realChildProcess = jest.requireActual('child_process');
+      const fakePsBinDir = path.join(
+        __dirname,
+        'fixtures',
+        'toolchain',
+        'real-timeout-containment',
+        'fake-ps-bin'
+      );
+      const probeScript =
+        `const r = require(${JSON.stringify(mutantRoot.runnerPath)});` +
+        'process.stdout.write(JSON.stringify(r.listProcessTable()));';
+
+      const mutatedOutput = realChildProcess.execFileSync(process.execPath, ['-e', probeScript], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${fakePsBinDir}${path.delimiter}${process.env.PATH}` }
+      });
+
+      // With the null-collapsing guard removed, a `ps` that cannot report `lstart` (every line
+      // drops to 2 tokens, same fixture the real test above exercises via a mocked
+      // `execFileSync`) makes `listProcessTable` return `[]` instead of `null` -- exactly what
+      // the real (unmutated) "non-empty ps output with no lstart column ... returns null" test
+      // above disproves.
+      expect(JSON.parse(mutatedOutput)).toEqual([]);
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+});
+
+function psLine(pid, ppid, startedAt) {
+  return `  ${pid}   ${ppid} ${startedAt}`;
+}
+
+function psTable(rows) {
+  return `${rows.map(({ pid, ppid, startedAt }) => psLine(pid, ppid, startedAt)).join('\n')}\n`;
+}
+
+describe('refreshIdentities: descendantIdentities must MERGE across polls, never be wiped by a transient empty ppid-walk (reviewer round 4 follow-up)', () => {
+  test('a descendant discovered by an early poll, then no longer reachable via collectDescendants(root, ...) in a later poll (its row still exists in the table, just no longer ppid-linked to root -- the real-world cause: a poll racing the root\'s own death sees the kernel\'s already-reparented state), is still included in the final verify-and-kill', async () => {
+    const rootPid = 9001;
+    const descendantPid = 9002;
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
+
+    let callCount = 0;
+    execFileSync.mockImplementation(() => {
+      callCount += 1;
+      if (callCount <= 3) {
+        return psTable([
+          { pid: rootPid, ppid: 1, startedAt: 'R' },
+          { pid: descendantPid, ppid: rootPid, startedAt: 'D' }
+        ]);
+      }
+      // From here on, collectDescendants(rootPid, ...) can no longer reach this pid via the
+      // ppid walk (it no longer points at root) -- but the pid's own row, and its startedAt,
+      // are still genuinely present in the table (it never exited).
+      return psTable([
+        { pid: rootPid, ppid: 1, startedAt: 'R' },
+        { pid: descendantPid, ppid: 999999, startedAt: 'D' }
+      ]);
+    });
+
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setTimeout(() => {
+        const error = new Error('killed');
+        error.killed = true;
+        callback(error, '', '');
+      }, options.timeout);
+      return { pid: rootPid, kill: jest.fn() };
+    });
+
+    try {
+      const adapter = minimalAdapter();
+      const result = await runCapability(adapter, 'tracker.show', { id: 'bd-1' }, { timeoutMs: 350 });
+
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe('TIMEOUT');
+      expect(killSpy).toHaveBeenCalledWith(descendantPid, 'SIGKILL');
+    } finally {
+      killSpy.mockRestore();
+    }
+  }, 10000);
 });

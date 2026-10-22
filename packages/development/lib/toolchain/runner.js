@@ -140,26 +140,51 @@
  * only spawning primitive in this module (see this file's top-level header; never a shell,
  * no `spawn`), containment instead tracks the direct child's REAL descendant set by POSIX pid
  * table (`listProcessTable`/`collectDescendants` below, via `ps -A -o pid=,ppid=,lstart=`, no
- * shell), polled every `PROCESS_TREE_POLL_MS` while the call is in flight, recording not just
- * each pid but `ps`'s own `lstart` start-time string alongside it (an opaque per-process
- * identity). On timeout, every pid observed in the last poll -- the direct child's own pid
- * included, since it is just as reusable by the OS as any descendant once it exits -- is
- * RE-VERIFIED against a FRESH process-table read immediately before signaling
- * (`killVerifiedPidsSafe`): only a pid whose CURRENT `lstart` still matches the one recorded
- * when it was last observed gets `SIGKILL`; a pid that is gone, or now belongs to a different
- * process the OS reused it for, is left alone (reviewer round 2, P2: a stale ~100ms-old
- * snapshot's raw pids are never trusted without this re-check). If the fresh read itself fails
- * (e.g. `ps` becomes unavailable), verification reports failure and this function falls back
- * to the one thing that is always safe regardless of any pid-reuse race: killing the direct
- * child through Node's own tracked `ChildProcess` handle (`child.kill('SIGKILL')`, which needs
- * no identity check since it targets the exact process `execFile` returned), never an
- * unverified raw descendant pid. This reaches an ordinary descendant regardless of whether its
- * immediate parent (the direct child) has already been reaped by the time the kill runs.
- * Polling is skipped entirely on `win32` and whenever the mocked/stubbed `execFile` this module
- * is given returns no real `ChildProcess` (every pid check in this module tolerates
- * `child`/`child.pid` being absent, which is exactly what every `jest.mock('child_process')`-
- * based test in this repo's suite already does) -- see "Known limits" below for what this
- * containment strategy still cannot reach.
+ * shell), polled every `PROCESS_TREE_POLL_MS` while the call is in flight PLUS one extra,
+ * PROACTIVE poll scheduled to land `FINAL_POLL_MARGIN_MS` before the deadline itself (reviewer
+ * round 3, P3: this must run BEFORE `execFile`'s own timeout fires, never reactively inside its
+ * callback -- by the time that callback runs the direct child is already dead and reaped, so
+ * any detached descendant it had has ALREADY been reparented away from it, which breaks
+ * ppid-based descendant discovery entirely; a "final snapshot" taken inside the callback would
+ * silently find nothing, which is why this polls proactively instead), recording not just each
+ * pid but `ps`'s own `lstart` start-time string alongside it (an opaque per-process identity).
+ * `listProcessTable` requires a `ps` that supports the combined `-A -o pid=,ppid=,lstart=`
+ * invocation (macOS's and procps-ng Linux's `ps` both do); it returns `null` -- never a table
+ * that merely LOOKS usable -- whenever that invocation fails outright OR succeeds but produces
+ * not even one row with a real pid, ppid AND non-empty `lstart` (reviewer round 3, P2: a `ps`
+ * that silently drops or blanks the `lstart` column instead of erroring used to make
+ * `listProcessTable` return `[]`, which `killVerifiedPidsSafe` treated as "nothing to check,
+ * verified, done" and silently skipped the `child.kill` fallback too -- a `ps` table must
+ * never be trusted as meaningful unless it parsed at least one real identity out of it; see
+ * `listProcessTable`'s own header). On timeout, every pid observed by the last poll that ran
+ * (regular or proactive) -- the direct child's own pid included, since it is just as reusable
+ * by the OS as any descendant once it exits -- is RE-VERIFIED against ANOTHER fresh
+ * process-table read immediately before signaling (`killVerifiedPidsSafe`): only a pid whose
+ * CURRENT `lstart` still matches the one recorded when it was last observed gets `SIGKILL`; a
+ * pid that is gone, or now belongs to a different process the OS reused it for, is left alone
+ * (reviewer round 2, P2: a stale ~100ms-old snapshot's raw pids are never trusted without this
+ * re-check).
+ * `killVerifiedPidsSafe` returns `false` -- "verification itself failed, trust nothing it did
+ * or didn't do" -- whenever the fresh read comes back `null`, any identity it was asked to
+ * check carries no recorded `startedAt` at all (should never happen given how identities are
+ * built above, but never trusted blindly if it somehow does), or the table reader itself
+ * throws (always called through a `try`/`catch`, so a throw here can never escape as an
+ * uncaught exception inside the `execFile` callback or surface as `TOOL_FAILED` instead of
+ * `TIMEOUT`); `true` means every candidate was either verified-and-signaled or verifiably
+ * absent from a real, successfully-read table -- never merely "nothing could be checked". Only
+ * on that `false` does this function fall back to the one thing that is always safe regardless
+ * of any pid-reuse race or unusable `ps`: killing the direct child through Node's own tracked
+ * `ChildProcess` handle (`child.kill('SIGKILL')`, which needs no identity check since it
+ * targets the exact process `execFile` returned), never an unverified raw descendant pid. This
+ * reaches an ordinary descendant regardless of whether its immediate parent (the direct child)
+ * has already been reaped by the time the kill runs, but -- being a single handle -- never a
+ * grandchild once that fallback is all that is left; a `ps` without working
+ * `pid`/`ppid`/`lstart` support degrades this module to direct-child-only containment,
+ * documented, not faked. Polling is skipped entirely on `win32` and whenever the
+ * mocked/stubbed `execFile` this module is given returns no real `ChildProcess` (every pid
+ * check in this module tolerates `child`/`child.pid` being absent, which is exactly what every
+ * `jest.mock('child_process')`-based test in this repo's suite already does) -- see "Known
+ * limits" below for what this containment strategy still cannot reach.
  *
  * Manifest `capabilities[].run[]` templates use `${name}` placeholders (see
  * `adapter-manifest-schema.json` and `validate.js`'s `extractRunPlaceholders`), while
@@ -226,18 +251,22 @@
  * no normalized schema ships for that category yet. Extend `CATEGORY_NORMALIZED_SCHEMA` when
  * one does, rather than special-casing a category in this function.
  *
- * The process-tree timeout containment above is POSIX-only (`listProcessTable` returns `[]` on
- * `win32`, so only `execFile`'s own direct-child kill applies there -- document, do not fake,
- * a Windows guarantee this module cannot make without `taskkill /T`, which is out of scope).
- * Even on POSIX it cannot reach a descendant that detaches itself into a brand-new session
- * (`spawn(cmd, {detached:true})`, which calls `setsid()` regardless of what process group its
- * own immediate parent is in) AFTER this module's last poll before the kill, or one spawned so
- * quickly after the previous poll that it both starts and finishes inside one
- * `PROCESS_TREE_POLL_MS` window; this is a fundamental property of POSIX process groups/
- * sessions, not a gap a tighter poll interval alone can close. The fix here substantially
- * narrows the reviewer's reproduction (an ordinary, non-self-detaching descendant is now always
- * killed) without claiming a stronger guarantee (cgroups/job objects) this task does not ask
- * for and this repo has no dependency budget to add.
+ * The process-tree timeout containment above is POSIX-only (`listProcessTable` returns `null`
+ * on `win32`, so only `execFile`'s own direct-child kill applies there -- document, do not
+ * fake, a Windows guarantee this module cannot make without `taskkill /T`, which is out of
+ * scope). Even on POSIX it cannot reach a descendant spawned after the LAST poll that ran
+ * before the direct child actually dies (the regular `PROCESS_TREE_POLL_MS`-interval one or
+ * the proactive `FINAL_POLL_MARGIN_MS`-before-deadline one, whichever is later) -- once a
+ * process dies, ALL its children (detached session leader or not) are reparented away from it
+ * by the kernel, so there is no read this module could ever take AFTER that moment that would
+ * still show such a descendant as the direct child's child; this is a fundamental property of
+ * how orphaned processes are reparented, not a gap a tighter poll interval alone can close
+ * (reviewer round 3, P3: an earlier version of this fix tried to read the table reactively
+ * INSIDE the `execFile` callback, i.e. after the direct child was already dead and reaped --
+ * that read always came back empty-of-descendants for exactly this reason and was removed).
+ * The fix here narrows this gap to `FINAL_POLL_MARGIN_MS` (currently 500ms) in the common case
+ * of a timeout at least that long, without claiming a stronger guarantee (cgroups/job objects)
+ * this task does not ask for and this repo has no dependency budget to add.
  *
  * `buildChildEnv`'s base allowlist is POSIX-oriented (`HOME`/`LOGNAME`/`TMPDIR` have no
  * standard Windows equivalent); a `win32` adapter binary needing `SystemRoot`/`ComSpec`/
@@ -517,6 +546,18 @@ const BASE_ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'TMPDIR',
 const LC_ENV_PREFIX_PATTERN = /^LC_/;
 const MAX_TOOL_FAILED_DETAIL_LENGTH = 4000;
 const PROCESS_TREE_POLL_MS = 100;
+// How long before the timeout fires to schedule one extra, PROACTIVE poll tick (in addition to
+// the regular `PROCESS_TREE_POLL_MS`-interval ones) -- see "Timeout containment" in this
+// file's header for why this must run BEFORE the deadline, never reactively inside the
+// `execFile` callback (by the time that callback runs, the direct child is already dead and
+// any detached descendant it had has already been reparented away from it, which breaks
+// ppid-based descendant discovery entirely). 500ms, not a razor-thin value, because this poll
+// still needs the event loop to actually be SCHEDULED and its own `execFileSync('ps', ...)`
+// call to COMPLETE before the real, OS-level deadline fires: measured live under a 34-way
+// concurrent test-suite load, a single `ps` call itself stays fast (~25ms), but there is no
+// bound on how long a congested process can wait for the OS to schedule it at all, so this
+// margin is sized for scheduling jitter headroom, not `ps`'s own (small, measured) latency.
+const FINAL_POLL_MARGIN_MS = 500;
 
 /**
  * Build the exact environment object a capability's child process receives (see this file's
@@ -566,16 +607,26 @@ function buildChildEnv(adapterEnvNames, parentEnv, callerEnvOverride) {
  * parsed into a `Date`: two `ps` snapshots taken through this SAME function report the exact
  * same string for the exact same still-living process, and a DIFFERENT string the instant that
  * pid is reused by a new process (reviewer round 2: raw pids alone are reused by the OS and
- * must never be trusted across two separate snapshots without this check). Never throws and
- * never involves a shell: a missing `ps`, a mocked/stubbed `child_process` module (as every
- * test in this repo's suite that exercises this file provides), or any parse failure all
- * resolve to `[]`, meaning simply "no table available this call" -- callers must treat `[]` as
- * "could not verify anything", never as "nothing is running".
+ * must never be trusted across two separate snapshots without this check).
  *
- * @returns {{pid: number, ppid: number, startedAt: string}[]}
+ * Returns `null` -- never an array that merely LOOKS usable -- for EVERY failure mode: a
+ * missing `ps`, a non-zero exit, a mocked/stubbed `child_process` module (as every test in
+ * this repo's suite that exercises this file provides), `win32` (no POSIX `ps`), OR `ps`
+ * running and printing something but producing not even one line with a parseable pid, ppid
+ * AND non-empty `lstart` (reviewer round 3, P2: a `ps` that does not support this combined
+ * `-o pid=,ppid=,lstart=` invocation -- e.g. busybox, or any `ps` silently dropping/blanking an
+ * unrecognized `lstart` column instead of erroring -- used to make every line fail the
+ * `tokens.length < 3` check below, leaving `rows` an EMPTY-BUT-NOT-NULL array that callers
+ * could not distinguish from "ps legitimately reported zero processes", which never happens in
+ * practice: at minimum this process's own line and PID 1 always exist whenever `ps` itself ran
+ * and printed non-empty output). Requires a `ps` supporting `pid`/`ppid`/`lstart` together
+ * (macOS's and procps-ng Linux's both do); callers must treat `null` as "no table available
+ * this call, verification impossible", never as "nothing is running".
+ *
+ * @returns {{pid: number, ppid: number, startedAt: string}[]|null}
  */
 function listProcessTable() {
-  if (process.platform === 'win32') return [];
+  if (process.platform === 'win32') return null;
   let raw;
   try {
     raw = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], {
@@ -584,9 +635,9 @@ function listProcessTable() {
       windowsHide: true
     });
   } catch {
-    return [];
+    return null;
   }
-  if (typeof raw !== 'string') return [];
+  if (typeof raw !== 'string') return null;
 
   const rows = [];
   for (const line of raw.split('\n')) {
@@ -604,6 +655,9 @@ function listProcessTable() {
       rows.push({ pid, ppid, startedAt });
     }
   }
+  // Non-empty `ps` output that did not yield even one valid row is indistinguishable from "ps
+  // cannot do what we asked" (see header above) -- never return it as if it meant something.
+  if (rows.length === 0) return null;
   return rows;
 }
 
@@ -649,20 +703,43 @@ function collectDescendants(rootPid, rows) {
  * in the fresh read but with a DIFFERENT `startedAt` is a different process and is left alone;
  * a pid absent from the fresh read entirely is skipped, not signaled).
  *
+ * Fails CLOSED (returns `false`, meaning "verification itself failed, trust nothing") rather
+ * than silently signaling nothing and reporting success, in every case where verification is
+ * not actually possible (reviewer round 3, P2): `identities` containing an entry with no
+ * recorded `startedAt` at all (should never happen given how `collectDescendants`/the root
+ * identity above are built, but never trusted blindly if it somehow does);
+ * `listProcessTableFn` returning `null`/anything that is not an array (see `listProcessTable`'s
+ * own header for the failure modes this covers, including a `ps` that cannot report `lstart`);
+ * or `listProcessTableFn` THROWING synchronously -- always called through a `try`/`catch` here
+ * so such a throw can never escape into the `execFile` callback that calls this function and
+ * surface as an uncaught exception or a `TOOL_FAILED` instead of the `TIMEOUT` the caller
+ * already decided to report. Returning `true` means every candidate was either
+ * verified-and-signaled or verifiably ABSENT from a real, successfully-read table -- never
+ * merely "nothing could be checked".
+ *
  * @param {Map<number, string>} identities pid -> the startedAt string recorded when this pid
  *   was last observed as the live root or one of its descendants
- * @param {() => {pid:number, ppid:number, startedAt:string}[]} [listProcessTableFn] injection
- *   point for tests; defaults to the real `listProcessTable` above
- * @returns {boolean} `true` when the fresh process table could be read at all (whether or not
- *   anything ended up needing a signal), `false` when it could not be read -- fail safe:
- *   callers must treat `false` as "verification itself failed" and fall back to a narrower,
- *   already-safe cleanup path (killing only the direct child via its Node-tracked handle, never
- *   an unverified raw pid)
+ * @param {() => ({pid:number, ppid:number, startedAt:string}[]|null)} [listProcessTableFn]
+ *   injection point for tests; defaults to the real `listProcessTable` above
+ * @returns {boolean} `true` when every identity was conclusively verified (signaled if still
+ *   alive under the same identity, left alone if verifiably gone), `false` when verification
+ *   itself could not be trusted -- fail safe: callers must treat `false` as "verification
+ *   failed" and fall back to a narrower, already-safe cleanup path (killing only the direct
+ *   child via its Node-tracked handle, never an unverified raw pid)
  */
 function killVerifiedPidsSafe(identities, listProcessTableFn = listProcessTable) {
   if (identities.size === 0) return true;
 
-  const currentRows = listProcessTableFn();
+  for (const startedAt of identities.values()) {
+    if (!startedAt) return false; // no recorded start time -- can never be verified.
+  }
+
+  let currentRows;
+  try {
+    currentRows = listProcessTableFn();
+  } catch {
+    return false; // the reader itself threw -- verification impossible, never let this escape.
+  }
   if (!Array.isArray(currentRows) || currentRows.length === 0) return false;
 
   const currentStartedAtByPid = new Map(currentRows.map((row) => [row.pid, row.startedAt]));
@@ -767,10 +844,15 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
     let rootIdentity = null;
     let descendantIdentities = new Map();
 
+    let finalPollTimer = null;
     const stopTracking = () => {
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
+      }
+      if (finalPollTimer) {
+        clearTimeout(finalPollTimer);
+        finalPollTimer = null;
       }
     };
 
@@ -793,12 +875,23 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
             if (error.killed || error.signal) {
               const toVerify = new Map(descendantIdentities);
               if (rootIdentity) toVerify.set(rootIdentity.pid, rootIdentity.startedAt);
-              const verified = killVerifiedPidsSafe(toVerify);
+              // If polling was expected (a real, non-mocked child on a POSIX platform) but the
+              // root's own identity was NEVER successfully observed even once (an
+              // always-unusable `ps` -- see `listProcessTable`'s header), `toVerify` is
+              // guaranteed empty here and `killVerifiedPidsSafe`'s own "nothing to verify"
+              // shortcut would otherwise misreport this as a vacuous `true` (reviewer round 3,
+              // P2): harmless for the fallback below, which only ever reaches the direct child
+              // regardless, but `verified` must still honestly report "never actually checked"
+              // rather than "checked, all clear".
+              const neverObservedRoot =
+                rootPid !== null && process.platform !== 'win32' && rootIdentity === null;
+              const verified = !neverObservedRoot && killVerifiedPidsSafe(toVerify);
               if (!verified && child && typeof child.kill === 'function') {
-                // The fresh process-table read itself failed (e.g. `ps` unavailable): fall
-                // back to the one thing that is always safe regardless -- Node's own tracked
-                // handle for the direct child, which targets the exact process it spawned with
-                // no pid-identity check needed. Never signal an unverified raw descendant pid.
+                // Verification itself could not be trusted (e.g. `ps` unavailable or unusable --
+                // see `listProcessTable`/`killVerifiedPidsSafe` headers): fall back to the one
+                // thing that is always safe regardless -- Node's own tracked handle for the
+                // direct child, which targets the exact process it spawned with no pid-identity
+                // check needed. Never signal an unverified raw descendant pid.
                 try {
                   child.kill('SIGKILL');
                 } catch {
@@ -894,17 +987,44 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
       if (rootPid !== null && process.platform !== 'win32') {
         const refreshIdentities = () => {
           const rows = listProcessTable();
-          if (rows.length === 0) return;
+          if (!rows) return;
           const rootRow = rows.find((row) => row.pid === rootPid);
           if (rootRow) rootIdentity = { pid: rootPid, startedAt: rootRow.startedAt };
-          descendantIdentities = collectDescendants(rootPid, rows);
+          // MERGE, never overwrite: a poll that happens to race the root's actual death (the
+          // kernel reparents every descendant away from it at that exact instant, which can
+          // land before `execFile`'s own exit-callback delivery, especially under heavy
+          // concurrent system load) would otherwise see an EMPTY ppid-walk this one time and
+          // wipe out an identity a PRIOR poll had already correctly, verifiably observed --
+          // destroying real evidence of a still-alive descendant (reviewer round 4 follow-up:
+          // measured live, under 34-way concurrent jest load, a descendant correctly tracked
+          // across dozens of prior polls vanishing from `toVerify` on the exact poll that
+          // coincided with the root's death). A stale leftover entry for a pid that is
+          // genuinely gone is harmless: `killVerifiedPidsSafe` always re-verifies the EXACT
+          // current `startedAt` at kill time and skips anything that does not match or is
+          // absent, so never pruning here costs nothing and loses nothing.
+          for (const [pid, startedAt] of collectDescendants(rootPid, rows)) {
+            descendantIdentities.set(pid, startedAt);
+          }
         };
         // Read once immediately (not just on the first interval tick, PROCESS_TREE_POLL_MS
         // later): a timeout shorter than one poll interval must still have a root identity to
-        // verify against on timeout.
+        // verify against on timeout. This immediate read captures the root but is not
+        // meaningful for descendants (none exist yet, an instant after spawn).
         refreshIdentities();
         pollTimer = setInterval(refreshIdentities, PROCESS_TREE_POLL_MS);
         if (typeof pollTimer.unref === 'function') pollTimer.unref();
+        // One more PROACTIVE poll scheduled to land shortly BEFORE the timeout itself fires
+        // (never reactively inside the `execFile` callback above -- by the time that callback
+        // runs the direct child is already dead and reaped, so any detached descendant it had
+        // has already been reparented away from it, which breaks ppid-based descendant
+        // discovery entirely; see this file's header, "Timeout containment"). This narrows,
+        // without eliminating, the gap for a descendant spawned after the last regular
+        // `PROCESS_TREE_POLL_MS` tick but before the deadline (reviewer round 3, P3), including
+        // when the whole timeout is shorter than one regular poll interval and the
+        // `setInterval` above would otherwise never tick at all before the deadline.
+        const finalPollDelay = Math.max(0, timeoutMs - FINAL_POLL_MARGIN_MS);
+        finalPollTimer = setTimeout(refreshIdentities, finalPollDelay);
+        if (typeof finalPollTimer.unref === 'function') finalPollTimer.unref();
       }
     } catch (error) {
       stopTracking();
