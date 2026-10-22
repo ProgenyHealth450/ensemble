@@ -530,14 +530,21 @@ describe('executable smoke test (child_process)', () => {
 // "extractDesignReadinessScore is not a function" on every call.
 describe('list and status read the design readiness score', () => {
   let dir;
+  const originalCwd = process.cwd();
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trd-cli-list-'));
     fs.writeFileSync(
       path.join(dir, 'TRD-2026-aaaaaaaa-demo.md'),
       '---\ndesign_readiness_score: 9\n---\n# Demo\n'
     );
+    // `list` and `status` ask `br` for bead counts in process.cwd(). Run from the throwaway dir so `br` finds no
+    // workspace (NOT_INITIALIZED, counted as zero) instead of creating .beads/ runtime state in the repository.
+    process.chdir(dir);
   });
-  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterAll(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   test('runList returns the score from frontmatter', () => {
     const res = runList(['--type', 'trd', '--dir', dir]);

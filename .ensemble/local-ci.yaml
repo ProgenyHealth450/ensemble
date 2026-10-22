@@ -88,3 +88,18 @@ status_context: ensemble/local-ci
 
 # No bot reviewers (e.g. CodeRabbit) are required; list logins here to enable bot-review handling.
 bot_reviewers: []
+
+# Untracked files the steps may legitimately leave behind. Anything else a step creates fails the run
+# (`unexpected-output`), because an untracked file is the one thing a step could plant that a later command
+# reads as permission to pass. Plain repo-relative paths only (no globs), and setting this key REPLACES the
+# defaults, so they are listed again. This repository is an npm workspace monorepo: `npm ci` also installs
+# into each workspace's own node_modules, which the root `node_modules` entry does not cover. A new workspace
+# that installs dependencies needs its own line; the failure names the exact path to add.
+output_paths:
+  - node_modules
+  - coverage
+  - .cache
+  - dist
+  - packages/agent-core/node_modules
+  - packages/pi/node_modules
+  - packages/pi-extension/node_modules
