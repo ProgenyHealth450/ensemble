@@ -5,9 +5,9 @@
   "status": "active",
   "stage": "pr_create",
   "stageOutcome": {
-    "kind": "approval_wait",
-    "detail": "PR approved by user (explicit) for Sunstone-Partners/ensemble base dev; title, body, checklist and not-proven items presented in full",
-    "recordedAt": "2026-10-22T18:04:40.991Z"
+    "kind": "success",
+    "detail": "PR opened: https://github.com/Sunstone-Partners/ensemble/pull/189 (base dev, head feature/trd-2026-4dec59b8-local-ci-pr-approval)",
+    "recordedAt": "2026-10-22T18:06:07.544Z"
   },
   "artifacts": [
     {
@@ -102,7 +102,7 @@
   ],
   "implementationApprovedAt": "2026-10-21T16:31:58.721Z",
   "prApprovedAt": "2026-10-22T18:04:40.991Z",
-  "revision": 10,
+  "revision": 11,
   "createdAt": "2026-10-21T15:30:55.595Z",
-  "updatedAt": "2026-10-22T18:04:40.991Z"
+  "updatedAt": "2026-10-22T18:06:07.545Z"
 }
