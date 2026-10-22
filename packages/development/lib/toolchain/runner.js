@@ -154,6 +154,7 @@
  */
 
 const { execFile } = require('child_process');
+const resolve = require('./resolve');
 
 const PLACEHOLDER_TEST_PATTERN = /\{[^{}]+\}/;
 const PLACEHOLDER_REPLACE_PATTERN = /\{([^{}]+)\}/g;
@@ -372,7 +373,12 @@ function denyRuntimeAllowlist(adapterId, binaries, allowlist, argv) {
  *   string[]>>}>}} adapter a parsed, already-validated adapter manifest
  * @param {string} capability the capability id to invoke, e.g. `tracker.show`
  * @param {Record<string, unknown>} [args] argument values keyed by placeholder name
- * @param {{timeoutMs?: number, source?: unknown, execFileOptions?: object}} [opts]
+ * @param {{timeoutMs?: number, source?: unknown, execFileOptions?: object, categoriesDir?:
+ *   string}} [opts] `categoriesDir` is forwarded to `resolve.lookupContractCapability`'s
+ *   category-contract lookup in the `!cap` branch below; defaults to that function's own
+ *   default (the real `packages/development/toolchain/categories` directory) when omitted, so
+ *   no existing caller is affected -- it exists solely so tests can inject a fixture contract
+ *   directory without touching the real on-disk contracts.
  * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:string}|
  *   {ok:false, error:{code:string, message:string}}>}
  */
@@ -381,6 +387,22 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
   const cap = adapter && adapter.capabilities && adapter.capabilities[capability];
 
   if (!cap) {
+    const declared = resolve.lookupContractCapability(capability, opts.categoriesDir);
+    if (declared && declared.required === false && declared.fallback) {
+      return {
+        ok: false,
+        unavailable: true,
+        fallback: declared.fallback,
+        capability,
+        adapter: adapterId,
+        error: {
+          code: 'UNAVAILABLE',
+          message:
+            `${adapterId}: capability '${capability}' is unavailable; using documented ` +
+            `fallback '${declared.fallback}'`
+        }
+      };
+    }
     return {
       ok: false,
       error: {
