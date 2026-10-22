@@ -430,6 +430,20 @@ describe("local-ci-runner: this repository's real approval set", () => {
     const wrongJob = [{ ...a.excludedSteps[0], job: 'validate' }];
     expect(unmirrored({ excludedSteps: wrongJob })).toEqual(['Upload coverage']);
   });
+
+  test('an exclusion recorded for a different workflow file does not hide the step', () => {
+    const { a } = real();
+    const otherFile = a.workflows.map((w) => w.file).find((f) => f !== a.excludedSteps[0].workflow);
+    expect(otherFile).toBeTruthy(); // the repo has two required workflow files, so the case is real
+    const wrongWorkflow = [{ ...a.excludedSteps[0], workflow: otherFile }];
+    expect(unmirrored({ excludedSteps: wrongWorkflow })).toEqual(['Upload coverage']);
+  });
+
+  test('an exclusion recorded for a different step name does not hide the step', () => {
+    const { a } = real();
+    const wrongStep = [{ ...a.excludedSteps[0], step: 'Some other step' }];
+    expect(unmirrored({ excludedSteps: wrongStep })).toEqual(['Upload coverage']);
+  });
 });
 
 describe('local-ci-runner: failing steps', () => {
