@@ -7,9 +7,13 @@
  * is expected to validate against (PRD REQ-002, REQ-022).
  *
  * In scope: TRD-012's Implementation AC bullets 1, 2 and 4, tested directly against
- * `mapOutput`. Implementation AC bullet 3 (schema validation wired into `runCapability`,
- * returning `{ok:false, error:{code:'BAD_OUTPUT'}}` end to end) is TRD-011/TRD-012 integration
- * work, out of scope here: `runner.js` is not touched or exercised by this file.
+ * `mapOutput`, PLUS (TRD-012-TEST, br-84tv, PRD AC-002-2/AC-022-2) Implementation AC bullet 3
+ * -- schema validation wired into `runCapability` itself -- proven end to end through the
+ * real, unmocked `child_process` path in the "runCapability: two real adapters..." describe
+ * block below: two real fixture adapters are spawned as real child processes (no
+ * `jest.mock('child_process')` anywhere in this file) and their output is normalized and
+ * schema-validated by the real `packages/development/lib/toolchain/runner.js#runCapability`,
+ * not a reimplementation of it.
  */
 
 const fs = require('fs');
@@ -18,6 +22,7 @@ const path = require('path');
 const Ajv = require('ajv');
 
 const { mapOutput, resolvePath } = require('../../packages/development/lib/toolchain/mapping');
+const { runCapability } = require('../../packages/development/lib/toolchain/runner');
 
 const MAPPING_SOURCE_PATH = path.join(__dirname, '..', '..', 'packages', 'development', 'lib', 'toolchain', 'mapping.js');
 const WORK_ITEM_SCHEMA_PATH = path.join(
@@ -724,5 +729,83 @@ describe('mutation-restore proof', () => {
     expect(parsedDocument.status).toBe('in_progress');
 
     parseSpy.mockRestore();
+  });
+});
+
+describe('runCapability: two real adapters, same category, both normalize through the real spawned-process path (TRD-012-TEST, br-84tv, PRD REQ-002 AC-002-2, REQ-022 AC-022-2)', () => {
+  const REAL_RUNNER_ADAPTERS_DIR = path.join(__dirname, 'fixtures', 'toolchain', 'real-runner-adapters');
+  const JIRA_NESTED_SCRIPT = path.join(REAL_RUNNER_ADAPTERS_DIR, 'jira-nested', 'show.js');
+  const FLAT_TRACKER_SCRIPT = path.join(REAL_RUNNER_ADAPTERS_DIR, 'flat-tracker', 'show.js');
+  const MALFORMED_SCRIPT = path.join(REAL_RUNNER_ADAPTERS_DIR, 'malformed-output', 'show.js');
+
+  /**
+   * Module-local real adapter manifest (not a file, matching `good-adapter`'s shape): spawns
+   * `node <scriptPath> --id <id>` for real via `runCapability`'s own `execFile`, the same
+   * `binaries`/`allowlist` pattern `toolchain-ledger-real-process.test.js#realLedgerAdapter`
+   * already establishes for this repo's real-child-process tests.
+   */
+  function realScriptAdapter(adapterId, scriptPath, parse) {
+    return {
+      adapter: adapterId,
+      binaries: [process.execPath],
+      allowlist: [{ bin: process.execPath, sub: [scriptPath] }],
+      capabilities: {
+        'tracker.show': {
+          run: [process.execPath, scriptPath, '--id', '${id}'],
+          parse
+        }
+      }
+    };
+  }
+
+  test('(Test AC 1) two adapters for the same category both return outputs in the normalized shape, spawned as real child processes', async () => {
+    const validate = compileWorkItemValidator();
+
+    const jiraAdapter = realScriptAdapter('fixture-jira-nested-real', JIRA_NESTED_SCRIPT, {
+      format: 'json',
+      map: {
+        id: '$.issues[0].key',
+        title: '$.issues[0].fields.summary',
+        status: '$.issues[0].fields.status'
+      },
+      statusMap: { 'In Progress': 'in_progress' }
+    });
+    const flatAdapter = realScriptAdapter('fixture-flat-tracker-real', FLAT_TRACKER_SCRIPT, {
+      format: 'json',
+      map: { id: '$.id', title: '$.title', status: '$.status' }
+    });
+
+    const jiraResult = await runCapability(jiraAdapter, 'tracker.show', { id: 'JIRA-1' });
+    const flatResult = await runCapability(flatAdapter, 'tracker.show', { id: 'FLAT-9' });
+
+    expect(jiraResult.ok).toBe(true);
+    expect(flatResult.ok).toBe(true);
+
+    // The two fixture scripts print completely different raw shapes (nested Jira-style vs a
+    // flat object) -- see fixtures/toolchain/real-runner-adapters/{jira-nested,flat-tracker}/
+    // show.js -- yet both `data` values land in the one shared normalized work-item shape.
+    expect(jiraResult.data).toEqual({ id: 'JIRA-1', title: 'Fix the bug', status: 'in_progress' });
+    expect(flatResult.data).toEqual({ id: 'FLAT-9', title: 'Fix the bug', status: 'open' });
+
+    expect(validate(jiraResult.data)).toBe(true);
+    expect(validate(flatResult.data)).toBe(true);
+    expect(Object.keys(jiraResult.data).sort()).toEqual(Object.keys(flatResult.data).sort());
+  });
+
+  test('(Test AC 2) tool output missing the normalized schemas required id field is rejected as BAD_OUTPUT, never passed on, through the real spawned-process path', async () => {
+    const malformedAdapter = realScriptAdapter('fixture-malformed-real', MALFORMED_SCRIPT, {
+      format: 'json',
+      map: { title: '$.title' }
+    });
+
+    const result = await runCapability(malformedAdapter, 'tracker.show', { id: 'X-1' });
+
+    // TRD-012's own Implementation AC line 286 example ("tool stdout missing required field id
+    // ... runCapability completes ... {ok:false, error:{code:'BAD_OUTPUT'}} and data is
+    // absent"), proven end to end against a real spawned child process, not a mocked one and
+    // not a direct mapOutput call.
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('BAD_OUTPUT');
+    expect(result).not.toHaveProperty('data');
   });
 });

@@ -334,7 +334,7 @@ describe('runCapability: caller-supplied execFileOptions cannot override securit
 });
 
 describe('runCapability: success path with the real good-adapter fixture (full envelope)', () => {
-  test('resolves {ok:true, capability, adapter, source, data} using the parsed fixture manifest', async () => {
+  test("resolves {ok:true, capability, adapter, source, data} with data mapped+validated per the fixture capability's parse block (TRD-012)", async () => {
     const adapter = loadGoodAdapterFixture();
     const canned = JSON.stringify({ id: 'A-1', title: 'x', status: 'open' });
 
@@ -349,24 +349,117 @@ describe('runCapability: success path with the real good-adapter fixture (full e
     expect(calledFile).toBe('fixture-tool');
     expect(calledArgs).toEqual(['show', '--id', 'A-1']);
 
+    // good-adapter's tracker.show declares parse:{format:json,map:{id,title}} (status is raw
+    // stdout only, never in the map), so `data` is the mapped object, not the raw `canned`
+    // JSON string -- this is the TRD-012 wiring this describe block now proves end to end.
     expect(result).toEqual({
       ok: true,
       capability: 'tracker.show',
       adapter: 'fixture-good-tracker',
       source: 'project-config',
-      data: canned
+      data: { id: 'A-1', title: 'x' }
     });
   });
 
   test('source defaults to null when opts.source is not supplied', async () => {
     const adapter = loadGoodAdapterFixture();
     execFile.mockImplementation((file, cmdArgs, options, callback) => {
-      setImmediate(() => callback(null, '{}', ''));
+      // Must include 'id' (the fixture's parse.map requires it to resolve), or mapping itself
+      // would fail with BAD_OUTPUT before `source` is ever considered.
+      setImmediate(() => callback(null, JSON.stringify({ id: 'A-1', title: 'y' }), ''));
     });
 
     const result = await runCapability(adapter, 'tracker.show', { id: 'A-1' });
     expect(result.ok).toBe(true);
     expect(result.source).toBeNull();
+  });
+});
+
+describe('runCapability: output mapping + normalized schema validation when cap.parse is declared (TRD-012, PRD REQ-002 AC-002-2, REQ-022 AC-022-2)', () => {
+  test('(i) parse present + mapped output validates against the normalized schema -> data is the mapped object, not raw stdout', async () => {
+    const stdout = JSON.stringify({ id: 'A-1', title: 'Fix the bug', status: 'open', extra: 'ignored-by-map' });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, stdout, ''));
+    });
+
+    const adapter = minimalAdapter({
+      capabilities: {
+        'tracker.show': {
+          run: ['fixture-tool', 'show', '--id', '${id}'],
+          parse: { format: 'json', root: '$', map: { id: '$.id', title: '$.title' } }
+        }
+      }
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'A-1' });
+
+    expect(result).toEqual({
+      ok: true,
+      capability: 'tracker.show',
+      adapter: 'fixture-tracker',
+      source: null,
+      data: { id: 'A-1', title: 'Fix the bug' }
+    });
+  });
+
+  test('(ii) parse present + mapOutput throws on malformed JSON stdout -> BAD_OUTPUT, no data key, error.code/message bubble from mapOutput unchanged', async () => {
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, 'not valid json {{{', ''));
+    });
+
+    const adapter = minimalAdapter({
+      capabilities: {
+        'tracker.show': {
+          run: ['fixture-tool', 'show', '--id', '${id}'],
+          parse: { format: 'json', root: '$', map: { id: '$.id' } }
+        }
+      }
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'A-1' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('BAD_OUTPUT');
+    expect(result.error.message).toMatch(/malformed JSON/);
+    expect(result).not.toHaveProperty('data');
+  });
+
+  test('(iii) parse present + mapped output fails Ajv schema validation (missing required id) -> BAD_OUTPUT naming the field, no data key', async () => {
+    const stdout = JSON.stringify({ title: 'No id in this one' });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, stdout, ''));
+    });
+
+    // map projects only 'title', never 'id': mapOutput itself succeeds (every declared map
+    // path resolves), but the mapped shape then fails the normalized schema's required:['id'].
+    const adapter = minimalAdapter({
+      capabilities: {
+        'tracker.show': {
+          run: ['fixture-tool', 'show', '--id', '${id}'],
+          parse: { format: 'json', root: '$', map: { title: '$.title' } }
+        }
+      }
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'A-1' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('BAD_OUTPUT');
+    expect(result.error.message).toContain('id');
+    expect(result).not.toHaveProperty('data');
+  });
+
+  test('(iv) parse absent -> data stays the unchanged raw stdout (regression guard: zero behavior change for every adapter shipped today)', async () => {
+    const rawStdout = 'totally-unparsed raw output, not even JSON {{{';
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, rawStdout, ''));
+    });
+
+    const adapter = minimalAdapter(); // default fixture's tracker.show declares no `parse`
+    const result = await runCapability(adapter, 'tracker.show', { id: 'A-1' });
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toBe(rawStdout);
   });
 });
 

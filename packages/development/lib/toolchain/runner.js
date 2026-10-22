@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Runner: template substitution, argument validation and process execution (TRD-2026-8d825f54
- * TRD-010, TRD-011, PRD REQ-022, REQ-023).
+ * Runner: template substitution, argument validation, process execution and TRD-012's output
+ * normalization (TRD-2026-8d825f54 TRD-010, TRD-011, TRD-012, PRD REQ-002, REQ-022, REQ-023).
  *
  * `buildArgv(runTemplate, args, contract)` is the first half of the runner described in the
  * TRD's System Architecture (Data Flow step 4): it substitutes `{name}` placeholders found
@@ -122,11 +122,16 @@
  * never spawns a process.
  *
  * Envelope contract (TRD System Architecture): on success, resolves to
- * `{ok:true, capability, adapter: adapter.adapter, source, data}`, where `data` is the raw
- * stdout string from the child process and `source` is `opts.source` passed through verbatim
- * (defaulting to `null`) -- `runCapability` never re-derives or infers a source, that is
- * `config.js`/`adapters.js`'s responsibility. On failure, resolves to
- * `{ok:false, error:{code, message}}` with one of:
+ * `{ok:true, capability, adapter: adapter.adapter, source, data}`, where `source` is
+ * `opts.source` passed through verbatim (defaulting to `null`) -- `runCapability` never
+ * re-derives or infers a source, that is `config.js`/`adapters.js`'s responsibility. `data` is
+ * the raw stdout string from the child process when the resolved capability declares no
+ * `parse` block (every adapter shipped today); when it does declare one, `data` is instead
+ * `./mapping.js#mapOutput(stdout, cap.parse)`'s return value (TRD-012, PRD REQ-002, REQ-022),
+ * additionally Ajv-validated against the category's normalized schema when
+ * `CATEGORY_NORMALIZED_SCHEMA` (below) declares one for `capability`'s category -- see
+ * `BAD_OUTPUT` below for the rejection path, which never passes a malformed value on. On
+ * failure, resolves to `{ok:false, error:{code, message}}` with one of:
  * - `NOT_ALLOWED`: the capability is not declared by the adapter, a `buildArgv`/`selectTemplate`
  *   `NOT_ALLOWED` error was thrown (an invalid variant selector), or the runtime allowlist check
  *   above rejected the resolved argv. Every `NOT_ALLOWED` message names the adapter and the
@@ -140,6 +145,12 @@
  * - `TOOL_FAILED`: any other `execFile` callback error (binary not found, non-zero exit, and so
  *   on). The message names the adapter and the capability and includes the child's stderr (or
  *   the raw error message when stderr is empty).
+ * - `BAD_OUTPUT`: only reachable when the resolved capability declares a `parse` block
+ *   (TRD-012). Either `mapOutput` threw (malformed stdout relative to `parse`, e.g. unparsable
+ *   JSON or a `map` path that does not resolve) or the mapped value failed Ajv validation
+ *   against the category's normalized schema (e.g. a missing required field such as `id`);
+ *   either way `data` is absent from the envelope entirely and the raw tool output is never
+ *   passed on (PRD REQ-002 AC-002-2).
  *
  * `runCapability` never lets a `child_process`, parsing or validation exception escape
  * uncaught: every branch above is reached through a try/catch or an `execFile` callback, never
@@ -147,14 +158,19 @@
  *
  * ## Known limits (runCapability)
  *
- * `data` is the raw, unparsed stdout string: TRD-012's `mapOutput` plus Ajv normalization
- * against `packages/development/toolchain/schemas/normalized/*.json` has not landed yet, so
- * callers see exactly what the child process printed. See the inline comment at
- * `runCapability`'s success branch for the exact spot TRD-012 will change.
+ * Normalized-schema validation (the `BAD_OUTPUT` branch above) only runs for a category listed
+ * in `CATEGORY_NORMALIZED_SCHEMA`; a capability in any other category that still declares
+ * `parse` gets `mapOutput`'s own `BAD_OUTPUT` checks, just no additional Ajv shape check, since
+ * no normalized schema ships for that category yet. Extend `CATEGORY_NORMALIZED_SCHEMA` when
+ * one does, rather than special-casing a category in this function.
  */
 
 const { execFile } = require('child_process');
 const resolve = require('./resolve');
+const fs = require('fs');
+const path = require('path');
+const Ajv = require('ajv');
+const { mapOutput } = require('./mapping');
 
 const PLACEHOLDER_TEST_PATTERN = /\{[^{}]+\}/;
 const PLACEHOLDER_REPLACE_PATTERN = /\{([^{}]+)\}/g;
@@ -362,11 +378,64 @@ function denyRuntimeAllowlist(adapterId, binaries, allowlist, argv) {
   return null;
 }
 
+const SCHEMA_DIR = path.join(__dirname, '..', '..', 'toolchain', 'schemas', 'normalized');
+
+/**
+ * Capability category -> normalized schema filename each category's mapped output
+ * (`./mapping.js#mapOutput`) is Ajv-validated against before `runCapability` hands it back to
+ * a caller (TRD-012, PRD REQ-002 AC-002-2, REQ-022 AC-022-2). Exactly one entry today:
+ * `tracker` is the only category with a shipped normalized schema (`work-item.json`,
+ * `packages/development/toolchain/schemas/normalized/work-item.json`). A capability whose
+ * category has no entry here still runs through `mapOutput` (and its own `BAD_OUTPUT` checks)
+ * when it declares `parse`; it is simply not additionally schema-validated, since no normalized
+ * schema ships for that category yet -- extend this table, not this file's logic, when one
+ * does.
+ */
+const CATEGORY_NORMALIZED_SCHEMA = {
+  tracker: 'work-item.json'
+};
+
+const compiledNormalizedValidators = new Map();
+
+/**
+ * Lazily compile and cache (module-level, keyed by schema filename, never per-call) the ajv
+ * validator for one normalized schema under `SCHEMA_DIR` (`config.js`/`validate.js`
+ * `getValidator()` convention).
+ *
+ * @param {string} schemaFileName e.g. `'work-item.json'`
+ * @returns {import('ajv').ValidateFunction}
+ */
+function getNormalizedValidator(schemaFileName) {
+  let validator = compiledNormalizedValidators.get(schemaFileName);
+  if (!validator) {
+    const schema = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, schemaFileName), 'utf8'));
+    const ajv = new Ajv({ allErrors: true });
+    validator = ajv.compile(schema);
+    compiledNormalizedValidators.set(schemaFileName, validator);
+  }
+  return validator;
+}
+
+/**
+ * Describe one ajv normalized-schema validation error as a short human-readable fragment
+ * naming the offending field (`validate.js#describeAjvError` convention).
+ *
+ * @param {import('ajv').ErrorObject} error
+ * @returns {string}
+ */
+function describeNormalizedSchemaError(error) {
+  if (error.keyword === 'required' && error.params && error.params.missingProperty) {
+    return `missing required property '${error.params.missingProperty}'`;
+  }
+  const atPath = error.instancePath ? error.instancePath.replace(/^\//, '') : '(root)';
+  return `${atPath}: ${error.message || 'invalid'}`;
+}
+
 /**
  * Execute one capability of a resolved, already-validated adapter manifest and resolve to the
- * runner envelope (TRD-011, TRD System Architecture; PRD REQ-023). See this file's header,
- * "runCapability" section, for the full envelope/error-code contract. Never throws: every
- * failure mode resolves to `{ok:false, error:{code, message}}` instead.
+ * runner envelope (TRD-011, TRD-012, TRD System Architecture; PRD REQ-023, REQ-002, REQ-022).
+ * See this file's header, "runCapability" section, for the full envelope/error-code contract.
+ * Never throws: every failure mode resolves to `{ok:false, error:{code, message}}` instead.
  *
  * @param {{adapter: string, binaries?: string[], allowlist?: {bin:string,sub?:string[]}[],
  *   capabilities?: Record<string, {run: string[], variants?: Record<string, Record<string,
@@ -379,7 +448,7 @@ function denyRuntimeAllowlist(adapterId, binaries, allowlist, argv) {
  *   default (the real `packages/development/toolchain/categories` directory) when omitted, so
  *   no existing caller is affected -- it exists solely so tests can inject a fixture contract
  *   directory without touching the real on-disk contracts.
- * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:string}|
+ * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:(string|unknown)}|
  *   {ok:false, error:{code:string, message:string}}>}
  */
 async function runCapability(adapter, capability, args = {}, opts = {}) {
@@ -462,14 +531,45 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
             });
             return;
           }
+          let data = stdout;
+          if (cap.parse) {
+            let mapped;
+            try {
+              mapped = mapOutput(stdout, cap.parse);
+            } catch (mapError) {
+              resolve({
+                ok: false,
+                error: { code: mapError.code || 'BAD_OUTPUT', message: mapError.message }
+              });
+              return;
+            }
+
+            const schemaFileName = CATEGORY_NORMALIZED_SCHEMA[capability.split('.')[0]];
+            const validateNormalized = schemaFileName && getNormalizedValidator(schemaFileName);
+            if (validateNormalized && !validateNormalized(mapped)) {
+              const firstError = validateNormalized.errors && validateNormalized.errors[0];
+              const detail = firstError
+                ? describeNormalizedSchemaError(firstError)
+                : 'does not match the normalized schema';
+              resolve({
+                ok: false,
+                error: {
+                  code: 'BAD_OUTPUT',
+                  message: `${adapterId}: capability '${capability}' output failed normalized-schema validation (${detail})`
+                }
+              });
+              return;
+            }
+
+            data = mapped;
+          }
+
           resolve({
             ok: true,
             capability,
             adapter: adapterId,
             source: opts.source ?? null,
-            // TRD-012 will replace this raw passthrough with mapOutput(stdout, cap.parse) + Ajv
-            // validation against the normalized schema; do not add output mapping here.
-            data: stdout
+            data
           });
         }
       );
