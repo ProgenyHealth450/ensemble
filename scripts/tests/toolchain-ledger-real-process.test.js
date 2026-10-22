@@ -69,6 +69,22 @@ function countInvocations(counterPath) {
 }
 
 /**
+ * Capability ids recorded, in order, in the real on-disk `ledger-<runId>.jsonl` file --
+ * independent evidence of which side-effecting capabilities actually completed, written by
+ * `recordSideEffect` as each one finishes. Used to verify the returned envelope's and the
+ * failure record's `completedSideEffects` against real evidence instead of a hardcoded
+ * literal that merely happens to match what the code is expected to produce.
+ */
+function readLedgerCapabilities(projectRoot, runId) {
+  const ledgerPath = path.join(projectRoot, '.ensemble', 'state', 'toolchain', `ledger-${runId}.jsonl`);
+  return fs
+    .readFileSync(ledgerPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line).capability);
+}
+
+/**
  * Minimal real adapter manifest (module-local, matching the shape `runCapability`/
  * `good-adapter` already use): every capability really spawns
  * `node <fixture script>.js <counterPath>` via `${counterPath}` -> `{counterPath}` manifest
@@ -119,7 +135,13 @@ describe('Scenario 1 (AC-014-1): output lists side effects from a real failing s
     );
 
     expect(result.ok).toBe(false);
-    expect(result.completedSideEffects).toEqual(['worktree.create', 'tracker.create']);
+    // Independent evidence: the real on-disk ledger-<runId>.jsonl file, written by
+    // `recordSideEffect` as each side-effecting capability actually completed, must agree
+    // with the envelope's `completedSideEffects` -- not merely match a hardcoded literal that
+    // happens to equal what the code is expected to produce.
+    const ledgerCapabilities = readLedgerCapabilities(projectRoot, 'real-run-ac1');
+    expect(ledgerCapabilities).toEqual(['worktree.create', 'tracker.create']);
+    expect(result.completedSideEffects).toEqual(ledgerCapabilities);
     expect(result.failedCapability).toBe('host.openChangeRequest');
     expect(result.error).toEqual({ code: 'TOOL_FAILED', message: EXPECTED_FAILURE_MESSAGE });
 
@@ -149,10 +171,55 @@ describe('Scenario 2 (AC-014-2): the real failure record is machine-readable', (
 
     expect(record.adapter).toBe('real-ledger-adapter');
     expect(record.capability).toBe('host.openChangeRequest');
-    expect(record.completedSideEffects).toEqual(['worktree.create', 'tracker.create']);
+    // Independent evidence, same as AC-014-1: compare against the real on-disk ledger file's
+    // own capability list, not a hardcoded literal that happens to match recordFailure's
+    // expected argument -- a stale/wrong/hardcoded completedSideEffects passed into
+    // recordFailure would then disagree with this and fail.
+    const ledgerCapabilities = readLedgerCapabilities(projectRoot, 'real-run-ac2');
+    expect(ledgerCapabilities).toEqual(['worktree.create', 'tracker.create']);
+    expect(record.completedSideEffects).toEqual(ledgerCapabilities);
     expect(record.error).toEqual({ code: 'TOOL_FAILED', message: EXPECTED_FAILURE_MESSAGE });
     expect(typeof record.timestamp).toBe('string');
     expect(Number.isNaN(Date.parse(record.timestamp))).toBe(false);
+  });
+});
+
+describe('AC-014-1/AC-014-2 mutation resistance: completedSideEffects tracks the real run, not a fixed guess', () => {
+  test('a differently-shaped real run (one side effect, not two, before failure) proves completedSideEffects is derived from this run\'s own evidence', async () => {
+    const projectRoot = makeTmpDir('ledger-real-shortrun-');
+    const counterPath = makeCounterPath();
+
+    // Deliberately only one real side effect before the real failure -- a different shape
+    // than every other scenario in this file, which all produce the same two-entry list. A
+    // `completedSideEffects` that is hardcoded or stale to that canonical two-entry value
+    // (instead of genuinely derived from this run's own accumulated side effects) is
+    // observably wrong here, not merely coincidentally correct as it would be against a
+    // scenario that happens to share the same two real side effects.
+    const result = await runSequence(
+      realLedgerAdapter(),
+      [
+        { capability: 'worktree.create', args: { counterPath } },
+        { capability: 'host.openChangeRequest', args: { counterPath } }
+      ],
+      { runId: 'real-run-ac-short' },
+      { projectRoot, env: {} }
+    );
+
+    expect(result.ok).toBe(false);
+
+    const ledgerCapabilities = readLedgerCapabilities(projectRoot, 'real-run-ac-short');
+    expect(ledgerCapabilities).toEqual(['worktree.create']);
+    expect(result.completedSideEffects).toEqual(ledgerCapabilities);
+
+    const failurePath = path.join(
+      projectRoot,
+      '.ensemble',
+      'state',
+      'toolchain',
+      'failure-real-run-ac-short.json'
+    );
+    const record = JSON.parse(fs.readFileSync(failurePath, 'utf8'));
+    expect(record.completedSideEffects).toEqual(ledgerCapabilities);
   });
 });
 
