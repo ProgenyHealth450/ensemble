@@ -319,17 +319,45 @@ function mkRunnableTrackerProject() {
 describe('parseArgs (reviewer Finding 5): --run-id/--arg strict validation', () => {
   test('--run-id with nothing after it is INVALID_ARG naming the flag, not a silent undefined runId', async () => {
     const projectRoot = mkRunnableTrackerProject();
-    const code = await main(['run', 'tracker.show', '--run-id', '--json'], { projectRoot, env: {} });
+    let stdout = '';
+    const original = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => {
+      stdout += chunk;
+      return true;
+    };
+    let code;
+    try {
+      code = await main(['run', 'tracker.show', '--run-id', '--json'], { projectRoot, env: {} });
+    } finally {
+      process.stdout.write = original;
+    }
     expect(code).toBe(1);
+    // Asserting the exact code (not just a non-zero exit) matters here: `run()`'s OWN
+    // charset check (reviewer Finding 3 round 2) would ALSO reject '--json' as a run id value
+    // if it ever reached that far, but with a DIFFERENT code (INVALID_RUN_ID). This must be
+    // parseArgs's own guard firing FIRST, before `run()` is ever called.
+    expect(JSON.parse(stdout.trim()).error.code).toBe('INVALID_ARG');
   });
 
   test('--run-id immediately followed by another flag is INVALID_ARG, never silently takes the flag as its value', async () => {
     const projectRoot = mkRunnableTrackerProject();
-    const code = await main(['run', 'tracker.show', '--run-id', '--arg', 'id=x', '--json'], {
-      projectRoot,
-      env: {}
-    });
+    let stdout = '';
+    const original = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk) => {
+      stdout += chunk;
+      return true;
+    };
+    let code;
+    try {
+      code = await main(['run', 'tracker.show', '--run-id', '--arg', 'id=x', '--json'], {
+        projectRoot,
+        env: {}
+      });
+    } finally {
+      process.stdout.write = original;
+    }
     expect(code).toBe(1);
+    expect(JSON.parse(stdout.trim()).error.code).toBe('INVALID_ARG');
   });
 
   test('--arg with nothing after it is INVALID_ARG, never silently dropped', async () => {
@@ -385,7 +413,7 @@ describe('parseArgs (reviewer Finding 5): --run-id/--arg strict validation', () 
 });
 
 describe('mutation-restore proof: reviewer Finding 5 actually discriminates', () => {
-  test('removing the --run-id flag-like-value guard lets a malformed --run-id silently proceed to run the capability', async () => {
+  test("removing the --run-id flag-like-value guard lets parseArgs's own INVALID_ARG attribution disappear (reviewer Finding 3's later charset check still blocks it, but with a different code)", async () => {
     const mutantRoot = makeMutantToolchainRoot();
     try {
       const needle =
@@ -400,14 +428,26 @@ describe('mutation-restore proof: reviewer Finding 5 actually discriminates', ()
       const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
 
       const projectRoot = mkRunnableTrackerProject();
-      const code = await mutatedCli.main(['run', 'tracker.show', '--run-id', '--json'], {
-        projectRoot,
-        env: {}
-      });
-      // With the guard removed, `--run-id` silently swallows the next flag token as its
-      // "value" and the (non-side-effecting) capability still runs to completion (exit 0) --
-      // exactly what the real (unmutated) "INVALID_ARG naming the flag" test above disproves.
-      expect(code).toBe(0);
+      let stdout = '';
+      const original = process.stdout.write.bind(process.stdout);
+      process.stdout.write = (chunk) => {
+        stdout += chunk;
+        return true;
+      };
+      try {
+        await mutatedCli.main(['run', 'tracker.show', '--run-id', '--json'], {
+          projectRoot,
+          env: {}
+        });
+      } finally {
+        process.stdout.write = original;
+      }
+      // With parseArgs's own guard removed, `--run-id` silently swallows '--json' as its
+      // "value"; the run() handler's separate charset check (reviewer Finding 3 round 2)
+      // still rejects it defense-in-depth, but as 'INVALID_RUN_ID', never the 'INVALID_ARG'
+      // parseArgs itself is supposed to report -- exactly what the real (unmutated) "INVALID_ARG
+      // naming the flag" test above disproves (it asserts error.code === 'INVALID_ARG').
+      expect(JSON.parse(stdout.trim()).error.code).toBe('INVALID_RUN_ID');
     } finally {
       mutantRoot.cleanup();
     }

@@ -84,6 +84,12 @@ function hangAdapter() {
   };
 }
 
+/** Reads the fixture's two-line output: `[directChildPid, grandchildPid]`. */
+function readPidFile(outFile) {
+  const lines = fs.readFileSync(outFile, 'utf8').split('\n').filter(Boolean);
+  return [Number(lines[0]), Number(lines[1])];
+}
+
 describe('reviewer Finding 3: timeout kills the whole process tree, not just the direct child (real process)', () => {
   test('a grandchild the direct child spawned detached and unref-ed is also gone after the timeout', async () => {
     const outFile = mkTmpFile();
@@ -96,12 +102,13 @@ describe('reviewer Finding 3: timeout kills the whole process tree, not just the
     expect(result.error.code).toBe('TIMEOUT');
     expect(elapsed).toBeLessThan(3000);
 
-    const grandchildPid = Number(fs.readFileSync(outFile, 'utf8'));
+    const [directPid, grandchildPid] = readPidFile(outFile);
     expect(Number.isInteger(grandchildPid)).toBe(true);
     livePidsToCleanUp.push(grandchildPid);
 
     const stillAlive = await waitUntilDead(grandchildPid, 4000);
     expect(stillAlive).toBe(false);
+    expect(isAlive(directPid)).toBe(false);
   }, 10000);
 });
 
@@ -109,9 +116,8 @@ describe('mutation-restore proof: reviewer Finding 3 actually discriminates (rea
   test('removing the supplemental descendant kill on timeout lets the detached grandchild survive', async () => {
     const mutantRoot = makeMutantToolchainRoot();
     try {
-      const needle =
-        'killPidsSafe(rootPid === null ? descendantPids : [rootPid, ...descendantPids]);';
-      const replacement = '/* supplemental kill removed by mutation */';
+      const needle = 'const verified = killVerifiedPidsSafe(toVerify);';
+      const replacement = 'const verified = true; /* supplemental kill removed by mutation */';
       const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
 
       const outFile = mkTmpFile();
@@ -119,12 +125,12 @@ describe('mutation-restore proof: reviewer Finding 3 actually discriminates (rea
         hangAdapter(),
         'tracker.show',
         { outFile },
-        { timeoutMs: 400 }
+        { timeoutMs: 1500 }
       );
       expect(result.ok).toBe(false);
       expect(result.error.code).toBe('TIMEOUT');
 
-      const grandchildPid = Number(fs.readFileSync(outFile, 'utf8'));
+      const [, grandchildPid] = readPidFile(outFile);
       livePidsToCleanUp.push(grandchildPid);
 
       // With the supplemental kill removed, only execFile's own direct-child kill runs, which
@@ -135,6 +141,50 @@ describe('mutation-restore proof: reviewer Finding 3 actually discriminates (rea
       expect(isAlive(grandchildPid)).toBe(true);
     } finally {
       // Always clean up the survivor this mutation test deliberately leaves alive.
+      for (const pid of livePidsToCleanUp.splice(0)) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // already gone
+        }
+      }
+      mutantRoot.cleanup();
+    }
+  }, 10000);
+
+  test('when identity verification itself fails, the direct child is still killed via its tracked handle, even though the grandchild cannot be reached', async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      // Forces `killVerifiedPidsSafe` to never even run (as if a real `ps` failure had been
+      // reported), proving the fallback path -- not the identity-verified path -- is what kills
+      // the direct child here.
+      const needle = 'const verified = killVerifiedPidsSafe(toVerify);';
+      const replacement = 'const verified = false; /* forced verification failure */';
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const outFile = mkTmpFile();
+      const result = await mutatedRunner.runCapability(
+        hangAdapter(),
+        'tracker.show',
+        { outFile },
+        { timeoutMs: 1500 }
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe('TIMEOUT');
+
+      const [directPid, grandchildPid] = readPidFile(outFile);
+      livePidsToCleanUp.push(grandchildPid);
+
+      // The direct child is still reliably killed (via `child.kill('SIGKILL')`, the fallback --
+      // not via the pid-identity path, which never ran).
+      const directStillAlive = await waitUntilDead(directPid, 4000);
+      expect(directStillAlive).toBe(false);
+
+      // The grandchild, unreachable without a working process-table read, survives: the
+      // fallback deliberately never signals an unverified raw pid.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(isAlive(grandchildPid)).toBe(true);
+    } finally {
       for (const pid of livePidsToCleanUp.splice(0)) {
         try {
           process.kill(pid, 'SIGKILL');

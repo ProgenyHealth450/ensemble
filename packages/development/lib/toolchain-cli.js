@@ -94,6 +94,7 @@ const { loadContracts } = require('./toolchain/contracts');
 const { hasPassingPreflightRecord } = require('./toolchain/preflight');
 const { validateAdapterDir } = require('./toolchain/validate');
 const { recordSideEffect, recordFailure, readLedgerEntries } = require('./toolchain/ledger');
+const { isValidRunId, invalidRunIdMessage } = require('./toolchain/run-id');
 
 const CATEGORIES = [
   'host',
@@ -182,6 +183,16 @@ function validate(ctx = {}, positionals = []) {
  * technique used elsewhere in this wave — this is a deliberate, small duplication, not a shared
  * helper, since the two callers must not depend on each other's new files this wave).
  *
+ * TRD review Finding 3 (round 2): when `--run-id` is supplied at all, it is validated FIRST
+ * (`./toolchain/run-id.js#isValidRunId`, the SAME shared charset `preflight.js`/`ledger.js`
+ * use) and rejected with `{ok:false, error:{code:'INVALID_RUN_ID', message}}` before anything
+ * else runs -- before the sideEffect lookup, before `hasPassingPreflightRecord`, before
+ * `resolveCategory`/`loadAdapter`/`runCapability` -- so a malformed id (wrong charset, a
+ * filename-colliding value, control characters) can never reach a filesystem path, regardless
+ * of whether the capability turns out to be side-effecting. `--run-id` omitted entirely is NOT
+ * validated here (there is nothing to validate); a non-side-effecting capability still runs
+ * with no run id at all, exactly as before.
+ *
  * When the capability is side-effecting and `hasPassingPreflightRecord(runId, ctx)`
  * (`./toolchain/preflight.js`, TRD-014) is `false` — including when `--run-id` was omitted
  * entirely — this returns `{ok:false, error:{code:'PREFLIGHT_REQUIRED', message}}` WITHOUT
@@ -223,6 +234,11 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
   }
 
   const { runId, args = {} } = parsed;
+
+  if (runId !== undefined && !isValidRunId(runId)) {
+    return { ok: false, error: { code: 'INVALID_RUN_ID', message: invalidRunIdMessage(runId) } };
+  }
+
   const category = capability.split('.')[0];
 
   const contracts = loadContracts();

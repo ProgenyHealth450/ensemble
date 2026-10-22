@@ -318,7 +318,7 @@ describe('reviewer Finding 2: ledger append and failure record wired through too
     );
   });
 
-  test('a run id containing path-traversal characters is refused before any ledger/failure write is attempted', async () => {
+  test('a run id containing path-traversal characters is refused (INVALID_RUN_ID, before any preflight check or ledger/failure write is attempted)', async () => {
     const projectRoot = mkProjectRoot();
     mkProjectConfig(projectRoot, { tracker: 'fixture-traversal-tracker' });
     mkInstalledAdapter(projectRoot, 'fixture-traversal-tracker', {
@@ -337,7 +337,10 @@ describe('reviewer Finding 2: ledger append and failure record wired through too
 
     expect(code).toBe(1);
     const parsed = JSON.parse(stdout.trim());
-    expect(parsed.error.code).toBe('PREFLIGHT_REQUIRED');
+    // The shared run-id charset validator (reviewer Finding 3 round 2) rejects this BEFORE the
+    // sideEffect/preflight gate is even consulted now, so the code is INVALID_RUN_ID, not
+    // PREFLIGHT_REQUIRED.
+    expect(parsed.error.code).toBe('INVALID_RUN_ID');
     expect(fs.existsSync(path.join(projectRoot, '..', 'evil'))).toBe(false);
     expect(fs.existsSync(stateDir(projectRoot))).toBe(false);
   });

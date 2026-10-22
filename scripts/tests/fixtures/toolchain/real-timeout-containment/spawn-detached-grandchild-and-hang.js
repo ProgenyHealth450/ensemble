@@ -8,8 +8,11 @@
  * (`spawn(cmd, {detached:true}).unref()`, a real pattern some CLIs use to launch a daemon) and
  * then hangs -- exactly the reproduction the independent review recorded: "allowlisted script
  * spawns detached `node sleep.js 300` and unrefs; TIMEOUT returned, grandchild lived on PPID
- * 1". The spawned grandchild's pid is written to `outFile` so the test can verify, after the
- * direct child is killed on timeout, whether the grandchild is also gone.
+ * 1". Writes TWO lines to `outFile`: its own pid (`process.pid`, the direct child
+ * `runCapability` spawned) first, then the detached grandchild's pid -- so a test can verify,
+ * after the direct child is killed on timeout, whether the grandchild is also gone (and, for
+ * the ps-unavailable fallback proof, that the direct child itself is still reliably killed via
+ * its Node-tracked handle even when the grandchild cannot be reached).
  */
 
 const fs = require('fs');
@@ -20,7 +23,7 @@ const outFile = process.argv[2];
 const sleepScript = path.join(__dirname, 'sleep-forever.js');
 
 const grandchild = spawn(process.execPath, [sleepScript], { detached: true, stdio: 'ignore' });
-fs.writeFileSync(outFile, String(grandchild.pid));
+fs.writeFileSync(outFile, `${process.pid}\n${grandchild.pid}\n`);
 grandchild.unref();
 
 // Hang far longer than any test's configured timeoutMs, so the runner's own timeout always

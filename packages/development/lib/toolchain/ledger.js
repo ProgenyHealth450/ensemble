@@ -43,8 +43,9 @@
  * CLI run surface (printing `completedSideEffects`/the failure to the user) is explicitly out
  * of scope for this module and lands in a later TRD task.
  *
- * Run ids are validated before any filesystem access: an id containing `/`, `\`, or `..` is
- * rejected (path-traversal guard, fail closed) rather than silently sanitized.
+ * Run ids are validated before any filesystem access against the SHARED charset `./run-id.js`
+ * defines (`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`) -- rejected (fail closed) rather than silently
+ * sanitized or truncated.
  */
 
 const fs = require('fs');
@@ -53,21 +54,21 @@ const path = require('path');
 const { redactSecrets } = require('../complexity-analyzer');
 const { runCapability } = require('./runner');
 const { loadContracts } = require('./contracts');
+const { isValidRunId, invalidRunIdMessage } = require('./run-id');
 
 /**
- * Validate a run id is safe to interpolate into a path under the state directory.
+ * Validate a run id is safe to interpolate into a path under the state directory, using the
+ * SAME shared charset `preflight.js#isSafeRunId` and the CLI's `run` subcommand use (see
+ * `./run-id.js`): no duplicate regex lives in this module.
  *
  * @param {unknown} runId
- * @throws {Error} when `runId` is not a non-empty string, or contains `/`, `\` or `..`
+ * @throws {Error} with `.code = 'INVALID_RUN_ID'` when `runId` fails the shared charset check
  */
 function assertValidRunId(runId) {
-  if (typeof runId !== 'string' || runId.length === 0) {
-    throw new Error('ledger: runId must be a non-empty string');
-  }
-  if (runId.includes('/') || runId.includes('\\') || runId.includes('..')) {
-    throw new Error(
-      `ledger: runId '${runId}' is rejected (path-traversal characters are not allowed)`
-    );
+  if (!isValidRunId(runId)) {
+    const error = new Error(`ledger: ${invalidRunIdMessage(runId)}`);
+    error.code = 'INVALID_RUN_ID';
+    throw error;
   }
 }
 

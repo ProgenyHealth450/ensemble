@@ -23,11 +23,12 @@
  * `hasPassingPreflightRecord` and refuses to proceed (`PREFLIGHT_REQUIRED`) whenever it
  * returns `false`.
  *
- * Path-traversal guard: a `runId` containing `/`, `\`, or `..` is never used to build a
- * filesystem path. `runPreflight` rejects it up front -- before resolving any adapter or
- * running any check -- with `{code:'INVALID_RUN_ID'}` (fail closed with a clear error, never a
- * silent skip); `hasPassingPreflightRecord` rejects it by returning `false`, matching its other
- * fail-closed "no record" cases.
+ * Run-id charset guard (shared, see `./run-id.js`): a `runId` failing the shared charset
+ * (`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`) is never used to build a filesystem path.
+ * `runPreflight` rejects it up front -- before resolving any adapter or running any check --
+ * with `{code:'INVALID_RUN_ID'}` (fail closed with a clear error, never a silent skip);
+ * `hasPassingPreflightRecord` rejects it by returning `false`, matching its other fail-closed
+ * "no record" cases.
  *
  * ## Known limits
  *
@@ -58,19 +59,20 @@ const { resolveCategory } = require('./config');
 const { loadAdapter } = require('./adapters');
 const { runCapability } = require('./runner');
 const { redactSecrets } = require('../complexity-analyzer');
+const { isValidRunId, invalidRunIdMessage } = require('./run-id');
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 10000;
-const RUN_ID_UNSAFE_PATTERN = /[\\/]|\.\./;
 
 /**
- * Whether `runId` is safe to interpolate into a filesystem path: a non-empty string containing
- * none of `/`, `\`, or `..`.
+ * Whether `runId` is safe to interpolate into a filesystem path (shared charset, see
+ * `./run-id.js` for the full rationale -- this module no longer keeps its own, narrower
+ * path-traversal-only check).
  *
  * @param {unknown} runId
  * @returns {boolean}
  */
 function isSafeRunId(runId) {
-  return typeof runId === 'string' && runId.length > 0 && !RUN_ID_UNSAFE_PATTERN.test(runId);
+  return isValidRunId(runId);
 }
 
 /**
@@ -156,7 +158,7 @@ async function runPreflight(input = {}, ctx = {}) {
       ok: false,
       error: {
         code: 'INVALID_RUN_ID',
-        message: `runId '${String(runId)}' is invalid: run ids must not contain '/', '\\', or '..'`
+        message: invalidRunIdMessage(runId)
       }
     };
   }

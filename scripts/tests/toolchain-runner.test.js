@@ -17,7 +17,12 @@ const path = require('path');
 const yaml = require('js-yaml');
 const { execFile } = require('child_process');
 
-const { buildArgv, runCapability, buildChildEnv } = require('../../packages/development/lib/toolchain/runner');
+const {
+  buildArgv,
+  runCapability,
+  buildChildEnv,
+  killVerifiedPidsSafe
+} = require('../../packages/development/lib/toolchain/runner');
 const {
   makeMutantToolchainRoot,
   mutateAndRequire
@@ -822,6 +827,122 @@ describe('mutation-restore proof: reviewer Findings 1 and 4 actually discriminat
       // `env[]` no longer reaches the child -- exactly what the real (unmutated) "a name the
       // adapter declares in env[] IS passed through" test above disproves.
       expect(env.GITHUB_TOKEN).toBeUndefined();
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+});
+
+describe('killVerifiedPidsSafe: identity-verified kill, never a bare recycled pid (reviewer round 2, P2)', () => {
+  let killSpy;
+
+  beforeEach(() => {
+    killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    killSpy.mockRestore();
+  });
+
+  test('a pid present in the fresh table with the SAME startedAt identity is killed', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => [{ pid: 123, ppid: 1, startedAt: 'Wed Oct 22 10:00:00 2026' }];
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(true);
+    expect(killSpy).toHaveBeenCalledWith(123, 'SIGKILL');
+  });
+
+  test('a pid present in the fresh table with a DIFFERENT startedAt (reused by another process) is NOT killed', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => [{ pid: 123, ppid: 1, startedAt: 'Wed Oct 22 10:05:00 2026' }];
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(true);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('a pid absent from the fresh table (already exited) is skipped, not killed', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => [{ pid: 999, ppid: 1, startedAt: 'Wed Oct 22 10:00:00 2026' }];
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(true);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('a process-table read failure (empty result, e.g. ps unavailable) reports verification failure and kills nothing', () => {
+    const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+    const fakeTable = () => [];
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(false);
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('an empty identities map is a trivial success with nothing to verify or kill (never calls the reader)', () => {
+    const fakeTable = jest.fn(() => []);
+
+    const verified = killVerifiedPidsSafe(new Map(), fakeTable);
+
+    expect(verified).toBe(true);
+    expect(fakeTable).not.toHaveBeenCalled();
+    expect(killSpy).not.toHaveBeenCalled();
+  });
+
+  test('multiple identities: only the ones whose identity still verifies are killed', () => {
+    const identities = new Map([
+      [1, 'A'],
+      [2, 'B'],
+      [3, 'C']
+    ]);
+    const fakeTable = () => [
+      { pid: 1, ppid: 0, startedAt: 'A' }, // matches -> killed
+      { pid: 2, ppid: 0, startedAt: 'DIFFERENT' } // mismatched -> not killed; pid 3 absent -> not killed
+    ];
+
+    const verified = killVerifiedPidsSafe(identities, fakeTable);
+
+    expect(verified).toBe(true);
+    expect(killSpy).toHaveBeenCalledTimes(1);
+    expect(killSpy).toHaveBeenCalledWith(1, 'SIGKILL');
+  });
+});
+
+describe('mutation-restore proof: reviewer round-2 Finding 1 (recycled-pid kill) actually discriminates', () => {
+  test('removing the start-time comparison lets a recycled pid (present, different identity) be killed anyway', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        '    if (currentStartedAtByPid.get(pid) !== startedAt) {\n' +
+        '      continue; // gone, or a different process now holds this pid -- never signal it.\n' +
+        '    }';
+      const replacement =
+        '    if (!currentStartedAtByPid.has(pid)) {\n' +
+        '      continue; // only "still present" is checked now -- identity is NOT verified.\n' +
+        '    }';
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
+      try {
+        const identities = new Map([[123, 'Wed Oct 22 10:00:00 2026']]);
+        // Same pid, but a DIFFERENT startedAt: the real process-table row now describes an
+        // unrelated process the OS recycled this pid to.
+        const fakeTable = () => [{ pid: 123, ppid: 1, startedAt: 'Wed Oct 22 11:30:00 2026' }];
+
+        mutatedRunner.killVerifiedPidsSafe(identities, fakeTable);
+
+        // With the start-time comparison removed, the recycled pid is signaled anyway --
+        // exactly what the real (unmutated) "a pid present ... with a DIFFERENT startedAt ...
+        // is NOT killed" test above disproves.
+        expect(killSpy).toHaveBeenCalledWith(123, 'SIGKILL');
+      } finally {
+        killSpy.mockRestore();
+      }
     } finally {
       mutantRoot.cleanup();
     }

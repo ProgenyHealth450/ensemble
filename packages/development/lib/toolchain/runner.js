@@ -139,16 +139,27 @@
  * reparented to pid 1, after the direct child was killed). Since `execFile` must remain the
  * only spawning primitive in this module (see this file's top-level header; never a shell,
  * no `spawn`), containment instead tracks the direct child's REAL descendant set by POSIX pid
- * table (`listProcessTable`/`collectDescendants` below, via `ps -A -o pid=,ppid=`, no shell),
- * polled every `PROCESS_TREE_POLL_MS` while the call is in flight, and on timeout every pid
- * seen in the last poll (plus the direct child's own pid) is sent `SIGKILL` directly
- * (`killPidsSafe`), independent of process groups entirely. This reaches an ordinary
- * descendant regardless of whether its immediate parent (the direct child) has already been
- * reaped by the time the kill runs. Polling is skipped entirely on `win32` and whenever the
- * mocked/stubbed `execFile` this module is given returns no real `ChildProcess` (every pid
- * check in this module tolerates `child`/`child.pid` being absent, which is exactly what every
- * `jest.mock('child_process')`-based test in this repo's suite already does) -- see "Known
- * limits" below for what this containment strategy still cannot reach.
+ * table (`listProcessTable`/`collectDescendants` below, via `ps -A -o pid=,ppid=,lstart=`, no
+ * shell), polled every `PROCESS_TREE_POLL_MS` while the call is in flight, recording not just
+ * each pid but `ps`'s own `lstart` start-time string alongside it (an opaque per-process
+ * identity). On timeout, every pid observed in the last poll -- the direct child's own pid
+ * included, since it is just as reusable by the OS as any descendant once it exits -- is
+ * RE-VERIFIED against a FRESH process-table read immediately before signaling
+ * (`killVerifiedPidsSafe`): only a pid whose CURRENT `lstart` still matches the one recorded
+ * when it was last observed gets `SIGKILL`; a pid that is gone, or now belongs to a different
+ * process the OS reused it for, is left alone (reviewer round 2, P2: a stale ~100ms-old
+ * snapshot's raw pids are never trusted without this re-check). If the fresh read itself fails
+ * (e.g. `ps` becomes unavailable), verification reports failure and this function falls back
+ * to the one thing that is always safe regardless of any pid-reuse race: killing the direct
+ * child through Node's own tracked `ChildProcess` handle (`child.kill('SIGKILL')`, which needs
+ * no identity check since it targets the exact process `execFile` returned), never an
+ * unverified raw descendant pid. This reaches an ordinary descendant regardless of whether its
+ * immediate parent (the direct child) has already been reaped by the time the kill runs.
+ * Polling is skipped entirely on `win32` and whenever the mocked/stubbed `execFile` this module
+ * is given returns no real `ChildProcess` (every pid check in this module tolerates
+ * `child`/`child.pid` being absent, which is exactly what every `jest.mock('child_process')`-
+ * based test in this repo's suite already does) -- see "Known limits" below for what this
+ * containment strategy still cannot reach.
  *
  * Manifest `capabilities[].run[]` templates use `${name}` placeholders (see
  * `adapter-manifest-schema.json` and `validate.js`'s `extractRunPlaceholders`), while
@@ -547,20 +558,27 @@ function buildChildEnv(adapterEnvNames, parentEnv, callerEnvOverride) {
 }
 
 /**
- * Best-effort, POSIX-only process-table snapshot (`pid`/`ppid` pairs for every process `ps`
- * currently reports), used only to find a timed-out capability's surviving descendants (see
- * `collectDescendants`/`killPidsSafe` and this file's header, "Timeout containment"). Never
- * throws and never involves a shell: a missing `ps`, a mocked/stubbed `child_process` module (as
- * every test in this repo's suite that exercises this file provides), or any parse failure all
- * resolve to `[]`, meaning simply "no descendants found this poll".
+ * Best-effort, POSIX-only process-table snapshot -- `{pid, ppid, startedAt}` for every process
+ * `ps` currently reports, used only to find a timed-out capability's surviving descendants
+ * (see `collectDescendants`/`killVerifiedPidsSafe` and this file's header, "Timeout
+ * containment"). `startedAt` is `ps`'s own `lstart=` text (an absolute, human-readable start
+ * timestamp string, e.g. `'Wed Oct 22 14:23:11 2026'`) treated as an OPAQUE identity, never
+ * parsed into a `Date`: two `ps` snapshots taken through this SAME function report the exact
+ * same string for the exact same still-living process, and a DIFFERENT string the instant that
+ * pid is reused by a new process (reviewer round 2: raw pids alone are reused by the OS and
+ * must never be trusted across two separate snapshots without this check). Never throws and
+ * never involves a shell: a missing `ps`, a mocked/stubbed `child_process` module (as every
+ * test in this repo's suite that exercises this file provides), or any parse failure all
+ * resolve to `[]`, meaning simply "no table available this call" -- callers must treat `[]` as
+ * "could not verify anything", never as "nothing is running".
  *
- * @returns {{pid: number, ppid: number}[]}
+ * @returns {{pid: number, ppid: number, startedAt: string}[]}
  */
 function listProcessTable() {
   if (process.platform === 'win32') return [];
   let raw;
   try {
-    raw = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], {
+    raw = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], {
       encoding: 'utf8',
       timeout: 2000,
       windowsHide: true
@@ -574,35 +592,48 @@ function listProcessTable() {
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const [pidText, ppidText] = trimmed.split(/\s+/);
-    const pid = Number(pidText);
-    const ppid = Number(ppidText);
-    if (Number.isInteger(pid) && Number.isInteger(ppid)) rows.push({ pid, ppid });
+    // `lstart` itself contains internal spaces (e.g. 'Wed Oct 22 14:23:11 2026'); splitting the
+    // whole line on runs of whitespace and taking everything after the first two tokens is
+    // robust to that (and to the single-extra-space BSD `ps` pads a single-digit day with).
+    const tokens = trimmed.split(/\s+/);
+    if (tokens.length < 3) continue;
+    const pid = Number(tokens[0]);
+    const ppid = Number(tokens[1]);
+    const startedAt = tokens.slice(2).join(' ');
+    if (Number.isInteger(pid) && Number.isInteger(ppid) && startedAt) {
+      rows.push({ pid, ppid, startedAt });
+    }
   }
   return rows;
 }
 
 /**
- * Every transitive descendant pid of `rootPid` in a `{pid, ppid}` table snapshot (breadth-first
- * over the parent-of relation), never including `rootPid` itself.
+ * Every transitive descendant of `rootPid` in a `{pid, ppid, startedAt}` table snapshot
+ * (breadth-first over the parent-of relation), as a `pid -> startedAt` identity map; never
+ * includes `rootPid` itself (its own identity is tracked separately -- see `runCapability`).
  *
  * @param {number} rootPid
- * @param {{pid: number, ppid: number}[]} rows
- * @returns {Set<number>}
+ * @param {{pid: number, ppid: number, startedAt: string}[]} rows
+ * @returns {Map<number, string>}
  */
 function collectDescendants(rootPid, rows) {
   const childrenByParent = new Map();
-  for (const { pid, ppid } of rows) {
+  const startedAtByPid = new Map();
+  for (const { pid, ppid, startedAt } of rows) {
+    startedAtByPid.set(pid, startedAt);
     if (!childrenByParent.has(ppid)) childrenByParent.set(ppid, []);
     childrenByParent.get(ppid).push(pid);
   }
-  const found = new Set();
+
+  const found = new Map();
+  const visited = new Set([rootPid]);
   const queue = [rootPid];
   while (queue.length > 0) {
     const current = queue.shift();
     for (const kid of childrenByParent.get(current) || []) {
-      if (!found.has(kid)) {
-        found.add(kid);
+      if (!visited.has(kid)) {
+        visited.add(kid);
+        found.set(kid, startedAtByPid.get(kid));
         queue.push(kid);
       }
     }
@@ -611,20 +642,41 @@ function collectDescendants(rootPid, rows) {
 }
 
 /**
- * SIGKILL every pid in `pids`, swallowing every error (already exited, no permission, pid
- * reused by an unrelated process by the time this runs): best-effort timeout cleanup, never a
- * source of a thrown error back to `runCapability`'s own caller.
+ * Re-verify each `pid -> startedAt` identity against a FRESH process-table read and SIGKILL
+ * only the ones still alive with the EXACT SAME start-time identity -- never a bare pid with
+ * no identity check, which could by now belong to an unrelated process the OS reused that pid
+ * for (reviewer round 2, P2: a 100ms-stale snapshot alone is not enough; a pid that is present
+ * in the fresh read but with a DIFFERENT `startedAt` is a different process and is left alone;
+ * a pid absent from the fresh read entirely is skipped, not signaled).
  *
- * @param {Iterable<number>} pids
+ * @param {Map<number, string>} identities pid -> the startedAt string recorded when this pid
+ *   was last observed as the live root or one of its descendants
+ * @param {() => {pid:number, ppid:number, startedAt:string}[]} [listProcessTableFn] injection
+ *   point for tests; defaults to the real `listProcessTable` above
+ * @returns {boolean} `true` when the fresh process table could be read at all (whether or not
+ *   anything ended up needing a signal), `false` when it could not be read -- fail safe:
+ *   callers must treat `false` as "verification itself failed" and fall back to a narrower,
+ *   already-safe cleanup path (killing only the direct child via its Node-tracked handle, never
+ *   an unverified raw pid)
  */
-function killPidsSafe(pids) {
-  for (const pid of pids) {
+function killVerifiedPidsSafe(identities, listProcessTableFn = listProcessTable) {
+  if (identities.size === 0) return true;
+
+  const currentRows = listProcessTableFn();
+  if (!Array.isArray(currentRows) || currentRows.length === 0) return false;
+
+  const currentStartedAtByPid = new Map(currentRows.map((row) => [row.pid, row.startedAt]));
+  for (const [pid, startedAt] of identities) {
+    if (currentStartedAtByPid.get(pid) !== startedAt) {
+      continue; // gone, or a different process now holds this pid -- never signal it.
+    }
     try {
       process.kill(pid, 'SIGKILL');
     } catch {
-      // Already gone, or never existed -- nothing to clean up.
+      // Already exited between the re-check above and this call -- fine, nothing to clean up.
     }
   }
+  return true;
 }
 
 /**
@@ -707,7 +759,13 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
 
   return new Promise((resolve) => {
     let pollTimer = null;
-    let descendantPids = new Set();
+    // `rootIdentity` is `{pid, startedAt}` once the direct child's own ps-table row has been
+    // observed at least once -- it is ALSO a candidate for pid reuse (after it exits, the OS
+    // can hand its pid to an unrelated process before this callback runs), so it goes through
+    // the exact same re-verify-then-kill path as every descendant, never a bare
+    // `process.kill(rootPid, ...)` (reviewer round 2).
+    let rootIdentity = null;
+    let descendantIdentities = new Map();
 
     const stopTracking = () => {
       if (pollTimer) {
@@ -733,8 +791,20 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
 
           if (error) {
             if (error.killed || error.signal) {
-              const rootPid = child && typeof child.pid === 'number' ? child.pid : null;
-              killPidsSafe(rootPid === null ? descendantPids : [rootPid, ...descendantPids]);
+              const toVerify = new Map(descendantIdentities);
+              if (rootIdentity) toVerify.set(rootIdentity.pid, rootIdentity.startedAt);
+              const verified = killVerifiedPidsSafe(toVerify);
+              if (!verified && child && typeof child.kill === 'function') {
+                // The fresh process-table read itself failed (e.g. `ps` unavailable): fall
+                // back to the one thing that is always safe regardless -- Node's own tracked
+                // handle for the direct child, which targets the exact process it spawned with
+                // no pid-identity check needed. Never signal an unverified raw descendant pid.
+                try {
+                  child.kill('SIGKILL');
+                } catch {
+                  // Already exited -- nothing to clean up.
+                }
+              }
               resolve({
                 ok: false,
                 error: {
@@ -822,12 +892,18 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
 
       const rootPid = child && typeof child.pid === 'number' ? child.pid : null;
       if (rootPid !== null && process.platform !== 'win32') {
-        pollTimer = setInterval(() => {
+        const refreshIdentities = () => {
           const rows = listProcessTable();
-          if (rows.length > 0) {
-            descendantPids = collectDescendants(rootPid, rows);
-          }
-        }, PROCESS_TREE_POLL_MS);
+          if (rows.length === 0) return;
+          const rootRow = rows.find((row) => row.pid === rootPid);
+          if (rootRow) rootIdentity = { pid: rootPid, startedAt: rootRow.startedAt };
+          descendantIdentities = collectDescendants(rootPid, rows);
+        };
+        // Read once immediately (not just on the first interval tick, PROCESS_TREE_POLL_MS
+        // later): a timeout shorter than one poll interval must still have a root identity to
+        // verify against on timeout.
+        refreshIdentities();
+        pollTimer = setInterval(refreshIdentities, PROCESS_TREE_POLL_MS);
         if (typeof pollTimer.unref === 'function') pollTimer.unref();
       }
     } catch (error) {
@@ -846,5 +922,8 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
 module.exports = {
   buildArgv,
   buildChildEnv,
+  listProcessTable,
+  collectDescendants,
+  killVerifiedPidsSafe,
   runCapability
 };
