@@ -321,8 +321,9 @@ describe('runPreflight: real process spawning, not a scripted mock (TRD-014-TEST
 
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('HEALTH_FAILED');
-    expect(result.error.message).toContain('real-missing-tool-tracker');
-    expect(result.error.message).toContain('version');
+    expect(result.error.message).toMatch(
+      /^real-missing-tool-tracker: health check 'version' failed \(TOOL_FAILED\):/
+    );
     expect(fs.existsSync(preflightRecordPath(projectRoot, 'real-r1'))).toBe(false);
     expect(execFile).toHaveBeenCalledTimes(1);
   });
@@ -351,8 +352,9 @@ describe('runPreflight: real process spawning, not a scripted mock (TRD-014-TEST
 
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('HEALTH_FAILED');
-    expect(result.error.message).toContain('real-expired-auth-tracker');
-    expect(result.error.message).toContain('auth');
+    expect(result.error.message).toMatch(
+      /^real-expired-auth-tracker: health check 'auth' failed \(TOOL_FAILED\):/
+    );
     expect(execFile).toHaveBeenCalledTimes(1);
   });
 
