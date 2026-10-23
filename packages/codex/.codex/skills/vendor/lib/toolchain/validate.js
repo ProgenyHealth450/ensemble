@@ -26,7 +26,10 @@
  * `validateAllowlist(manifest)` checks that every capability and health check's `run` argv
  * (including variant run templates) calls a binary declared in the manifest's `binaries` and
  * a subcommand declared in that binary's `allowlist[].sub` (TRD-008, PRD REQ-023 AC-023-1,
- * AC-023-3). `scanCredentials(files)` rejects literal credentials in adapter manifests,
+ * AC-023-3; a `sub` entry may be a single word or a space-separated multi-word subcommand such
+ * as `boards work-item show`, TRD-033, matched positionally against the run argv -- see
+ * `matchesSubcommandWords` below).
+ * `scanCredentials(files)` rejects literal credentials in adapter manifests,
  * `SKILL.md` and toolchain config files: well-known secret token prefixes anywhere in the
  * file, and credential-shaped keys (`password`, `secret`, `token`, `api_key`, `apikey`,
  * `access_key`, `private_key`, `client_secret`, `auth`, `bearer`) set to literal values;
@@ -59,9 +62,13 @@
  * ## Known limits
  *
  * `validateAllowlist` enforces the allowlist at binary-plus-subcommand level by design: it
- * checks `run[0]` (the binary) and `run[1]` (the subcommand) only. Later argv elements — flags,
- * option values, substituted template arguments, script names — are not constrained by this
- * static check; the runtime runner (TRD-010) validates substituted arguments against each
+ * checks `run[0]` (the binary) and the subcommand words that immediately follow it against
+ * each `allowlist[].sub` entry via `matchesSubcommandWords`. A `sub` entry may be a single word
+ * (`show`) or a space-separated multi-word subcommand (`boards work-item show`); every word of
+ * the entry must equal the run argv element at the same position, never a substring or prefix
+ * match on a single token. Argv elements beyond the matched subcommand words -- flags, option
+ * values, substituted template arguments, script names -- are not constrained by this static
+ * check; the runtime runner (TRD-010) validates substituted arguments against each
  * capability's declared contract input types before every call. Do not add argument-level
  * constraints to the static validator.
  *
@@ -322,11 +329,36 @@ function extractFencedCodeBlockLines(content) {
 }
 
 /**
+ * Compare a declared allowlist subcommand (a single word like `show`, or a space-separated
+ * multi-word subcommand like `boards work-item show`, TRD-033) against the argv elements that
+ * follow the binary, matching each word positionally. Every word of `allowedSub` must equal
+ * the argv element at the same index -- this is never a substring or prefix match on a single
+ * token, so `showall` never matches a run of `show`, and `boards` alone never matches a
+ * declared `boards work-item show` entry.
+ *
+ * @param {string} allowedSub one `allowlist[].sub` entry, e.g. 'show' or 'boards work-item show'
+ * @param {string[]} argvAfterBin the run/argv elements after the binary (run[1], run[2], ...)
+ * @returns {boolean} true only when every word of `allowedSub` equals the argv element at the
+ *   same position
+ */
+function matchesSubcommandWords(allowedSub, argvAfterBin) {
+  if (typeof allowedSub !== 'string' || allowedSub.length === 0) {
+    return false;
+  }
+  const words = allowedSub.split(' ');
+  if (words.length > argvAfterBin.length) {
+    return false;
+  }
+  return words.every((word, i) => argvAfterBin[i] === word);
+}
+
+/**
  * Validate that every capability and health check's `run` argv (including per-capability
- * `variants` run templates) starts with a binary declared in `manifest.binaries` and that its
- * second element is a subcommand declared in that binary's `allowlist[].sub` entry (TRD-008,
- * PRD REQ-023 AC-023-1, AC-023-3). See `## Known limits` in the module doc above: argv
- * elements beyond `run[0]`/`run[1]` are not constrained here.
+ * `variants` run templates) starts with a binary declared in `manifest.binaries` and that the
+ * subcommand words following it match a subcommand declared in that binary's `allowlist[].sub`
+ * entry (TRD-008, PRD REQ-023 AC-023-1, AC-023-3; TRD-033 multi-word subcommand support). See
+ * `## Known limits` in the module doc above: argv elements beyond the matched subcommand words
+ * are not constrained here.
  *
  * @param {object} manifest a parsed adapter manifest (see adapter-manifest-schema.json)
  * @returns {{valid: true, errors: []} | {valid: false, errors: string[]}}
@@ -357,7 +389,9 @@ function validateAllowlist(manifest) {
       return;
     }
     const allowedSubs = (Array.isArray(entry.sub) && entry.sub) || [];
-    if (!allowedSubs.includes(sub)) {
+    const argvAfterBin = run.slice(1);
+    const matched = allowedSubs.some((candidateSub) => matchesSubcommandWords(candidateSub, argvAfterBin));
+    if (!matched) {
       errors.push(
         `${adapterId}: ${label} calls '${bin} ${sub}' but subcommand '${sub}' is not in the allowlist for '${bin}'`
       );
