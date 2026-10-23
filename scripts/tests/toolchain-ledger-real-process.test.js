@@ -15,12 +15,13 @@
  * retry, no resume) from an observed OS-level fact, not by inspecting a mock's call count.
  *
  * `loadContracts()` is never mocked either: the capability ids below (`worktree.create`,
- * `tracker.create`, `host.openChangeRequest`, `tracker.close`) are real capabilities already
- * declared by the real packages/development/toolchain/categories/{worktree,tracker,host}.yaml
- * contracts in this repo, each `sideEffect: true`, so `capabilityHasSideEffect`'s real contract
- * lookup is exercised too, not stubbed. `worktree.create` + `tracker.create` succeeding before
- * `host.openChangeRequest` fails mirrors AC-014-1's own wording verbatim: "a branch and a work
- * item were created" before the adapter fails.
+ * `tracker.create`, `host.change-request-create`, `tracker.close`) are real capabilities
+ * already declared by the real packages/development/toolchain/categories/
+ * {worktree,tracker,host}.yaml contracts in this repo, each `sideEffect: true`, so
+ * `capabilityHasSideEffect`'s real contract lookup is exercised too, not stubbed.
+ * `worktree.create` + `tracker.create` succeeding before `host.change-request-create` fails
+ * mirrors AC-014-1's own wording verbatim: "a branch and a work item were created" before the
+ * adapter fails.
  *
  * Every temp path is created via `fs.mkdtempSync(path.join(os.tmpdir(), ...))` and removed in
  * `afterEach`; this file never reads or writes the real repo's own `.ensemble/state/`.
@@ -90,8 +91,8 @@ function readLedgerCapabilities(projectRoot, runId) {
  * `node <fixture script>.js <counterPath>` via `${counterPath}` -> `{counterPath}` manifest
  * placeholder translation (the same translation a loaded `adapter.yaml`'s `run` template goes
  * through), substituted by the real `buildArgv`. `worktree.create`/`tracker.create`/
- * `host.openChangeRequest` mirror AC-014-1's wording; `tracker.close` stands in for a step
- * that must never be reached once `host.openChangeRequest` fails.
+ * `host.change-request-create` mirror AC-014-1's wording; `tracker.close` stands in for a
+ * step that must never be reached once `host.change-request-create` fails.
  */
 function realLedgerAdapter() {
   return {
@@ -101,7 +102,7 @@ function realLedgerAdapter() {
     capabilities: {
       'worktree.create': { run: [process.execPath, SUCCEED_SCRIPT, '${counterPath}'] },
       'tracker.create': { run: [process.execPath, SUCCEED_SCRIPT, '${counterPath}'] },
-      'host.openChangeRequest': { run: [process.execPath, FAIL_SCRIPT, '${counterPath}'] },
+      'host.change-request-create': { run: [process.execPath, FAIL_SCRIPT, '${counterPath}'] },
       'tracker.close': { run: [process.execPath, SUCCEED_SCRIPT, '${counterPath}'] }
     }
   };
@@ -112,14 +113,14 @@ function stepsThroughFailure(counterPath) {
   return [
     { capability: 'worktree.create', args: { counterPath } },
     { capability: 'tracker.create', args: { counterPath } },
-    { capability: 'host.openChangeRequest', args: { counterPath } },
+    { capability: 'host.change-request-create', args: { counterPath } },
     // Must never be reached: proves no retry/resume past the real failure (AC-014-3).
     { capability: 'tracker.close', args: { counterPath } }
   ];
 }
 
 const EXPECTED_FAILURE_MESSAGE =
-  "real-ledger-adapter: capability 'host.openChangeRequest' failed: " +
+  "real-ledger-adapter: capability 'host.change-request-create' failed: " +
   'fixture-ledger-fail: simulated adapter failure after prior side effects';
 
 describe('Scenario 1 (AC-014-1): output lists side effects from a real failing sequence', () => {
@@ -142,7 +143,7 @@ describe('Scenario 1 (AC-014-1): output lists side effects from a real failing s
     const ledgerCapabilities = readLedgerCapabilities(projectRoot, 'real-run-ac1');
     expect(ledgerCapabilities).toEqual(['worktree.create', 'tracker.create']);
     expect(result.completedSideEffects).toEqual(ledgerCapabilities);
-    expect(result.failedCapability).toBe('host.openChangeRequest');
+    expect(result.failedCapability).toBe('host.change-request-create');
     expect(result.error).toEqual({ code: 'TOOL_FAILED', message: EXPECTED_FAILURE_MESSAGE });
 
     // Real OS-level proof the command actually stopped: only the 3 attempted steps really
@@ -170,7 +171,7 @@ describe('Scenario 2 (AC-014-2): the real failure record is machine-readable', (
     const record = JSON.parse(raw); // throws if the file is not machine-readable JSON
 
     expect(record.adapter).toBe('real-ledger-adapter');
-    expect(record.capability).toBe('host.openChangeRequest');
+    expect(record.capability).toBe('host.change-request-create');
     // Independent evidence, same as AC-014-1: compare against the real on-disk ledger file's
     // own capability list, not a hardcoded literal that happens to match recordFailure's
     // expected argument -- a stale/wrong/hardcoded completedSideEffects passed into
@@ -199,7 +200,7 @@ describe('AC-014-1/AC-014-2 mutation resistance: completedSideEffects tracks the
       realLedgerAdapter(),
       [
         { capability: 'worktree.create', args: { counterPath } },
-        { capability: 'host.openChangeRequest', args: { counterPath } }
+        { capability: 'host.change-request-create', args: { counterPath } }
       ],
       { runId: 'real-run-ac-short' },
       { projectRoot, env: {} }
@@ -236,7 +237,7 @@ describe('Scenario 3 (AC-014-3): no retry or resume after a real failure', () =>
     );
 
     expect(result.ok).toBe(false);
-    // Exactly 3 real child processes (worktree.create, tracker.create, host.openChangeRequest)
+    // Exactly 3 real child processes (worktree.create, tracker.create, host.change-request-create)
     // -- no retry of the failing step, and tracker.close (the 4th step) is never spawned.
     expect(countInvocations(counterPath)).toBe(3);
   });
@@ -266,7 +267,7 @@ describe('Scenario 3 (AC-014-3): no retry or resume after a real failure', () =>
     // already completed under a different run id.
     expect(second.ok).toBe(false);
     expect(second.completedSideEffects).toEqual(['worktree.create', 'tracker.create']);
-    expect(second.failedCapability).toBe('host.openChangeRequest');
+    expect(second.failedCapability).toBe('host.change-request-create');
     expect(countInvocations(counterPath)).toBe(6);
 
     // Two independent, real failure records exist side by side under their own run ids.

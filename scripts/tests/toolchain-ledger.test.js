@@ -40,7 +40,7 @@ function fixtureAdapter() {
       'tracker.create': { run: ['fixture-tool', 'tracker-create'] },
       'tracker.show': { run: ['fixture-tool', 'noop'] },
       'tracker.close': { run: ['fixture-tool', 'tracker-close'] },
-      'host.openChangeRequest': { run: ['fixture-tool', 'host-open-cr'] },
+      'host.change-request-create': { run: ['fixture-tool', 'host-open-cr'] },
       'unmapped.op': { run: ['fixture-tool', 'noop'] }
     }
   };
@@ -100,7 +100,7 @@ describe('runSequence: report-only failure policy (Implementation AC scenario 1 
     const steps = [
       { capability: 'worktree.create', args: { branch: 'b1' } },
       { capability: 'tracker.create', args: { title: 't1' } },
-      { capability: 'host.openChangeRequest', args: {} },
+      { capability: 'host.change-request-create', args: {} },
       // Must never be reached: proves no retry/resume past the failing step.
       { capability: 'tracker.close', args: { id: 'A-1' } }
     ];
@@ -109,7 +109,7 @@ describe('runSequence: report-only failure policy (Implementation AC scenario 1 
 
     expect(result.ok).toBe(false);
     expect(result.completedSideEffects).toEqual(['worktree.create', 'tracker.create']);
-    expect(result.failedCapability).toBe('host.openChangeRequest');
+    expect(result.failedCapability).toBe('host.change-request-create');
     expect(result.error).toBeDefined();
 
     // Exactly 3 execFile calls: the 2 successes plus the 1 failure. The 4th step
@@ -177,7 +177,7 @@ describe('runSequence + recordFailure: failure-<runId>.json shape (Implementatio
       [
         { capability: 'worktree.create', args: {} },
         { capability: 'tracker.create', args: {} },
-        { capability: 'host.openChangeRequest', args: {} }
+        { capability: 'host.change-request-create', args: {} }
       ],
       { runId: 'run-shape' },
       { projectRoot, env: {} }
@@ -205,7 +205,7 @@ describe('runSequence + recordFailure: failure-<runId>.json shape (Implementatio
       [
         { capability: 'worktree.create', args: {} },
         { capability: 'tracker.create', args: {} },
-        { capability: 'host.openChangeRequest', args: {} }
+        { capability: 'host.change-request-create', args: {} }
       ],
       { runId: 'run-artifact' },
       { projectRoot, env: { FOREMAN_ARTIFACT_PATH: artifactPath } }
@@ -238,7 +238,7 @@ describe('runSequence + recordFailure: failure-<runId>.json shape (Implementatio
       [
         { capability: 'worktree.create', args: {} },
         { capability: 'tracker.create', args: {} },
-        { capability: 'host.openChangeRequest', args: {} }
+        { capability: 'host.change-request-create', args: {} }
       ],
       { runId: 'run-error-value' },
       { projectRoot, env: {} }
@@ -249,7 +249,7 @@ describe('runSequence + recordFailure: failure-<runId>.json shape (Implementatio
 
     expect(record.error).toEqual({
       code: 'TOOL_FAILED',
-      message: "fixture-ledger-adapter: capability 'host.openChangeRequest' failed: fixture-tool: denied by host"
+      message: "fixture-ledger-adapter: capability 'host.change-request-create' failed: fixture-tool: denied by host"
     });
   });
 });
@@ -264,7 +264,7 @@ describe('recordFailure: secret redaction (Implementation AC scenario 3)', () =>
       [
         { capability: 'worktree.create', args: {} },
         { capability: 'tracker.create', args: {} },
-        { capability: 'host.openChangeRequest', args: {} }
+        { capability: 'host.change-request-create', args: {} }
       ],
       { runId: 'run-redact' },
       { projectRoot, env: {} }
