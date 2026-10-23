@@ -1,0 +1,10 @@
+# Project-level toolchain adapter selection (TRD-2026-8d825f54 TRD-003, PRD REQ-009).
+#
+# `tracker` detection became ambiguous once this repo shipped more than one tracker adapter
+# (beads, jira, azure-boards): none of jira's/azure-boards' `detect.remote_url_matches`
+# patterns match this repo's GitHub origin, so `detectAdapter()` refuses to guess and asks for
+# an explicit pin (see `packages/development/lib/toolchain/detect.js`). This repo's tracker is
+# beads (`.beads/` in the sibling `ensemble` checkout); pin it explicitly rather than relying on
+# the shipped default, since the default is itself ignored while detection throws instead of
+# returning null.
+tracker: beads
