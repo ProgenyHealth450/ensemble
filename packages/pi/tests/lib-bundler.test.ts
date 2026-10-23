@@ -459,6 +459,104 @@ describe('bundleLibs toolchain vendoring', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Unconditional toolchain/*.js inclusion + stale-file pruning (TRD-019 AC, PR 5 review)
+// ---------------------------------------------------------------------------
+describe('bundleLibs toolchain subtree: unconditional inclusion and stale-file pruning', () => {
+  let sourceRoot: string;
+  let outputRoot: string;
+
+  beforeEach(() => {
+    sourceRoot = createTempDir();
+    outputRoot = createTempDir();
+    buildFakeMonorepoWithToolchain(sourceRoot);
+  });
+
+  afterEach(() => {
+    rmrf(sourceRoot);
+    rmrf(outputRoot);
+  });
+
+  it('vendors a toolchain/*.js module nothing requires yet, not just modules reachable from the require closure', async () => {
+    const toolchainLib = path.join(sourceRoot, 'packages', 'development', 'lib', 'toolchain');
+    // Nothing in the fixture's require graph ever mentions this file.
+    fs.writeFileSync(path.join(toolchainLib, 'unreferenced-module.js'), 'module.exports = {};\n', 'utf-8');
+
+    const results = await bundleLibs(sourceRoot, outputRoot, {});
+    const relPaths = results
+      .map((r) => path.relative(path.join(outputRoot, 'vendor', 'lib'), r.outputPath))
+      .filter((p) => !p.startsWith('..'))
+      .map((p) => p.split(path.sep).join('/'));
+
+    expect(relPaths).toContain('toolchain/unreferenced-module.js');
+    expect(fs.existsSync(path.join(outputRoot, 'vendor', 'lib', 'toolchain', 'unreferenced-module.js'))).toBe(
+      true
+    );
+  });
+
+  it('a toolchain/*.js module removed from the source is pruned from the vendor bundle on the next run', async () => {
+    const toolchainLib = path.join(sourceRoot, 'packages', 'development', 'lib', 'toolchain');
+    const staleModulePath = path.join(toolchainLib, 'soon-to-be-removed.js');
+    fs.writeFileSync(staleModulePath, 'module.exports = {};\n', 'utf-8');
+
+    await bundleLibs(sourceRoot, outputRoot, {});
+    const vendoredPath = path.join(outputRoot, 'vendor', 'lib', 'toolchain', 'soon-to-be-removed.js');
+    expect(fs.existsSync(vendoredPath)).toBe(true);
+
+    fs.rmSync(staleModulePath);
+    await bundleLibs(sourceRoot, outputRoot, {});
+
+    expect(fs.existsSync(vendoredPath)).toBe(false);
+    // Siblings the module did NOT share a directory with are untouched.
+    expect(fs.existsSync(path.join(outputRoot, 'vendor', 'lib', 'toolchain', 'config.js'))).toBe(true);
+    expect(fs.existsSync(path.join(outputRoot, 'vendor', 'lib', 'toolchain-cli.js'))).toBe(true);
+  });
+
+  it('a toolchain data file removed from the source is pruned from vendor/toolchain/ on the next run', async () => {
+    const dataDir = path.join(sourceRoot, 'packages', 'development', 'toolchain');
+    const staleDataPath = path.join(dataDir, 'categories', 'soon-to-be-removed.yaml');
+    fs.writeFileSync(staleDataPath, 'stale: true\n', 'utf-8');
+
+    await bundleLibs(sourceRoot, outputRoot, {});
+    const vendoredPath = path.join(outputRoot, 'vendor', 'toolchain', 'categories', 'soon-to-be-removed.yaml');
+    expect(fs.existsSync(vendoredPath)).toBe(true);
+
+    fs.rmSync(staleDataPath);
+    await bundleLibs(sourceRoot, outputRoot, {});
+
+    expect(fs.existsSync(vendoredPath)).toBe(false);
+    expect(fs.existsSync(path.join(outputRoot, 'vendor', 'toolchain', 'categories', 'tracker.yaml'))).toBe(true);
+  });
+
+  it('pruning is scoped strictly to vendor/lib/toolchain and vendor/toolchain: a stale file planted directly under vendor/lib/ (sibling to toolchain/, not inside it) survives', async () => {
+    await bundleLibs(sourceRoot, outputRoot, {});
+
+    // Simulate a leftover from a since-removed non-toolchain entry file/sibling, planted
+    // directly under vendor/lib/ (a sibling of vendor/lib/toolchain/, outside the pruned
+    // subtree) -- this prune step must never touch it.
+    const siblingStale = path.join(outputRoot, 'vendor', 'lib', 'definitely-not-toolchain.js');
+    fs.writeFileSync(siblingStale, 'module.exports = {};\n', 'utf-8');
+
+    await bundleLibs(sourceRoot, outputRoot, {});
+
+    expect(fs.existsSync(siblingStale)).toBe(true);
+  });
+
+  it('dryRun reports what would be pruned without actually deleting anything', async () => {
+    const toolchainLib = path.join(sourceRoot, 'packages', 'development', 'lib', 'toolchain');
+    const staleModulePath = path.join(toolchainLib, 'soon-to-be-removed.js');
+    fs.writeFileSync(staleModulePath, 'module.exports = {};\n', 'utf-8');
+    await bundleLibs(sourceRoot, outputRoot, {});
+    const vendoredPath = path.join(outputRoot, 'vendor', 'lib', 'toolchain', 'soon-to-be-removed.js');
+    expect(fs.existsSync(vendoredPath)).toBe(true);
+
+    fs.rmSync(staleModulePath);
+    await bundleLibs(sourceRoot, outputRoot, { dryRun: true });
+
+    expect(fs.existsSync(vendoredPath)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Integration: real packages directory
 // ---------------------------------------------------------------------------
 describe('bundleLibs against real packages directory', () => {

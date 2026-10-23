@@ -89,6 +89,13 @@ const ENTRY_FILES = ['trd-cli.js', 'trd-graph-cli.js', 'prd-cli.js', 'pr-review-
  */
 const DATA_DIR = 'packages/development/toolchain';
 
+/** Subdirectory (relative to LIB_DIR) holding the toolchain-cli.js submodules. */
+const TOOLCHAIN_SUBDIR = 'toolchain';
+
+/** Sibling module (relative to LIB_DIR) every toolchain/*.js ledger/preflight-style module
+ * requires via '../complexity-analyzer' for secret redaction. */
+const COMPLEXITY_ANALYZER_FILE = 'complexity-analyzer.js';
+
 /** Shell scripts vendored as-is, no dependency walking (src relative to sourceRoot). */
 const SCRIPT_FILES: Array<{ src: string; dest: string }> = [
   {
@@ -221,6 +228,83 @@ function listFilesRecursive(dir: string): string[] {
   return out;
 }
 
+/**
+ * Every `*.js` file directly under `<libDir>/toolchain/`, plus `complexity-analyzer.js`
+ * (TRD-019 AC): seeded into the require-closure walk's queue unconditionally, so a toolchain
+ * submodule added ahead of anything actually requiring it yet (or a module only
+ * `complexity-analyzer.js`-adjacent tooling reaches indirectly) still ships — rather than only
+ * being vendored as a side effect of `resolveRequireClosure` happening to discover a require
+ * for it. These paths still go through the SAME closure walk as every other entry (so their
+ * own requires are resolved and validated, and an out-of-LIB_DIR escape from one of them still
+ * throws exactly like any other file's would) — this only changes which files are seeded into
+ * the walk, not how the walk itself behaves.
+ *
+ * @param libDir  Absolute path to LIB_DIR
+ * @returns  Paths relative to libDir, forward-slash separated (e.g. 'toolchain/config.js')
+ */
+function toolchainSeedFiles(libDir: string): string[] {
+  const toolchainDir = path.join(libDir, TOOLCHAIN_SUBDIR);
+  let names: string[] = [];
+  try {
+    names = fs
+      .readdirSync(toolchainDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+      .map((entry) => `${TOOLCHAIN_SUBDIR}/${entry.name}`);
+  } catch {
+    // toolchain/ absent entirely (e.g. a minimal test fixture) -- nothing to seed beyond
+    // COMPLEXITY_ANALYZER_FILE below; resolveRequireClosure's own ENTRY_FILES walk still runs.
+  }
+  return [...names, COMPLEXITY_ANALYZER_FILE];
+}
+
+/** Remove any now-empty directory under (but not including) `root`, walking upward from `startDir`. */
+function pruneEmptyDirsUpward(startDir: string, root: string): void {
+  let dir = startDir;
+  while (dir === root || dir.startsWith(root + path.sep)) {
+    if (dir === root) break;
+    if (!fs.existsSync(dir)) {
+      dir = path.dirname(dir);
+      continue;
+    }
+    if (fs.readdirSync(dir).length > 0) break;
+    fs.rmdirSync(dir);
+    dir = path.dirname(dir);
+  }
+}
+
+/**
+ * Remove files under `destDir` that are not in `writtenAbsPaths` -- the toolchain-vendor
+ * subtree equivalent of scripts/lib/toolchain-vendor.js#pruneStaleFiles (TRD-019/TRD-020
+ * parity): a file under `vendor/lib/toolchain/` or `vendor/toolchain/` whose source has since
+ * been removed or renamed is deleted, so a bundle that is only ever written-to (never reset)
+ * cannot accumulate stale, require()-visible modules forever. Scoped strictly to `destDir`
+ * itself: a caller passing `vendor/lib/toolchain` never touches `vendor/lib/trd-cli.js` or any
+ * other sibling outside that subtree. No-op (report only) in `dryRun`.
+ *
+ * @returns  Absolute paths removed (or that would be, in `dryRun`)
+ */
+function pruneStaleVendorFiles(
+  destDir: string,
+  writtenAbsPaths: ReadonlySet<string>,
+  dryRun: boolean
+): string[] {
+  const existing = fs.existsSync(destDir)
+    ? listFilesRecursive(destDir).map((rel) => path.join(destDir, rel))
+    : [];
+  const stale = existing.filter((abs) => !writtenAbsPaths.has(abs));
+
+  if (!dryRun) {
+    for (const abs of stale) {
+      fs.rmSync(abs, { force: true });
+    }
+    for (const abs of stale) {
+      pruneEmptyDirsUpward(path.dirname(abs), destDir);
+    }
+  }
+
+  return stale;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -245,7 +329,7 @@ export async function bundleLibs(
 
   const results: TransformResult[] = [];
   const libDir = path.join(sourceRoot, LIB_DIR);
-  const jsClosure = resolveRequireClosure(libDir, ENTRY_FILES);
+  const jsClosure = resolveRequireClosure(libDir, [...ENTRY_FILES, ...toolchainSeedFiles(libDir)]);
 
   const dataDirAbs = path.join(sourceRoot, DATA_DIR);
   let dataFiles: string[] = [];
@@ -341,6 +425,38 @@ export async function bundleLibs(
     process.stdout.write(
       `lib-bundler: ${results.length} file(s) ${dryRun ? 'collected (dry-run)' : 'copied'}.\n`
     );
+  }
+
+  // Prune stale files under the two toolchain subtrees (TRD-019/TRD-020 parity): a file
+  // deleted from packages/development/lib/toolchain/ or packages/development/toolchain/ since
+  // the last run must not linger in the vendor bundle forever. Scoped strictly to those two
+  // destination directories -- `vendor/lib/*.js` outside `vendor/lib/toolchain/` (trd-cli.js,
+  // prd-cli.js, etc.) and `vendor/scripts/` are never touched here.
+  const toolchainLibDest = path.join(outputRoot, 'vendor', 'lib', TOOLCHAIN_SUBDIR);
+  const toolchainDataDest = path.join(outputRoot, 'vendor', 'toolchain');
+  const writtenToolchainLibAbs = new Set(
+    results
+      .filter((r) => r.outputPath === toolchainLibDest || r.outputPath.startsWith(toolchainLibDest + path.sep))
+      .map((r) => r.outputPath)
+  );
+  const writtenToolchainDataAbs = new Set(
+    results
+      .filter((r) => r.outputPath === toolchainDataDest || r.outputPath.startsWith(toolchainDataDest + path.sep))
+      .map((r) => r.outputPath)
+  );
+  const prunedLib = pruneStaleVendorFiles(toolchainLibDest, writtenToolchainLibAbs, dryRun);
+  const prunedData = pruneStaleVendorFiles(toolchainDataDest, writtenToolchainDataAbs, dryRun);
+  const pruned = [...prunedLib, ...prunedData];
+
+  if (verbose) {
+    for (const abs of pruned) {
+      process.stdout.write(`  prune${dryRun ? ' (dry-run)' : ''}: ${abs}\n`);
+    }
+    if (pruned.length > 0) {
+      process.stdout.write(
+        `lib-bundler: ${pruned.length} stale toolchain vendor file(s) ${dryRun ? 'would be removed (dry-run)' : 'removed'}.\n`
+      );
+    }
   }
 
   return results;

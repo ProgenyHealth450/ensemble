@@ -10,8 +10,11 @@
  * `npm run generate:pi`. Editing the SOURCE without regenerating leaves the vendored copies
  * stale -- exactly what happened to both `.../vendor/lib/toolchain/resolve.js` copies when
  * TRD-022's header-comment edit (commit f7fbedc) landed without a regeneration step. This test
- * reads both trees only (never writes) and fails, naming the bundle and the file, on any
- * byte mismatch or missing vendored copy.
+ * reads both trees only (never writes) and fails, naming the bundle and the file, on any byte
+ * mismatch, missing vendored copy, OR (bidirectionally, for `packages/pi/vendor` since
+ * `packages/pi/src/transformers/lib-bundler.ts` is additive-only and never pruned the toolchain
+ * subtree -- see TRD-019/TRD-020 parity) a vendored file under `lib/toolchain/` or the data
+ * tree with no source counterpart at all (`reason: 'extra'`).
  *
  * `compareVendorSync` is a pure function of its directory arguments so the mutation-proof test
  * below can exercise it against synthetic trees under `os.tmpdir()` without ever touching the
@@ -58,11 +61,18 @@ function listFilesRecursive(dir) {
 }
 
 /**
- * Compare `sourceLibDir`/`sourceDataDir` against every bundle's `libDir`/`dataDir`.
+ * Compare `sourceLibDir`/`sourceDataDir` against every bundle's `libDir`/`dataDir`,
+ * bidirectionally: source -> bundle (a source file with no vendored copy, or a byte-diverged
+ * one) AND bundle -> source (a vendored file under the toolchain subtrees -- `lib/toolchain/`
+ * and the data tree -- whose source has since been removed or renamed, left behind by a
+ * bundler that only ever adds and never prunes). The two top-level files
+ * (`toolchain-cli.js`/`complexity-analyzer.js`) are checked source -> bundle only: they are
+ * fixed, hardcoded names, not a directory sweep, so "extra" does not apply to them the way it
+ * does to the two directory-swept toolchain subtrees.
  *
  * @param {{sourceLibDir: string, sourceDataDir: string, bundles: Array<{name: string, libDir:
  *   string, dataDir: string}>}} opts
- * @returns {Array<{bundle: string, file: string, reason: 'missing'|'mismatch'}>}
+ * @returns {Array<{bundle: string, file: string, reason: 'missing'|'mismatch'|'extra'}>}
  */
 function compareVendorSync({ sourceLibDir, sourceDataDir, bundles }) {
   const mismatches = [];
@@ -73,20 +83,23 @@ function compareVendorSync({ sourceLibDir, sourceDataDir, bundles }) {
     .filter((e) => e.isFile() && e.name.endsWith('.js'))
     .map((e) => `toolchain/${e.name}`)
     .sort();
-  const dataFiles = listFilesRecursive(sourceDataDir).map((f) => `toolchain-data/${f}`);
+  const toolchainSubFileSet = new Set(toolchainSubFiles);
+  const dataFiles = listFilesRecursive(sourceDataDir);
+  const dataFileSet = new Set(dataFiles);
 
   const checks = [
     ...topLevelFiles.map((rel) => ({ rel, srcDir: sourceLibDir, bundleSubDir: 'lib' })),
     ...toolchainSubFiles.map((rel) => ({ rel, srcDir: sourceLibDir, bundleSubDir: 'lib' })),
     ...dataFiles.map((rel) => ({
-      rel,
+      rel: `toolchain-data/${rel}`,
       srcDir: sourceDataDir,
       bundleSubDir: 'data',
-      srcRel: rel.slice('toolchain-data/'.length)
+      srcRel: rel
     }))
   ];
 
   for (const bundle of bundles) {
+    // source -> bundle: missing or byte-diverged.
     for (const check of checks) {
       const srcRel = check.srcRel || check.rel;
       const srcPath = path.join(check.srcDir, srcRel);
@@ -101,6 +114,31 @@ function compareVendorSync({ sourceLibDir, sourceDataDir, bundles }) {
       const bundleBytes = fs.readFileSync(bundlePath);
       if (!sourceBytes.equals(bundleBytes)) {
         mismatches.push({ bundle: bundle.name, file: check.rel, reason: 'mismatch' });
+      }
+    }
+
+    // bundle -> source: a vendored toolchain/*.js file (direct children only, mirroring the
+    // source-side glob) with no source counterpart.
+    const bundleToolchainDir = path.join(bundle.libDir, 'toolchain');
+    if (fs.existsSync(bundleToolchainDir)) {
+      const bundleSubFiles = fs
+        .readdirSync(bundleToolchainDir, { withFileTypes: true })
+        .filter((e) => e.isFile() && e.name.endsWith('.js'))
+        .map((e) => `toolchain/${e.name}`);
+      for (const rel of bundleSubFiles) {
+        if (!toolchainSubFileSet.has(rel)) {
+          mismatches.push({ bundle: bundle.name, file: rel, reason: 'extra' });
+        }
+      }
+    }
+
+    // bundle -> source: a vendored toolchain-data file with no source counterpart.
+    if (fs.existsSync(bundle.dataDir)) {
+      const bundleDataFiles = listFilesRecursive(bundle.dataDir);
+      for (const rel of bundleDataFiles) {
+        if (!dataFileSet.has(rel)) {
+          mismatches.push({ bundle: bundle.name, file: `toolchain-data/${rel}`, reason: 'extra' });
+        }
       }
     }
   }
@@ -142,7 +180,7 @@ describe('mutation proof: compareVendorSync detects a stale/missing vendored cop
     fs.writeFileSync(path.join(sourceLibDir, 'toolchain', 'resolve.js'), "module.exports = 'resolve';\n");
     fs.writeFileSync(path.join(sourceDataDir, 'categories', 'tracker.yaml'), 'category: tracker\n');
 
-    function makeBundle(name, divergeFile, omitFile) {
+    function makeBundle(name, divergeFile, omitFile, extraFile) {
       const libDir = path.join(root, name, 'lib');
       const dataDir = path.join(root, name, 'toolchain');
       fs.mkdirSync(path.join(libDir, 'toolchain'), { recursive: true });
@@ -159,6 +197,11 @@ describe('mutation proof: compareVendorSync detects a stale/missing vendored cop
         );
       }
       fs.writeFileSync(path.join(dataDir, 'categories', 'tracker.yaml'), 'category: tracker\n');
+      if (extraFile) {
+        const extraPath = path.join(libDir, extraFile);
+        fs.mkdirSync(path.dirname(extraPath), { recursive: true });
+        fs.writeFileSync(extraPath, "module.exports = 'stale-no-source';\n");
+      }
       return { name, libDir, dataDir };
     }
 
@@ -203,6 +246,27 @@ describe('mutation proof: compareVendorSync detects a stale/missing vendored cop
         bundle: 'missing-bundle',
         file: 'toolchain/resolve.js',
         reason: 'missing'
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a vendored toolchain/*.js file left behind after its source was deleted (never pruned) is reported as extra, naming the bundle and file', () => {
+    const { root, sourceLibDir, sourceDataDir, makeBundle } = makeSyntheticTrees();
+    try {
+      const stale = makeBundle('extra-bundle', null, null, 'toolchain/orphaned-module.js');
+
+      const mismatches = compareVendorSync({
+        sourceLibDir,
+        sourceDataDir,
+        bundles: [stale]
+      });
+
+      expect(mismatches).toContainEqual({
+        bundle: 'extra-bundle',
+        file: 'toolchain/orphaned-module.js',
+        reason: 'extra'
       });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

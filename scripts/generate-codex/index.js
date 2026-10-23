@@ -439,6 +439,20 @@ function generateCommandSkills({ dryRun, verbose, packagesDir = PACKAGES_DIR, ou
       ? content.replace(/## Subcommands\n\n[\s\S]*?\n\n(?=## |$)/, '')
       : content;
 
+    // Capabilities (optional, TRD-022): length-gated like allowed-tools/argument-hint -- an
+    // empty `capabilities: {required: [], optional: []}` declaration (schema default shape)
+    // renders nothing, matching Claude's `capabilities-required`/`capabilities-optional`
+    // frontmatter lines (scripts/lib/command-transformer.js), Pi's HTML comment
+    // (packages/pi/src/transformers/command-transformer.ts#renderHeader), and OpenCode's
+    // "## Capabilities" section (scripts/generate-opencode/src/command-translator.js) --
+    // all three emit nothing for an empty declaration, never an empty object/list.
+    const capabilities = yamlData.metadata?.capabilities;
+    const hasCapabilities = Boolean(
+      capabilities &&
+        ((capabilities.required && capabilities.required.length > 0) ||
+          (capabilities.optional && capabilities.optional.length > 0))
+    );
+
     const frontmatter = {
       name: codexSkillName,
       description: `${description} (Codex skill for /${commandName})`,
@@ -448,7 +462,7 @@ function generateCommandSkills({ dryRun, verbose, packagesDir = PACKAGES_DIR, ou
       'user-invocable': !(yamlData.metadata?.visibility === 'hidden' || data['user-invocable'] === false),
       ...(data['argument-hint'] ? { 'argument-hint': data['argument-hint'] } : {}),
       ...(data.model ? { model: ANTHROPIC_ALIASES.has(data.model) ? DEFAULT_MODEL : data.model } : {}),
-      ...(yamlData.metadata?.capabilities ? { capabilities: yamlData.metadata.capabilities } : {}),
+      ...(hasCapabilities ? { capabilities } : {}),
     };
 
     const body = [

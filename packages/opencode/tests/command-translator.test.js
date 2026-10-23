@@ -364,6 +364,16 @@ describe('TRD-022: Capabilities section', () => {
     expect(withField).not.toContain('## Capabilities');
     expect(withField).toBe(without);
   });
+
+  // TRD-2026-8d825f54 PR 5 review P3: a present-but-empty `capabilities: {required: [],
+  // optional: []}` declaration (the schema's own default shape) must render nothing, exactly
+  // like the absent case above, matching Claude/Pi/Codex's own length-gating.
+  it('omits the Capabilities section when metadata.capabilities is present but both lists are empty', () => {
+    const empty = translator.translateToMarkdown(baseCommand({ required: [], optional: [] }));
+    const absent = translator.translateToMarkdown(baseCommand());
+    expect(empty).not.toContain('## Capabilities');
+    expect(empty).toBe(absent);
+  });
 });
 
 // ---------------------------------------------------------------------------

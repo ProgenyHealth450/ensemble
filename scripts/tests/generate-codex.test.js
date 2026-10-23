@@ -289,6 +289,14 @@ describe('generateCommandSkills — metadata.capabilities (temp-root smoke run, 
       '  name: ensemble:cap-without-fixture',
       '  description: Fixture command with no capabilities',
     ]);
+    write('cap-empty-fixture', [
+      'metadata:',
+      '  name: ensemble:cap-empty-fixture',
+      '  description: Fixture command with an empty capabilities declaration',
+      '  capabilities:',
+      '    required: []',
+      '    optional: []',
+    ]);
     generateCommandSkills({
       dryRun: false,
       verbose: false,
@@ -311,6 +319,22 @@ describe('generateCommandSkills — metadata.capabilities (temp-root smoke run, 
     const fm = frontmatterOf('cap-without-fixture');
     expect(fm.capabilities).toBeUndefined();
     const frontmatterBlock = readSkill('cap-without-fixture').split('---\n')[1];
+    expect(frontmatterBlock).not.toContain('capabilities');
+  });
+
+  // TRD-2026-8d825f54 PR 5 review P3: a present-but-empty `capabilities: {required: [],
+  // optional: []}` declaration (the schema's own default shape) must render nothing, exactly
+  // like the absent case above -- matching Claude (scripts/lib/command-transformer.js,
+  // capabilities-required/capabilities-optional each individually length-gated), Pi
+  // (packages/pi/src/transformers/command-transformer.ts#renderHeader, `required.length > 0 ||
+  // optional.length > 0`), and OpenCode (scripts/generate-opencode/src/command-translator.js,
+  // same length-gate). The pre-fix Codex generator emitted
+  // `capabilities:\n  required: []\n  optional: []` here (a truthy-object check instead of a
+  // length check), diverging from all three.
+  test('a command with an empty capabilities declaration ({required: [], optional: []}) omits the key entirely, matching the absent case', () => {
+    const fm = frontmatterOf('cap-empty-fixture');
+    expect(fm.capabilities).toBeUndefined();
+    const frontmatterBlock = readSkill('cap-empty-fixture').split('---\n')[1];
     expect(frontmatterBlock).not.toContain('capabilities');
   });
 });
