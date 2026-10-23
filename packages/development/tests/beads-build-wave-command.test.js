@@ -21,11 +21,10 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     expect(block).toMatch(/ERROR: --epic <id> is required/);
   });
 
-  test('bv is optional: falls back to br ready, one bead per track', () => {
+  test('bv is optional: falls back to work-graph.ready, one bead per track', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).not.toMatch(/bv \(beads_viewer\) is required/);
-    expect(text).toMatch(/BV_AVAILABLE=false/);
-    expect(text).toMatch(/br ready --json/);
+    expect(text).toMatch(/work-graph\.ready/);
     expect(text).toMatch(/single-bead track/);
   });
 
@@ -50,7 +49,7 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
       text.indexOf('expectedInput:')
     );
     expect(execBlock).toMatch(/title: Single-Wave Dispatch/);
-    expect(execBlock).toMatch(/Step 1 \(sync\): run br sync --flush-only/);
+    expect(execBlock).toMatch(/Step 1 \(sync\): before this command''s first tracker write/);
     expect(execBlock).toMatch(/Step 5 \(concurrent dispatch\)/);
     expect(execBlock).toMatch(/Step 6 \(barrier\)/);
     expect(execBlock).toMatch(/Step 8 \(build summary\)/);
@@ -103,7 +102,7 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
   test('lifecycle_contract has a Commit Gate that blocks br close until git status is clean (self-reported success is not sufficient evidence)', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/COMMIT GATE/);
-    expect(text).toMatch(/NEVER call br close while git status --porcelain is non-empty/);
+    expect(text).toMatch(/NEVER call tracker\.close while git status --porcelain is non-empty/);
     expect(text).toMatch(/self-reported success narrative is NOT sufficient evidence of a commit/);
   });
 
@@ -134,7 +133,7 @@ describe('beads-build v1.2.0 wave-loop contract', () => {
     const execEnd = text.indexOf('title: Debug Loop');
     const execBlock = text.slice(execStart, execEnd);
     expect(execBlock).toMatch(/Task\(subagent_type=<resolved-from-AGENT_ALIAS_MAP-beads-build-wave>/);
-    expect(execBlock).toMatch(/does NOT call bv --robot-plan/);
+    expect(execBlock).toMatch(/does NOT call work-graph\.ready\/work-graph\.plan for scheduling/);
     expect(execBlock).toMatch(/Two-tier non-recursive dispatch loop/);
   });
 

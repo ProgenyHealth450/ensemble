@@ -48,7 +48,7 @@ describe('beads-build argument grammar matches its callers', () => {
     expect(stepActions(build, 'Completion', 'TRD Checkbox Sync')).toContain('If DEFER_COMPLETION=true');
     // The deferral guard must precede the closing command in each step.
     const closure = stepActions(build, 'Completion', 'Epic Closure');
-    expect(closure.indexOf('If DEFER_COMPLETION=true')).toBeLessThan(closure.indexOf('br close'));
+    expect(closure.indexOf('If DEFER_COMPLETION=true')).toBeLessThan(closure.indexOf('tracker.close'));
     const sync = stepActions(build, 'Completion', 'TRD Checkbox Sync');
     expect(sync.indexOf('If DEFER_COMPLETION=true')).toBeLessThan(sync.indexOf('replace "- [ ]'));
   });

@@ -182,11 +182,11 @@ describe('implement-trd-beads reference skill contracts', () => {
     expect(ref).toMatch(/manual.*never push or create automatically/s);
   });
 
-  test('--foreman tags only task beads with --add-label foreman-exec and verifies the count', () => {
-    expect(ref).toContain('br update <id> --add-label foreman-exec');
-    expect(ref).toMatch(/never `--labels`\/`--set-labels`/);
-    expect(ref).toContain('br list --label foreman-exec --json');
-    expect(ref).toMatch(/never the epic or stories/);
+  test('--foreman tags only task beads with tracker.label foreman-exec and verifies the count', () => {
+    expect(ref).toContain('tracker.label --arg ids=<id> --arg labels=foreman-exec');
+    expect(ref).toMatch(/`tracker\.label` only adds/);
+    expect(ref).toContain('a `tracker.list` count for label `foreman-exec`');
+    expect(ref).toMatch(/never epic\/stories/);
   });
 });
 
@@ -328,9 +328,10 @@ describe('implement-trd-beads bead references contract', () => {
 
   test('reference skill documents the block, bead-context, legacy fallback and failure handling', () => {
     expect(ref).toContain('## 7. Bead references and context contract');
-    for (const key of ['TRD Task', 'PRD Requirement', 'PRD ACs', '--external-ref']) {
+    for (const key of ['TRD Task', 'PRD Requirement', 'PRD ACs', 'externalRef']) {
       expect(ref).toContain(key);
     }
+    expect(ref).toContain("embedded in `tracker.create`'s description");
     expect(ref).toContain('node "$TRD_CLI" bead-context --bead <BEAD_ID> [--trd <path>]');
     expect(ref).toContain('source:"fallback"');
     expect(ref).toContain('blocked:missing-references');

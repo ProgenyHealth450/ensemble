@@ -61,17 +61,17 @@ describe('command prose does not assume a bare array', () => {
   });
 
   test.each(['beads-build'])('%s.yaml states the .issues unwrap rule', (name) => {
-    expect(read(`${name}.yaml`)).toMatch(/otherwise its `?\.issues`? (array|property)/);
+    expect(read(`${name}.yaml`)).toMatch(/array or its `?\.issues`?/);
   });
 });
 
 describe('beads-build epic id detection', () => {
   test.each(['beads-build'])(
-    '%s.yaml confirms an epic id with br show, not a "beads-NNN" pattern',
+    '%s.yaml confirms an epic id with tracker.show, not a "beads-NNN" pattern',
     (name) => {
       const text = read(`${name}.yaml`);
       expect(text).not.toMatch(/matches pattern beads-NNN/);
-      expect(text).toMatch(/br show <(?:first-token|RAW_INPUT)> --json/);
+      expect(text).toMatch(/run tracker\.show --arg id=<RAW_INPUT>/);
     }
   );
 });

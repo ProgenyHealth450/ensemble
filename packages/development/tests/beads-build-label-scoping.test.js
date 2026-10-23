@@ -7,8 +7,10 @@
  * plan that starved, or mixed in, another TRD's beads.
  *
  * Contract pinned here: beads are created with the TRD slug as a label; beads-build and
- * the wave runner accept --label, pass it to `bv --robot-plan`, verify the plan stays inside
- * the label (bv silently ignores an unknown label), and backfill labels on older TRDs.
+ * the wave runner accept --label, pass it to the `work-graph.plan`/`work-graph.ready`
+ * capability call as `--arg scope=<LABEL or ROOT_EPIC_ID>`, verify the plan stays inside
+ * the label (the scheduling source silently ignores an unknown label), and backfill
+ * labels on older TRDs.
  */
 
 const fs = require('fs');
@@ -54,12 +56,12 @@ describe('beads-build', () => {
   });
 
   test('refuses to continue when no bead carries the label', () => {
-    expect(build).toMatch(/br list --all --label <LABEL> --json/);
+    expect(build).toMatch(/run tracker\.list.*LABEL_IDS = \.id of entries/);
     expect(build).toMatch(/no bead carries label <LABEL>/);
   });
 
   test('counts scoped work by label when one is set', () => {
-    expect(build).toMatch(/br list --status=open --label <LABEL> --json/);
+    expect(build).toMatch(/REMAINING_SCOPED_COUNT = count of status=="open" entries filtered by LABEL when set/);
   });
 
   test('passes LABEL in the wave payload', () => {
@@ -68,13 +70,13 @@ describe('beads-build', () => {
 });
 
 describe('beads-build-wave', () => {
-  test('scopes the plan with bv --label when LABEL is set', () => {
-    expect(wave).toMatch(/bv --robot-plan --label <LABEL> --format toon/);
+  test('scopes the plan with work-graph.plan --arg scope=<LABEL> when LABEL is set', () => {
+    expect(wave).toMatch(/work-graph\.plan --run-id "\$RUN_ID" --arg scope=<LABEL or ROOT_EPIC_ID>/);
   });
 
-  test('verifies the plan stays inside the label instead of trusting bv', () => {
-    expect(wave).toMatch(/bv returned beads outside label <LABEL>/);
-    expect(wave).toMatch(/bv ignores an unknown label/);
+  test('verifies the plan stays inside the label instead of trusting the scheduling source', () => {
+    expect(wave).toMatch(/the scheduling source returned beads outside label <LABEL>/);
+    expect(wave).toMatch(/an unrecognized label can return the unscoped plan/);
   });
 
   test('carries LABEL in each track scope', () => {
@@ -82,7 +84,7 @@ describe('beads-build-wave', () => {
   });
 
   test('br-only scheduling is label-scoped too', () => {
-    expect(wave).toMatch(/br ready --json` \(add `--label <LABEL>` when LABEL is set/);
+    expect(wave).toMatch(/work-graph\.ready --run-id "\$RUN_ID" --arg scope=<LABEL or ROOT_EPIC_ID>/);
   });
 
   test('the runner agent maps the payload LABEL to --label', () => {

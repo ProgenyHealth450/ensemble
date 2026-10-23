@@ -81,7 +81,7 @@ describe('commits and reminders stage the TRD\'s beads through beads-stage', () 
   });
 
   test.each(STAGERS)('%s: the closing reminder uses beads-stage, not git add .beads/', (file) => {
-    const line = lines(COMMANDS[file]).find((l) => l.includes('Remind user: br sync --flush-only'));
+    const line = lines(COMMANDS[file]).find((l) => l.includes('Remind user:') && /br sync --flush-only|run tracker\.sync/.test(l));
     expect(line).toBeDefined();
     expect(line).toMatch(/beads-stage .*&& git commit -m ["']chore: final beads sync/);
     expect(line).not.toMatch(/git add \.beads/);
