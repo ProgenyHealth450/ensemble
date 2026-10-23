@@ -907,9 +907,13 @@ function getBeadCounts(slug) {
     } catch {
       return { total: 0, open: 0, in_progress: 0, closed: 0 };
     }
-    // br 0.2.x wraps list output as { issues: [...] }; older versions print a bare array.
-    const parsed = JSON.parse(raw);
-    const beads = Array.isArray(parsed) ? parsed : (parsed && parsed.issues) || [];
+    // br 0.2.x wraps list output as { issues: [...] }; older versions print a bare array;
+    // jira/azure-boards (PR 8 independent review item 5 / finding 5) declare a tracker.list
+    // `parse` block, so `raw` for them is already the mapped `{items: [...]}` OBJECT, never a
+    // JSON string -- `JSON.parse` would throw on a non-string. Branch on typeof first, then
+    // apply the same issues-or-items unwrap either way.
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const beads = Array.isArray(parsed) ? parsed : (parsed && (parsed.issues || parsed.items)) || [];
     const matches = beads.filter((b) => (b.title || '').includes(needle));
     return {
       total: matches.length,

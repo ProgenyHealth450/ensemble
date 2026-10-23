@@ -2,15 +2,15 @@
 
 /**
  * Scripted tracker-swap scenario (TRD-2026-8d825f54 TRD-034, bead br-0g5b, PRD AC-015-2,
- * AC-016-1, AC-016-4). Proves, through REAL subprocess entry points against the REAL,
- * un-copied `packages/development/lib/toolchain-cli.js` / `trd-cli.js` /
- * `complexity-analyzer.js`, that an operator can select the Jira Cloud or Azure Boards tracker
- * adapter by configuration alone and run scaffold/claim/update/close with the default `br`/`bv`
- * tool not installed anywhere on `PATH`.
+ * AC-016-1, AC-016-4; updated by the PR 8 independent-review fix wave). Proves, through REAL
+ * subprocess entry points against the REAL, un-copied `packages/development/lib/toolchain-
+ * cli.js` / `trd-cli.js` / `complexity-analyzer.js`, that an operator can select the Jira
+ * Cloud or Azure Boards tracker adapter by configuration alone and run scaffold/claim/set-
+ * status/close with the default `br`/`bv` tool not installed anywhere on `PATH`.
  *
- * Seven coverage areas (1:1 with the wave orchestrator's assignment):
- *   1. AC1 -- full create/claim/update/close lifecycle through each alternative adapter, on a
- *      PATH with no `br`/`bv` at all; the ledger lists exactly four side effects.
+ * Eight coverage areas (1:1 with the wave orchestrator's assignment, plus Item D below):
+ *   1. AC1 -- full create/claim/set-status/close lifecycle through each alternative adapter,
+ *      on a PATH with no `br`/`bv` at all; the ledger lists exactly four side effects.
  *   2. AC2 -- `toolchain-cli validate` (TRD-007's composed conformance gate) over both real
  *      manifest directories.
  *   3. AC3 -- `beads-build-wave.yaml`'s documented claim-step argv, both as a static raw-text
@@ -22,47 +22,56 @@
  *   5. Missing-binary negative case: preflight fails `HEALTH_FAILED` naming the configured
  *      adapter, never a silent fallback to `beads`.
  *   6. Swap-consistency: `trd-cli bead-context`, `complexity-analyzer` and `trd-cli beads-label`
- *      all route through whichever adapter is configured, for both alternatives.
+ *      all route through whichever adapter is configured, for both alternatives; `beads-label`
+ *      degrades to a clean `{ok:false,unavailable:true}` envelope, never a thrown error.
  *   7. Mutation proof: a hardcoded-to-`beads` mutant of `toolchain-cli.js`'s `run` subcommand
  *      either fails to resolve at all, or -- when a `br` stub is reachable -- visibly redirects
  *      a `tracker.create` call to it, while the real, unmutated CLI still routes to the
  *      configured alternative adapter.
+ *   8. Item D -- every shipped command YAML's (beads-build/-wave, implement-trd-beads,
+ *      implement-bead) OWN `tracker.*` `--require` list, derived from the real source,
+ *      preflights `ok:true` against both alternative adapters; three mutation proofs confirm
+ *      the derivation and the claim-step argv both actually discriminate a regression.
  *
- * Findings (documented, not fixed -- see the matching inline comment near each one below):
- *   - TRD-034's own Implementation AC 2 names a `toolchain-cli validate --conformance tracker`
- *     flag that does not exist anywhere in this codebase; the real mechanism is a bare
- *     `validate <adapter-dir> --json`, which composes TRD-007's conformance check internally
- *     (`validateAdapterDir`). See the AC2 block below.
- *   - The `tracker.update` category contract's single `fields` input is interpreted
- *     differently per adapter (jira: literal status string via `--status`; azure-boards:
- *     literal state string via `--state`; beads: free-form notes via `--notes`).
- *     `beads-build-wave.yaml`'s own literal claim-step argv (`--arg
- *     fields={"status":"in_progress"}`) is shaped for the BEADS adapter's free-form
- *     interpretation and is not a valid Jira/Azure status/state name when routed through
- *     those adapters -- a pre-existing TRD-032/033 design gap, out of TRD-034's scope. See the
- *     AC3 block below.
- *   - `tracker.label`/`tracker.sync`/`tracker.dep-remove`/`tracker.stage-export` have no
- *     jira/azure-boards implementation (`required:false`). Only `tracker.stage-export` (and
- *     the `work-graph.*` capabilities) actually declare a category-contract `fallback` field;
- *     empirically verified (see the AC6 block below) that `tracker.label`/`tracker.sync`/
- *     `tracker.dep-remove` declare NO fallback, so calling them returns `NOT_ALLOWED`, not the
- *     `UNAVAILABLE`-with-documented-fallback envelope.
- *   - The full `beads-build-wave.yaml` preflight (`--require tracker.sync --require
- *     work-graph.ready` among others) would fail `HEALTH_FAILED`/`UNAVAILABLE` against either
- *     alternative tracker today, since neither implements `tracker.sync` or any `work-graph.*`
- *     capability -- TRD-034 only proves the claim-step argv routes correctly, not that the
- *     full wave preflight passes end to end against an alternative tracker.
- *   - `beads-build-wave.yaml`/`implement-trd-beads.yaml` are agent-orchestration prose read by
- *     an LLM, not an executable entry point a test can spawn directly -- AC3's "reaches its
- *     tracker step" is proven via a static raw-text assertion (the literal documented argv is
- *     present) plus a dynamic reproduction of that same literal argv as a real subprocess call.
+ * Fixed in this wave (PR 8 independent review -- previously documented below as "Findings,
+ * not fixed"; now closed):
+ *   - P1 finding 1: `tracker.update`'s single `fields` input was interpreted differently per
+ *     adapter (jira: literal status string via `--status`; azure-boards: literal state string
+ *     via `--state`; beads: free-form notes via `--notes`) -- `beads-build-wave.yaml`'s own
+ *     claim-step argv (`--arg fields={"status":"in_progress"}`) landed VERBATIM as that raw
+ *     JSON text on jira/azure-boards, never a real status/state name. FIXED by a new
+ *     `tracker.set-status` capability (`inputs:[id,status]`, canonical
+ *     open/in_progress/closed) implemented via the manifest `variants` mechanism in all three
+ *     adapters; `tracker.update` is repurposed per-adapter for non-status field edits only
+ *     (jira: summary; azure-boards: title; beads: notes, unchanged). See AC1/AC3/Item D below.
+ *   - P1 finding 2: jira's manifest falsely declared `categories:[tracker,work-graph]` with
+ *     zero `work-graph.*` capabilities, so `work-graph.ready`'s `auto` resolution incorrectly
+ *     selected jira as the work-graph provider instead of the builtin plan-order fallback.
+ *     FIXED: jira now declares `categories:[tracker]` only. `tracker.sync`/`tracker.dep-add`
+ *     are now OPTIONAL in every shipped command (never `--require`d), with graceful
+ *     degradation on `{ok:false}`. See Item D below for the full preflight proof.
+ *   - P2 finding 4 (azure-boards `tracker.list`): the shipped manifest's WIQL depended on an
+ *     UNFILLED `${filter}` placeholder the engine declares no default for, so any caller
+ *     (including `beads-label`'s own default list call) failed `INVALID_ARG` before a real
+ *     `az` subprocess ran at all. FIXED: a fixed, bounded default WIQL (`TOP 200`, no filter
+ *     input), plus a `parse`/`arrayMap` block reshaping jira/azure-boards' raw list output
+ *     into `{items:[{id,title,status}]}` (both previously had NO `parse` block at all -- `data`
+ *     was whatever raw text/array the binary printed). See AC6 below.
+ *   - P2 finding 3 (`tracker.label` unavailable): the category contract declared no
+ *     `fallback` field for `tracker.label`, so `lookupCapability` returned the plain
+ *     `NOT_ALLOWED` envelope and `ensureLabel`/`beads-label.js` always THREW, surfacing at
+ *     `trd-cli.js`'s top-level catch as a bare `{error}` with exit 1. FIXED: the category
+ *     contract now declares `fallback: title-prefix-scoping`; `ensureLabel` catches the
+ *     resulting `UNAVAILABLE` envelope and returns `{ok:false,unavailable:true,reason,label,
+ *     matched}` instead of throwing (the pre-existing SUCCESS shape is untouched). See AC6.
  *
- * Independent review is deferred to the PR 8 gate (no reviewer agent runs on this bead).
+ * Independent review is deferred to the PR 9 gate (no reviewer agent runs on this bead).
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const yaml = require('js-yaml');
 const { spawnSync } = require('child_process');
 
 jest.setTimeout(30000);
@@ -214,7 +223,7 @@ function jiraStubSource({ showResponses = {}, listResponse = [], createdId = 'JI
   ].join('\n');
 }
 
-function azStubSource({ showResponses = {}, createdId = '4200' } = {}) {
+function azStubSource({ showResponses = {}, listResponse = [], createdId = '4200' } = {}) {
   return [
     '#!/usr/bin/env node',
     "'use strict';",
@@ -225,6 +234,7 @@ function azStubSource({ showResponses = {}, createdId = '4200' } = {}) {
     'function out(value) { process.stdout.write(JSON.stringify(value)); }',
     "function flagValue(name) { const i = argv.indexOf(name); return i === -1 ? undefined : argv[i + 1]; }",
     `const SHOW = ${JSON.stringify(showResponses)};`,
+    `const LIST = ${JSON.stringify(listResponse)};`,
     "if (argv[0] === '--version') {",
     "  process.stdout.write('azure-cli stub 2.0.0\\n');",
     "} else if (argv[0] === 'extension' && argv[1] === 'show') {",
@@ -232,7 +242,7 @@ function azStubSource({ showResponses = {}, createdId = '4200' } = {}) {
     "} else if (argv[0] === 'devops' && argv[1] === 'configure') {",
     "  out({ organization: 'https://dev.azure.com/stub', project: 'stub-project' });",
     "} else if (argv[0] === 'boards' && argv[1] === 'query') {",
-    '  out([]);',
+    '  out(LIST);',
     "} else if (argv[0] === 'boards' && argv[1] === 'work-item' && argv[2] === 'show') {",
     "  const id = flagValue('--id');",
     '  const resp = SHOW[id];',
@@ -271,7 +281,9 @@ function brStubSource({ createdId = 'BR-100' } = {}) {
     "} else if (argv[0] === 'create') {",
     `  out([{ id: ${JSON.stringify(createdId)} }]);`,
     "} else if (argv[0] === 'update') {",
-    '  out([{ id: argv[1] }]);',
+    "  const statusIdx = argv.indexOf('--status');",
+    "  const status = statusIdx === -1 ? undefined : argv[statusIdx + 1];",
+    '  out(status !== undefined ? [{ id: argv[1], status }] : [{ id: argv[1] }]);',
     "} else if (argv[0] === 'close') {",
     "  out([{ id: argv[1], status: 'closed' }]);",
     '} else {',
@@ -329,15 +341,34 @@ function azShowResponse(id) {
   return [id, `${id} fixture bead`, referencesBlock('trd-002'), 'Task', 'New', '2', []];
 }
 
-/** `tracker.list` fixture: three beads in this TRD's scope (one of each status, one already
- * labeled `demo`) and one foreign bead outside scope -- mirrors the established
- * trd-cli-adapter-swap.test.js convention. */
+/** `tracker.list` fixture: three beads in this TRD's scope and one foreign bead outside scope
+ * -- mirrors the established trd-cli-adapter-swap.test.js convention. RAW jira shape
+ * (`.key`/`.summary`/`.status`), matching the adapter's own `arrayMap` source fields
+ * (packages/infrastructure/skills/adapter-tracker-jira/adapter.yaml's `tracker.list.parse`,
+ * PR 8 independent review item 2 / finding 2 FIX) -- the stub echoes this object verbatim as
+ * `jira issues list`'s raw stdout, and the real, un-copied toolchain-cli.js reshapes it into
+ * `{id,title,status}` via the real adapter manifest. */
 function jiraListResponse() {
   return [
-    { id: 'b-1', title: `[trd:${SLUG}:task:TRD-001] one`, status: 'open', labels: [] },
-    { id: 'b-2', title: `[trd:${SLUG}:task:TRD-002] two`, status: 'closed', labels: ['demo'] },
-    { id: 'b-3', title: `[trd:${SLUG}:task:TRD-003] three`, status: 'in_progress', labels: [] },
-    { id: 'b-4', title: '[trd:other-slug] foreign', status: 'open', labels: [] },
+    { key: 'b-1', summary: `[trd:${SLUG}:task:TRD-001] one`, status: 'open' },
+    { key: 'b-2', summary: `[trd:${SLUG}:task:TRD-002] two`, status: 'closed' },
+    { key: 'b-3', summary: `[trd:${SLUG}:task:TRD-003] three`, status: 'in_progress' },
+    { key: 'b-4', summary: '[trd:other-slug] foreign', status: 'open' },
+  ];
+}
+
+/** Same three-matching-plus-one-foreign fixture, in azure-boards' own raw shape: `[id, title,
+ * state]` triples, pre-flattened the way a real `az boards query --query "[].[to_string(id),
+ * fields.\"System.Title\", fields.\"System.State\"]"` projection already returns it (the stub
+ * below never evaluates real JMESPath, mirroring scripts/tests/fixtures/toolchain/adapter-
+ * tracker-azure-boards-stub.js's own convention) -- the adapter's own `arrayMap` (PR 8
+ * independent review item 2 / finding 2 FIX) reshapes each triple into `{id,title,status}`. */
+function azListResponse() {
+  return [
+    ['b-1', `[trd:${SLUG}:task:TRD-001] one`, 'New'],
+    ['b-2', `[trd:${SLUG}:task:TRD-002] two`, 'Closed'],
+    ['b-3', `[trd:${SLUG}:task:TRD-003] three`, 'Active'],
+    ['b-4', '[trd:other-slug] foreign', 'New'],
   ];
 }
 
@@ -365,14 +396,21 @@ function nonHealthCalls(calls, healthArgvs) {
   return calls.filter((argv) => !healthKeys.has(JSON.stringify(argv)));
 }
 
+/** `claimStatus`/`secondStatus` are the CANONICAL `tracker.set-status` vocabulary
+ * (open/in_progress/closed) -- identical across every adapter now (PR 8 independent review
+ * P1 finding 1 FIX: the caller never supplies a provider-native literal). `nativeStatus` is
+ * each adapter's own real vocabulary word for each canonical status, read verbatim off the
+ * real manifest's `tracker.set-status.variants.status` map, used only to assert the argv
+ * actually reaching the stub binary (AC3(b) above, and the mutation proofs below). */
 const ADAPTERS = {
   jira: {
     id: 'jira',
     binName: 'jira',
     dirPath: JIRA_ADAPTER_DIR,
     healthArgvs: JIRA_HEALTH_ARGVS,
-    claimStatus: 'In Progress',
-    secondStatus: 'In Review',
+    claimStatus: 'in_progress',
+    secondStatus: 'open',
+    nativeStatus: { open: 'To Do', in_progress: 'In Progress', closed: 'Done' },
     callsLog: (binDir) => path.join(binDir, 'calls-jira.log'),
     installStub: (binDir, opts) => installBinary(binDir, 'jira', jiraStubSource(opts)),
     showShapeMatches: (argv) => argv[0] === 'issues' && argv[1] === 'read',
@@ -383,8 +421,9 @@ const ADAPTERS = {
     binName: 'az',
     dirPath: AZURE_ADAPTER_DIR,
     healthArgvs: AZ_HEALTH_ARGVS,
-    claimStatus: 'Active',
-    secondStatus: 'New',
+    claimStatus: 'in_progress',
+    secondStatus: 'open',
+    nativeStatus: { open: 'New', in_progress: 'Active', closed: 'Closed' },
     callsLog: (binDir) => path.join(binDir, 'calls-az.log'),
     installStub: (binDir, opts) => installBinary(binDir, 'az', azStubSource(opts)),
     showShapeMatches: (argv) => argv[0] === 'boards' && argv[1] === 'work-item' && argv[2] === 'show',
@@ -405,26 +444,31 @@ function expectNoBrBvOnPath(PATH) {
 }
 
 /**
- * Full create -> claim -> update -> close lifecycle through `toolchain-cli.js run`/`trd-cli.js
- * scaffold-plan`, against whichever adapter `project`'s `.ensemble/toolchain.yaml` selects.
+ * Full create -> claim -> second-status -> close lifecycle through `toolchain-cli.js run`/
+ * `trd-cli.js scaffold-plan`, against whichever adapter `project`'s `.ensemble/toolchain.yaml`
+ * selects. Claim/second-status route through `tracker.set-status` (PR 8 independent review
+ * P1 finding 1 FIX: `tracker.update` no longer sets status on any adapter -- jira repurposes
+ * it for renaming an issue's summary, azure-boards for renaming a work item's title, matching
+ * `tracker.update`'s single category-contract `fields` input everywhere now).
  *
- * `--non-interactive` is passed on every side-effecting `run` call: `tracker.create`/`update`/
- * `close` are all `sideEffect:true` in the `tracker` category contract, so `toolchain-cli.js
- * run`'s own confirmation gate (`./toolchain/confirm.js#confirmStatus`) requires an EXPLICIT
- * non-interactive signal (`--non-interactive`, `ENSEMBLE_NON_INTERACTIVE=1`, a non-empty
- * `FOREMAN_TASK_TITLE`, or `CI=true`) before a resolved adapter is even considered confirmed;
- * this scenario's constructed `env` carries none of the other three, so without this flag
- * every one of these calls would fail `CONFIRMATION_REQUIRED` rather than exercising routing at
- * all. This mirrors `beads-build-wave.yaml`'s OWN documented claim-step argv (TRD-034's cited
- * research), which appends exactly this flag "when FOREMAN is true" -- the production shape
- * for a non-interactive, automated caller, which this scripted scenario always is.
+ * `--non-interactive` is passed on every side-effecting `run` call: `tracker.create`/
+ * `set-status`/`close` are all `sideEffect:true` in the `tracker` category contract, so
+ * `toolchain-cli.js run`'s own confirmation gate (`./toolchain/confirm.js#confirmStatus`)
+ * requires an EXPLICIT non-interactive signal (`--non-interactive`,
+ * `ENSEMBLE_NON_INTERACTIVE=1`, a non-empty `FOREMAN_TASK_TITLE`, or `CI=true`) before a
+ * resolved adapter is even considered confirmed; this scenario's constructed `env` carries
+ * none of the other three, so without this flag every one of these calls would fail
+ * `CONFIRMATION_REQUIRED` rather than exercising routing at all. This mirrors
+ * `beads-build-wave.yaml`'s OWN documented claim-step argv, which appends exactly this flag
+ * "when FOREMAN is true" -- the production shape for a non-interactive, automated caller,
+ * which this scripted scenario always is.
  */
 function runLifecycle(adapterKey, project, PATH) {
   const cfg = ADAPTERS[adapterKey];
 
   const preflight = runNode(
     TOOLCHAIN_CLI,
-    ['preflight', '--require', 'tracker.create', '--require', 'tracker.update', '--require', 'tracker.close', '--json'],
+    ['preflight', '--require', 'tracker.create', '--require', 'tracker.set-status', '--require', 'tracker.close', '--json'],
     project.dir,
     { PATH }
   );
@@ -456,14 +500,14 @@ function runLifecycle(adapterKey, project, PATH) {
 
   const claim = runNode(
     TOOLCHAIN_CLI,
-    ['run', 'tracker.update', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', `fields=${cfg.claimStatus}`, '--json', '--non-interactive'],
+    ['run', 'tracker.set-status', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', `status=${cfg.claimStatus}`, '--json', '--non-interactive'],
     project.dir,
     { PATH }
   );
 
   const update = runNode(
     TOOLCHAIN_CLI,
-    ['run', 'tracker.update', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', `fields=${cfg.secondStatus}`, '--json', '--non-interactive'],
+    ['run', 'tracker.set-status', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', `status=${cfg.secondStatus}`, '--json', '--non-interactive'],
     project.dir,
     { PATH }
   );
@@ -483,7 +527,7 @@ function runLifecycle(adapterKey, project, PATH) {
 // ---------------------------------------------------------------------------
 
 describe('AC1: full scaffold/claim/update/close lifecycle through each alternative adapter (no br/bv on PATH)', () => {
-  test.each(ADAPTER_KEYS)('%s: every step exits 0, the ledger lists exactly 4 side effects, br/bv are unreachable', (adapterKey) => {
+  test.each(ADAPTER_KEYS)('%s: every step exits 0, the ledger lists exactly 4 side effects (create/set-status/set-status/close), br/bv are unreachable', (adapterKey) => {
     const cfg = ADAPTERS[adapterKey];
     const project = mkTrackerProject(`ac1-${adapterKey}-`, adapterKey);
     cfg.installStub(project.binDir, {});
@@ -522,8 +566,8 @@ describe('AC1: full scaffold/claim/update/close lifecycle through each alternati
     const ledgerEntries = ledgerLines.map((line) => JSON.parse(line));
     expect(ledgerEntries.map((entry) => entry.capability)).toEqual([
       'tracker.create',
-      'tracker.update',
-      'tracker.update',
+      'tracker.set-status',
+      'tracker.set-status',
       'tracker.close',
     ]);
     for (const entry of ledgerEntries) {
@@ -564,21 +608,22 @@ describe('AC2: conformance -- toolchain-cli validate over both alternative track
 });
 
 // ---------------------------------------------------------------------------
-// 3. AC3 -- beads-build-wave's claim-step reaches the Azure Boards adapter.
+// 3. AC3 -- beads-build-wave's claim-step reaches the Azure Boards adapter with the FIXED
+//    tracker.set-status argv (PR 8 independent review P1 finding 1).
 // ---------------------------------------------------------------------------
 
 describe('AC3: beads-build-wave.yaml claim-step reaches the Azure Boards adapter', () => {
-  test('(a) static: the lifecycle_contract literally documents the tracker.update claim argv', () => {
+  test('(a) static: the lifecycle_contract literally documents the tracker.set-status claim argv, never the old tracker.update/JSON-fields literal', () => {
     // beads-build-wave.yaml is agent-orchestration prose read by an LLM, not an executable
     // entry point this test can spawn directly (see this file's header finding list) -- this
     // raw-text assertion mirrors the idiom packages/development/tests/implement-trd-beads-
-    // command.test.js already uses for the same family of command YAML files (e.g. its
-    // "--foreman tags only task beads..." test, around lines 185-189).
+    // command.test.js already uses for the same family of command YAML files.
     const text = fs.readFileSync(BEADS_WAVE_YAML, 'utf8');
-    expect(text).toContain('tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"in_progress"}');
+    expect(text).toContain('tracker.set-status --run-id <RUN_ID> --arg id=<BEAD_ID> --arg status=in_progress');
+    expect(text).not.toContain('tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"in_progress"}');
   });
 
-  test('(b) dynamic: the literal documented claim argv routes to `az boards work-item update`, not br, when Azure Boards is selected', () => {
+  test('(b) dynamic: the literal documented claim argv routes to `az boards work-item update --state Active`, the REAL Azure Boards vocabulary word, never a raw JSON blob (FIXED, was P1 finding 1)', () => {
     const cfg = ADAPTERS['azure-boards'];
     const project = mkTrackerProject('ac3-azure-', 'azure-boards');
     cfg.installStub(project.binDir, {});
@@ -586,7 +631,7 @@ describe('AC3: beads-build-wave.yaml claim-step reaches the Azure Boards adapter
 
     const preflight = runNode(
       TOOLCHAIN_CLI,
-      ['preflight', '--require', 'tracker.create', '--require', 'tracker.update', '--json'],
+      ['preflight', '--require', 'tracker.create', '--require', 'tracker.set-status', '--json'],
       project.dir,
       { PATH }
     );
@@ -623,34 +668,37 @@ describe('AC3: beads-build-wave.yaml claim-step reaches the Azure Boards adapter
     // --non-interactive (see runLifecycle's own header comment for why this flag is required).
     const claim = runNode(
       TOOLCHAIN_CLI,
-      ['run', 'tracker.update', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', 'fields={"status":"in_progress"}', '--json', '--non-interactive'],
+      ['run', 'tracker.set-status', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', 'status=in_progress', '--json', '--non-interactive'],
       project.dir,
       { PATH }
     );
     expect(claim.status).toBe(0);
     expect(claim.json.ok).toBe(true);
+    expect(claim.json.data.status).toBe('in_progress'); // round-trips back to the canonical word
 
     const calls = readCallsLog(cfg.callsLog(project.binDir));
     const claimCall = calls.find(
       (argv) => argv[0] === 'boards' && argv[1] === 'work-item' && argv[2] === 'update' && argv[3] === '--id' && argv[4] === beadId
     );
     expect(claimCall).toBeTruthy();
-    // FINDING (pre-existing TRD-032/033 cross-adapter semantic gap, not a bug this test should
-    // paper over): the claim-step argv is shaped for the BEADS adapter's own free-form
-    // "fields as notes" interpretation; routed through azure-boards, the literal JSON text
-    // `{"status":"in_progress"}` lands VERBATIM as the `--state` value -- this is not real
-    // Azure Boards state vocabulary (New/Active/Closed). This assertion proves the ROUTING
-    // (the argv shape reaching `az boards work-item update`), not that the value itself is
-    // semantically valid Azure state -- `tracker.update`'s parse block maps only a bare `id`
-    // scalar (no statusMap), so the runner never validates this value at all.
-    expect(claimCall.slice(0, 7)).toEqual([
+    // FIXED (was P1 finding 1): the claim-step argv now carries the real Azure Boards state
+    // vocabulary word ("Active"), selected by tracker.set-status's `status` variant
+    // (packages/infrastructure/skills/adapter-tracker-azure-boards/adapter.yaml), never the
+    // raw canonical word or a JSON blob -- `tracker.set-status`'s parse block also maps the
+    // response BACK to the canonical word ("in_progress", asserted above), so round-tripping
+    // through this adapter is lossless for the three canonical statuses.
+    expect(claimCall).toEqual([
       'boards',
       'work-item',
       'update',
       '--id',
       beadId,
       '--state',
-      '{"status":"in_progress"}',
+      'Active',
+      '--query',
+      '[to_string(id), fields."System.State"]',
+      '--output',
+      'json',
     ]);
 
     expectNoBrBvOnPath(PATH);
@@ -691,7 +739,7 @@ describe('Mandate 4: zero br/bv invocation while stub br/bv ARE reachable on PAT
     writeToolchainConfig(project.dir, 'beads');
     const preflight2 = runNode(
       TOOLCHAIN_CLI,
-      ['preflight', '--require', 'tracker.create', '--require', 'tracker.update', '--require', 'tracker.close', '--json'],
+      ['preflight', '--require', 'tracker.create', '--require', 'tracker.set-status', '--require', 'tracker.close', '--json'],
       project.dir,
       { PATH }
     );
@@ -711,7 +759,7 @@ describe('Mandate 4: zero br/bv invocation while stub br/bv ARE reachable on PAT
 
     const claim2 = runNode(
       TOOLCHAIN_CLI,
-      ['run', 'tracker.update', '--run-id', runId2, '--arg', `id=${beadId2}`, '--arg', 'fields={"status":"in_progress"}', '--json', '--non-interactive'],
+      ['run', 'tracker.set-status', '--run-id', runId2, '--arg', `id=${beadId2}`, '--arg', 'status=in_progress', '--json', '--non-interactive'],
       project.dir,
       { PATH }
     );
@@ -720,7 +768,7 @@ describe('Mandate 4: zero br/bv invocation while stub br/bv ARE reachable on PAT
 
     const update2 = runNode(
       TOOLCHAIN_CLI,
-      ['run', 'tracker.update', '--run-id', runId2, '--arg', `id=${beadId2}`, '--arg', 'fields={"status":"updated"}', '--json', '--non-interactive'],
+      ['run', 'tracker.set-status', '--run-id', runId2, '--arg', `id=${beadId2}`, '--arg', 'status=open', '--json', '--non-interactive'],
       project.dir,
       { PATH }
     );
@@ -777,16 +825,17 @@ describe('AC5: missing-binary negative case -- preflight fails HEALTH_FAILED nam
 
 // ---------------------------------------------------------------------------
 // 6. Swap-consistency: bead-context, complexity-analyzer and beads-label all route through
-//    whichever adapter is configured.
+//    whichever adapter is configured; beads-label degrades gracefully (PR 8 independent
+//    review item 3 / finding 3).
 // ---------------------------------------------------------------------------
 
 describe('AC6: swap-consistency -- trd-cli bead-context, complexity-analyzer and beads-label', () => {
-  test.each(ADAPTER_KEYS)('%s: bead-context and complexity-analyzer both route tracker.show; beads-label fails identically (throws, never a clean ok:false)', (adapterKey) => {
+  test.each(ADAPTER_KEYS)('%s: bead-context and complexity-analyzer both route tracker.show; beads-label degrades to a clean {ok:false,unavailable:true} envelope, never a thrown error', (adapterKey) => {
     const cfg = ADAPTERS[adapterKey];
     const project = mkTrackerProject(`ac6-${adapterKey}-`, adapterKey);
     const beadId = 'b-show-1';
     const showResponses = { [beadId]: cfg.showResponseFor(beadId) };
-    const listResponse = adapterKey === 'jira' ? jiraListResponse() : [];
+    const listResponse = adapterKey === 'jira' ? jiraListResponse() : azListResponse();
     cfg.installStub(project.binDir, { showResponses, listResponse });
     const PATH = buildPath(project.binDir);
 
@@ -802,47 +851,149 @@ describe('AC6: swap-consistency -- trd-cli bead-context, complexity-analyzer and
     const showCalls = callsAfterReads.filter(cfg.showShapeMatches);
     expect(showCalls.length).toBe(2); // bead-context, then complexity-analyzer
 
-    // beads-label: neither jira nor azure-boards implements tracker.label. Empirically
-    // verified (direct runCapabilitySync calls against both real manifests while researching
-    // this task): tracker.label's category-contract entry
-    // (packages/development/toolchain/categories/tracker.yaml) declares NO `fallback` field
-    // (unlike tracker.stage-export/work-graph.*, which do) -- so `lookupCapability`
-    // (runner.js:858-889) falls through to the plain `NOT_ALLOWED` envelope, never the
-    // `UNAVAILABLE`-with-documented-fallback shape. `ensureLabel`
-    // (packages/development/lib/beads-label.js:116-128) never catches a failed `run(...)`
-    // call -- `raiseOnFailure` (beads-label.js:44-48) always THROWS -- so this surfaces at
-    // trd-cli.js's own top-level try/catch (main(), around line 1562) as a bare `{error:
-    // <message>}` on stdout with exit 1, never the clean `{ok:false, ...}` envelope a declared-
-    // but-unavailable capability might suggest.
+    // beads-label (PR 8 independent review item 3 / finding 3, FIXED): neither jira nor
+    // azure-boards implements tracker.label, but the category contract
+    // (packages/development/toolchain/categories/tracker.yaml) now declares a `fallback`
+    // field for it ('title-prefix-scoping') -- `lookupCapability` (runner.js) therefore
+    // returns the UNAVAILABLE-with-fallback envelope, never NOT_ALLOWED, and `ensureLabel`
+    // (packages/development/lib/beads-label.js) catches it and returns a clean
+    // {ok:false,unavailable:true,reason,label,matched} result instead of throwing.
+    // `trd-cli.js#runBeadsLabel`'s own `{ok:true, ...ensureLabel(...)}` spread means this
+    // degraded shape's own `ok:false` key -- spread LAST -- overwrites the initial literal,
+    // so the CLI exits 0 with this envelope on stdout, never a bare {error} shape.
     //
-    // The two adapters fail at DIFFERENT steps, though: jira's `tracker.list` run template has
-    // no argv placeholder at all (`["jira","issues","list"]`), so it succeeds and the failure
-    // is reached at the genuine `tracker.label` call (NOT_ALLOWED). azure-boards' `tracker.list`
-    // template has an UNFILLED `${filter}` placeholder (`az boards query --wiql ${filter}
-    // --output json`), and `ensureLabel`'s default `runBr` always calls `tracker.list` with an
-    // EMPTY args object -- so azure-boards fails ONE STEP EARLIER, inside `buildArgv` itself
-    // (INVALID_ARG: "'filter': no value supplied and the contract declares no default"),
-    // before a `tracker.label` call -- or any real `az` subprocess for this request at all --
-    // is ever attempted. Both still surface as the SAME {error, exit 1} shape at the trd-cli.js
-    // CLI boundary.
+    // azure-boards' `tracker.list` is ALSO fixed (PR 8 independent review item 2 / finding
+    // 4): it no longer carries an unfilled `${filter}` placeholder -- the shipped manifest's
+    // default bounded WIQL has no filter input at all -- so `ensureLabel`'s default `runBr`
+    // (which always calls `tracker.list` with an empty args object) now succeeds for BOTH
+    // adapters, reaching the genuine `tracker.label` call (UNAVAILABLE) identically.
     const label = runNode(TRD_CLI, ['beads-label', '--label', 'demo', '--match', `[trd:${SLUG}`], project.dir, { PATH });
-    expect(label.status).toBe(1);
-    expect(label.json.ok).toBeUndefined();
-    expect(typeof label.json.error).toBe('string');
+    expect(label.status).toBe(0);
+    expect(label.json.ok).toBe(false);
+    expect(label.json.unavailable).toBe(true);
+    expect(label.json.reason).toContain("capability 'tracker.label' is unavailable");
+    expect(label.json.reason).toContain(cfg.id);
+    expect(label.json.label).toBe('demo');
+    expect(label.json.matched).toBe(3); // 3 of the 4 fixture beads carry this TRD's title prefix
 
     const callsAfterLabel = readCallsLog(cfg.callsLog(project.binDir));
-    if (adapterKey === 'jira') {
-      expect(label.json.error).toContain("capability 'tracker.label' is not declared by adapter 'jira'");
-      // tracker.list succeeded (one more real call than before); tracker.label itself never
-      // reached a real subprocess (lookupCapability's own `!cap` branch returns an envelope
-      // before argv is even built).
-      expect(callsAfterLabel.length).toBe(callsAfterReads.length + 1);
-      expect(callsAfterLabel[callsAfterLabel.length - 1]).toEqual(['issues', 'list']);
-    } else {
-      expect(label.json.error).toContain("'filter': no value supplied and the contract declares no default");
-      // Failed inside buildArgv, before any `az` subprocess for this request -- no new call.
-      expect(callsAfterLabel.length).toBe(callsAfterReads.length);
-    }
+    // tracker.list succeeded (one more real call than before); tracker.label itself never
+    // reached a real subprocess (lookupCapability's own fallback branch returns an envelope
+    // before argv is even built).
+    expect(callsAfterLabel.length).toBe(callsAfterReads.length + 1);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// 8. Item D (PR 8 independent review): every shipped command YAML's tracker.* --require
+//    list, DERIVED from the real source (never hand-copied), preflights ok:true against both
+//    alternative tracker adapters -- AC1/AC3 above already prove tracker.set-status itself
+//    routes correctly in isolation; this proves the SHIPPED commands' own preflight gates
+//    (beads-build/-wave/implement-trd-beads/implement-bead) actually pass, end to end, the
+//    moment an operator points .ensemble/toolchain.yaml at jira or azure-boards -- including
+//    work-graph.ready, which resolves through the builtin plan-order fallback now that jira's
+//    manifest no longer falsely claims the work-graph category (PR 8 finding 2).
+// ---------------------------------------------------------------------------
+
+const SHIPPED_COMMAND_YAMLS = ['beads-build.yaml', 'beads-build-wave.yaml', 'implement-trd-beads.yaml', 'implement-bead.yaml'];
+const COMMANDS_DIR = path.join(REPO_ROOT, 'packages', 'development', 'commands');
+
+/** `metadata.capabilities.required`, read fresh off the real source YAML every call -- never
+ * hand-copied into this test, so a future required-list edit in the command YAML is picked up
+ * automatically; the mutation proofs below prove this helper's OWN assertions still
+ * discriminate a regression rather than going stale silently. */
+function requiredCapsOf(rel) {
+  const doc = yaml.load(fs.readFileSync(path.join(COMMANDS_DIR, rel), 'utf8'));
+  return (doc.metadata.capabilities && doc.metadata.capabilities.required) || [];
+}
+
+describe('Item D: shipped command YAMLs -- derived preflight lists pass for every tracker adapter', () => {
+  test.each(SHIPPED_COMMAND_YAMLS)('%s declares tracker.sync and tracker.dep-add as optional, never required (PR 8 finding 2)', (rel) => {
+    const required = requiredCapsOf(rel);
+    expect(required).not.toContain('tracker.sync');
+    expect(required).not.toContain('tracker.dep-add');
+  });
+
+  for (const adapterKey of ADAPTER_KEYS) {
+    test.each(SHIPPED_COMMAND_YAMLS)(`${adapterKey}: %s's own derived --require list preflights ok:true, never touching br/bv`, (rel) => {
+      const cfg = ADAPTERS[adapterKey];
+      const project = mkTrackerProject(`itemd-${adapterKey}-${rel.replace(/\.yaml$/, '')}-`, adapterKey);
+      cfg.installStub(project.binDir, {});
+      installBinary(project.binDir, 'br', brStubSource({}));
+      installBinary(project.binDir, 'bv', bvStubSource());
+      const PATH = buildPath(project.binDir);
+
+      const required = requiredCapsOf(rel);
+      expect(required.length).toBeGreaterThan(0);
+      const args = ['preflight', ...required.flatMap((c) => ['--require', c]), '--json', '--non-interactive'];
+      const result = runNode(TOOLCHAIN_CLI, args, project.dir, { PATH });
+      expect(result.status).toBe(0);
+      expect(result.json.ok).toBe(true);
+      expect(typeof result.json.runId).toBe('string');
+
+      expect(readCallsLog(path.join(project.binDir, 'calls-br.log'))).toEqual([]);
+      expect(readCallsLog(path.join(project.binDir, 'calls-bv.log'))).toEqual([]);
+    });
+  }
+
+  describe('mutation proofs: each assertion above actually discriminates a regression', () => {
+    test('removing jira adapter.yaml\'s in_progress set-status variant fails NOT_ALLOWED; the real, unmutated adapter still resolves it (reproduces the shape of P1 finding 1)', () => {
+      // The adapter is resolved by the installed-tier search; a PROJECT-relative
+      // packages/*/skills root is searched FIRST (packages/development/lib/toolchain/
+      // adapters.js#projectPackagesSkillsRoots), so installing a MUTATED copy of the real
+      // jira manifest under the throwaway project's own packages/mutant/skills/ lets the
+      // real, un-copied toolchain-cli.js subprocess resolve the mutant -- the real repo's
+      // own adapter directory is never touched.
+      const project = mkTrackerProject('itemd-mutant-variant-', 'jira');
+      ADAPTERS.jira.installStub(project.binDir, {});
+      const mutantDir = path.join(project.dir, 'packages', 'mutant', 'skills', 'adapter-tracker-jira');
+      fs.cpSync(JIRA_ADAPTER_DIR, mutantDir, { recursive: true });
+      const manifestPath = path.join(mutantDir, 'adapter.yaml');
+      const original = fs.readFileSync(manifestPath, 'utf8');
+      const needle = '        in_progress: ["jira", "issues", "update", "${id}", "--status", "In Progress"]\n';
+      expect(original).toContain(needle);
+      fs.writeFileSync(manifestPath, original.replace(needle, ''));
+      const PATH = buildPath(project.binDir);
+
+      const preflight = runNode(TOOLCHAIN_CLI, ['preflight', '--require', 'tracker.create', '--require', 'tracker.set-status', '--json', '--non-interactive'], project.dir, { PATH });
+      expect(preflight.status).toBe(0);
+      const runId = preflight.json.runId;
+      const create = runNode(TOOLCHAIN_CLI, ['run', 'tracker.create', '--run-id', runId, '--arg', 'title=t', '--arg', 'type=task', '--arg', 'description=d', '--json', '--non-interactive'], project.dir, { PATH });
+      expect(create.status).toBe(0);
+      const beadId = create.json.data.id;
+
+      const claim = runNode(TOOLCHAIN_CLI, ['run', 'tracker.set-status', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', 'status=in_progress', '--json', '--non-interactive'], project.dir, { PATH });
+      expect(claim.json.ok).toBe(false);
+      expect(claim.json.error.code).toBe('NOT_ALLOWED');
+      expect(claim.json.error.message).toContain('in_progress');
+
+      // Control: the REAL (unmutated) jira manifest, same bead, same project, still resolves.
+      const realClaim = runNode(TOOLCHAIN_CLI, ['run', 'tracker.set-status', '--run-id', runId, '--arg', `id=${beadId}`, '--arg', 'status=open', '--json', '--non-interactive'], project.dir, { PATH });
+      expect(realClaim.json.ok).toBe(true);
+    });
+
+    test('reverting beads-build-wave.yaml\'s claim step to the old tracker.update/JSON-fields literal fails the FIXED-argv static assertion (reproduces P1 finding 1 textually)', () => {
+      const text = fs.readFileSync(BEADS_WAVE_YAML, 'utf8');
+      const FIXED_NEEDLE = 'tracker.set-status --run-id <RUN_ID> --arg id=<BEAD_ID> --arg status=in_progress';
+      expect(text).toContain(FIXED_NEEDLE); // the real, unmutated source passes
+
+      const reverted = text.replace(
+        'run tracker.set-status --run-id <RUN_ID> --arg id=<BEAD_ID> --arg status=in_progress',
+        'run tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"in_progress"}'
+      );
+      expect(reverted).not.toBe(text); // the mutation actually changed something
+      expect(reverted).not.toContain(FIXED_NEEDLE); // and the same assertion now fails
+    });
+
+    test('reintroducing tracker.sync into a required list breaks the "never required" assertion above', () => {
+      const required = requiredCapsOf('beads-build-wave.yaml');
+      const assertNeverRequired = (list) => {
+        if (list.includes('tracker.sync')) throw new Error('tracker.sync must never be required (PR 8 finding 2)');
+      };
+      expect(() => assertNeverRequired(required)).not.toThrow(); // real, unmutated source
+      expect(() => assertNeverRequired([...required, 'tracker.sync'])).toThrow(); // mutated
+    });
   });
 });
 

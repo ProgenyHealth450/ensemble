@@ -561,6 +561,25 @@ function denyRuntimeAllowlist(adapterId, binaries, allowlist, argv) {
 const SCHEMA_DIR = path.join(__dirname, '..', '..', 'toolchain', 'schemas', 'normalized');
 
 /**
+ * Capability id (exact, e.g. 'tracker.list') -> normalized schema filename, checked BEFORE
+ * `CATEGORY_NORMALIZED_SCHEMA` below (TRD-033/TRD-2026-8d825f54 PR 8 review item 3: a
+ * capability that returns a COLLECTION -- `tracker.list`'s `{items:[...]}`, `tracker.comments`'
+ * `{comments:[...]}` -- can never satisfy `work-item.json`'s single-work-item `required:
+ * ["id"]` gate, which is why every adapter shipped before this table existed (beads, and
+ * jira/azure-boards for these two capabilities specifically) declared NO `parse` block for
+ * them at all and left `data` as raw, Ajv-unvalidated stdout text (see each adapter's own
+ * `tracker.list`/`tracker.comments` manifest comments). This table lets a capability declare
+ * `parse` and still validate, against a schema shaped for what it ACTUALLY returns, without
+ * widening `work-item.json`'s own single-item contract to accommodate it. A capability with no
+ * entry here falls through to `CATEGORY_NORMALIZED_SCHEMA` exactly as before this table was
+ * added.
+ */
+const CAPABILITY_NORMALIZED_SCHEMA = {
+  'tracker.list': 'work-item-list.json',
+  'tracker.comments': 'comment-list.json'
+};
+
+/**
  * Capability category -> normalized schema filename each category's mapped output
  * (`./mapping.js#mapOutput`) is Ajv-validated against before `runCapability` hands it back to
  * a caller (TRD-012, PRD REQ-002 AC-002-2, REQ-022 AC-022-2). Exactly one entry today:
@@ -569,7 +588,8 @@ const SCHEMA_DIR = path.join(__dirname, '..', '..', 'toolchain', 'schemas', 'nor
  * category has no entry here still runs through `mapOutput` (and its own `BAD_OUTPUT` checks)
  * when it declares `parse`; it is simply not additionally schema-validated, since no normalized
  * schema ships for that category yet -- extend this table, not this file's logic, when one
- * does.
+ * does. Checked only when `CAPABILITY_NORMALIZED_SCHEMA` above has no entry for the exact
+ * capability id.
  */
 const CATEGORY_NORMALIZED_SCHEMA = {
   tracker: 'work-item.json'
@@ -889,6 +909,49 @@ function lookupCapability(adapter, adapterId, capability, opts) {
 }
 
 /**
+ * Translate every variant run template's `${name}` manifest placeholders into the bare
+ * `{name}` form `buildArgv` expects, mirroring `translateManifestTemplate` above but applied
+ * to each `<selectorArg>: {<value>: run[]}` entry of a capability's `variants` block (TRD-010/
+ * TRD-033, PR 8 independent review item 1 follow-up). `selectTemplate` (inside `buildArgv`)
+ * substitutes a SELECTED variant's template in place of the base `run[]` template this file's
+ * caller already translates; before this function existed, `buildCapabilityArgv` passed
+ * `cap.variants` through UNTRANSLATED, so a selected variant's literal `${id}` left a stray
+ * `$` in the substituted argv (e.g. `$test-id` instead of `test-id`) -- `buildArgv`'s own
+ * placeholder regex (`PLACEHOLDER_REPLACE_PATTERN = /\{([^{}]+)\}/g`) matches only the bare
+ * `{id}` portion of `${id}`, never the leading `$`, so it substitutes the value in place but
+ * leaves the `$` behind. Confirmed live against the real `beads` adapter's `tracker.set-status`
+ * capability (the first shipped manifest to ever use `variants` with a placeholder inside a
+ * variant template -- no prior adapter or unit test exercised this path, see this function's
+ * own test file). Every shipped adapter manifest using `variants` (all three trackers'
+ * `tracker.set-status`) depends on this translation running for variant templates exactly as
+ * it already does for the base template.
+ *
+ * @param {unknown} variants a capability's manifest `variants` block, or undefined
+ * @returns {unknown} the same `{<selectorArg>: {<value>: run[]}}` shape with every nested run[]
+ *   template translated; `variants` itself (or a malformed entry within it) passed through
+ *   unchanged when it is not a plain, non-array object, so `buildArgv`'s own `selectTemplate`
+ *   reports any structural error exactly as it already does for a malformed manifest
+ */
+function translateManifestVariants(variants) {
+  if (!variants || typeof variants !== 'object' || Array.isArray(variants)) {
+    return variants;
+  }
+  const translated = {};
+  for (const [selectorArgName, variantMap] of Object.entries(variants)) {
+    if (!variantMap || typeof variantMap !== 'object' || Array.isArray(variantMap)) {
+      translated[selectorArgName] = variantMap;
+      continue;
+    }
+    const translatedMap = {};
+    for (const [value, template] of Object.entries(variantMap)) {
+      translatedMap[value] = translateManifestTemplate(template);
+    }
+    translated[selectorArgName] = translatedMap;
+  }
+  return translated;
+}
+
+/**
  * Translate a resolved capability's manifest `run[]` template and substitute `args` into a
  * flat argv array (`translateManifestTemplate` + `buildArgv` above), wrapped as the same
  * `{argv}` | `{envelope}` result shape every other shared helper in this section returns --
@@ -902,7 +965,8 @@ function lookupCapability(adapter, adapterId, capability, opts) {
 function buildCapabilityArgv(cap, args) {
   try {
     const translatedTemplate = translateManifestTemplate(cap.run);
-    const argv = buildArgv(translatedTemplate, args, { inputs: {}, variants: cap.variants });
+    const translatedVariants = translateManifestVariants(cap.variants);
+    const argv = buildArgv(translatedTemplate, args, { inputs: {}, variants: translatedVariants });
     return { argv };
   } catch (error) {
     return { envelope: { ok: false, error: { code: error.code || 'INVALID_ARG', message: error.message } } };
@@ -1020,7 +1084,7 @@ function mapAndValidateOutput(adapterId, capability, cap, stdout) {
     return { envelope: { ok: false, error: { code: mapError.code || 'BAD_OUTPUT', message: mapError.message } } };
   }
 
-  const schemaFileName = CATEGORY_NORMALIZED_SCHEMA[capability.split('.')[0]];
+  const schemaFileName = CAPABILITY_NORMALIZED_SCHEMA[capability] || CATEGORY_NORMALIZED_SCHEMA[capability.split('.')[0]];
   if (!schemaFileName) {
     return { data: mapped };
   }

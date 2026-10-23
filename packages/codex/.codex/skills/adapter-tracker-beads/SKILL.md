@@ -26,6 +26,10 @@ neither needs network access or a credential.
 - `tracker.list`: list beads issues (`br list --all --limit 0 --json`)
 - `tracker.create`: create a new beads issue (`br create --title ... --type ... -d ...`)
 - `tracker.update`: append free-form notes to an existing issue (`br update <id> --notes ...`)
+- `tracker.set-status`: set an issue's status to one of the canonical open/in_progress/closed
+  values (`br update <id> --status open|in_progress --json`, or `br close <id> --json` for
+  closed -- `br update --status closed` is refused; see `adapter.yaml`'s own comment on this
+  capability for the live-verified reasoning)
 - `tracker.close`: close a beads issue (`br close <id>`)
 - `tracker.comment`: add a comment to an issue (`br comments add <id> <text>`)
 - `tracker.comments`: list the comments on an issue (`br comments list <id>`)

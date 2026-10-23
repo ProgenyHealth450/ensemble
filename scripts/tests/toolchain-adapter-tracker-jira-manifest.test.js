@@ -36,6 +36,7 @@ const EXPECTED_CAPABILITIES = [
   'tracker.list',
   'tracker.create',
   'tracker.update',
+  'tracker.set-status',
   'tracker.close',
   'tracker.comment',
   'tracker.comments'
@@ -103,17 +104,21 @@ describe('TRD-032-TEST: adapter-tracker-jira manifest passes every static valida
       expect(skillMd).toContain(capability);
     }
     expect(skillMd).toMatch(/## Known limits/);
-    // The "fields means the literal Jira status name" limitation (differs from the beads
-    // adapter's own "free-form notes" interpretation of the same contract slot).
-    expect(skillMd).toMatch(/literal Jira status name/);
+    // The "fields means rename the issue's summary" limitation (PR 8: status moved to its own
+    // tracker.set-status capability; differs from the beads adapter's own "free-form notes"
+    // and the azure-boards adapter's own "rename the title" interpretation of the same slot).
+    expect(skillMd).toMatch(/rename the issue's summary/);
     expect(skillMd).toMatch(/synthetic\s+reconstruction/i);
   });
 
-  test('the manifest declares adapter "jira", both categories, their contract versions, names-only env, and exactly the capabilities SKILL.md documents', () => {
+  test('the manifest declares adapter "jira", the tracker-only category, its contract version, names-only env, and exactly the capabilities SKILL.md documents', () => {
     const manifest = yaml.load(fs.readFileSync(path.join(ADAPTER_DIR, 'adapter.yaml'), 'utf8'));
     expect(manifest.adapter).toBe('jira');
-    expect(manifest.categories.sort()).toEqual(['tracker', 'work-graph']);
-    expect(manifest.contract).toEqual({ tracker: '1.0', 'work-graph': '2.0' });
+    // PR 8 independent review item 2 / finding 2: this adapter implements zero work-graph.*
+    // capabilities, so it must not claim the work-graph category (that false claim made
+    // `auto` resolution select it instead of the builtin work-graph fallback).
+    expect(manifest.categories).toEqual(['tracker']);
+    expect(manifest.contract).toEqual({ tracker: '1.0' });
     expect(Object.keys(manifest.capabilities).sort()).toEqual([...EXPECTED_CAPABILITIES].sort());
     // env: names only (PRD REQ-022) -- every entry matches the manifest schema's
     // ^[A-Z][A-Z0-9_]*$ pattern, never a literal credential value.
@@ -175,7 +180,7 @@ describe('TRD-032-TEST: the toolchain resolver actually loads adapter "jira" (no
     expect(result.origin).toBe('installed');
     expect(fs.realpathSync(result.dir)).toBe(fs.realpathSync(ADAPTER_DIR));
     expect(result.manifest.adapter).toBe('jira');
-    expect(result.manifest.categories.sort()).toEqual(['tracker', 'work-graph']);
+    expect(result.manifest.categories).toEqual(['tracker']);
   });
 });
 

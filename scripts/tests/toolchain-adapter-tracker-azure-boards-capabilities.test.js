@@ -214,24 +214,36 @@ describe('TRD-033-TEST: tracker.update/tracker.close/tracker.comment/tracker.dep
   });
 });
 
-describe('TRD-033-TEST: tracker.list declares no parse block, so data is raw stdout text', () => {
-  test('tracker.list: data is the raw WIQL-query-shaped stdout text', async () => {
+describe('PR8-TEST: tracker.list uses a fixed default WIQL (no filter arg) and declares an arrayMap parse block normalizing to {items:[...]}', () => {
+  test('tracker.list with NO filter arg (every real caller in this repo omits it): data is {items: [{id, title, status}]}', async () => {
     const binDir = mkStubBinDir();
-    const result = await runCapability(REAL_MANIFEST, 'tracker.list', { filter: 'SELECT [System.Id] FROM WorkItems' }, withStubEnv(binDir));
+    const result = await runCapability(REAL_MANIFEST, 'tracker.list', {}, withStubEnv(binDir));
     expect(result.ok).toBe(true);
-    expect(typeof result.data).toBe('string');
-    const parsed = JSON.parse(result.data);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0].fields['System.Title']).toBe('Stub item one');
+    expect(typeof result.data).toBe('object');
+    expect(Array.isArray(result.data.items)).toBe(true);
+    expect(result.data.items).toHaveLength(2);
+    expect(result.data.items[0]).toEqual({ id: '1', title: 'Stub item one', status: 'New' });
+    expect(result.data.items[1]).toEqual({ id: '2', title: 'Stub item two', status: 'Active' });
   });
 
   test('tracker.list: an error envelope on stdout despite a zero exit fails closed (TOOL_FAILED)', async () => {
     const binDir = mkStubBinDir();
     writeStubControl(binDir, { errorEnvelope: true });
-    const result = await runCapability(REAL_MANIFEST, 'tracker.list', { filter: 'SELECT [System.Id] FROM WorkItems' }, withStubEnv(binDir));
+    const result = await runCapability(REAL_MANIFEST, 'tracker.list', {}, withStubEnv(binDir));
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('TOOL_FAILED');
+  });
+
+  test('tracker.list output validates against work-item-list.json (CAPABILITY_NORMALIZED_SCHEMA), not the single-work-item schema', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.list', {}, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(validateWorkItem(result.data)).toBe(false);
+    const listSchemaPath = path.join(
+      REPO_ROOT, 'packages', 'development', 'toolchain', 'schemas', 'normalized', 'work-item-list.json'
+    );
+    const validateList = new Ajv({ allErrors: true }).compile(JSON.parse(fs.readFileSync(listSchemaPath, 'utf8')));
+    expect(validateList(result.data)).toBe(true);
   });
 });
 
@@ -249,9 +261,9 @@ describe('TRD-033-TEST: side-effecting tracker capabilities, real runCapability(
     expect(validateWorkItem(result.data)).toBe(true);
   });
 
-  test('tracker.update: run[] substitutes "fields" into --state, and the result normalizes', async () => {
+  test('tracker.update: run[] substitutes "fields" into --title (non-status field edit), and the result normalizes', async () => {
     const binDir = mkStubBinDir();
-    const result = await runCapability(REAL_MANIFEST, 'tracker.update', { id: '9', fields: 'Active' }, withStubEnv(binDir));
+    const result = await runCapability(REAL_MANIFEST, 'tracker.update', { id: '9', fields: 'Renamed title text' }, withStubEnv(binDir));
     expect(result.ok).toBe(true);
     expect(result.data).toEqual({ id: '9' });
     expect(validateWorkItem(result.data)).toBe(true);
@@ -294,6 +306,47 @@ describe('TRD-033-TEST: side-effecting tracker capabilities, real runCapability(
       { id: '9', dependsOnId: '456', type: '--relation-type' },
       withStubEnv(binDir)
     );
+    expect(result.ok).toBe(false);
+    expect(['INVALID_ARG', 'NOT_ALLOWED']).toContain(result.error.code);
+  });
+});
+
+describe('PR8-TEST: tracker.set-status (PR 8 independent review item 1: fixed, provider-native state literals via variants)', () => {
+  test('status=open spawns the "New" variant and the result normalizes back to open', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: '9', status: 'open' }, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ id: '9', status: 'open' });
+    expect(validateWorkItem(result.data)).toBe(true);
+  });
+
+  test('status=in_progress spawns the "Active" variant and the result normalizes back to in_progress', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: '9', status: 'in_progress' }, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ id: '9', status: 'in_progress' });
+    expect(validateWorkItem(result.data)).toBe(true);
+  });
+
+  test('status=closed spawns the "Closed" variant and the result normalizes back to closed', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: '9', status: 'closed' }, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ id: '9', status: 'closed' });
+    expect(validateWorkItem(result.data)).toBe(true);
+  });
+
+  test('an unknown status value is rejected NOT_ALLOWED before any process spawns', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: '9', status: 'bogus' }, withStubEnv(binDir));
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('NOT_ALLOWED');
+    expect(result.error.message).toContain('bogus');
+  });
+
+  test('a flag-like id ("-x") is rejected before execution', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: '-x', status: 'open' }, withStubEnv(binDir));
     expect(result.ok).toBe(false);
     expect(['INVALID_ARG', 'NOT_ALLOWED']).toContain(result.error.code);
   });

@@ -39,6 +39,7 @@ const EXPECTED_CAPABILITIES = [
   'tracker.list',
   'tracker.create',
   'tracker.update',
+  'tracker.set-status',
   'tracker.close',
   'tracker.comment',
   'tracker.dep-add'
@@ -109,8 +110,11 @@ describe('TRD-033-TEST: adapter-tracker-azure-boards manifest passes every stati
     // The dotted-field-vs-mapping-engine decision (JMESPath `--query`, not an engine change).
     expect(skillMd).toMatch(/--query/);
     expect(skillMd).toMatch(/JMESPath/);
-    // The tracker.update "fields" destination choice.
+    // tracker.set-status's provider-native state-name literals (PR 8: status moved out of
+    // tracker.update's opaque "fields" slot into its own capability).
     expect(skillMd).toMatch(/--state/);
+    // The tracker.update "fields" destination choice (PR 8: now --title, not --state).
+    expect(skillMd).toMatch(/--title.*\$\{fields\}|rename/i);
     // The dependencies[].id-is-a-full-URL limitation.
     expect(skillMd).toMatch(/full relation `url`|not a bare work-item id|full URL/);
     // The synthetic-help-fixture limitation.

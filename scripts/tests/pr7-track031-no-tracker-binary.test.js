@@ -202,7 +202,7 @@ describe('PR7 Track031: no literal br/bv tracker-binary invocation in implement-
     const orderedSteps = [...preflightPhase.steps].sort((a, b) => a.order - b.order);
     const flatActions = orderedSteps.flatMap((s) => s.actions);
 
-    const confirmIndex = flatActions.findIndex((a) => a.includes('confirm-status tracker.sync'));
+    const confirmIndex = flatActions.findIndex((a) => a.includes('confirm-status tracker.create'));
     const writePattern = /\$TOOLCHAIN_CLI" run tracker\.(?:create|dep-add|comment|close|sync)\b/;
     const firstWriteIndex = flatActions.findIndex((a) => writePattern.test(a));
 

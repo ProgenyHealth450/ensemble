@@ -171,16 +171,16 @@ describe('TRD-032-TEST: tracker.update\'s flag-like id is also rejected before e
   });
 });
 
-describe('TRD-032-TEST: tracker.list/tracker.comments declare no parse block, so data is raw stdout text', () => {
-  test('tracker.list: data is the raw bare-array stdout text', async () => {
+describe('PR8-TEST: tracker.list/tracker.comments declare a parse block normalizing to {items:[...]}/{comments:[...]}', () => {
+  test('tracker.list: data is {items: [{id, title, status}]}, renamed from raw .key/.summary/.status', async () => {
     const binDir = mkStubBinDir();
     const result = await runCapability(REAL_MANIFEST, 'tracker.list', {}, withStubEnv(binDir));
     expect(result.ok).toBe(true);
-    expect(typeof result.data).toBe('string');
-    const parsed = JSON.parse(result.data);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0].key).toBe('VA-1');
+    expect(typeof result.data).toBe('object');
+    expect(Array.isArray(result.data.items)).toBe(true);
+    expect(result.data.items).toHaveLength(2);
+    expect(result.data.items[0]).toEqual({ id: 'VA-1', title: 'Stub issue summary', status: 'In Review' });
+    expect(result.data.items[1].id).toBe('VA-2');
   });
 
   test('tracker.list: an error envelope on stdout despite a zero exit fails closed (TOOL_FAILED)', async () => {
@@ -191,12 +191,26 @@ describe('TRD-032-TEST: tracker.list/tracker.comments declare no parse block, so
     expect(result.error.code).toBe('TOOL_FAILED');
   });
 
-  test('tracker.comments: data is the raw array stdout text', async () => {
+  test('tracker.comments: data is {comments: [...]}, the raw array wrapped under the normalized key', async () => {
     const binDir = mkStubBinDir();
     const result = await runCapability(REAL_MANIFEST, 'tracker.comments', { id: 'VA-9' }, withStubEnv(binDir));
     expect(result.ok).toBe(true);
-    expect(typeof result.data).toBe('string');
-    expect(JSON.parse(result.data)).toEqual([{ id: 'comment-1', body: 'a stub comment' }]);
+    expect(typeof result.data).toBe('object');
+    expect(result.data).toEqual({ comments: [{ id: 'comment-1', body: 'a stub comment' }] });
+  });
+
+  test('tracker.list output validates against work-item-list.json (CAPABILITY_NORMALIZED_SCHEMA), not the single-work-item schema', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.list', {}, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    // A {items:[...]} shape has no top-level "id" and could never pass work-item.json's own
+    // required:["id"] gate -- proving a DIFFERENT, list-shaped schema was actually applied.
+    expect(validateWorkItem(result.data)).toBe(false);
+    const listSchemaPath = path.join(
+      REPO_ROOT, 'packages', 'development', 'toolchain', 'schemas', 'normalized', 'work-item-list.json'
+    );
+    const validateList = new Ajv({ allErrors: true }).compile(JSON.parse(fs.readFileSync(listSchemaPath, 'utf8')));
+    expect(validateList(result.data)).toBe(true);
   });
 });
 
@@ -214,12 +228,12 @@ describe('TRD-032-TEST: side-effecting tracker capabilities, real runCapability(
     expect(validateWorkItem(result.data)).toBe(true);
   });
 
-  test('tracker.update: run[] substitutes "fields" into --status, and the result normalizes', async () => {
+  test('tracker.update: run[] substitutes "fields" into --summary (non-status field edit), and the result normalizes', async () => {
     const binDir = mkStubBinDir();
     const result = await runCapability(
       REAL_MANIFEST,
       'tracker.update',
-      { id: 'VA-9', fields: 'In Progress' },
+      { id: 'VA-9', fields: 'Renamed summary text' },
       withStubEnv(binDir)
     );
     expect(result.ok).toBe(true);
@@ -247,6 +261,50 @@ describe('TRD-032-TEST: side-effecting tracker capabilities, real runCapability(
     expect(result.ok).toBe(true);
     expect(result.data).toEqual({ id: 'comment-1' });
     expect(validateWorkItem(result.data)).toBe(true);
+  });
+});
+
+describe('PR8-TEST: tracker.set-status (PR 8 independent review item 1: fixed, provider-native status literals via variants)', () => {
+  test('status=open spawns the "To Do" variant and the result normalizes back to open', async () => {
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { issueStatus: 'To Do' });
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: 'VA-9', status: 'open' }, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ id: 'VA-9', status: 'open' });
+    expect(validateWorkItem(result.data)).toBe(true);
+  });
+
+  test('status=in_progress spawns the "In Progress" variant and the result normalizes back to in_progress', async () => {
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { issueStatus: 'In Progress' });
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: 'VA-9', status: 'in_progress' }, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ id: 'VA-9', status: 'in_progress' });
+    expect(validateWorkItem(result.data)).toBe(true);
+  });
+
+  test('status=closed spawns the "Done" variant and the result normalizes back to closed', async () => {
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { issueStatus: 'Done' });
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: 'VA-9', status: 'closed' }, withStubEnv(binDir));
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({ id: 'VA-9', status: 'closed' });
+    expect(validateWorkItem(result.data)).toBe(true);
+  });
+
+  test('an unknown status value is rejected NOT_ALLOWED before any process spawns', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: 'VA-9', status: 'bogus' }, withStubEnv(binDir));
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('NOT_ALLOWED');
+    expect(result.error.message).toContain('bogus');
+  });
+
+  test('id="-x" is rejected INVALID_ARG/NOT_ALLOWED, never reaching the stub', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.set-status', { id: '-x', status: 'open' }, withStubEnv(binDir));
+    expect(result.ok).toBe(false);
+    expect(['INVALID_ARG', 'NOT_ALLOWED']).toContain(result.error.code);
   });
 });
 

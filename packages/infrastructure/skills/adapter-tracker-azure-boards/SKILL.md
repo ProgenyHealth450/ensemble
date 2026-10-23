@@ -22,9 +22,10 @@ auth), unlike the credential-free `beads` adapter.
 ## Vocabulary
 
 - `tracker.show`: read a single work item by id (`az boards work-item show --id <id> --expand relations --query ... --output json`)
-- `tracker.list`: query work items by WIQL (`az boards query --wiql <query> --output json`)
+- `tracker.list`: query work items by a fixed, bounded default WIQL (`az boards query --wiql "SELECT TOP 200 ... WHERE [System.TeamProject] = @project" --query "[].[...]" --output json`), normalized to `{items: [{id, title, status}]}` (PR 8)
 - `tracker.create`: create a new work item (`az boards work-item create --type ... --title ... --description ...`)
-- `tracker.update`: transition a work item to a new Azure Boards state (`az boards work-item update --id <id> --state <fields>`)
+- `tracker.update`: rename a work item's title (`az boards work-item update --id <id> --title <fields>`) -- non-status field edits only; see `tracker.set-status` for state transitions (PR 8)
+- `tracker.set-status`: transition a work item to one of the three normalized statuses (`az boards work-item update --id <id> --state <New|Active|Closed>`, PR 8)
 - `tracker.close`: close a work item by transitioning it to the "Closed" state (`az boards work-item update --id <id> --state Closed`)
 - `tracker.comment`: add a discussion comment to a work item (`az boards work-item update --id <id> --discussion <text>`)
 - `tracker.dep-add`: add a dependency link to another work item (`az boards work-item relation add --id <id> --relation-type <type> --target-id <dependsOnId>`)
@@ -100,10 +101,25 @@ the `az-installed`/`az-devops-extension-installed` health checks pass `validateA
 - **`statusMap` recognizes only `New`/`Active`/`Closed`** (TRD-033's own three states). Process
   templates using `Resolved`/`Removed` (Agile/Scrum/CMMI) or `To Do`/`Doing`/`Done` (Basic) fail
   closed with `BAD_OUTPUT` naming the unmapped value, rather than guessing a normalization.
-- **`tracker.close` always requests `"Closed"`, never `"Done"`.** TRD-033 names both because
-  the terminal state name varies by process template (Basic has no "Closed" state at all); the
-  contract's `tracker.close` takes no status input, so a caller on a Basic-process project needs
-  `tracker.update` with `fields: "Done"` instead.
+- **`tracker.close`/`tracker.set-status`'s closed state always requests `"Closed"`, never
+  `"Done"`.** TRD-033 names both because the terminal state name varies by process template
+  (Basic has no "Closed" state); neither capability takes a free-form override, so a Basic-
+  process project has no capability-level way to reach "Done" (accepted gap -- previously
+  `tracker.update`'s unvalidated `fields` slot could reach `--state "Done"` verbatim; removing
+  that in favor of the fixed `tracker.set-status` vocabulary closed a real bug, PR 8 finding 1).
+- **`tracker.list`'s default WIQL is `SELECT TOP 200 ... WHERE [System.TeamProject] =
+  @project`, bounded and project-scoped, never caller-filterable (PR 8 fix).** The `filter`
+  input has no `${filter}` placeholder here anymore -- every real caller invokes `tracker.list`
+  with NO `filter` arg, which used to fail `INVALID_ARG` before any `az` process spawned (PR 8
+  finding 4). Deliberately NOT filtered by `[System.State]`: a closed item still matters to
+  `work-graph-links-fallback.js#readyItemsFromDeps`'s dependency-closure logic.
+- **`tracker.list`'s per-item `.status` stays in Azure's raw vocabulary (e.g. "New"), not
+  normalized (PR 8 fix, partial).** `tracker.list` now declares a `--query` projection plus
+  `parse.arrayMap` reshaping each raw 3-element array into `{id, title, status}` (so
+  `beads-label.js#ensureLabel` can match items by id/title instead of silently skipping every
+  one, PR 8 finding 5), but `mapping.js#mapOutput`'s `statusMap` only translates ONE top-level
+  `status` field, never a per-item array value -- there is no engine mechanism to normalize
+  each list item's status today (same limitation as `adapter-tracker-jira`'s own `tracker.list`).
 - **The `az-boards-reachable` health check's `--top 1` is not a real `az boards query` option**
   (documented options are only `--id`/`--org`/`--path`/`--project`/`--team`/`--wiql`). TRD-033's
   own text directs this exact argv; kept literal since no `az` binary exists here to confirm a

@@ -42,6 +42,7 @@ const EXPECTED_CAPABILITIES = [
   'tracker.list',
   'tracker.create',
   'tracker.update',
+  'tracker.set-status',
   'tracker.close',
   'tracker.comment',
   'tracker.comments',

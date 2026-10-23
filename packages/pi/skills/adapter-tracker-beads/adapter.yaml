@@ -133,6 +133,43 @@ capabilities:
       map:
         id: "$.id"
 
+  # br update <id> --status <open|in_progress> --json / br close <id> --json: confirmed LIVE
+  # (br 0.6.0, disposable /tmp workspace, never this repo's own .beads/) that `br update
+  # --status closed` is REFUSED with a non-zero exit and a VALIDATION_FAILED error envelope
+  # ("refusing to close via `br update --status closed`: terminal-state transitions must go
+  # through `br close` so close-policy ... is enforced") -- `br update -s/--status <STATUS>`'s
+  # own `--help` text documents this explicitly ("Terminal states (closed, tombstone) are
+  # refused"). The three `variants` below (TRD-010's per-capability selector mechanism,
+  # `packages/development/lib/toolchain/runner.js#selectTemplate`) therefore route `status:
+  # closed` to `br close` and `open`/`in_progress` to `br update --status <value>`; the base
+  # `run[]` template below (identical to the `open`/`in_progress` variant) is reachable only
+  # when `status` is entirely absent from the call, in which case buildArgv's own unresolved-
+  # placeholder check rejects it as INVALID_ARG before any process spawns -- `status` is
+  # effectively mandatory even though the category contract carries no per-input `required`
+  # metadata (see runner.js's own "Design note" on why). `br update --status open --json` /
+  # `br update --status in_progress --json` and `br close --json` all confirmed live to
+  # return the same array-of-one shape (`[{"id":...,"status":...}]`) `tracker.close` above
+  # already documents, so this entry reuses that exact parse/statusMap convention.
+  tracker.set-status:
+    run: ["br", "update", "${id}", "--status", "${status}", "--json"]
+    variants:
+      status:
+        open: ["br", "update", "${id}", "--status", "open", "--json"]
+        in_progress: ["br", "update", "${id}", "--status", "in_progress", "--json"]
+        closed: ["br", "close", "${id}", "--json"]
+    parse:
+      format: json
+      root: "$[0]"
+      map:
+        id: "$.id"
+        status: "$.status"
+      statusMap:
+        open: open
+        in_progress: in_progress
+        closed: closed
+        deferred: open
+        in_review: in_progress
+
   tracker.close:
     run: ["br", "close", "${id}", "--json"]
     parse:

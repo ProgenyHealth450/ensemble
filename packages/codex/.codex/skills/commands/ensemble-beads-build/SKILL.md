@@ -8,13 +8,13 @@ capabilities:
   required:
     - tracker.show
     - tracker.list
-    - tracker.sync
     - tracker.comment
     - tracker.close
     - work-graph.ready
   optional:
     - work-graph.plan
     - tracker.comments
+    - tracker.sync
 ---
 
 # Ensemble Command: /ensemble:beads-build
@@ -54,7 +54,7 @@ Key behaviors:
 - The parent loop body is mechanical: read count, dispatch wave-runner, read
   JSON summary, repeat. No narrative reasoning happens between iterations.
 - Quality gates: phase completion triggers test delegation; results recorded via tracker.comment
-- Sync: tracker.sync before every work-graph.ready call. Never read .beads/*.jsonl to schedule.
+- Sync: tracker.sync before work-graph.ready (optional, skips {ok:false}). Never read .beads/*.jsonl to schedule.
 - TRD mode: optional --trd flag enables traceability tokens, checkbox sync, requirement report
 
 ## Workflow
@@ -78,7 +78,7 @@ Key behaviors:
 
 - Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
 - Detect AskUserQuestion availability: INTERACTIVE=true if available, else false (covers --foreman callers too). Set NON_INTERACTIVE_ARGS=--non-interactive when INTERACTIVE=false, else empty; append it to every toolchain-cli call below; never prompt when it is set.
-- Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.list --require tracker.sync --require tracker.comment --require tracker.close --require work-graph.ready $NON_INTERACTIVE_ARGS --json; parse PREFLIGHT_RESULT. {ok:false} -> print error.message and HALT before any bead is read or changed. {ok:true} -> RUN_ID=PREFLIGHT_RESULT.runId; pass --run-id "$RUN_ID" on every later toolchain-cli call.
+- Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.list --require tracker.comment --require tracker.close --require work-graph.ready $NON_INTERACTIVE_ARGS --json; parse PREFLIGHT_RESULT. {ok:false} -> print error.message and HALT before any bead is read or changed. {ok:true} -> RUN_ID=PREFLIGHT_RESULT.runId; pass --run-id "$RUN_ID" on every later toolchain-cli call. tracker.sync is optional (not preflighted; skips on {ok:false}).
 - Run: node "$TOOLCHAIN_CLI" run tracker.show --arg id=<RAW_INPUT> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; store TRACKER_SHOW_RESULT. {ok:true} -> RAW_INPUT is a direct bead ID of any prefix (EPIC_ID_MODE=true); {ok:false} -> treat it as a slug pattern (EPIC_ID_MODE=false).
 - If PLAN_ONLY=true: skip the wave-runner check below and Preflight steps 3-7, skip the Execute, Quality Gate and Completion phases, run only the Plan Mode phase and exit.
 - Verify the wave-runner agent is registered in this session (skip when PLAN_ONLY=true). The Execute phase dispatches Task(subagent_type=beads-build-wave), so beads-build-wave (listed as ensemble-development:beads-build-wave) must be among the subagent types the Task tool currently accepts. An agent file on disk, or an entry in AGENT_ALIAS_MAP, does not prove the plugin registered it. If it is not available: print "ERROR: agent beads-build-wave is not registered in this session, so the wave loop cannot dispatch. The installed ensemble-development plugin is out of date or was loaded before this agent shipped. Run /ensemble:reinstall-plugins, start a new Claude Code session, and re-run." and HALT before any bead is read or changed.
@@ -165,8 +165,8 @@ Cross-platform: every runtime exposes Task(subagent_type, prompt). The
 depth-1 subagent respects Codex's max_depth=1 constraint.
 
 
-- Call node "$TOOLCHAIN_CLI" confirm-status tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json before this phase's first write outside the local working tree. If data.confirmed==false, data.required==true and INTERACTIVE=true: ask via AskUserQuestion (id=tracker_confirm, options=Yes/Abort); Abort HALTs; Yes calls node "$TOOLCHAIN_CLI" confirm-record tracker.sync --run-id "$RUN_ID" --json. Under NON_INTERACTIVE_ARGS never prompt.
-- Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (ensure tracker state is current before the loop reads state).
+- Call node "$TOOLCHAIN_CLI" confirm-status tracker.comment --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json before this phase's first write outside the local working tree. If data.confirmed==false, data.required==true and INTERACTIVE=true: ask via AskUserQuestion (id=tracker_confirm, options=Yes/Abort); Abort HALTs; Yes calls node "$TOOLCHAIN_CLI" confirm-record tracker.comment --run-id "$RUN_ID" --json. Under NON_INTERACTIVE_ARGS never prompt.
+- Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (optional; skip on {ok:false}).
 - Step 1 (initial state read): run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (issue list per Preflight step 4's tracker.list note). REMAINING_SCOPED_COUNT = count of status=="open" entries filtered by LABEL when set, else by EPIC_SLUG in .title. IN_PROGRESS_SCOPED_COUNT = same with status=="in_progress". If both are 0: print "=== Execution completed: no remaining scoped work ===" and proceed to Quality Gate.
 - Step 2 (loop body, single tool turn): in a single tool turn, dispatch Task(subagent_type=<resolved-from-AGENT_ALIAS_MAP-beads-build-wave>, prompt=<wave_payload>) where wave_payload = { ROOT_EPIC_ID, EPIC_SLUG, LABEL, MAX_PARALLEL, TRD_MODE, TRD_PATH, STRATEGY, TEAM_ROLES, wave_number }. Resolve the namespaced identifier through AGENT_ALIAS_MAP (built by implement-trd-beads.yaml Preflight step 12, or for standalone invocations by scanning packages/*/agents/*.yaml plus ~/.omp/plugins/node_modules/@*/*/agents/*.md). Never pass a bare "beads-build-wave" string.
 - Step 3 (read summary): the subagent emits ONE JSON summary line at the end of stdout. Parse SUMMARY_JSON = { wave_number, tracks_dispatched, tracks_succeeded, tracks_failed, beads_closed_this_wave, remaining_scoped_count, in_progress_scoped_count, terminal_state, elapsed_seconds, next_action_hint }.

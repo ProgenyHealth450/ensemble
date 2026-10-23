@@ -23,12 +23,13 @@ network access and a live Atlassian API token, unlike the credential-free `beads
 ## Vocabulary
 
 - `tracker.show`: read a single Jira issue by key (`jira issues read <KEY>`)
-- `tracker.list`: list Jira issues (`jira issues list`)
+- `tracker.list`: list Jira issues (`jira issues list`), normalized to `{items: [{id, title, status}]}`
 - `tracker.create`: create a new Jira issue (`jira issues create <title> --type ... --description ...`)
-- `tracker.update`: transition an existing issue to a new status (`jira issues update <KEY> --status <fields>`)
+- `tracker.update`: rename an issue's summary (`jira issues update <KEY> --summary <fields>`) -- non-status field edits only; see `tracker.set-status` for status transitions
+- `tracker.set-status`: transition an issue to one of the three normalized statuses (`jira issues update <KEY> --status <"To Do"|"In Progress"|"Done">`, PR 8)
 - `tracker.close`: close an issue by transitioning it to the "Done" status (`jira issues update <KEY> --status Done`)
 - `tracker.comment`: add a comment to an issue (`jira comments create <KEY> --body <text>`)
-- `tracker.comments`: list the comments on an issue (`jira comments list <KEY>`)
+- `tracker.comments`: list the comments on an issue (`jira comments list <KEY>`), normalized to `{comments: [...]}`
 
 Jira's documented vocabulary also includes issue `transitions` (`jira issues transitions
 <KEY>`), issue `search`/`fetch`, sprint/project/user metadata queries, and hierarchy `fetch`
@@ -43,18 +44,32 @@ literal values live in the `jira` CLI's own `~/utils/atlassian/.env`
 
 ## Manifest
 
-`adapter.yaml` declares `categories: [tracker, work-graph]` with `contract: {tracker: "1.0",
-work-graph: "2.0"}`, matching the two category contracts' own declared versions, but this
-adapter implements **zero** `work-graph.*` capabilities: every `work-graph` capability
-(`work-graph.ready`, `work-graph.plan`, `work-graph.graph-health`) is `required: false` with
-`fallback: work-graph-links-fallback` in `packages/development/toolchain/categories/
-work-graph.yaml`, and the documented Jira vocabulary this adapter is built from has no
-issue-link/dependency-graph command at all -- so the category's own fallback applies, exactly
-as TRD-032 directs, rather than fabricating work-graph behavior Jira's CLI does not expose.
-The same reasoning is why `tracker.dep-add`/`tracker.dep-remove`/`tracker.label`/`tracker.sync`/
-`tracker.stage-export` are also not implemented: they are all `required: false` in
-`packages/development/toolchain/categories/tracker.yaml`, and the Jira vocabulary this adapter
-targets has no corresponding command.
+`adapter.yaml` declares `categories: [tracker]` with `contract: {tracker: "1.0"}` only --
+earlier it also claimed `work-graph` (`contract: {work-graph: "2.0"}`) despite implementing
+**zero** `work-graph.*` capabilities, which made
+`work-graph-resolve.js#resolveWorkGraphAdapter`'s `auto` resolution incorrectly select THIS
+adapter as the work-graph provider (its own `trackerProvidesWorkGraph` check only inspects
+`manifest.categories`, never whether a `work-graph.*` capability is actually declared) instead
+of falling through to the shipped `work-graph-links-fallback` builtin (TRD-027/I7) -- confirmed
+live to make `preflight --require work-graph.ready` fail `UNAVAILABLE` under `tracker: jira`
+(PR 8 independent review finding 2). Declaring only `tracker` (PR 8 fix) restores the correct
+`auto` routing: every `work-graph` capability (`work-graph.ready`, `work-graph.plan`,
+`work-graph.graph-health`) is `required: false` with `fallback: work-graph-links-fallback` in
+`packages/development/toolchain/categories/work-graph.yaml`, and the documented Jira
+vocabulary this adapter is built from has no issue-link/dependency-graph command at all -- so
+the category's own fallback applies, exactly as TRD-032 directs, rather than fabricating
+work-graph behavior Jira's CLI does not expose. The same reasoning is why
+`tracker.dep-add`/`tracker.dep-remove`/`tracker.label`/`tracker.sync`/`tracker.stage-export`
+are also not implemented: they are all `required: false` in `packages/development/toolchain/
+categories/tracker.yaml`, and the Jira vocabulary this adapter targets has no corresponding
+command. `tracker.dep-add` specifically was considered for PR 8 (the review suggested a
+hypothetical `jira issue link` subcommand) and deliberately NOT implemented: the documented
+Jira CLI vocabulary this adapter is built from (`packages/infrastructure/skills/jira/
+SKILL.md`, this adapter's own `fixtures/jira-help.txt`) has no link/relate/dependency
+subcommand at all, so implementing one would be fabricating a capability the real tool's
+documented surface does not support -- it stays `UNAVAILABLE`, and
+`implement-trd-beads.yaml`'s own dependency-wiring step is optional with documented
+graceful degradation for exactly this adapter.
 
 `detect: []` -- Jira Cloud has no repo-local signal (no file, directory or git remote pattern
 identifies "this repo uses Jira"); selection is by explicit `toolchain.yaml` configuration
@@ -78,34 +93,51 @@ use.
   known, accepted risk per TRD-032's own risk register: the real CLI's subcommand names are
   therefore unverified against the live tool, pending a future capture of real `--help`
   output.
-- **`tracker.update`'s `fields` input means "the literal Jira status name to transition to,"
-  not a JSON patch of arbitrary fields.** The `tracker` category contract's `tracker.update`
-  declares one opaque `fields` input substituted into exactly one CLI argument slot (no JSON
-  parsing inside a run template is possible -- `packages/development/lib/toolchain/runner.js
-  #buildArgv` substitutes named placeholders into a static argv template, it cannot expand one
-  input into a variable set of flags). TRD-032 explicitly directs this adapter's
-  interpretation as `--status ${fields}`. This is a DELIBERATE, adapter-specific choice,
-  exactly as `adapter-tracker-beads`'s own `SKILL.md` documents its own, different
-  interpretation of the identical contract slot (`--notes ${fields}`, free-form notes text) --
-  a caller moving between the two adapters must pass a different shape of value for `fields`;
-  this cross-adapter inconsistency is inherited from the TRD's own category contract design
-  (one opaque placeholder, no per-adapter field schema), not something either adapter can
-  paper over.
-- **`tracker.create`/`tracker.update`/`tracker.comment`'s exact JSON shapes are inferred, not
-  independently captured live.** `packages/infrastructure/skills/jira/SKILL.md`'s own jq
-  examples only directly document `tracker.show`'s flat-object shape (`.key`, `.summary`,
-  `.status`); the mutating commands' output shapes are inferred by analogy (the "Get created
-  issue key" example, `jira issues create "Title" --project VA | jq -r '.key'`, confirms
-  `tracker.create` at least carries `.key`; `tracker.comment`'s `.id` follows the Jira Cloud
-  REST API's own documented comment-object convention, a comment id distinct from the parent
-  issue's key).
+- **`tracker.update`'s `fields` input means "rename the issue's summary," not a JSON patch of
+  arbitrary fields, and never carries a status value (PR 8 fix).** The `tracker` category
+  contract's `tracker.update` declares one opaque `fields` input substituted into exactly one
+  CLI argument slot (no JSON parsing inside a run template is possible --
+  `packages/development/lib/toolchain/runner.js#buildArgv` substitutes named placeholders into
+  a static argv template, it cannot expand one input into a variable set of flags). This
+  adapter maps it to `--summary ${fields}`, a DELIBERATE, adapter-specific choice, exactly as
+  `adapter-tracker-beads` (`--notes ${fields}`) and `adapter-tracker-azure-boards`
+  (`--title ${fields}`) each document their own, different interpretation of the identical
+  contract slot -- a caller moving between adapters must pass a different shape of value for
+  `fields`; this cross-adapter inconsistency is inherited from the TRD's own category contract
+  design (one opaque placeholder, no per-adapter field schema), not something any adapter can
+  paper over. Status transitions were ORIGINALLY also routed through this same opaque slot
+  (`--status ${fields}`), which PR 8's independent review flagged as a real bug (finding 1: a
+  caller-supplied value -- including an entire JSON object's string form -- reached `--status`
+  verbatim, with nothing validating it against this adapter's own documented status
+  vocabulary); the new `tracker.set-status` capability (see "Vocabulary" above) replaces that
+  usage entirely, with one fixed, provider-native status-name literal per `variants` entry,
+  never a caller-supplied value.
+- **`tracker.list`'s per-item `.status` stays in Jira's own raw vocabulary (e.g. "To Do"), not
+  normalized to open/in_progress/closed (PR 8 fix, partial).** `tracker.list` now declares a
+  `parse.arrayMap` that renames each raw item's `.key`/`.summary`/`.status` into
+  `.id`/`.title`/`.status` (so `getBeadCounts`/`beads-label.js#ensureLabel` can actually find
+  and match items by id/title, PR 8 review finding 5), but `mapping.js#mapOutput`'s
+  `statusMap` mechanism only ever translates ONE top-level `status` field, never a per-item
+  array value -- there is no engine mechanism to normalize each list item's status today.
+  Status-keyed counting over a `tracker.list` result (as opposed to id/title matching, which
+  this fix correctly handles) therefore stays approximate under this adapter; a future task
+  would need to add per-item status translation to `mapping.js` to close this gap.
+- **`tracker.create`/`tracker.update`/`tracker.set-status`/`tracker.comment`'s exact JSON
+  shapes are inferred, not independently captured live.** `packages/infrastructure/skills/
+  jira/SKILL.md`'s own jq examples only directly document `tracker.show`'s flat-object shape
+  (`.key`, `.summary`, `.status`); the mutating commands' output shapes are inferred by
+  analogy (the "Get created issue key" example, `jira issues create "Title" --project VA | jq
+  -r '.key'`, confirms `tracker.create` at least carries `.key`; `tracker.comment`'s `.id`
+  follows the Jira Cloud REST API's own documented comment-object convention, a comment id
+  distinct from the parent issue's key).
 - **No `work-graph.*` capability is implemented.** See "Manifest" above -- the category's own
-  `work-graph-links-fallback` applies; a caller needing ordered/ready work against a
-  Jira-tracked repo must resolve a different `work-graph` adapter (or `auto`, once that
-  resolver work lands) rather than this one.
+  `work-graph-links-fallback` applies via `auto` resolution; a caller needing ordered/ready
+  work against a Jira-tracked repo gets that fallback automatically, rather than this adapter
+  resolving as the (non-existent) work-graph provider.
 - **No `tracker.dep-add`/`tracker.dep-remove`/`tracker.label`/`tracker.sync`/
   `tracker.stage-export` capability is implemented.** All five are `required: false`; the
   documented Jira vocabulary this adapter targets (`packages/infrastructure/skills/jira/
   SKILL.md`) has no issue-link, label-replace, flush-to-storage or raw-export-text command, so
   each resolves `UNAVAILABLE` with its category contract's own documented fallback rather than
-  a fabricated mapping.
+  a fabricated mapping. See "Manifest" above for why `tracker.dep-add` was reconsidered and
+  still not implemented for PR 8.

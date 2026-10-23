@@ -109,7 +109,7 @@ describe('bead context contract is mandatory before any dispatch', () => {
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     expect(context).toContain(CMD + ' --trd <TRD_PATH>');
     expect(context).toContain('blocked:missing-references');
-    expect(context).toContain('tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"open"}');
+    expect(context).toContain('tracker.set-status --run-id <RUN_ID> --arg id=<BEAD_ID> --arg status=open');
     expect(context).toContain('context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>');
     expect(context).toMatch(/ENTIRE bead_context JSON/);
     expect(context).toMatch(/read the referenced files yourself before editing/);
@@ -118,7 +118,7 @@ describe('bead context contract is mandatory before any dispatch', () => {
 
   test('implement-bead reads context after claim and before dispatching the orchestrator, and passes bead_context', () => {
     const acts = actionsOf('commands/implement-bead.yaml');
-    const claim = acts.findIndex((a) => a.includes('"status":"in_progress"'));
+    const claim = acts.findIndex((a) => a.includes('tracker.set-status') && a.includes('status=in_progress'));
     const ctx = acts.findIndex((a) => a.includes(CMD));
     const dispatch = acts.findIndex((a) => a.startsWith('Dispatch Task('));
     const gate = acts.findIndex((a, i) => i > dispatch && a.includes('git status --porcelain'));

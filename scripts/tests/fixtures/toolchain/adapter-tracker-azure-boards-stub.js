@@ -131,21 +131,30 @@ if (argv[0] === '--version') {
   const requestedState = stateIdx >= 0 ? argv[stateIdx + 1] : null;
   if (errorEnvelope) {
     out(ERROR_ENVELOPE);
-  } else if (requestedState === 'Closed') {
-    // tracker.close always sends the literal "Closed" state -- 2-element [id, status] array.
-    out([String(id), 'Closed']);
+  } else if (requestedState !== null) {
+    // tracker.close (always literal "Closed") and tracker.set-status (PR 8: New/Active/Closed
+    // per its \\\`variants\\\` selector) both send \\\`--state\\\` plus the 2-element
+    // [to_string(id), fields."System.State"] --query -- a 2-element [id, state] array.
+    out([String(id), requestedState]);
   } else {
-    // tracker.update (any other --state value) / tracker.comment (--discussion, no --state
-    // at all) -- bare scalar id, matching the real \\\`to_string(id)\\\` --query.
+    // tracker.update (PR 8: --title, no --state at all) / tracker.comment (--discussion, no
+    // --state at all) -- bare scalar id, matching the real \\\`to_string(id)\\\` --query.
     out(String(id));
   }
 } else if (joined.startsWith('boards query')) {
+  // PR 8: tracker.list's run template now flattens each raw { id, fields: {...} } REST
+  // work-item via its own \\\`--query "[].[to_string(id), fields.\\"System.Title\\",
+  // fields.\\"System.State\\"]"\\\` projection -- this stub does not evaluate JMESPath (see
+  // this file's own header), so it returns the shape that projection would ALREADY produce
+  // for the same two stub items the pre-PR-8 raw-object canned response used: a bare array of
+  // 3-element [id, title, state] arrays, which this adapter's own \\\`parse.arrayMap\\\` then
+  // renames into {id, title, status} objects.
   out(
     errorEnvelope
       ? ERROR_ENVELOPE
       : [
-          { id: 1, fields: { 'System.Title': 'Stub item one', 'System.State': 'New' } },
-          { id: 2, fields: { 'System.Title': 'Stub item two', 'System.State': 'Active' } }
+          ['1', 'Stub item one', 'New'],
+          ['2', 'Stub item two', 'Active']
         ]
   );
 } else {
