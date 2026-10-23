@@ -29,7 +29,7 @@ directory is a disclosed SYNTHETIC reconstruction, never a captured live run -- 
 - `host.change-request-view`: read one pull request's id/url/state/branches (`az repos pr show --id <id> --query "[...]" --output json`)
 - `host.change-request-list`: list pull requests (`az repos pr list --query "[].[...]" --output json`, default `--status active`)
 - `host.change-request-checks`: approximated via a pull request's reviewer vote records (`az repos pr show --id <id> --query "[...reviewers...]"`), NOT true branch-policy evaluations (see "Known limits")
-- `host.change-request-merge`: complete a pull request (`az repos pr update --id <id> --status completed`)
+- `host.change-request-merge`: complete a pull request (`az repos pr update --id <id> --status completed`) -- the optional `method` input only accepts `squash` (its own, pre-existing behavior); `method: merge`/`method: rebase` fail closed with `NOT_ALLOWED` (see "Known limits")
 - `host.change-request-link-work-item`: link a pull request to a work item (`az repos pr work-item add --id <id> --work-items <workItemId>`) -- no structured output (see "Known limits")
 
 `host.change-request-threads` is not implemented: no `az repos pr` subcommand in this
@@ -76,9 +76,13 @@ review/vote-shaped capability today, so this entry is reserved for a future one,
   No `az repos pr` subcommand in this adapter's allowlist exposes Azure DevOps branch-policy
   evaluations (a REST-only `/policy/evaluations` endpoint with no CLI surface here); this
   capability instead maps `az repos pr show`'s own `reviewers[]` field (reviewer vote records:
-  `{displayName, vote, isRequired, ...}`), the closest available per-PR status signal. Mapped
-  `checks[]` items therefore have no `name`/`state`/`bucket`-style fields a true policy-check
-  shape would carry -- `change-request.json`'s own `checks[]` item shape is intentionally
+  `{displayName, vote, isRequired, ...}`), the closest available per-PR status signal, reshaped
+  via `arrayMap` into `{reviewer, state}` objects -- `state` is the reviewer's raw numeric
+  `vote` (10/5/0/-5/-10) normalized through the new per-item `statusMap` form (TRD-2026-
+  8d825f54 PR 9 fix round, item 1) into `approved`/`approved-with-suggestions`/`no-vote`/
+  `waiting-for-author`/`rejected`. These are still reviewer-vote states, not a true named
+  policy-check result (no `bucket`/`workflow`/`link`-style fields a true policy-check shape
+  would carry) -- `change-request.json`'s own `checks[]` item shape is intentionally
   unconstrained beyond `object` for exactly this kind of cross-tool shape variance.
 - **`host.change-request-link-work-item` declares no `parse` block.** No publicly documented
   JSON output shape exists for `az repos pr work-item add`'s success case, and no `az` binary
@@ -86,16 +90,28 @@ review/vote-shaped capability today, so this entry is reserved for a future one,
   rather than fabricate an `{id, workItemId}` shape -- the same choice
   `adapter-host-github#host.change-request-merge` makes for its own structurally-uncertain
   mutating command.
-- **`host.change-request-list`'s per-item `state`/`headBranch`/`baseBranch` stay in Azure's
-  raw, unprefixed-unstripped vocabulary** (e.g. `state: "active"`, `headBranch:
-  "refs/heads/feature-x"`), not normalized -- `mapOutput`'s `statusMap`/`trimPrefix` only ever
-  examine the top-level mapped `result` object, never a value nested inside an `arrayMap`-built
-  array, the same documented limitation `adapter-tracker-azure-boards#tracker.list`/
-  `adapter-host-github#host.change-request-list` carry for `statusMap`.
+- **`host.change-request-list`'s per-item `headBranch`/`baseBranch` stay in Azure's raw,
+  unprefixed vocabulary** (e.g. `headBranch: "refs/heads/feature-x"`), not stripped --
+  `trimPrefix` only ever examines the top-level mapped `result` object, never a value nested
+  inside an `arrayMap`-built array, and `mapping.js`'s PR 9 fix round `arrayMap`/`statusMap`
+  extension (item 1) is deliberately narrow (value translation only, no prefix-stripping
+  form). Per-item `state` IS normalized, unlike `headBranch`/`baseBranch`: the new per-item
+  `statusMap` form reaches inside the `arrayMap`-built array (unlike the top-level
+  `statusMap`), so `state` goes through the same `active`/`completed`/`abandoned` ->
+  `open`/`closed`/`closed` translation `host.change-request-view`/`-merge` use, failing closed
+  with `BAD_OUTPUT` on an unmapped raw status.
 - **`host.change-request-list`'s `filter` input is unused**, relying on `az repos pr list`'s
   own documented `--status` default (`active`) instead, the same fixed-default convention
   `adapter-host-github#host.change-request-list` uses -- a caller needing completed/abandoned/
   all PRs has no way to request that through this capability.
+- **`host.change-request-merge`'s `method` input only accepts `squash`** (TRD-2026-8d825f54 PR
+  9 fix round, item 2). `az repos pr update`'s own real, documented argument surface
+  (`fixtures/az-repos-pr-help.txt`) has no squash/merge/rebase flag at all -- Azure DevOps'
+  merge strategy is governed by repository/branch-policy settings outside any `az repos pr`
+  subcommand's control, unlike `adapter-host-github`'s `gh pr merge`, which has three real
+  flags. `method: merge`/`method: rebase` are not silently accepted or passed through as an
+  unsupported flag: `runner.js#selectTemplate` throws `NOT_ALLOWED` naming `method` and the
+  unsupported value, since this adapter's own `variants.method` declares only the `squash` key.
 - **Every fixture in `fixtures/` is a disclosed SYNTHETIC reconstruction, not a captured live
   `az` run.** No `az` binary is installed in this environment. `fixtures/az-repos-pr-help.txt`
   is built from the real, publicly documented `az repos pr` command surface, extended to cover

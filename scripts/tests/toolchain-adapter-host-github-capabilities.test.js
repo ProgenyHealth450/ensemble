@@ -46,13 +46,13 @@ function readFixture(name) {
 }
 
 describe('TRD-036-TEST: Scenario "Recorded output normalizes" -- the real gh-pr-view.json fixture maps through host.change-request-view\'s REAL manifest parse block and validates against change-request.json', () => {
-  test('mapOutput(real fixture, REAL parse block) produces the documented {id,url,state,baseBranch,headBranch,checks} shape', () => {
+  test('mapOutput(real fixture, REAL parse block) produces the documented {id,url,state,baseBranch,headBranch,checks} shape, with state normalized via statusMap (PR 9 fix round, item 1)', () => {
     const stdout = readFixture('gh-pr-view.json');
     const mapped = mapOutput(stdout, REAL_MANIFEST.capabilities['host.change-request-view'].parse);
 
     expect(mapped.id).toBe('190');
     expect(mapped.url).toBe('https://github.com/Sunstone-Partners/ensemble/pull/190');
-    expect(mapped.state).toBe('MERGED');
+    expect(mapped.state).toBe('merged');
     expect(mapped.baseBranch).toBe('dev');
     expect(mapped.headBranch).toBe('docs/local-ci-runbook-stale-branch');
     expect(Array.isArray(mapped.checks)).toBe(true);
@@ -74,10 +74,35 @@ describe('TRD-036-TEST: Scenario "Recorded output normalizes" -- the real gh-pr-
 
     expect(validateChangeRequest(mapped)).toBe(false);
   });
+
+  test('every statusMap entry (OPEN/CLOSED/MERGED) normalizes to open/closed/merged', () => {
+    const stdout = readFixture('gh-pr-view.json');
+    const rawFlattened = JSON.parse(stdout);
+    for (const [raw, normalized] of [
+      ['OPEN', 'open'],
+      ['CLOSED', 'closed'],
+      ['MERGED', 'merged']
+    ]) {
+      const flattened = [...rawFlattened];
+      flattened[2] = raw; // state is the 3rd element
+      const mapped = mapOutput(JSON.stringify(flattened), REAL_MANIFEST.capabilities['host.change-request-view'].parse);
+      expect(mapped.state).toBe(normalized);
+    }
+  });
+
+  test('a state value with no statusMap entry fails closed with BAD_OUTPUT naming the value', () => {
+    const stdout = readFixture('gh-pr-view.json');
+    const flattened = JSON.parse(stdout);
+    flattened[2] = 'DRAFT'; // not one of GitHub's known terminal states this adapter maps
+
+    expect(() =>
+      mapOutput(JSON.stringify(flattened), REAL_MANIFEST.capabilities['host.change-request-view'].parse)
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
+  });
 });
 
 describe('TRD-036-TEST: other captured capabilities also normalize through the real manifest parse against their own real fixtures', () => {
-  test('host.change-request-list maps gh-pr-list.json into {items: [{id,url,state,baseBranch,headBranch}]}', () => {
+  test('host.change-request-list maps gh-pr-list.json into {items: [{id,url,state,baseBranch,headBranch}]}, with per-item state normalized via arrayMap statusMap (PR 9 fix round, item 1)', () => {
     const stdout = readFixture('gh-pr-list.json');
     const mapped = mapOutput(stdout, REAL_MANIFEST.capabilities['host.change-request-list'].parse);
 
@@ -86,10 +111,20 @@ describe('TRD-036-TEST: other captured capabilities also normalize through the r
     expect(mapped.items[0]).toEqual({
       id: '190',
       url: 'https://github.com/Sunstone-Partners/ensemble/pull/190',
-      state: 'MERGED',
+      state: 'merged',
       baseBranch: 'dev',
       headBranch: 'docs/local-ci-runbook-stale-branch'
     });
+  });
+
+  test('host.change-request-list: an unmapped per-item state fails closed with BAD_OUTPUT naming the value', () => {
+    const stdout = readFixture('gh-pr-list.json');
+    const rawItems = JSON.parse(stdout);
+    rawItems[0][2] = 'DRAFT'; // state is the 3rd element of each inner array
+
+    expect(() =>
+      mapOutput(JSON.stringify(rawItems), REAL_MANIFEST.capabilities['host.change-request-list'].parse)
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
   });
 
   test('host.change-request-checks maps gh-pr-checks.json into {checks: [...]}', () => {

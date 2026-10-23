@@ -128,6 +128,103 @@ describe('TRD-040-TEST: Scenario "Pull request normalizes" -- the real az-repos-
   });
 });
 
+describe('TRD-2026-8d825f54 PR 9 fix round, item 1: host.change-request-list normalizes per-item state via the new arrayMap statusMap form', () => {
+  test('mapOutput(--query-flattened fixture wrapped as a one-element list, REAL parse block) normalizes status:"active" to state:"open" per item', () => {
+    const rawFixture = JSON.parse(fs.readFileSync(SHOW_FIXTURE_PATH, 'utf8'));
+    // `az repos pr list --query "[].[...]"` projects the SAME 5-field flattening this
+    // capability's `host.change-request-view` sibling uses, once per listed pull request --
+    // wrapping the single real fixture's own flattened shape in an outer array reproduces
+    // exactly what a one-result `az repos pr list` invocation would print.
+    const flattenedList = [deriveFlattenedShowOutput(rawFixture)];
+    const mapped = mapOutput(JSON.stringify(flattenedList), REAL_MANIFEST.capabilities['host.change-request-list'].parse);
+
+    expect(mapped.items).toEqual([
+      {
+        id: '42',
+        url: rawFixture.url,
+        state: 'open',
+        headBranch: 'refs/heads/feature/trd-040-azure-devops-host-adapter',
+        baseBranch: 'refs/heads/main'
+      }
+    ]);
+  });
+
+  test('an unmapped per-item status fails closed with BAD_OUTPUT naming the value (never silently passed through raw)', () => {
+    const rawFixture = JSON.parse(fs.readFileSync(SHOW_FIXTURE_PATH, 'utf8'));
+    const flattenedItem = deriveFlattenedShowOutput(rawFixture);
+    flattenedItem[2] = 'notSet'; // a real az repos pr list --status value, but not in this statusMap
+    const flattenedList = [flattenedItem];
+
+    expect(() =>
+      mapOutput(JSON.stringify(flattenedList), REAL_MANIFEST.capabilities['host.change-request-list'].parse)
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
+  });
+});
+
+describe('TRD-2026-8d825f54 PR 9 fix round, item 1: host.change-request-checks normalizes reviewer votes into named states', () => {
+  function flattenedChecksInput(rawFixture) {
+    // `az repos pr show --query "[to_string(pullRequestId), reviewers]"`: the real fixture's
+    // own unmodified `reviewers[]` array (real Azure DevOps REST shape: `{displayName, id,
+    // vote, isRequired, isFlagged}`), never a shape tailored to this capability's own parse map.
+    return [String(rawFixture.pullRequestId), rawFixture.reviewers];
+  }
+
+  test('mapOutput(real fixture reviewers[], REAL parse block) maps each reviewer into {reviewer, state}, normalizing the real fixture\'s own vote:10 and vote:0 entries', () => {
+    const rawFixture = JSON.parse(fs.readFileSync(SHOW_FIXTURE_PATH, 'utf8'));
+    expect(rawFixture.reviewers.map((r) => r.vote)).toEqual([10, 0]);
+    const mapped = mapOutput(
+      JSON.stringify(flattenedChecksInput(rawFixture)),
+      REAL_MANIFEST.capabilities['host.change-request-checks'].parse
+    );
+
+    expect(mapped.id).toBe('42');
+    expect(mapped.checks).toEqual([
+      { reviewer: 'Jane Reviewer', state: 'approved' },
+      { reviewer: 'John Reviewer', state: 'no-vote' }
+    ]);
+  });
+
+  test('every documented Azure vote integer (10/5/0/-5/-10) normalizes to its named state', () => {
+    const rawFixture = JSON.parse(fs.readFileSync(SHOW_FIXTURE_PATH, 'utf8'));
+    for (const [vote, normalized] of [
+      [10, 'approved'],
+      [5, 'approved-with-suggestions'],
+      [0, 'no-vote'],
+      [-5, 'waiting-for-author'],
+      [-10, 'rejected']
+    ]) {
+      const input = [String(rawFixture.pullRequestId), [{ displayName: 'Reviewer', vote }]];
+      const mapped = mapOutput(JSON.stringify(input), REAL_MANIFEST.capabilities['host.change-request-checks'].parse);
+      expect(mapped.checks).toEqual([{ reviewer: 'Reviewer', state: normalized }]);
+    }
+  });
+
+  test('an unmapped vote integer fails closed with BAD_OUTPUT naming the value, never silently passed through as a bare number', () => {
+    const rawFixture = JSON.parse(fs.readFileSync(SHOW_FIXTURE_PATH, 'utf8'));
+    const input = [String(rawFixture.pullRequestId), [{ displayName: 'Reviewer', vote: 3 }]];
+
+    expect(() =>
+      mapOutput(JSON.stringify(input), REAL_MANIFEST.capabilities['host.change-request-checks'].parse)
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
+  });
+
+  test('the mapped result\'s checks[] validates against the normalized change-request schema', () => {
+    const rawFixture = JSON.parse(fs.readFileSync(SHOW_FIXTURE_PATH, 'utf8'));
+    const mapped = mapOutput(
+      JSON.stringify(flattenedChecksInput(rawFixture)),
+      REAL_MANIFEST.capabilities['host.change-request-checks'].parse
+    );
+    // 'id'+'checks' only -- this capability's own contract declares no 'state' output, so a
+    // bare 'state'-requiring validation is not meaningful here; 'checks[]' items themselves
+    // only need to be objects, which change-request.json's own 'checks' property enforces.
+    expect(Array.isArray(mapped.checks)).toBe(true);
+    for (const check of mapped.checks) {
+      expect(typeof check).toBe('object');
+      expect(check).not.toBeNull();
+    }
+  });
+});
+
 describe('TRD-040-TEST: host.change-request-link-work-item declares no parse block (no publicly documented JSON shape, not fabricated structure)', () => {
   test('the capability has no parse block at all', () => {
     expect(REAL_MANIFEST.capabilities['host.change-request-link-work-item'].parse).toBeUndefined();

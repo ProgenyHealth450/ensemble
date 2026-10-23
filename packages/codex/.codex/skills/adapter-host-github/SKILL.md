@@ -26,7 +26,7 @@ by actually running `gh` against this repository (not synthetic) unless noted ot
 - `host.change-request-list`: list open pull requests (`gh pr list --json ... --jq '[...]'`, default `--state open`)
 - `host.change-request-checks`: read a pull request's status checks (`gh pr checks <id> --json ...`) -- maps only `checks` (see "Known limits")
 - `host.change-request-threads`: approximated via a pull request's issue-level comments (`gh pr view <id> --json number,comments`), NOT true diff-review threads (see "Known limits")
-- `host.change-request-merge`: squash-merge a pull request (`gh pr merge <id> --squash`) -- no structured output (see "Known limits")
+- `host.change-request-merge`: merge a pull request (`gh pr merge <id> --squash/--merge/--rebase`, selected via the optional `method` input, default `squash`) -- no structured output (see "Known limits")
 
 `host.change-request-link-work-item` is not implemented: GitHub has no native work-item-linking
 CLI surface (unlike Azure DevOps' `az repos pr work-item add`, TRD-040/TRD-041); this optional
@@ -77,10 +77,12 @@ TRD-036's own text) but not wired to any capability here -- reserved for a futur
   --json comments`, the PR's top-level ISSUE-level comments instead (TRD-036's own suggested
   "`gh pr view --json comments` or similar"). Mapped `threads[]` items therefore lack any
   `path`/`line`/`resolved` field a true review-thread shape would carry.
-- **`host.change-request-merge` always uses `--squash`**, this adapter's one fixed merge
-  strategy (matching this repo's own convention); it has no way to select `--merge`/`--rebase`
-  per call (the category contract's `host.change-request-merge` declares only `[id]` as an
-  input, no strategy selector).
+- **`host.change-request-merge` defaults to `--squash` but supports `method: merge`/
+  `method: rebase` too** (TRD-2026-8d825f54 PR 9 fix round, item 2): `host.yaml`'s own
+  `method` input is optional, and this adapter's `variants.method` maps `squash`/`merge`/
+  `rebase` to `gh pr merge`'s own three real, documented, mutually-exclusive merge-strategy
+  flags. Omitting `method` (or passing `method: squash` explicitly) preserves this adapter's
+  pre-existing `--squash`-only behavior; any other value throws `NOT_ALLOWED`.
 - **`host.change-request-list`'s `filter` input is unused.** The category contract declares no
   per-input default (same "no per-input type/default metadata at the contract level" gap
   `adapter-tracker-azure-boards#tracker.list` documents), and `runner.js#buildCapabilityArgv`

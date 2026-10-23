@@ -18,7 +18,7 @@ disable-model-invocation: true
 ---
 <!-- Command: ensemble-implement-bead | Version: 2.3.0 -->
 <!-- Description: Implement one bead by ID on a feature branch using the same branching and commit policy as beads-build and implement-trd-beads, opening its change request through the configured host adapter -->
-<!-- Capabilities: required=[tracker.show, tracker.set-status, tracker.close, tracker.comment, host.change-request-create, workflow.branch-create], optional=[tracker.sync] -->
+<!-- Capabilities: required=[tracker.show, tracker.set-status, tracker.close, tracker.comment, host.change-request-create, workflow.branch-create, workflow.push], optional=[tracker.sync] -->
 
 # ensemble-implement-bead
 
@@ -31,8 +31,9 @@ disable-model-invocation: true
 **Actions:**
 1. BEAD_ID = first token of $ARGUMENTS (a bare integer is fine; the tracker adapter accepts it). If absent, ask the user for it.
 2. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) and TRD_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If either does not resolve, HALT with an error naming it.
-3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.set-status --require tracker.close --require tracker.comment --require host.change-request-create --require workflow.branch-create --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". tracker.sync is optional and not preflighted here (PR 8 independent review item 2 / finding 2: a server-side tracker, e.g. jira, azure-boards, has no local durable-flush step); its one call site (Commit Gate and Close) is skipped silently on {ok:false}, never HALTing.
-4. Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<BEAD_ID> --json. Non-ok -> print "ERROR: Bead <BEAD_ID> not found." and HALT. data.status == closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels from data.
+3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.set-status --require tracker.close --require tracker.comment --require host.change-request-create --require workflow.branch-create --require workflow.push --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". tracker.sync is optional and not preflighted here (PR 8 independent review item 2 / finding 2: a server-side tracker, e.g. jira, azure-boards, has no local durable-flush step); its one call site (Commit Gate and Close) is skipped silently on {ok:false}, never HALTing.
+4. Run: node "$TOOLCHAIN_CLI" explain --json and parse as EXPLAIN_RESULT (ok:false -> skip this line silently, never HALT: explain is informational only). Print "Detected workflow: <EXPLAIN_RESULT.data.workflow.adapter> (<EXPLAIN_RESULT.data.workflow.source>); host: <EXPLAIN_RESULT.data.host.adapter> (<EXPLAIN_RESULT.data.host.source>)" -- the consolidated detected-backend message this command printed before the TRD-039 host.*/workflow.* migration (previously built via `trd-cli resolve-sdlc` shell-probing a `git-town` exit code and the raw `origin` remote URL), now sourced from the toolchain resolver's own detection instead of a second, parallel probe.
+5. Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<BEAD_ID> --json. Non-ok -> print "ERROR: Bead <BEAD_ID> not found." and HALT. data.status == closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels from data.
 
 ### Step 2: Branch and Working Tree
 
@@ -62,7 +63,7 @@ disable-model-invocation: true
 ### Step 1: Open the Change Request
 
 **Actions:**
-1. Run: git push -u origin <branch>. PR title = BEAD_TITLE; body = Bead <BEAD_ID>, description, changes summary, test plan.
+1. Run: node "$TOOLCHAIN_CLI" run workflow.push --run-id "$RUN_ID" --arg branch=<branch> --json [add --non-interactive when --foreman is present] (resolves to the configured workflow adapter internally; ok:false -> print the error and HALT). PR title = BEAD_TITLE; body = Bead <BEAD_ID>, description, changes summary, test plan.
 2. Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-create --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the host adapter to open a change request for this session? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-create --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
 3. Run: node "$TOOLCHAIN_CLI" run host.change-request-create --run-id "$RUN_ID" --arg baseBranch=<base> --arg headBranch=<branch> --arg title="<BEAD_TITLE>" --arg description="<body>" --json [add --non-interactive when --foreman is present] and parse as CR_CREATE_RESULT. ok:true -> URL = CR_CREATE_RESULT.data.url. ok:false (for example no host adapter resolves, or the confirm gate denied it) -> print the push result and tell the user to open the change request themselves; URL = "manual".
 4. node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="pr:<URL or manual>" --json [add --non-interactive when --foreman is present]; print "Bead <BEAD_ID> complete. PR: <URL> | Branch: <branch>".

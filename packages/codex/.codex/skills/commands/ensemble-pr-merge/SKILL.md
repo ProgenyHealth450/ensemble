@@ -2,7 +2,7 @@
 name: ensemble-pr-merge
 description: Drive an open PR to green and merged by dispatching one subagent per failing CI check and unresolved review thread, routed through the correct orchestrator (Codex skill for /ensemble:pr-merge)
 user-invocable: true
-argument-hint: '[pr-number-or-url] [--max-rounds=N] [--dry-run] [--foreman]'
+argument-hint: '[pr-number-or-url] [--max-rounds=N] [--dry-run] [--foreman] [--method=squash|merge|rebase]'
 model: gpt-5.1-codex
 capabilities:
   required:
@@ -95,8 +95,8 @@ parallel, then re-verified against live state until green, then merged.
 - Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision,latestReviews; if not MERGEABLE or a human reviewer's latest decisive review is CHANGES_REQUESTED (bots excluded, by account type), abort and run another verification round.
 - Run the sweep BEFORE merging: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 - If --dry-run: stop and report merge-readiness without merging.
-- Merge (confirm-gated): before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via AskUserQuestion "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed: the CLI auto-confirms and logs).
-- Merge: run node "$TOOLCHAIN_CLI" run host.change-request-merge --run-id "$RUN_ID" --arg id=<PR_NUMBER> --json [add --non-interactive when --foreman is present] (uses the host adapter's configured merge method; do not assume a specific strategy); do NOT delete the source branch in this step.
+- Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via AskUserQuestion "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
+- Merge: run node "$TOOLCHAIN_CLI" run host.change-request-merge --run-id "$RUN_ID" --arg id=<PR_NUMBER> [--arg method=<METHOD> when --method was supplied; omit entirely otherwise so the host adapter's own default (squash) applies] --json [add --non-interactive when --foreman is present] (an explicit --method not supported by the resolved host adapter fails closed with NOT_ALLOWED -- report it and HALT rather than retrying with a different method); do NOT delete the source branch in this step.
 - Run the sweep AFTER merging and BEFORE deleting the source branch: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 - Only after the post-merge sweep has run, delete the source branch unless it is long-lived.
 - Comment on the PR summarizing each remediated finding, its owner, and the round count.
@@ -119,5 +119,5 @@ parallel, then re-verified against live state until green, then merged.
 ## Usage
 
 ```
-/ensemble:pr-merge [pr-number-or-url] [--max-rounds=N] [--dry-run] [--foreman]
+/ensemble:pr-merge [pr-number-or-url] [--max-rounds=N] [--dry-run] [--foreman] [--method=squash|merge|rebase]
 ```

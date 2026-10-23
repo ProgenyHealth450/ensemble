@@ -198,13 +198,18 @@ capabilities:
   # `active`) instead, matching `adapter-host-github#host.change-request-list`'s identical
   # fixed-default convention. The outer `[].[...]` JMESPath projection applies the same
   # 5-field flattening to every element, which `parse.arrayMap` then reshapes into
-  # `{id, url, state, headBranch, baseBranch}` objects. Neither `statusMap` nor `trimPrefix`
-  # (TRD-2026-8d825f54 TRD-040, this bead) reaches here: both only ever examine `mapOutput`'s
-  # top-level `result` object, never a value nested inside an `arrayMap`-built array (same
-  # documented limitation `adapter-tracker-azure-boards#tracker.list`/
-  # `adapter-host-github#host.change-request-list` both carry for `statusMap`) -- each listed
-  # item's `state`/`headBranch`/`baseBranch` therefore stays in Azure's raw, unprefixed-
-  # unstripped vocabulary (e.g. `state: "active"`, `headBranch: "refs/heads/feature-x"`).
+  # `{id, url, state, headBranch, baseBranch}` objects. `state` IS normalized per item (TRD-
+  # 2026-8d825f54 PR 9 fix round, item 1): `mapping.js#applyArrayMapEntry`'s new object-form
+  # `item` entry (`{path, statusMap}`) reaches INSIDE an `arrayMap`-built array, unlike the
+  # top-level `statusMap` block below (which only ever examines `mapOutput`'s top-level
+  # `result.state`) -- the same three-way `active`/`completed`/`abandoned` ->
+  # `open`/`closed`/`closed` vocabulary `host.change-request-view`/`-merge` use below, so an
+  # unmapped raw Azure status value fails closed with `BAD_OUTPUT` here too, never silently
+  # passed through. `headBranch`/`baseBranch` still stay in Azure's raw, unprefixed
+  # `refs/heads/`-carrying vocabulary: `trimPrefix` (like the top-level `statusMap`) only ever
+  # examines `mapOutput`'s top-level `result`, never a value nested inside an `arrayMap`-built
+  # array, and this PR's `statusMap`-in-`arrayMap` extension is deliberately narrow (value
+  # translation only, no prefix-stripping form) -- see SKILL.md "Known limits".
   host.change-request-list:
     run:
       - az
@@ -225,7 +230,12 @@ capabilities:
           item:
             id: "$[0]"
             url: "$[1]"
-            state: "$[2]"
+            state:
+              path: "$[2]"
+              statusMap:
+                active: open
+                completed: closed
+                abandoned: closed
             headBranch: "$[3]"
             baseBranch: "$[4]"
 
@@ -241,7 +251,13 @@ capabilities:
   # of cross-tool shape variance. `id` IS populated here (unlike
   # `adapter-host-github#host.change-request-checks`, which cannot echo its own `${id}` input
   # back through `gh pr checks`'s fielded JSON) because `az repos pr show`'s own JSON carries
-  # `pullRequestId` directly.
+  # `pullRequestId` directly. `checks` is built via `arrayMap` (TRD-2026-8d825f54 PR 9 fix
+  # round, item 1), never the bare, unreshaped `reviewers[]` array: each reviewer's raw
+  # `displayName` becomes `reviewer`, and each reviewer's raw, Azure-documented integer `vote`
+  # (10/5/0/-5/-10, confirmed against Azure DevOps' own `PullRequestVote` REST enum) is
+  # normalized through the new per-item `statusMap` form into a named `state` -- an unmapped
+  # vote integer (any value outside those five) fails closed with `BAD_OUTPUT` naming the
+  # value, never silently passed through as a bare, undocumented number.
   host.change-request-checks:
     run:
       - az
@@ -258,22 +274,45 @@ capabilities:
       format: json
       map:
         id: "$[0]"
-        checks: "$[1]"
+      arrayMap:
+        checks:
+          source: "$[1]"
+          item:
+            reviewer: "$.displayName"
+            state:
+              path: "$.vote"
+              statusMap:
+                "10": approved
+                "5": approved-with-suggestions
+                "0": no-vote
+                "-5": waiting-for-author
+                "-10": rejected
 
-  # az repos pr update --id <id> --status completed --query "[...]" --output json: the
-  # category contract's `host.change-request-merge` declares only `[id]` as an input (no
-  # strategy selector), so `--status completed` is a fixed literal -- Azure DevOps' own
-  # documented terminal "merged" state name -- never a caller-supplied value substituted into
-  # `--status` (lesson from this PR series: an enum-shaped flag takes only a fixed, manifest-
-  # declared provider literal, never a caller string verbatim), matching
-  # `adapter-host-github#host.change-request-merge`'s own fixed `--squash` literal. `statusMap`
-  # translates `state` here too (same `mapping.js` generalization as `create`/`view` above), so
-  # a successful merge's `state` comes out as `closed` (Azure's own raw `completed` -> this
-  # schema's `closed`), never left as the raw Azure literal. A merge that fails to actually
-  # complete server-side (Azure DevOps rejects an incomplete-criteria/conflicting merge with a
-  # non-zero exit, not a silent `active` status) surfaces as `TOOL_FAILED`, not a mis-mapped
-  # success. Never executed live (side-effecting, no reachable Azure DevOps project in this
-  # environment).
+  # az repos pr update --id <id> --status completed --query "[...]" --output json: `method`
+  # (TRD-2026-8d825f54 PR 9 fix round, item 2; `host.yaml`'s own optional `method` input)
+  # selects a normalized merge strategy, but `az repos pr update`'s own real, documented
+  # argument surface (confirmed against `fixtures/az-repos-pr-help.txt`, this adapter's own
+  # synthetic-but-realistic reconstruction of `az repos pr --help`) has NO squash/merge/rebase
+  # flag at ALL -- Azure DevOps' actual merge strategy is governed by repository/branch-policy
+  # settings outside any `az repos pr` subcommand's control, unlike GitHub's `gh pr merge`
+  # (which has three real, mutually-exclusive strategy flags). `variants.method` therefore
+  # declares ONLY the `squash` key below (identical to the base `run[]`, so `method: squash`
+  # and an omitted `method` both resolve the exact same way, preserving this adapter's
+  # pre-existing behavior) -- `method: merge`/`method: rebase` against this adapter are NOT
+  # silently accepted or passed through as an unsupported flag: `runner.js#selectTemplate`
+  # throws `NOT_ALLOWED` naming `method` and the unsupported value, since neither key exists
+  # in this `variants.method` map, the same fail-closed outcome an unrecognized value gets
+  # against `adapter-host-github`'s own three-key map. `--status completed` is a fixed literal
+  # -- Azure DevOps' own documented terminal "merged" state name -- never a caller-supplied
+  # value substituted into `--status` (lesson from this PR series: an enum-shaped flag takes
+  # only a fixed, manifest-declared provider literal, never a caller string verbatim).
+  # `statusMap` translates `state` here too (same `mapping.js` generalization as `create`/
+  # `view` above), so a successful merge's `state` comes out as `closed` (Azure's own raw
+  # `completed` -> this schema's `closed`), never left as the raw Azure literal. A merge that
+  # fails to actually complete server-side (Azure DevOps rejects an incomplete-criteria/
+  # conflicting merge with a non-zero exit, not a silent `active` status) surfaces as
+  # `TOOL_FAILED`, not a mis-mapped success. Never executed live (side-effecting, no reachable
+  # Azure DevOps project in this environment).
   host.change-request-merge:
     run:
       - az
@@ -288,6 +327,21 @@ capabilities:
       - "[to_string(pullRequestId), status]"
       - "--output"
       - json
+    variants:
+      method:
+        squash:
+          - az
+          - repos
+          - pr
+          - update
+          - "--id"
+          - "${id}"
+          - "--status"
+          - completed
+          - "--query"
+          - "[to_string(pullRequestId), status]"
+          - "--output"
+          - json
     parse:
       format: json
       map:

@@ -102,11 +102,21 @@
  *   not strictly `===` `filter.equals`, the item is EXCLUDED, never a thrown error -- a
  *   missing/non-matching field on one array item is an ordinary "does not match", not a
  *   manifest defect. When `filter` is omitted, every item is kept.
- * - For each KEPT item, `item` (an object of `<itemOutKey>: <dottedPath>`, each path resolved
- *   against that item, `$` again referring to the item) builds one output object; unlike
- *   `filter`, a path in `item` that fails to resolve DOES throw `BAD_OUTPUT` -- these are the
- *   fields the declared shape promises will be present on every kept item, matching `map`'s own
- *   fail-closed "every path must resolve" rule.
+ * - For each KEPT item, `item` (an object of `<itemOutKey>: <spec>`) builds one output object;
+ *   each `<spec>` is either a plain dotted-path string (resolved against the item, `$` again
+ *   referring to the item, matching `map`'s own "every path must resolve" fail-closed rule --
+ *   a path that fails to resolve DOES throw `BAD_OUTPUT`, unlike `filter` above), or an object
+ *   `{path, statusMap}` (TRD-2026-8d825f54 PR 9 fix round, item 1: per-item value translation,
+ *   the same mechanism as the top-level `statusMap` below but reachable INSIDE an `arrayMap`-
+ *   built array, for example normalizing each Azure DevOps PR reviewer's raw numeric `vote`
+ *   into a named review state): `path` is resolved against the item exactly like the plain-
+ *   string form, then the resolved raw value is looked up in `statusMap` (the same
+ *   `Object.prototype.hasOwnProperty` lookup the top-level `statusMap` uses, so a raw number
+ *   like Azure's `vote` works via JS's own numeric-key-to-string object-property coercion) and
+ *   replaced with the mapped value; an unmapped raw value throws `BAD_OUTPUT` naming the value,
+ *   the unmapped `itemOutKey`, and the `arrayMap` key -- the same fail-closed guarantee the
+ *   top-level `statusMap` documents below, never a silent passthrough of an unrecognized raw
+ *   value.
  * - `result[outKey]` is set to the array of built item-objects (possibly empty, never
  *   undefined/null) -- `mapOutput` requires `map` to already be present (the plain-object
  *   `result` `arrayMap` entries are added onto) and throws `BAD_OUTPUT` if `arrayMap` is
@@ -352,7 +362,8 @@ function resolvePath(value, path) {
  *
  * @param {unknown} baseValue the same root-projected base value `map` paths resolve against
  * @param {string} outKey the `arrayMap` key, used only for error messages
- * @param {{source: string, filter?: {path: string, equals: unknown}, item: Record<string,string>}} spec
+ * @param {{source: string, filter?: {path: string, equals: unknown},
+ *   item: Record<string, string|{path: string, statusMap?: Record<string, unknown>}>}} spec
  * @returns {object[]}
  */
 function applyArrayMapEntry(baseValue, outKey, spec) {
@@ -395,13 +406,44 @@ function applyArrayMapEntry(baseValue, outKey, spec) {
       }
     }
     const mappedItem = {};
-    for (const [itemOutKey, itemPath] of Object.entries(spec.item)) {
-      if (typeof itemPath !== 'string') {
+    for (const [itemOutKey, itemSpec] of Object.entries(spec.item)) {
+      if (typeof itemSpec === 'string') {
+        mappedItem[itemOutKey] = resolvePath(item, itemSpec);
+        continue;
+      }
+      if (
+        !itemSpec ||
+        typeof itemSpec !== 'object' ||
+        Array.isArray(itemSpec) ||
+        typeof itemSpec.path !== 'string'
+      ) {
         throw badOutputError(
-          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'] must be a dotted-path string, got ${describeType(itemPath)}`
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'] must be a dotted-path ` +
+            `string or an object with a string 'path', got ${describeType(itemSpec)}`
         );
       }
-      mappedItem[itemOutKey] = resolvePath(item, itemPath);
+      const rawValue = resolvePath(item, itemSpec.path);
+      if (itemSpec.statusMap === undefined) {
+        mappedItem[itemOutKey] = rawValue;
+        continue;
+      }
+      if (
+        typeof itemSpec.statusMap !== 'object' ||
+        itemSpec.statusMap === null ||
+        Array.isArray(itemSpec.statusMap)
+      ) {
+        throw badOutputError(
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'].statusMap must be an ` +
+            `object when present, got ${describeType(itemSpec.statusMap)}`
+        );
+      }
+      if (!Object.prototype.hasOwnProperty.call(itemSpec.statusMap, rawValue)) {
+        throw badOutputError(
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}']: value ` +
+            `${JSON.stringify(rawValue)} has no entry in its statusMap`
+        );
+      }
+      mappedItem[itemOutKey] = itemSpec.statusMap[rawValue];
     }
     mappedItems.push(mappedItem);
   }

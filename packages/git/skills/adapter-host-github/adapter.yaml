@@ -133,9 +133,15 @@ capabilities:
   # synthetic fixture); feeding it through `mapOutput` with this exact `parse` block and
   # validating the result against `packages/development/toolchain/schemas/normalized/
   # change-request.json` with Ajv passes (AC-036-2, verified by hand, see this bead's report).
-  # `state` is passed through GitHub's own raw vocabulary (`OPEN`/`CLOSED`/`MERGED`) with no
-  # `statusMap` translation -- `change-request.json`'s own `state` field is explicitly NOT
-  # constrained to an enum for exactly this reason (hosts define incompatible vocabularies).
+  # `state` is normalized via `statusMap` (TRD-2026-8d825f54 PR 9 fix round, item 1): GitHub's
+  # own raw `OPEN`/`CLOSED`/`MERGED` vocabulary is translated into this adapter's own
+  # `open`/`closed`/`merged` normalized vocabulary (kept as three distinct terminal states,
+  # never collapsed -- unlike Azure DevOps, which has no separate "merged" state of its own);
+  # an unmapped raw `state` (any future GitHub value this adapter does not yet know about)
+  # fails closed with `BAD_OUTPUT` naming the value, never silently passed through raw.
+  # `change-request.json`'s own `state` field remains unconstrained to an enum at the SCHEMA
+  # level only because different hosts define different normalized vocabularies, not because
+  # an adapter's own output should stay unnormalized.
   host.change-request-view:
     run:
       - gh
@@ -155,6 +161,10 @@ capabilities:
         baseBranch: "$[3]"
         headBranch: "$[4]"
         checks: "$[5]"
+      statusMap:
+        OPEN: open
+        CLOSED: closed
+        MERGED: merged
 
   # gh pr list --json number,url,state,baseRefName,headRefName --jq '[.[] |
   # [(.number|tostring), .url, .state, .baseRefName, .headRefName]]': the category contract's
@@ -192,7 +202,12 @@ capabilities:
           item:
             id: "$[0]"
             url: "$[1]"
-            state: "$[2]"
+            state:
+              path: "$[2]"
+              statusMap:
+                OPEN: open
+                CLOSED: closed
+                MERGED: merged
             baseBranch: "$[3]"
             headBranch: "$[4]"
 
@@ -244,16 +259,24 @@ capabilities:
         id: "$[0]"
         threads: "$[1]"
 
-  # gh pr merge <id> --squash: `gh pr merge` has no `--json`/`--jq` flag (confirmed via its own
-  # `--help`, same gap as `pr create`) -- on success it prints a short human confirmation line
-  # (e.g. "✓ Squashed and merged pull request #<n> (<title>)"), never structured data, so this
-  # capability declares NO `parse` block at all rather than fabricate an `{id, state}` shape
-  # `mapping.js` cannot honestly build from free text (unlike `host.change-request-create`,
-  # there is no single field here -- neither `id` nor a normalized `state` enum value -- that a
-  # bare `map: {x: "$"}` could honestly represent); the runner returns the raw confirmation
-  # text as `data` (`mapAndValidateOutput`'s own documented `!cap.parse -> {data: stdout}`
-  # behavior). `--squash` is this adapter's one fixed merge strategy (this repo's own PR
-  # convention; see SKILL.md). Never executed live (side-effecting, would merge a real PR).
+  # gh pr merge <id> --squash/--merge/--rebase: `gh pr merge` has no `--json`/`--jq` flag
+  # (confirmed via its own `--help`, same gap as `pr create`) -- on success it prints a short
+  # human confirmation line (e.g. "✓ Squashed and merged pull request #<n> (<title>)"), never
+  # structured data, so this capability declares NO `parse` block at all rather than fabricate
+  # an `{id, state}` shape `mapping.js` cannot honestly build from free text (unlike
+  # `host.change-request-create`, there is no single field here -- neither `id` nor a
+  # normalized `state` enum value -- that a bare `map: {x: "$"}` could honestly represent);
+  # the runner returns the raw confirmation text as `data` (`mapAndValidateOutput`'s own
+  # documented `!cap.parse -> {data: stdout}` behavior). `method` (TRD-2026-8d825f54 PR 9 fix
+  # round, item 2; `host.yaml`'s own optional `method` input) selects one of `gh pr merge`'s
+  # three real, documented merge-strategy flags via `variants` (`runner.js#selectTemplate`):
+  # the base `run[]` below (also the `squash` variant, verbatim) is reachable both when
+  # `method` is entirely omitted (preserving this adapter's pre-existing behavior, this repo's
+  # own PR convention; see SKILL.md) and when a caller explicitly passes `method: squash`. An
+  # unsupported/unknown `method` value (anything other than these three fixed, manifest-
+  # declared literals) throws `NOT_ALLOWED` before any process spawns -- a caller's string is
+  # never substituted into the argv directly. Never executed live (side-effecting, would merge
+  # a real PR).
   host.change-request-merge:
     run:
       - gh
@@ -261,6 +284,11 @@ capabilities:
       - merge
       - "${id}"
       - "--squash"
+    variants:
+      method:
+        squash: ["gh", "pr", "merge", "${id}", "--squash"]
+        merge: ["gh", "pr", "merge", "${id}", "--merge"]
+        rebase: ["gh", "pr", "merge", "${id}", "--rebase"]
 
 # `host.change-request-link-work-item` is intentionally NOT declared: GitHub has no native
 # work-item-linking CLI surface (only Azure DevOps' `az repos pr work-item add` does, per

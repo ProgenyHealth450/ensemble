@@ -55,8 +55,17 @@ capabilities:
     sideEffect: false
 
   host.change-request-merge:
-    description: Merge a change request once its checks pass.
-    inputs: [id]
+    description: >-
+      Merge a change request once its checks pass. `method` (optional, TRD-2026-8d825f54 PR 9
+      fix round, item 2) selects the normalized merge strategy (squash|merge|rebase); omitted
+      defaults to `squash`, preserving behavior from before this input existed. Not every
+      adapter supports every method -- an adapter without a given method declared in its own
+      `variants.method` fails the call closed with `NOT_ALLOWED`, never silently falling back
+      to a different strategy or passing the caller's value through unvalidated. Adding this
+      as an optional input to an EXISTING capability (not a new capability) needs no contract
+      version bump: `checkCompat`/`checkAdditiveOnly` (`contracts.js`) gate capability-level
+      `required`/removal/addition only, never a capability's own `inputs` list.
+    inputs: [id, method]
     outputs: [id, state]
     required: true
     sideEffect: true
