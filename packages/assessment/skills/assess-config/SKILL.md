@@ -318,8 +318,7 @@ After writing files:
    - If assessment artifacts already exist, scan generated markdown/JSON plus unpacked `.xlsx` and `.pptx` XML parts for raw values from `.assessment/secrets.env`.
 3. Do not run external API calls unless the user asks to validate credentials.
 4. If validating credentials, run narrow read-only commands and redact any sensitive output:
-   - GitHub: `gh auth status` or `gh api user`
-   - Azure DevOps: `az devops project show --project <project>`
+   - Host (GitHub/Azure DevOps): `node packages/development/lib/toolchain-cli.js run host.auth-status --json` (resolves the host adapter automatically)
    - Jira: `jira projects list` or `jira issues search "project = KEY ORDER BY updated DESC" --project KEY`
    - Linear: `linearis teams list`
 

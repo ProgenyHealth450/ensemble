@@ -2,9 +2,11 @@
 name: ensemble-implement-bead
 description: >-
   Single-bead entry to the beads execution engine. It runs exactly one bead as a
-  one-bead track: the same tech-lead-orchestrator quality loop, Commit Gate and
-  resolve-sdlc branching / PR_BACKEND policy that /ensemble-beads-build uses for
-  an epic. Use /ensemble-beads-build for an epic or any multi-bead scope and
+  one-bead track: the same tech-lead-orchestrator quality loop and Commit Gate
+  that /ensemble-beads-build uses for an epic; branching and the change request
+  go through the workflow.*/host.* toolchain capabilities (see Preflight) rather
+  than beads-build's own resolve-sdlc branching/PR_BACKEND policy. Use
+  /ensemble-beads-build for an epic or any multi-bead scope and
   /ensemble-implement-trd-beads for a TRD. Rules shared with the other engines:
   all bead reads/writes go through the tracker.* toolchain capabilities
   (resolved via toolchain-cli; never a direct tracker-binary invocation); never
@@ -14,13 +16,13 @@ description: >-
   is committed.
 disable-model-invocation: true
 ---
-<!-- Command: ensemble-implement-bead | Version: 2.2.0 -->
-<!-- Description: Implement one bead by ID on a feature branch using the same branching, commit and PR_BACKEND policy as beads-build and implement-trd-beads -->
-<!-- Capabilities: required=[tracker.show, tracker.set-status, tracker.close, tracker.comment], optional=[tracker.sync] -->
+<!-- Command: ensemble-implement-bead | Version: 2.3.0 -->
+<!-- Description: Implement one bead by ID on a feature branch using the same branching and commit policy as beads-build and implement-trd-beads, opening its change request through the configured host adapter -->
+<!-- Capabilities: required=[tracker.show, tracker.set-status, tracker.close, tracker.comment, host.change-request-create, workflow.branch-create], optional=[tracker.sync] -->
 
 # ensemble-implement-bead
 
-> **Mission:** Single-bead entry to the beads execution engine. It runs exactly one bead as a one-bead track: the same tech-lead-orchestrator quality loop, Commit Gate and resolve-sdlc branching / PR_BACKEND policy that /ensemble-beads-build uses for an epic. Use /ensemble-beads-build for an epic or any multi-bead scope and /ensemble-implement-trd-beads for a TRD. Rules shared with the other engines: all bead reads/writes go through the tracker.* toolchain capabilities (resolved via toolchain-cli; never a direct tracker-binary invocation); never run `git add -A`, `git add .`, `git add .beads/` or `git commit -a`; stage explicit paths only; `.beads/` is the tracker adapter's own state (docs/guides/beads-tracked-export.md); the bead is closed only after its work is committed.
+> **Mission:** Single-bead entry to the beads execution engine. It runs exactly one bead as a one-bead track: the same tech-lead-orchestrator quality loop and Commit Gate that /ensemble-beads-build uses for an epic; branching and the change request go through the workflow.*/host.* toolchain capabilities (see Preflight) rather than beads-build's own resolve-sdlc branching/PR_BACKEND policy. Use /ensemble-beads-build for an epic or any multi-bead scope and /ensemble-implement-trd-beads for a TRD. Rules shared with the other engines: all bead reads/writes go through the tracker.* toolchain capabilities (resolved via toolchain-cli; never a direct tracker-binary invocation); never run `git add -A`, `git add .`, `git add .beads/` or `git commit -a`; stage explicit paths only; `.beads/` is the tracker adapter's own state (docs/guides/beads-tracked-export.md); the bead is closed only after its work is committed.
 
 ## Phase 1: Preflight
 
@@ -28,27 +30,16 @@ disable-model-invocation: true
 
 **Actions:**
 1. BEAD_ID = first token of $ARGUMENTS (a bare integer is fine; the tracker adapter accepts it). If absent, ask the user for it.
-2. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
-3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.set-status --require tracker.close --require tracker.comment --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". tracker.sync is optional and not preflighted here (PR 8 independent review item 2 / finding 2: a server-side tracker, e.g. jira, azure-boards, has no local durable-flush step); its one call site (Commit Gate and Close) is skipped silently on {ok:false}, never HALTing.
+2. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) and TRD_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If either does not resolve, HALT with an error naming it.
+3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.set-status --require tracker.close --require tracker.comment --require host.change-request-create --require workflow.branch-create --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". tracker.sync is optional and not preflighted here (PR 8 independent review item 2 / finding 2: a server-side tracker, e.g. jira, azure-boards, has no local durable-flush step); its one call site (Commit Gate and Close) is skipped silently on {ok:false}, never HALTing.
 4. Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<BEAD_ID> --json. Non-ok -> print "ERROR: Bead <BEAD_ID> not found." and HALT. data.status == closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels from data.
 
-### Step 2: Branching Strategy and PR Backend
-
-Same resolution as beads-build Preflight step 3, never cached across invocations
-
-**Actions:**
-1. Resolve VALIDATE_GIT_TOWN_SH (RELATIVE_PATH packages/git/skills/git-town/scripts/validate-git-town.sh) and TRD_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js) with the tool-path-resolution skill. If either does not resolve, HALT with an error naming it.
-2. Run: bash "$VALIDATE_GIT_TOWN_SH" and capture GIT_TOWN_EXIT_CODE. Exit 3 (version mismatch) or 4 (not a git repo) -> HALT; 0, 1 and 2 are passed to resolve-sdlc.
-3. REMOTE_URL=$(git remote get-url origin 2>/dev/null), or the literal string none when empty. Run: node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL" and parse stdout as RESOLVE_SDLC_RESULT. An "error" key -> print it and HALT.
-4. If RESOLVE_SDLC_RESULT.branchingStrategy.action == halt: print its message and HALT. BRANCHING_STRATEGY = branchingStrategy.strategy.
-5. If prBackend.needsResolution == true: when ask is available ask which backend to use (ado: azure-devops MCP tool or printed az steps; manual: print steps only; gh: use the gh CLI anyway, likely to fail on a non-GitHub remote) and set PR_BACKEND to the answer; when it is not available set PR_BACKEND=manual. Otherwise PR_BACKEND = prBackend.backend. Print consolidatedMessage when non-null.
-
-### Step 3: Branch and Working Tree
+### Step 2: Branch and Working Tree
 
 **Actions:**
 1. Run: git status --porcelain -- . ':(exclude).beads'. Non-empty -> print the paths and HALT (commit, stash or revert first).
 2. CURRENT_BRANCH=`git symbolic-ref --short HEAD` (detached -> HALT). DEFAULT_BRANCH = `git symbolic-ref --short refs/remotes/origin/HEAD` without the origin/ prefix, else main.
-3. If CURRENT_BRANCH == DEFAULT_BRANCH: BRANCH_NAME = bead/<BEAD_ID>-<kebab-case BEAD_TITLE, non-alphanumerics to hyphens>. If it already exists run git switch <BRANCH_NAME>. Otherwise, when BRANCHING_STRATEGY==git-town run git town hack <BRANCH_NAME>; when plain-git run git checkout -b <BRANCH_NAME> <DEFAULT_BRANCH> (zero git town commands under plain-git). Otherwise stay on CURRENT_BRANCH.
+3. If CURRENT_BRANCH == DEFAULT_BRANCH: BRANCH_NAME = bead/<BEAD_ID>-<kebab-case BEAD_TITLE, non-alphanumerics to hyphens>. If it already exists run git switch <BRANCH_NAME>. Otherwise run: node "$TOOLCHAIN_CLI" run workflow.branch-create --run-id "$RUN_ID" --arg name=<BRANCH_NAME> --arg baseBranch=<DEFAULT_BRANCH> --json [add --non-interactive when --foreman is present] (resolves to the configured workflow adapter -- git-town hack or a plain git checkout -b -- internally; ok:false -> print the error and HALT). Otherwise stay on CURRENT_BRANCH.
 
 ## Phase 2: Execute
 
@@ -68,9 +59,10 @@ Same resolution as beads-build Preflight step 3, never cached across invocations
 
 ## Phase 3: Pull Request
 
-### Step 1: Open the PR per PR_BACKEND
+### Step 1: Open the Change Request
 
 **Actions:**
 1. Run: git push -u origin <branch>. PR title = BEAD_TITLE; body = Bead <BEAD_ID>, description, changes summary, test plan.
-2. PR_BACKEND==gh: gh pr create --title "<BEAD_TITLE>" --body "<body>" and capture the URL. PR_BACKEND==ado: use the azure-devops MCP tool when connected, else print: az repos pr create --source-branch <branch> --target-branch <base> --title "<BEAD_TITLE>". PR_BACKEND==manual: print the push result and tell the user to open the PR themselves.
-3. node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="pr:<URL or manual>" --json [add --non-interactive when --foreman is present]; print "Bead <BEAD_ID> complete. PR: <URL> | Branch: <branch>".
+2. Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-create --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the host adapter to open a change request for this session? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-create --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
+3. Run: node "$TOOLCHAIN_CLI" run host.change-request-create --run-id "$RUN_ID" --arg baseBranch=<base> --arg headBranch=<branch> --arg title="<BEAD_TITLE>" --arg description="<body>" --json [add --non-interactive when --foreman is present] and parse as CR_CREATE_RESULT. ok:true -> URL = CR_CREATE_RESULT.data.url. ok:false (for example no host adapter resolves, or the confirm gate denied it) -> print the push result and tell the user to open the change request themselves; URL = "manual".
+4. node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="pr:<URL or manual>" --json [add --non-interactive when --foreman is present]; print "Bead <BEAD_ID> complete. PR: <URL> | Branch: <branch>".

@@ -1,11 +1,13 @@
 ---
 name: "ensemble:pr-merge"
 description: "Drive an open PR to green and merged by dispatching one subagent per failing CI check and unresolved review thread, routed through the correct orchestrator"
-version: "2.0.0"
+version: "2.1.0"
 category: "git"
-last-updated: "2026-10-20"
+last-updated: "2026-10-23"
 allowed-tools: "Read, Bash, Task, Grep, Glob, TodoWrite"
-argument-hint: "[pr-number-or-url] [--max-rounds=N] [--dry-run]"
+capabilities-required: "host.change-request-view, host.change-request-checks, host.change-request-merge"
+capabilities-optional: "host.change-request-threads"
+argument-hint: "[pr-number-or-url] [--max-rounds=N] [--dry-run] [--foreman]"
 model: "opus"
 ---
 <!-- DO NOT EDIT - Generated from pr-merge.yaml -->
@@ -20,16 +22,22 @@ parallel, then re-verified against live state until green, then merged.
 
 ### Phase 1: PR Discovery
 
-**1. Resolve Target PR**
+**1. Toolchain Preflight**
+
+- Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
+- Run: node "$TOOLCHAIN_CLI" preflight --require host.change-request-view --require host.change-request-checks --require host.change-request-merge --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". host.change-request-threads is optional and not preflighted here; its call sites below are skipped silently on {ok:false}, never HALTing.
+
+**2. Resolve Target PR**
    Delegate to git-workflow.
 
-- HALT if no PR is found, it is MERGED/CLOSED, or isDraft is true (mark ready for review first; do not operate on drafts).
-- Record PR_NUMBER, PR_URL, HEAD_REF, BASE_REF.
+- HALT if CR_VIEW is not ok (no open change request found) or its state already reports the change request merged or closed, per the host adapter's own raw state vocabulary (see that adapter's SKILL.md).
+- HALT if the host adapter's own output or the git-workflow delegate's inspection shows the change request is still a draft (mark ready for review first; do not operate on drafts) -- the normalized change-request shape carries no isDraft field, so this check relies on the git-workflow delegate's own host-CLI knowledge.
+- Record PR_NUMBER, PR_URL, HEAD_REF, BASE_REF from CR_VIEW's id, url, headBranch, baseBranch.
 
    **Delegation:** @git-workflow
-   Resolve --pr (number or URL) or, if omitted, the PR for the current branch via gh pr view --json number,url,state,headRefName,baseRefName,mergeable,mergeStateStatus,reviewDecision,isDraft
+   Resolve --pr (number or URL) to PR_NUMBER (extract the trailing numeric path segment from a URL); if omitted, determine the open change request for the current branch, then run: node "$TOOLCHAIN_CLI" run host.change-request-view --run-id "$RUN_ID" --arg id=<PR_NUMBER> --json and parse stdout as CR_VIEW for id, url, state, baseBranch, headBranch, checks.
 
-**2. Baseline Findings Manifest**
+**3. Baseline Findings Manifest**
    Same manifest shape is rebuilt at the top of every round.
 
 - Checks: run the local-ci-gate skill for the current head; its verdict (verified pass for this exact head, or no/failed/stale run) replaces waiting on hosted checks. Pass the skill the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef. A failed gate run is a finding of kind check. Hosted checks are not watched to completion.
@@ -66,7 +74,7 @@ parallel, then re-verified against live state until green, then merged.
 
 - Rebuild the manifest from scratch (never reuse the pre-round one): re-run the local-ci-gate skill for the new head and gh pr view --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus.
 - Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
-- Manifest empty and mergeable == MERGEABLE: proceed to Merge and Report.
+- Manifest empty: proceed to Merge and Report.
 - Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
 - Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation.
 
@@ -79,7 +87,8 @@ parallel, then re-verified against live state until green, then merged.
 - Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision,latestReviews; if not MERGEABLE or a human reviewer's latest decisive review is CHANGES_REQUESTED (bots excluded, by account type), abort and run another verification round.
 - Run the sweep BEFORE merging: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 - If --dry-run: stop and report merge-readiness without merging.
-- Merge with gh pr merge using the repo's configured merge method (check branch protection/repo settings; do not assume); do NOT delete the source branch in this step.
+- Merge (confirm-gated): before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via AskUserQuestion "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed: the CLI auto-confirms and logs).
+- Merge: run node "$TOOLCHAIN_CLI" run host.change-request-merge --run-id "$RUN_ID" --arg id=<PR_NUMBER> --json [add --non-interactive when --foreman is present] (uses the host adapter's configured merge method; do not assume a specific strategy); do NOT delete the source branch in this step.
 - Run the sweep AFTER merging and BEFORE deleting the source branch: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 - Only after the post-merge sweep has run, delete the source branch unless it is long-lived.
 - Comment on the PR summarizing each remediated finding, its owner, and the round count.
@@ -102,5 +111,5 @@ parallel, then re-verified against live state until green, then merged.
 ## Usage
 
 ```
-/ensemble:pr-merge [pr-number-or-url] [--max-rounds=N] [--dry-run]
+/ensemble:pr-merge [pr-number-or-url] [--max-rounds=N] [--dry-run] [--foreman]
 ```

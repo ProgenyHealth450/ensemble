@@ -12,6 +12,10 @@ version: 2.0.0
 
 Verified against git-town 24.0.0. Ensemble requires >= 14.0.0.
 
+## Toolchain Capability
+
+`git-town` is also the `git-town` **workflow** adapter in the capability toolchain (TRD-039): `packages/git/skills/adapter-workflow-git-town/` maps `workflow.branch-create`/`workflow.sync`/`workflow.propose`/`workflow.ship` onto the `hack`/`sync`/`propose`/`ship` commands documented below, plus plain `git commit`/`git push`/`git status --porcelain` for the generic `workflow.commit`/`workflow.push`/`workflow.status` primitives every `workflow`-category adapter must implement (git-town itself has no standalone subcommand for those three). Commands should call these capabilities via `toolchain-cli` rather than invoke `git town`/`git` directly; the vocabulary below documents what each capability resolves to.
+
 ## Preflight
 
 `scripts/validate-git-town.sh` checks install, version and that the cwd is a git repo. Exit codes: 0 ok, 1 not installed, 2 not configured (non-fatal: git-town falls back to the git main branch), 3 version < 14, 4 not a git repo. `implement-trd-beads`, `beads-build` and `implement-bead` feed the code to `trd-cli resolve-sdlc`, which falls back to plain `git` when git-town is unavailable.

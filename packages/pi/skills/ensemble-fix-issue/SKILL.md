@@ -8,8 +8,9 @@ description: >-
   conversation history.
 disable-model-invocation: true
 ---
-<!-- Command: ensemble-fix-issue | Version: 1.4.0 -->
+<!-- Command: ensemble-fix-issue | Version: 1.5.0 -->
 <!-- Description: Lightweight workflow for bug fixes and small issues -->
+<!-- Capabilities: required=[host.change-request-create, workflow.commit, workflow.push], optional=[] -->
 
 # ensemble-fix-issue
 
@@ -110,8 +111,10 @@ Fail-closed gate on the skill's {status, localPhase, reasons, ledger, reportPath
 
 ### Step 3: PR Creation
 
-Commit, push, and open the pull request with GitHub CLI (always `gh`; ENSEMBLE_PR_BACKEND is not consulted here). Precondition: read prApprovedAt from IssueRunIndexStore.loadRun(projectRoot, runId) directly; null denies the call outright whatever the conversation claims, and only the Local Review and Batch Fix step sets it. Commit, push and PR creation proceed by default, without pauses under --foreman; --draft-pr and --foreman are independent.
-Commit message is conventional ("fix: {brief description}" or "fix(scope): ..."), referencing the issue in the body, not the title. `git add` only the files this workflow modified (never `git add .` or `-A`), commit, then `git push -u origin {branch-name}`. PR body: Problem, Solution, Changes, Test Plan, Checklist, and "Fixes #{issue-number}". PR title "Fix #{number}: {description}" with an issue number, else "Fix: {description}". Run `gh pr create [--draft when --draft-pr] --title ... --body ...` and extract the PR URL from its output. Without one (for example `gh pr create` failed) say so; Remote Review Disposition owns the no-PR-URL block.
+Commit, push, and open the change request via host/workflow toolchain adapters. Precondition: prApprovedAt (IssueRunIndexStore.loadRun(projectRoot, runId)) must be non-null, set only by Local Review and Batch Fix. Proceeds without pauses under --foreman.
+Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) via tool-path-resolution; preflight --require host.change-request-create --require workflow.commit --require workflow.push --json [add --non-interactive when --foreman is present]; ok:false -> print it and HALT; RUN_ID = runId, passed to later calls.
+`git add` explicit paths only (never `.`/`-A`). First workflow write: confirm-status workflow.commit --run-id "$RUN_ID" [add --non-interactive when --foreman]; if unconfirmed, ask "Allow commit/push this session? [yes/no]" (auto-confirmed under --foreman), then confirm-record workflow.commit. Run workflow.commit --arg message="fix: {description}", then workflow.push --arg branch="{branch-name}" (both --run-id "$RUN_ID" --json).
+PR body: Problem/Solution/Changes/Test Plan/Checklist, "Fixes #{issue-number}"; title "Fix #{number}: {description}" or "Fix: {description}". Same gate for host.change-request-create. Run host.change-request-create --run-id "$RUN_ID" --arg baseBranch=<DEFAULT_BRANCH> --arg headBranch="{branch-name}" --arg title="<title>" --arg description="<body>" --json [add --non-interactive when --foreman]; URL = data.url. --draft-pr has no capability input (note in body). No URL -> say so; Remote Review Disposition owns that block.
 
 ### Step 4: Remote Review Disposition
 
@@ -119,7 +122,7 @@ After the PR exists, evaluate the head-bound CodeRabbit review and decide whethe
 
 PR_URL is the URL PR Creation extracted, or on resume the last `pr:` beadRefs[] entry with the prefix stripped; only a value matching ^https?://\S+/pull/[0-9]+$ counts, anything else (empty, undefined, no entry) is "no PR URL". Never proceed with an undefined URL, write `pr:undefined`, or re-run PR Creation.
 
-No PR URL: skip the skill; REVIEW_STATUS is REVIEW_BLOCKED with next action "no PR URL recorded -- find the PR for this branch (gh pr view --json url -q .url, or gh pr list --head <branch> --state all --json url), or create it with gh pr create, record its URL as a pr:<url> beadRef, then re-invoke with no arguments (or --abandon)"; take the non-complete path below (detail "REVIEW_BLOCKED: no PR URL recorded"). Never restart at Test Validation.
+No PR URL: skip the skill; REVIEW_STATUS is REVIEW_BLOCKED with next action "no PR URL recorded -- find or create it via the host adapter (host.change-request-create), record its URL as a pr:<url> beadRef, then re-invoke with no arguments (or --abandon)"; take the non-complete path below (detail "REVIEW_BLOCKED: no PR URL recorded"). Never restart at Test Validation.
 
 With a PR URL: first record it once, whatever the outcome, so a later resume finds the PR: IssueRunIndexStore.mutate(projectRoot, runId, revision, (record) => { if (!record.beadRefs.includes(`pr:${prUrl}`)) record.beadRefs.push(`pr:${prUrl}`); }). Then invoke the shared pr-review-cycle skill, located at
 "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md",

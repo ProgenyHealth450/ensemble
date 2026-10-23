@@ -1,7 +1,9 @@
 /**
  * One beads execution engine: implement-trd-beads (TRD orchestrator) -> beads-build
  * (wave loop) -> beads-build-wave command (one wave, loaded by the thin beads-build-wave agent). implement-bead is a thin
- * single-bead entry that follows the same branching / PR_BACKEND / commit policy.
+ * single-bead entry that follows the same commit policy, but opens its branch/change-request
+ * through the workflow.branch-create/host.change-request-create toolchain capabilities instead
+ * of the other engines' resolve-sdlc branching/PR_BACKEND policy.
  *
  * These checks read the source YAML and assert policy that has to hold across all of
  * them, so a contradiction between the entry points fails here.
@@ -73,17 +75,17 @@ describe('beads-build --plan mode (replaces beads-plan)', () => {
 describe('implement-bead shares the engine policy', () => {
   const text = read('commands/implement-bead.yaml');
 
-  test('resolves branching strategy and PR backend through resolve-sdlc', () => {
-    expect(text).toMatch(/resolve-sdlc/);
-    expect(text).toMatch(/PR_BACKEND==gh/);
-    expect(text).toMatch(/PR_BACKEND==ado/);
-    expect(text).toMatch(/PR_BACKEND==manual/);
+  test('opens its change request and creates its branch through the host/workflow toolchain capabilities, not resolve-sdlc PR_BACKEND', () => {
+    expect(text).not.toMatch(/resolve-sdlc --git-town-exit-code/);
+    expect(text).not.toMatch(/PR_BACKEND==/);
+    expect(text).toMatch(/run host\.change-request-create/);
+    expect(text).toMatch(/run workflow\.branch-create/);
   });
 
-  test('never creates a branch with a hard-coded git town fallback', () => {
-    expect(text).not.toMatch(/git town hack[^.]*fallback/i);
-    expect(text).toMatch(/BRANCHING_STRATEGY==git-town/);
-    expect(text).toMatch(/plain-git/);
+  test('creates branches through workflow.branch-create, never a hard-coded git-town/plain-git branch', () => {
+    expect(text).not.toMatch(/git town hack/i);
+    expect(text).not.toMatch(/BRANCHING_STRATEGY==/);
+    expect(text).toMatch(/run workflow\.branch-create/);
   });
 
   test('its dirty-tree gate ignores br state under .beads/', () => {
