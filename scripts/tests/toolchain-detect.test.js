@@ -27,7 +27,13 @@ const path = require('path');
 const yaml = require('js-yaml');
 const { execFileSync, spawnSync } = require('child_process');
 
-const { detectAdapter } = require('../../packages/development/lib/toolchain/detect');
+const {
+  detectAdapter,
+  testRemoteUrlPattern,
+  checkRemoteUrlMatchPatternStatic,
+  __resetDetectionCachesForTests,
+  __getRemoteUrlMatchCacheMissesForTests
+} = require('../../packages/development/lib/toolchain/detect');
 const { resolveCategory } = require('../../packages/development/lib/toolchain/config');
 const { main } = require('../../packages/development/lib/toolchain-cli');
 const {
@@ -40,6 +46,7 @@ const CLI = path.join(__dirname, '..', '..', 'packages', 'development', 'lib', '
 const tempDirs = [];
 
 afterEach(() => {
+  __resetDetectionCachesForTests();
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
   }
@@ -689,26 +696,11 @@ describe('production wiring: main() uses the real detectAdapter via its unmodifi
  * example (`'a'.repeat(40) + '!'`).
  */
 describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)', () => {
-  test('a catastrophic-backtracking pattern against a real near-matching origin URL throws a named DETECTION_SIGNAL_ERROR within a few hundred ms, never hangs', () => {
-    const projectRoot = mkTempDir('toolchain-detect-regex-deadline-');
-    initGitRepo(projectRoot);
-    setGitRemote(projectRoot, 'a'.repeat(40) + '!');
-
-    writeInstalledAdapter(
-      projectRoot,
-      'fixture-pkg',
-      'fixture-evil',
-      fixtureManifest({
-        adapter: 'fixture-evil',
-        categories: ['tracker'],
-        detect: [{ signal: 'remote_url_matches', pattern: '^(a+)+$' }]
-      })
-    );
-
+  test('a catastrophic-backtracking pattern against a real near-matching origin URL throws a named DETECTION_SIGNAL_ERROR within a few hundred ms, never hangs (unit level: testRemoteUrlPattern, the function detectAdapter delegates the actual evaluation to)', () => {
     const start = Date.now();
     let thrown;
     try {
-      detectAdapter('tracker', { projectRoot });
+      testRemoteUrlPattern('^(a+)+$', 'a'.repeat(40) + '!');
     } catch (error) {
       thrown = error;
     }
@@ -716,51 +708,20 @@ describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)',
 
     expect(thrown).toBeDefined();
     expect(thrown.code).toBe('DETECTION_SIGNAL_ERROR');
-    expect(thrown.message).toContain('fixture-evil');
-    expect(thrown.message).toContain('remote_url_matches');
+    expect(thrown.pattern).toBe('^(a+)+$');
     expect(thrown.message).toContain('^(a+)+$');
     // Generous margin above the ~200ms deadline: proves this returns promptly, never hangs.
     expect(elapsedMs).toBeLessThan(2000);
   });
 
-  test('an oversized pattern is rejected by name, never evaluated', () => {
-    const projectRoot = mkTempDir('toolchain-detect-regex-oversize-');
-    initGitRepo(projectRoot);
-    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
-
-    writeInstalledAdapter(
-      projectRoot,
-      'fixture-pkg',
-      'fixture-oversize',
-      fixtureManifest({
-        adapter: 'fixture-oversize',
-        categories: ['tracker'],
-        detect: [{ signal: 'remote_url_matches', pattern: 'a'.repeat(600) }]
-      })
-    );
-
-    expect(() => detectAdapter('tracker', { projectRoot })).toThrow(
+  test('an oversized pattern is rejected by name, never evaluated (unit level: testRemoteUrlPattern)', () => {
+    expect(() => testRemoteUrlPattern('a'.repeat(600), 'https://github.com/example/repo.git')).toThrow(
       expect.objectContaining({ code: 'DETECTION_SIGNAL_ERROR' })
     );
   });
 
-  test('an invalid regex pattern is rejected by name, never silently treated as no-match', () => {
-    const projectRoot = mkTempDir('toolchain-detect-regex-invalid-');
-    initGitRepo(projectRoot);
-    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
-
-    writeInstalledAdapter(
-      projectRoot,
-      'fixture-pkg',
-      'fixture-badregex',
-      fixtureManifest({
-        adapter: 'fixture-badregex',
-        categories: ['tracker'],
-        detect: [{ signal: 'remote_url_matches', pattern: '(unterminated' }]
-      })
-    );
-
-    expect(() => detectAdapter('tracker', { projectRoot })).toThrow(
+  test('an invalid regex pattern is rejected by name, never silently treated as no-match (unit level: testRemoteUrlPattern)', () => {
+    expect(() => testRemoteUrlPattern('(unterminated', 'https://github.com/example/repo.git')).toThrow(
       expect.objectContaining({ code: 'DETECTION_SIGNAL_ERROR' })
     );
   });
@@ -787,7 +748,7 @@ describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)',
     });
   });
 
-  test('production wiring: a catastrophic pattern reaches a real "toolchain-cli resolve --json" subprocess as a named error, not a hang', () => {
+  test('production wiring: a catastrophic pattern reaches a real "toolchain-cli resolve --json" subprocess as a named, bounded-time result -- never a hang -- and the underlying deadline failure is still surfaced on stderr even though the adapter itself is excluded rather than propagated', () => {
     const projectRoot = mkTempDir('toolchain-detect-regex-cli-');
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'a'.repeat(40) + '!');
@@ -816,11 +777,17 @@ describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)',
     expect(result.signal).toBeNull();
     expect(result.status).toBe(1);
     const parsed = JSON.parse(result.stdout);
+    // 'fixture-evil-cli' is EXCLUDED (PR 4 review round 2, Finding 1), not propagated as
+    // DETECTION_SIGNAL_ERROR: this fixture is the adapter's only candidate for 'tracker', so
+    // excluding it still correctly reports AMBIGUOUS_PROVIDER (an origin URL that matches no
+    // USABLE adapter signal) -- a clean, named, bounded-time result either way, never a hang.
     expect(parsed).toEqual({
       ok: false,
-      error: { code: 'DETECTION_SIGNAL_ERROR', message: expect.any(String) }
+      error: { code: 'AMBIGUOUS_PROVIDER', message: expect.any(String) }
     });
-    expect(parsed.error.message).toContain('fixture-evil-cli');
+    // The underlying cause (the catastrophic pattern itself) is still named, on stderr.
+    expect(result.stderr).toContain("adapter 'fixture-evil-cli'");
+    expect(result.stderr).toContain('^(a+)+$');
   });
 
   describe('mutation-proof: removing the vm timeout lets a catastrophic pattern hang', () => {
@@ -871,6 +838,435 @@ describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)',
         expect(child.signal !== null || (child.error && child.error.code === 'ETIMEDOUT')).toBe(
           true
         );
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+});
+
+/** Capture everything written to `process.stderr.write` while `fn` runs. */
+function captureStderr(fn) {
+  const chunks = [];
+  const spy = jest.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    chunks.push(chunk);
+    return true;
+  });
+  try {
+    fn();
+  } finally {
+    spy.mockRestore();
+  }
+  return chunks.join('');
+}
+
+/**
+ * TRD-2026-8d825f54 PR 4 review round 2, Finding 1: one candidate adapter's
+ * `DETECTION_SIGNAL_ERROR` (bad `remote_url_matches` pattern) excludes ONLY that candidate from
+ * detection -- it never aborts the whole `detectAdapter` sweep (which would otherwise fail
+ * every category a caller like `resolve`/`explain`/`preflight`/`run` loops over, not just the
+ * one category the bad adapter happens to declare).
+ */
+describe("remote_url_matches: a bad pattern excludes only that candidate (PR 4 review round 2, Finding 1)", () => {
+  test('a good adapter is still detected for the same category even though a catastrophic-pattern adapter is also a candidate there; the bad one is reported, never silently dropped', () => {
+    const projectRoot = mkTempDir('toolchain-detect-scope-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'x'.repeat(40) + '!');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'good-tracker',
+      fixtureManifest({
+        adapter: 'good-tracker',
+        categories: ['tracker'],
+        detect: [{ signal: 'file_exists', path: 'marker.txt' }]
+      })
+    );
+    fs.writeFileSync(path.join(projectRoot, 'marker.txt'), 'present\n');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'bad-tracker',
+      fixtureManifest({
+        adapter: 'bad-tracker',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]
+      })
+    );
+
+    const diagnostics = [];
+    let stderr;
+    let result;
+    stderr = captureStderr(() => {
+      result = detectAdapter('tracker', { projectRoot, diagnostics });
+    });
+
+    expect(result).toEqual({ value: 'good-tracker', source: 'detection' });
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toEqual({
+      adapter: 'bad-tracker',
+      signal: 'remote_url_matches',
+      pattern: '^(x+x)+$',
+      category: 'tracker',
+      reason: expect.any(String)
+    });
+    expect(stderr).toContain("adapter 'bad-tracker'");
+    expect(stderr).toContain('^(x+x)+$');
+  });
+
+  test('production wiring: toolchain-cli explain --json surfaces detectionDiagnostics for the excluded adapter while the good adapter still resolves, other categories unaffected and fast', () => {
+    const projectRoot = mkTempDir('toolchain-detect-scope-explain-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'x'.repeat(40) + '!');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'good-explain-tracker',
+      fixtureManifest({
+        adapter: 'good-explain-tracker',
+        categories: ['tracker'],
+        detect: [{ signal: 'file_exists', path: 'marker.txt' }]
+      })
+    );
+    fs.writeFileSync(path.join(projectRoot, 'marker.txt'), 'present\n');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'bad-explain-tracker',
+      fixtureManifest({
+        adapter: 'bad-explain-tracker',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]
+      })
+    );
+
+    const xdgConfigHome = mkTempDir('toolchain-detect-scope-explain-xdg-');
+    const start = Date.now();
+    const res = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env: { PATH: process.env.PATH, XDG_CONFIG_HOME: xdgConfigHome },
+      encoding: 'utf8'
+    });
+    const elapsedMs = Date.now() - start;
+
+    expect(res.status).toBe(0);
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data.tracker.adapter).toBe('good-explain-tracker');
+    expect(parsed.data.tracker.source).toBe('detection');
+    expect(parsed.data.tracker.detectionDiagnostics).toEqual([
+      {
+        adapter: 'bad-explain-tracker',
+        signal: 'remote_url_matches',
+        pattern: '^(x+x)+$',
+        category: 'tracker',
+        reason: expect.any(String)
+      }
+    ]);
+    // Every other category: no diagnostics at all (the bad adapter only declares 'tracker'),
+    // a plain shipped default, exactly as if the bad adapter never existed.
+    const otherCategories = Object.keys(parsed.data).filter((c) => c !== 'tracker');
+    expect(otherCategories.length).toBeGreaterThan(0);
+    for (const category of otherCategories) {
+      expect(parsed.data[category].detectionDiagnostics).toBeUndefined();
+    }
+    // Generous margin: one ~200ms deadline, not a hang and not a cascading per-category cost.
+    expect(elapsedMs).toBeLessThan(5000);
+    expect(res.stderr).toContain("adapter 'bad-explain-tracker'");
+  });
+
+  test('the excluded adapter is logged to stderr once per process even when it is a candidate for two different categories (dedup)', () => {
+    const projectRoot = mkTempDir('toolchain-detect-dedup-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'x'.repeat(40) + '!');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'good-dedup-tracker',
+      fixtureManifest({
+        adapter: 'good-dedup-tracker',
+        categories: ['tracker', 'workflow'],
+        detect: [{ signal: 'file_exists', path: 'marker.txt' }]
+      })
+    );
+    fs.writeFileSync(path.join(projectRoot, 'marker.txt'), 'present\n');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'bad-dedup-tracker',
+      fixtureManifest({
+        adapter: 'bad-dedup-tracker',
+        categories: ['tracker', 'workflow'],
+        detect: [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]
+      })
+    );
+
+    const stderr = captureStderr(() => {
+      expect(detectAdapter('tracker', { projectRoot })).toEqual({
+        value: 'good-dedup-tracker',
+        source: 'detection'
+      });
+      expect(detectAdapter('workflow', { projectRoot })).toEqual({
+        value: 'good-dedup-tracker',
+        source: 'detection'
+      });
+    });
+
+    const matchingLines = stderr.split('\n').filter((line) => line.includes('bad-dedup-tracker'));
+    expect(matchingLines).toHaveLength(1);
+  });
+
+  describe('mutation-proof: restoring propagate-and-abort breaks every category whenever any one adapter has a bad pattern', () => {
+    test("reverting the 'continue' back to re-throwing DETECTION_SIGNAL_ERROR makes the whole explain call fail (losing the GOOD adapter's result too), instead of excluding only the bad candidate", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          "      if (error && error.code === 'DETECTION_SIGNAL_ERROR') {\n" +
+          "        // Exclude ONLY this candidate (same convention as the loadAdapter catch above) --\n" +
+          "        // never abort the whole sweep for every other adapter/category (PR 4 review round 2,\n" +
+          "        // Finding 1). Reported, never silent: see recordDetectionSignalFailure.\n" +
+          "        recordDetectionSignalFailure(name, category, error, ctx);\n" +
+          "        continue;\n" +
+          "      }\n" +
+          "      throw error;";
+        const replacement =
+          "      if (error && error.code === 'DETECTION_SIGNAL_ERROR') {\n" +
+          "        error.message = `detectAdapter: adapter '${name}' ${error.message}`;\n" +
+          "      }\n" +
+          "      throw error;";
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/detect.js', needle, replacement);
+
+        const projectRoot = mkTempDir('toolchain-detect-scope-mutant-');
+        initGitRepo(projectRoot);
+        setGitRemote(projectRoot, 'x'.repeat(40) + '!');
+
+        const skillDir = (name) => path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', name);
+        for (const [name, detect] of [
+          ['good-mutant-tracker', [{ signal: 'file_exists', path: 'marker.txt' }]],
+          ['bad-mutant-tracker', [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]]
+        ]) {
+          const dir = skillDir(name);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(
+            path.join(dir, 'adapter.yaml'),
+            yaml.dump(fixtureManifest({ adapter: name, categories: ['tracker'], detect }))
+          );
+          fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\n`);
+        }
+        fs.writeFileSync(path.join(projectRoot, 'marker.txt'), 'present\n');
+
+        // With propagate-and-abort restored, the entire category-level call throws instead of
+        // excluding only the bad candidate -- exactly what the real (unmutated) "a good adapter
+        // is still detected" test above disproves.
+        expect(() => mutated.detectAdapter('tracker', { projectRoot })).toThrow(
+          expect.objectContaining({ code: 'DETECTION_SIGNAL_ERROR' })
+        );
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review round 2, Finding 2: the `vm` context in `testRemoteUrlPattern`
+ * is an execution deadline, never a sandbox -- a hostile `pattern` string is only ever used as
+ * DATA (a `RegExp` source), never executable code, so it can never cause a side effect or exit
+ * the process. `codeGeneration: {strings: false, wasm: false}` is defense in depth on top of
+ * that guarantee.
+ */
+describe('remote_url_matches pattern evaluation: not a sandbox, hostile patterns are pure data (PR 4 review round 2, Finding 2)', () => {
+  test('hostile pattern strings (a function-expression payload, a process.exit payload, a template-literal payload) never execute: no file written, process stays alive, result is a boolean or a named DETECTION_SIGNAL_ERROR', () => {
+    const markerPath = path.join(os.tmpdir(), `detect-hostile-marker-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+    const hostilePatterns = [
+      `(function(){require('fs').writeFileSync(${JSON.stringify(markerPath)},'x')})()`,
+      `require('fs').writeFileSync(${JSON.stringify(markerPath)},'x');process.exit(1)`,
+      '${' + `require('fs').writeFileSync(${JSON.stringify(markerPath)},'x')` + '}'
+    ];
+
+    try {
+      for (const pattern of hostilePatterns) {
+        let result;
+        let thrown;
+        try {
+          result = testRemoteUrlPattern(pattern, 'https://github.com/example/repo.git');
+        } catch (error) {
+          thrown = error;
+        }
+        if (thrown) {
+          expect(thrown.code).toBe('DETECTION_SIGNAL_ERROR');
+        } else {
+          expect(typeof result).toBe('boolean');
+        }
+      }
+      // The surest proof of "no code execution": the file the payloads tried to write never
+      // exists, and (trivially, since this assertion itself is still running) the process
+      // never exited.
+      expect(fs.existsSync(markerPath)).toBe(false);
+    } finally {
+      fs.rmSync(markerPath, { force: true });
+    }
+  });
+
+  test("codeGeneration:{strings:false} blocks eval()/Function() string compilation inside a context configured the same way testRemoteUrlPattern's is (defense in depth, even though the fixed script here never calls either)", () => {
+    const vm = require('vm');
+    const sandbox = vm.createContext(
+      { marker: 'unexecuted' },
+      { codeGeneration: { strings: false, wasm: false } }
+    );
+
+    expect(() => vm.runInContext('eval("1+1")', sandbox)).toThrow();
+    expect(() => vm.runInContext('new Function("return 1")()', sandbox)).toThrow();
+
+    // A context WITHOUT the restriction behaves differently, proving the option above is what
+    // is actually blocking it (not some unrelated environment quirk).
+    const unrestricted = vm.createContext({});
+    expect(vm.runInContext('eval("1+1")', unrestricted)).toBe(2);
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review round 2, Finding 3: `remote_url_matches` evaluation is memoized
+ * per `(adapter id, signal kind, pattern, origin URL)` for the lifetime of the process, so a
+ * single adapter declared across many categories pays its (bounded) evaluation cost once, not
+ * once per category `detectAdapter` is asked about.
+ */
+describe('remote_url_matches: per-process memoization (PR 4 review round 2, Finding 3)', () => {
+  function mkManyCategoryProject(prefix) {
+    const projectRoot = mkTempDir(prefix);
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'x'.repeat(40) + '!');
+
+    const categories = ['tracker', 'workflow', 'worktree', 'host', 'lint'];
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'good-memo-tracker',
+      fixtureManifest({
+        adapter: 'good-memo-tracker',
+        categories,
+        detect: [{ signal: 'file_exists', path: 'marker.txt' }]
+      })
+    );
+    fs.writeFileSync(path.join(projectRoot, 'marker.txt'), 'present\n');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'bad-memo-tracker',
+      fixtureManifest({
+        adapter: 'bad-memo-tracker',
+        categories,
+        detect: [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]
+      })
+    );
+
+    return { projectRoot, categories };
+  }
+
+  test('sweeping 5 categories that all share the same catastrophic-pattern candidate evaluates that pattern exactly once (cache misses == 1), not once per category', () => {
+    const { projectRoot, categories } = mkManyCategoryProject('toolchain-detect-memo-');
+
+    for (const category of categories) {
+      expect(detectAdapter(category, { projectRoot })).toEqual({
+        value: 'good-memo-tracker',
+        source: 'detection'
+      });
+    }
+
+    expect(__getRemoteUrlMatchCacheMissesForTests()).toBe(1);
+  });
+
+  test('production wiring: toolchain-cli explain --json across all 14 categories with the SAME catastrophic-pattern candidate declared everywhere completes well under one second (one deadline total, not 14)', () => {
+    const { projectRoot } = mkManyCategoryProject('toolchain-detect-memo-cli-');
+    // Extend the shared adapters to every one of the 14 real categories so this exercises the
+    // full `explain` sweep, not just the 5-category subset above.
+    const allCategories = [
+      'host', 'workflow', 'worktree', 'tracker', 'work-graph', 'ci-local', 'review', 'lint',
+      'test-runner', 'e2e-quality', 'container-deploy', 'iac', 'platform-cloud', 'package-runner'
+    ];
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'good-memo-tracker',
+      fixtureManifest({
+        adapter: 'good-memo-tracker',
+        categories: allCategories,
+        detect: [{ signal: 'file_exists', path: 'marker.txt' }]
+      })
+    );
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'bad-memo-tracker',
+      fixtureManifest({
+        adapter: 'bad-memo-tracker',
+        categories: allCategories,
+        detect: [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]
+      })
+    );
+
+    const xdgConfigHome = mkTempDir('toolchain-detect-memo-cli-xdg-');
+    const start = Date.now();
+    const res = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env: { PATH: process.env.PATH, XDG_CONFIG_HOME: xdgConfigHome },
+      encoding: 'utf8'
+    });
+    const elapsedMs = Date.now() - start;
+
+    expect(res.status).toBe(0);
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.ok).toBe(true);
+    for (const category of allCategories) {
+      expect(parsed.data[category].adapter).toBe('good-memo-tracker');
+    }
+    // Without memoization this would cost roughly 14 * 200ms =~ 2.8s; with it, roughly one
+    // 200ms deadline total. Generous margin well below the unmemoized cost.
+    expect(elapsedMs).toBeLessThan(2000);
+  });
+
+  describe('mutation-proof: removing the memoization cache re-evaluates the same pattern once per category', () => {
+    test("reverting signalMatches' remote_url_matches case to call testRemoteUrlPattern directly (bypassing evaluateRemoteUrlMatch) makes cache misses equal the category count instead of 1", () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle = 'return evaluateRemoteUrlMatch(adapterName, signal.pattern, url);';
+        const replacement = 'return testRemoteUrlPattern(signal.pattern, url);';
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/detect.js', needle, replacement);
+
+        const projectRoot = mkTempDir('toolchain-detect-memo-mutant-');
+        initGitRepo(projectRoot);
+        setGitRemote(projectRoot, 'x'.repeat(40) + '!');
+
+        const categories = ['tracker', 'workflow', 'worktree', 'host', 'lint'];
+        const skillDir = (name) => path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', name);
+        for (const [name, detect] of [
+          ['good-memo-mutant-tracker', [{ signal: 'file_exists', path: 'marker.txt' }]],
+          ['bad-memo-mutant-tracker', [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]]
+        ]) {
+          const dir = skillDir(name);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(
+            path.join(dir, 'adapter.yaml'),
+            yaml.dump(fixtureManifest({ adapter: name, categories, detect }))
+          );
+          fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\n`);
+        }
+        fs.writeFileSync(path.join(projectRoot, 'marker.txt'), 'present\n');
+
+        for (const category of categories) {
+          mutated.detectAdapter(category, { projectRoot });
+        }
+
+        // With the memoization bypassed, every category pays its own full evaluation -- exactly
+        // what the real (unmutated) "cache misses == 1" test above disproves.
+        expect(mutated.__getRemoteUrlMatchCacheMissesForTests()).toBe(categories.length);
       } finally {
         mutantRoot.cleanup();
       }

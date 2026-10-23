@@ -55,6 +55,61 @@
  * "subsection"]`, `key = value` lines) sufficient to answer `remote.origin.url` and arbitrary
  * `git_config_set` lookups.
  *
+ * ## `remote_url_matches`: a bad pattern on one adapter never breaks detection for the rest
+ *
+ * (PR 4 review round 2, Finding 1.) A `DETECTION_SIGNAL_ERROR` from `testRemoteUrlPattern`
+ * (oversized/invalid pattern, or a deadline timeout -- see below) EXCLUDES only the candidate
+ * adapter that declared the bad pattern from THIS category's sweep -- the exact same convention
+ * the nearby `loadAdapter` try/catch already uses for an uninstalled/untrusted candidate. It
+ * never aborts the whole `detectAdapter` call (which would otherwise fail every category a
+ * caller like `toolchain-cli explain`/`resolve` loops over, not just the one category the bad
+ * adapter happens to declare). Each exclusion is reported, never silent:
+ *   - if `ctx.diagnostics` is an array, one `{adapter, signal, pattern, category, reason}`
+ *     record (every string field sanitized -- control characters, including ANSI escapes,
+ *     stripped) is pushed onto it per excluded candidate. `toolchain-cli.js`'s `resolveAll`
+ *     (serving both `resolve`/`explain`) supplies a fresh array per category and attaches it as
+ *     `data.<category>.detectionDiagnostics` when non-empty.
+ *   - one sanitized line is written to `process.stderr` per DISTINCT `(adapter, pattern)` pair,
+ *     de-duplicated for the lifetime of this process (a module-level `Set`) so a pattern that
+ *     keeps failing across many categories/invocations within one process logs once, not once
+ *     per sweep.
+ * `AMBIGUOUS_PROVIDER` and the "no signal source at all" default-fallback semantics above are
+ * completely unchanged by this: an excluded candidate still counts toward
+ * `candidateDeclaresRemoteSignal` (it DID declare a `remote_url_matches` signal, just a broken
+ * one), so an origin URL matching nothing else still correctly reports ambiguous rather than
+ * silently defaulting.
+ *
+ * ## `remote_url_matches` pattern evaluation: a deadline, not a sandbox
+ *
+ * (PR 4 review round 2, Finding 2.) Each pattern is evaluated under a hard
+ * `REMOTE_URL_MATCH_TIMEOUT_MS` wall-clock deadline via `vm.Script#runInContext`'s `{timeout}`
+ * option -- this interrupts even catastrophic backtracking (e.g. `^(a+)+$` against a long
+ * near-matching string), which a plain `new RegExp(pattern).test(url)` call has no way to
+ * abort. **This is not a sandbox or an isolation boundary**: `vm.createContext` shares the
+ * host's built-in intrinsics, so running code "inside" it is not meaningfully separated from
+ * the surrounding process. It is used here solely because it is the one primitive Node exposes
+ * for imposing an execution deadline on synchronous JS. The only thing that ever varies between
+ * calls is DATA -- `pattern`/`url`, assigned as plain string properties on the context object,
+ * never concatenated into source text -- while the SCRIPT itself is the one fixed, literal
+ * string `'__result = new RegExp(pattern).test(url);'`, so a hostile `pattern` value can never
+ * become executable code through this path regardless of its content.
+ * `codeGeneration: {strings: false, wasm: false}` is set on the context as defense in depth
+ * (it disables `eval()`/`new Function()`/`WebAssembly` string compilation inside the context):
+ * today's fixed script never needs it, but it costs nothing and narrows what a future change to
+ * this function could do by accident.
+ *
+ * ## `remote_url_matches` pattern evaluation is memoized per process
+ *
+ * (PR 4 review round 2, Finding 3.) `detectAdapter` re-sweeps every candidate once per
+ * `category` a caller asks about (`resolve`/`explain` ask about all 14), so without caching a
+ * single adapter's `remote_url_matches` signal would pay its own (bounded, but non-trivial for
+ * a timed-out pattern) evaluation cost once per category it declares. `evaluateRemoteUrlMatch`
+ * memoizes the RAW result (including a thrown `DETECTION_SIGNAL_ERROR`) in a module-level,
+ * size-bounded `Map` keyed on the full `(adapter id, signal kind, pattern, origin URL)` tuple
+ * for the lifetime of the process: a result (success or failure) computed once for one category
+ * is reused for every other category the same adapter declares, so a catastrophic pattern costs
+ * one `REMOTE_URL_MATCH_TIMEOUT_MS` timeout total per process, not one per category.
+ *
  * ## Known limits
  *
  * - No interactive adapter-selection UI exists anywhere in this codebase yet (out of scope for
@@ -67,17 +122,6 @@
  *   `execFile`-based fallback (`./runner.js#buildChildEnv`) if a real adapter ever needs it.
  * - `remote_url_matches` only inspects the `origin` remote; other remote names are not
  *   consulted (no documented signal needs them yet).
- * - `remote_url_matches` pattern evaluation is bounded (PR 4 review Finding 4): each pattern is
- *   compiled and run inside a fresh, frozen `vm` context holding only `pattern`/`url`, under a
- *   hard `REMOTE_URL_MATCH_TIMEOUT_MS` wall-clock deadline -- this interrupts even catastrophic
- *   backtracking (e.g. `^(a+)+$` against a long near-matching string), which a plain
- *   `new RegExp(pattern).test(url)` call would otherwise hang on indefinitely. An oversized
- *   pattern (`MAX_REMOTE_URL_PATTERN_LENGTH`), an oversized origin URL
- *   (`MAX_REMOTE_URL_LENGTH`), an invalid pattern, or a timeout are never silently treated as
- *   "no match": each throws a named `Error` with `.code === 'DETECTION_SIGNAL_ERROR'` naming
- *   the adapter, the `remote_url_matches` signal and the offending pattern, which propagates
- *   uncaught out of `detectAdapter` (exactly like `AMBIGUOUS_PROVIDER` already does) so the
- *   failure is reported to the caller -- fail closed, never a silent skip, never a hang.
  */
 
 const vm = require('vm');
@@ -85,14 +129,31 @@ const vm = require('vm');
 const REMOTE_URL_MATCH_TIMEOUT_MS = 200;
 const MAX_REMOTE_URL_PATTERN_LENGTH = 512;
 const MAX_REMOTE_URL_LENGTH = 2048;
+const MAX_REMOTE_URL_MATCH_CACHE_ENTRIES = 500;
+
+/**
+ * Strip ASCII control characters (0x00-0x1F, 0x7F -- this range already covers the ESC byte
+ * 0x1B that begins an ANSI escape sequence, so stripping it alone neutralizes the sequence into
+ * harmless literal text) from a value before it is ever written to `process.stderr` or placed
+ * into a diagnostics record a caller might print. Never throws: a non-string is stringified
+ * first.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function sanitizeForLog(value) {
+  return String(value).replace(/[\x00-\x1F\x7F]/g, '');
+}
 
 /**
  * Evaluate `new RegExp(pattern).test(url)` under a hard `REMOTE_URL_MATCH_TIMEOUT_MS`
- * wall-clock deadline, inside a fresh `vm` context holding only `pattern`/`url` -- bounds
- * catastrophic-backtracking regexes so a single adapter's `remote_url_matches` pattern can
- * never hang detection. Never returns a bare `false` on failure: an oversized pattern/URL, an
- * invalid pattern, or a timeout all throw a named `Error` with
- * `.code === 'DETECTION_SIGNAL_ERROR'` so the caller reports (never silently swallows) which
+ * wall-clock deadline. See this file's header "pattern evaluation: a deadline, not a sandbox"
+ * section for exactly what the `vm` usage below is (an execution deadline) and is not (a
+ * security sandbox).
+ *
+ * Never returns a bare `false` on failure: an oversized pattern/URL, an invalid pattern, or a
+ * timeout all throw a named `Error` with `.code === 'DETECTION_SIGNAL_ERROR'` and a `.pattern`
+ * field carrying the raw pattern value, so the caller reports (never silently swallows) which
  * signal failed.
  *
  * @param {unknown} pattern
@@ -101,9 +162,11 @@ const MAX_REMOTE_URL_LENGTH = 2048;
  * @throws {Error} with `.code === 'DETECTION_SIGNAL_ERROR'`
  */
 function testRemoteUrlPattern(pattern, url) {
+  remoteUrlMatchEvaluationCount += 1;
   if (typeof pattern !== 'string' || pattern.length === 0) {
     const error = new Error('remote_url_matches: pattern must be a non-empty string');
     error.code = 'DETECTION_SIGNAL_ERROR';
+    error.pattern = pattern;
     throw error;
   }
   if (pattern.length > MAX_REMOTE_URL_PATTERN_LENGTH) {
@@ -112,6 +175,7 @@ function testRemoteUrlPattern(pattern, url) {
         `${MAX_REMOTE_URL_PATTERN_LENGTH}-character limit`
     );
     error.code = 'DETECTION_SIGNAL_ERROR';
+    error.pattern = pattern;
     throw error;
   }
   if (typeof url !== 'string' || url.length > MAX_REMOTE_URL_LENGTH) {
@@ -119,10 +183,17 @@ function testRemoteUrlPattern(pattern, url) {
       `remote_url_matches: origin URL length exceeds the ${MAX_REMOTE_URL_LENGTH}-character limit`
     );
     error.code = 'DETECTION_SIGNAL_ERROR';
+    error.pattern = pattern;
     throw error;
   }
 
-  const sandbox = vm.createContext({ pattern, url, __result: undefined });
+  // `pattern`/`url` are DATA on this context object, never source text; the only script ever
+  // compiled/run against it is the one fixed literal string below (see header doc). The
+  // `codeGeneration` option is defense in depth, not load-bearing for that guarantee.
+  const sandbox = vm.createContext(
+    { pattern, url, __result: undefined },
+    { codeGeneration: { strings: false, wasm: false } }
+  );
   try {
     const script = new vm.Script('__result = new RegExp(pattern).test(url);');
     script.runInContext(sandbox, { timeout: REMOTE_URL_MATCH_TIMEOUT_MS });
@@ -136,7 +207,135 @@ function testRemoteUrlPattern(pattern, url) {
         : `remote_url_matches: pattern '${pattern}' is invalid (${cause && cause.message})`
     );
     error.code = 'DETECTION_SIGNAL_ERROR';
+    error.pattern = pattern;
     throw error;
+  }
+}
+
+/**
+ * Static, author-time check for one `remote_url_matches` signal's `pattern`: non-empty string,
+ * within `MAX_REMOTE_URL_PATTERN_LENGTH`, and compiles as a regex. This NEVER runs the pattern
+ * against any input (`new RegExp(pattern)` only parses syntax; it does not match), so unlike
+ * `testRemoteUrlPattern` it carries no ReDoS risk and needs no deadline -- it exists so
+ * `./validate.js`'s static gate can reject a bad pattern at `toolchain-cli validate` time,
+ * reusing these exact limits (exported from this one place; `validate.js` never redeclares
+ * them).
+ *
+ * @param {unknown} pattern
+ * @returns {{ok: true} | {ok: false, error: string}}
+ */
+function checkRemoteUrlMatchPatternStatic(pattern) {
+  if (typeof pattern !== 'string' || pattern.length === 0) {
+    return { ok: false, error: 'pattern must be a non-empty string' };
+  }
+  if (pattern.length > MAX_REMOTE_URL_PATTERN_LENGTH) {
+    return {
+      ok: false,
+      error: `pattern length ${pattern.length} exceeds the ${MAX_REMOTE_URL_PATTERN_LENGTH}-character limit`
+    };
+  }
+  try {
+    // eslint-disable-next-line no-new -- compiling only, to check syntax; never matched against
+    // any input here, so this is never subject to catastrophic backtracking.
+    new RegExp(pattern);
+  } catch (error) {
+    return { ok: false, error: `pattern is invalid (${error.message})` };
+  }
+  return { ok: true };
+}
+
+const remoteUrlMatchCache = new Map();
+let remoteUrlMatchEvaluationCount = 0;
+
+function remoteUrlMatchCacheKey(adapterName, pattern, url) {
+  return [adapterName, 'remote_url_matches', pattern, url].join('\u0000');
+}
+
+/**
+ * `testRemoteUrlPattern`, memoized per `(adapter id, signal kind, pattern, origin URL)` tuple
+ * for the lifetime of this process (see header "pattern evaluation is memoized per process").
+ * A thrown `DETECTION_SIGNAL_ERROR` is cached and re-thrown (the SAME `Error` instance) on
+ * every subsequent call with the identical tuple, so a catastrophic/invalid pattern is only
+ * ever actually evaluated once. The cache is size-bounded (`MAX_REMOTE_URL_MATCH_CACHE_ENTRIES`,
+ * oldest-inserted evicted first) so it cannot grow unbounded across a long-lived process.
+ *
+ * @param {string} adapterName
+ * @param {unknown} pattern
+ * @param {string} url
+ * @returns {boolean}
+ * @throws {Error} with `.code === 'DETECTION_SIGNAL_ERROR'`
+ */
+function evaluateRemoteUrlMatch(adapterName, pattern, url) {
+  const key = remoteUrlMatchCacheKey(adapterName, pattern, url);
+  const cached = remoteUrlMatchCache.get(key);
+  if (cached) {
+    if (cached.error) {
+      throw cached.error;
+    }
+    return cached.value;
+  }
+
+  try {
+    const value = testRemoteUrlPattern(pattern, url);
+    remoteUrlMatchCache.set(key, { value });
+    return value;
+  } catch (error) {
+    remoteUrlMatchCache.set(key, { error });
+    throw error;
+  } finally {
+    while (remoteUrlMatchCache.size > MAX_REMOTE_URL_MATCH_CACHE_ENTRIES) {
+      remoteUrlMatchCache.delete(remoteUrlMatchCache.keys().next().value);
+    }
+  }
+}
+
+/** Test-only: clears the memoization cache, its evaluation counter, and the per-process
+ * excluded-adapter stderr dedup set, so each test starts from a clean slate. */
+function __resetDetectionCachesForTests() {
+  remoteUrlMatchCache.clear();
+  remoteUrlMatchEvaluationCount = 0;
+  loggedDetectionFailures.clear();
+}
+
+/** Test-only: the number of times `testRemoteUrlPattern` actually ran (real evaluations, NOT
+ * cache hits) since the last reset. Incremented inside `testRemoteUrlPattern` itself -- not in
+ * `evaluateRemoteUrlMatch`'s wrapper -- so this stays an accurate, observable,
+ * non-timing-based proxy for "was the expensive deadline-bounded match actually run" even if a
+ * caller bypasses the memoization cache entirely (e.g. a mutation test). */
+function __getRemoteUrlMatchCacheMissesForTests() {
+  return remoteUrlMatchEvaluationCount;
+}
+
+const loggedDetectionFailures = new Set();
+
+/**
+ * Record one candidate adapter's `remote_url_matches` failure (PR 4 review round 2, Finding 1):
+ * pushes a sanitized diagnostic onto `ctx.diagnostics` when the caller supplied an array, and
+ * writes one sanitized `process.stderr` line per distinct `(adapter, pattern)` pair for the
+ * lifetime of this process (never a duplicate line for the same pair within one process).
+ *
+ * @param {string} adapterName
+ * @param {string} category
+ * @param {Error & {pattern?: unknown}} error a `DETECTION_SIGNAL_ERROR` from
+ *   `evaluateRemoteUrlMatch`/`testRemoteUrlPattern`
+ * @param {{diagnostics?: unknown[]}} ctx
+ */
+function recordDetectionSignalFailure(adapterName, category, error, ctx) {
+  const adapter = sanitizeForLog(adapterName);
+  const pattern = sanitizeForLog(error.pattern);
+  const reason = sanitizeForLog(error.message);
+
+  if (ctx && Array.isArray(ctx.diagnostics)) {
+    ctx.diagnostics.push({ adapter, signal: 'remote_url_matches', pattern, category, reason });
+  }
+
+  const dedupeKey = `${adapter}\u0000${pattern}`;
+  if (!loggedDetectionFailures.has(dedupeKey)) {
+    loggedDetectionFailures.add(dedupeKey);
+    process.stderr.write(
+      `toolchain detect: adapter '${adapter}' excluded from detection -- remote_url_matches ` +
+        `pattern '${pattern}' failed (${reason})\n`
+    );
   }
 }
 
@@ -331,18 +530,21 @@ function resolvePathWithinRoot(projectRoot, relativePath) {
  * Evaluate one `manifest.detect[]` entry against the repo at `projectRoot`. `file_exists` /
  * `dir_exists` / `git_config_set` never throw: any unreadable/malformed input for those is
  * treated as "no match". `remote_url_matches` is the one exception (see
- * `testRemoteUrlPattern`'s doc above): it can throw a named `.code === 'DETECTION_SIGNAL_ERROR'`
- * error on an oversized/invalid pattern or a deadline timeout -- that error is never swallowed
- * here, it propagates to the caller (`detectAdapter`).
+ * `evaluateRemoteUrlMatch`/`testRemoteUrlPattern`'s doc above): it can throw a named
+ * `.code === 'DETECTION_SIGNAL_ERROR'` error on an oversized/invalid pattern or a deadline
+ * timeout -- that error is never swallowed here, it propagates to the caller (`detectAdapter`,
+ * which excludes just the offending candidate, see header doc).
  *
  * @param {{signal?: string, pattern?: string, path?: string, key?: string}} signal
  * @param {string} projectRoot
  * @param {Map<string, string[]>|null} gitConfigMap
+ * @param {string} adapterName the candidate adapter declaring `signal`, used as part of the
+ *   `remote_url_matches` memoization cache key
  * @returns {boolean}
  * @throws {Error} with `.code === 'DETECTION_SIGNAL_ERROR'` for a bad/slow `remote_url_matches`
  *   pattern
  */
-function signalMatches(signal, projectRoot, gitConfigMap) {
+function signalMatches(signal, projectRoot, gitConfigMap, adapterName) {
   if (!signal || typeof signal.signal !== 'string') {
     return false;
   }
@@ -375,7 +577,7 @@ function signalMatches(signal, projectRoot, gitConfigMap) {
       if (!url) {
         return false;
       }
-      return testRemoteUrlPattern(signal.pattern, url);
+      return evaluateRemoteUrlMatch(adapterName, signal.pattern, url);
     }
     case 'git_config_set':
       return gitConfigKeyIsSet(gitConfigMap, signal.key);
@@ -389,13 +591,15 @@ function signalMatches(signal, projectRoot, gitConfigMap) {
  * and I2 result shape). Usable directly as `ctx.detect` for `resolveCategory()`.
  *
  * @param {string} category
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, interactive?: boolean}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, interactive?: boolean,
+ *   diagnostics?: object[]}} [ctx] when `ctx.diagnostics` is an array, one record is pushed
+ *   onto it per candidate excluded for a `DETECTION_SIGNAL_ERROR` (PR 4 review round 2,
+ *   Finding 1) -- see header doc.
  * @returns {{value: string, source: 'detection'}|null}
- * @throws {Error} with `.code === 'AMBIGUOUS_PROVIDER'` per the module doc's I2 ambiguous case,
- *   or `.code === 'DETECTION_SIGNAL_ERROR'` naming the adapter, the `remote_url_matches`
- *   signal and the offending pattern when that candidate's pattern is oversized, invalid, or
- *   exceeds its evaluation deadline (PR 4 review Finding 4) -- fail closed, never a silent
- *   skip, never a hang.
+ * @throws {Error} with `.code === 'AMBIGUOUS_PROVIDER'` per the module doc's I2 ambiguous case.
+ *   A candidate whose `remote_url_matches` pattern is oversized, invalid, or exceeds its
+ *   evaluation deadline is EXCLUDED from this category's sweep (never thrown from here) --
+ *   see header doc "a bad pattern on one adapter never breaks detection for the rest".
  */
 function detectAdapter(category, ctx = {}) {
   const { projectRoot = process.cwd() } = ctx;
@@ -432,12 +636,15 @@ function detectAdapter(category, ctx = {}) {
     let candidateMatched;
     try {
       candidateMatched = detectSignals.some((signal) =>
-        signalMatches(signal, projectRoot, gitConfigMap)
+        signalMatches(signal, projectRoot, gitConfigMap, name)
       );
     } catch (error) {
       if (error && error.code === 'DETECTION_SIGNAL_ERROR') {
-        error.message = `detectAdapter: adapter '${name}' ${error.message}`;
-        error.adapter = name;
+        // Exclude ONLY this candidate (same convention as the loadAdapter catch above) --
+        // never abort the whole sweep for every other adapter/category (PR 4 review round 2,
+        // Finding 1). Reported, never silent: see recordDetectionSignalFailure.
+        recordDetectionSignalFailure(name, category, error, ctx);
+        continue;
       }
       throw error;
     }
@@ -473,4 +680,12 @@ function detectAdapter(category, ctx = {}) {
   return null;
 }
 
-module.exports = { detectAdapter };
+module.exports = {
+  detectAdapter,
+  testRemoteUrlPattern,
+  checkRemoteUrlMatchPatternStatic,
+  MAX_REMOTE_URL_PATTERN_LENGTH,
+  MAX_REMOTE_URL_LENGTH,
+  __resetDetectionCachesForTests,
+  __getRemoteUrlMatchCacheMissesForTests
+};

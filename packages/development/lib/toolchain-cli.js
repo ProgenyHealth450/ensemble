@@ -174,16 +174,26 @@ const CATEGORIES = [
  * Resolve every one of the 14 categories' adapter and source, passing `ctx` straight through
  * to `resolveCategory()` for each one.
  *
+ * Each category gets its own fresh `diagnostics` array merged into the `ctx` passed down to
+ * `resolveCategory`/detection (PR 4 review round 2, Finding 1): when `./toolchain/detect.js`
+ * excludes a candidate adapter for a bad `remote_url_matches` pattern, it pushes one record
+ * onto that array; if any were pushed, `data.<category>.detectionDiagnostics` carries them
+ * (omitted entirely when empty, so the common case's JSON shape is unchanged).
+ *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
- * @returns {{ok: true, data: Record<string, {adapter: string, source: string}>}
- *          | {ok: false, error: {code: string, message: string}}}
+ * @returns {{ok: true, data: Record<string, {adapter: string, source: string,
+ *   detectionDiagnostics?: object[]}>} | {ok: false, error: {code: string, message: string}}}
  */
 function resolveAll(ctx = {}) {
   const data = {};
   try {
     for (const category of CATEGORIES) {
-      const { value, source } = resolveCategory(category, ctx);
+      const diagnostics = [];
+      const { value, source } = resolveCategory(category, { ...ctx, diagnostics });
       data[category] = { adapter: value, source };
+      if (diagnostics.length > 0) {
+        data[category].detectionDiagnostics = diagnostics;
+      }
     }
     return { ok: true, data };
   } catch (err) {

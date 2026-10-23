@@ -78,6 +78,7 @@ const yaml = require('js-yaml');
 const Ajv = require('ajv');
 
 const { loadContracts, checkCompat } = require('./contracts');
+const { checkRemoteUrlMatchPatternStatic } = require('./detect');
 
 const ADAPTER_MANIFEST_SCHEMA_PATH = path.join(
   __dirname,
@@ -218,6 +219,24 @@ function validateManifest(dir) {
           if (!declaredInputs.includes(selectorArg)) {
             errors.push(
               `${manifestPath}: capability '${capabilityId}' variants selector '${selectorArg}' is not declared as a contract input`
+            );
+          }
+        }
+      }
+    }
+
+    if (Array.isArray(manifest.detect)) {
+      // PR 4 review round 2, Finding 1 (validation half): catch a bad `remote_url_matches`
+      // pattern at author time, naming the adapter, the file and the pattern, reusing the
+      // exact limits `./detect.js#testRemoteUrlPattern` enforces at runtime (exported from
+      // that one place; never redeclared here).
+      for (const signal of manifest.detect) {
+        if (signal && signal.signal === 'remote_url_matches') {
+          const check = checkRemoteUrlMatchPatternStatic(signal.pattern);
+          if (!check.ok) {
+            errors.push(
+              `${manifestPath}: adapter '${manifest.adapter}' detect[] remote_url_matches ` +
+                `pattern ${JSON.stringify(signal.pattern)} ${check.error}`
             );
           }
         }

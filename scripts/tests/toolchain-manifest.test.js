@@ -13,6 +13,10 @@ const yaml = require('js-yaml');
 
 const { validateManifest, checkVocabularyBlock } = require('../../packages/development/lib/toolchain/validate');
 const { loadContracts } = require('../../packages/development/lib/toolchain/contracts');
+const {
+  makeMutantToolchainRoot,
+  mutateAndRequire
+} = require('./fixtures/toolchain/mutant-toolchain-copy');
 
 const tempDirs = [];
 
@@ -385,5 +389,110 @@ describe('TRD-005-TEST: missing vocabulary block fails validation naming the fil
     expect(
       manifestResult.errors.some((error) => error.includes(skillMdPath) && error.includes('Vocabulary'))
     ).toBe(true);
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review round 2, Finding 1 (validation half): `validateManifest`
+ * statically rejects an adapter whose `detect[]` `remote_url_matches` `pattern` is oversized,
+ * not a string, or does not compile as a regex -- naming the adapter, the `adapter.yaml` file
+ * and the offending pattern -- so authors find it at `toolchain-cli validate` time, reusing the
+ * exact limits `./detect.js` enforces at runtime (never a duplicated constant).
+ */
+describe('validateManifest: detect[] remote_url_matches pattern (PR 4 review round 2, Finding 1)', () => {
+  test('an invalid (non-compiling) regex pattern fails, naming the adapter, the file and the pattern', () => {
+    const dir = mkAdapterDir({
+      manifest: validManifest({ detect: [{ signal: 'remote_url_matches', pattern: '(unterminated' }] })
+    });
+    const manifestPath = path.join(dir, 'adapter.yaml');
+
+    const result = validateManifest(dir);
+
+    expect(result.valid).toBe(false);
+    const error = result.errors.find((e) => e.includes('remote_url_matches'));
+    expect(error).toBeDefined();
+    expect(error).toContain(manifestPath);
+    expect(error).toContain('example-tracker');
+    expect(error).toContain('(unterminated');
+  });
+
+  test('an oversized pattern (> the shared limit) fails, naming the pattern length', () => {
+    const oversizedPattern = 'a'.repeat(600);
+    const dir = mkAdapterDir({
+      manifest: validManifest({ detect: [{ signal: 'remote_url_matches', pattern: oversizedPattern }] })
+    });
+
+    const result = validateManifest(dir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('exceeds') && e.includes('512'))).toBe(true);
+  });
+
+  test('a non-string pattern fails, naming the adapter', () => {
+    const dir = mkAdapterDir({
+      manifest: validManifest({ detect: [{ signal: 'remote_url_matches', pattern: 12345 }] })
+    });
+
+    const result = validateManifest(dir);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('non-empty string'))).toBe(true);
+  });
+
+  test('a valid, compiling pattern within the length limit passes (a catastrophic-but-syntactically-valid pattern is NOT statically rejected -- only syntax/size, never ReDoS-analyzed)', () => {
+    const dir = mkAdapterDir({
+      manifest: validManifest({ detect: [{ signal: 'remote_url_matches', pattern: '^(a+)+$' }] })
+    });
+
+    const result = validateManifest(dir);
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  describe('mutation-proof: removing the detect[] pattern check lets a non-compiling pattern pass validation', () => {
+    test("reverting validate.js's detect[] remote_url_matches check lets an invalid pattern pass", () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          "    if (Array.isArray(manifest.detect)) {\n" +
+          "      // PR 4 review round 2, Finding 1 (validation half): catch a bad `remote_url_matches`\n" +
+          "      // pattern at author time, naming the adapter, the file and the pattern, reusing the\n" +
+          "      // exact limits `./detect.js#testRemoteUrlPattern` enforces at runtime (exported from\n" +
+          "      // that one place; never redeclared here).\n" +
+          "      for (const signal of manifest.detect) {\n" +
+          "        if (signal && signal.signal === 'remote_url_matches') {\n" +
+          "          const check = checkRemoteUrlMatchPatternStatic(signal.pattern);\n" +
+          "          if (!check.ok) {\n" +
+          "            errors.push(\n" +
+          "              `${manifestPath}: adapter '${manifest.adapter}' detect[] remote_url_matches ` +\n" +
+          "                `pattern ${JSON.stringify(signal.pattern)} ${check.error}`\n" +
+          "            );\n" +
+          "          }\n" +
+          "        }\n" +
+          "      }\n" +
+          "    }\n";
+        const replacement = '';
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/validate.js', needle, replacement);
+
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adapter-mutant-'));
+        try {
+          fs.writeFileSync(
+            path.join(dir, 'adapter.yaml'),
+            yaml.dump(validManifest({ detect: [{ signal: 'remote_url_matches', pattern: '(unterminated' }] }))
+          );
+          fs.writeFileSync(path.join(dir, 'SKILL.md'), VALID_SKILL_MD);
+
+          const result = mutated.validateManifest(dir);
+          // With the check removed, the same invalid pattern that the real (unmutated)
+          // "an invalid (non-compiling) regex pattern fails" test above disproves now passes
+          // validation silently.
+          expect(result).toEqual({ valid: true, errors: [] });
+        } finally {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
   });
 });
