@@ -1,9 +1,10 @@
 ---
 name: "ensemble:onboard"
 description: "Onboard onto an existing (brownfield) codebase - architecture overview, exact build/test/lint commands, hotspots, optional debt backlog"
-version: "1.0.0"
+version: "2.0.0"
 category: "analysis"
-last-updated: "2026-10-20"
+last-updated: "2026-10-23"
+capabilities-required: "tracker.create"
 argument-hint: "[path]"
 model: "opus"
 ---
@@ -17,7 +18,12 @@ Build a verified mental model of an unfamiliar codebase and leave a durable, rev
 
 ### Phase 1: Survey
 
-**1. Map the Repository**
+**1. Resolve toolchain-cli and preflight capabilities**
+   Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) per the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
+Run: node "$TOOLCHAIN_CLI" preflight --require tracker.create [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before any debt bead is offered. tracker.create is only invoked later, after explicit per-item user approval (Offer Debt Backlog).
+
+
+**2. Map the Repository**
    Gather facts with parallel read-only exploration (Explore-style subagents per top-level module, LSP for symbols and references, file reads for configuration)
 
 - Read manifests and tool config (package.json, Makefile, justfile, pyproject.toml, go.mod, mix.exs, *.csproj, Cargo.toml, CI workflow files, Dockerfile, docker-compose, IaC) to find the EXACT commands to build, test, lint, format and run. Copy them verbatim, including per-package variants in monorepos
@@ -25,7 +31,7 @@ Build a verified mental model of an unfamiliar codebase and leave a durable, rev
 - Identify data stores (databases, caches, queues, migrations directories) and external integrations (HTTP clients, SDKs, env var names for credentials - names only, never values)
 - Identify deployment shape from CI/CD, container, and infrastructure files
 
-**2. Find Hotspots**
+**3. Find Hotspots**
    Combine git churn with file size to rank the riskiest files
 
 - Run: git log --since=6.months --name-only --pretty=format: | sort | uniq -c | sort -rn | head -20 (drop blank lines, lockfiles, generated and vendored paths)
@@ -52,7 +58,7 @@ Build a verified mental model of an unfamiliar codebase and leave a durable, rev
    Offer to seed a debt backlog as beads
 
 - Propose up to 10 debt items drawn from hotspots and unknowns, each with title, the files involved, and why it matters
-- Create nothing until the user approves; then for each approved item run: br create "<title>" --description "<files and rationale>" --labels debt (check br create --help for the exact flag spelling first). Print created IDs
+- Create nothing until the user approves. For each approved item, before the FIRST tracker.create call run: node "$TOOLCHAIN_CLI" confirm-status tracker.create [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; if data.required is true and data.confirmed is false and the session is interactive, ask via AskUserQuestion "Create <N> debt bead(s) via the tracker adapter? [yes/no]" and on yes run node "$TOOLCHAIN_CLI" confirm-record tracker.create --json before proceeding (under --non-interactive/--foreman, never prompt; proceed only if confirm-status already reports confirmed:true or required:false). Then for each approved item run: node "$TOOLCHAIN_CLI" run tracker.create --arg title="<title>" --arg type=task --arg description="<files and rationale>" --json. Print created IDs from each result's data.id
 
 **2. Offer Next Commands**
    Print the next steps

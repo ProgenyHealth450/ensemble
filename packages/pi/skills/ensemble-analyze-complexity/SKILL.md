@@ -15,6 +15,7 @@ disable-model-invocation: true
 ---
 <!-- Command: ensemble-analyze-complexity | Version: 1.1.0 -->
 <!-- Description: Score work complexity and choose an adaptive Ensemble planning route -->
+<!-- Capabilities: required=[tracker.show], optional=[] -->
 
 # ensemble-analyze-complexity
 
@@ -31,7 +32,7 @@ disable-model-invocation: true
 ## Arguments
 
 - **`description`** (string, optional): Work description to classify before planning begins
-- **`bead`** (string, optional): Classify a bead (br show --json) instead of free text; its type and dependency counts become cited signals, and its priority and labels are cited but not scored
+- **`bead`** (string, optional): Classify a bead (read via the tracker.show capability) instead of free text; its type and dependency counts become cited signals, and its priority and labels are cited but not scored
 - **`route`** (string, optional): Override selected route; valid values are simple, medium, complex
 - **`no-adaptive-planning`** (boolean, optional, default: `false`): Skip adaptive classification for this invocation
 - **`foreman`** (boolean, optional, default: `false`): Use FOREMAN_TASK_TITLE and FOREMAN_TASK_DESCRIPTION as the subject/description and write Foreman artifacts when configured
@@ -40,8 +41,9 @@ disable-model-invocation: true
 
 ### Step 1: Resolve subject and description
 
+If --bead <id> is present: resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show [add --non-interactive when --foreman is present] --json; on a non-ok result print the error and HALT before complexity-analyzer.js reads the bead. This command has no side-effecting write and so never calls confirm-status/confirm-record.
 Resolve COMPLEXITY_ANALYZER per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/complexity-analyzer.js. If none of the 4 tiers resolve OR 'which node' fails: print 'ERROR: Node.js and the complexity analyzer (lib/complexity-analyzer.js) are required for deterministic complexity scoring. Ensure Node.js is installed and the ensemble-development plugin is present.' and exit 1.
-Run node "$COMPLEXITY_ANALYZER" analyze with the provided arguments.
+Run node "$COMPLEXITY_ANALYZER" analyze with the provided arguments. For --bead <id>, complexity-analyzer.js itself reads the bead via the tracker.show capability (packages/development/lib/toolchain/runner.js), never invoking a tracker binary directly from this command's prose.
 If --foreman is present, read FOREMAN_TASK_TITLE as the subject and FOREMAN_TASK_DESCRIPTION as the description.
 If no subject or description exists, print the missing-subject error and stop before creating any downstream artifact.
 

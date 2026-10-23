@@ -4,6 +4,10 @@ description: On-demand requirement satisfaction report — TRD checkbox rollups 
 user-invocable: true
 argument-hint: '[trd-path-or-slug]'
 model: gpt-5.1-codex
+capabilities:
+  required:
+    - tracker.list
+    - tracker.comments
 ---
 
 # Ensemble Command: /ensemble:requirement-status
@@ -22,16 +26,17 @@ by phase. Beads are optional; without them the TRD's `- [x]` checkboxes are the 
 
 ### Phase 1: Status
 
-**1. Resolve the TRD**
+**1. Resolve the TRD and toolchain-cli**
    $ARGUMENTS is a TRD path, or a slug to match under docs/TRD/ (filename stem, lowercased, hyphenated); if empty, list docs/TRD/*.md and ask.
-Resolve TRD_CLI per the tool-path-resolution skill (packages/development/lib/trd-cli.js).
+Resolve TRD_CLI and TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js and packages/development/lib/toolchain-cli.js) per the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md).
+Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list --require tracker.comments [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before calling either capability. This command has no side-effecting write and so never calls confirm-status/confirm-record.
 
 
 **2. Gather optional bead evidence**
-   If `br` exists: merge `br list --json` for open, in_progress and closed (a list, or an object whose `.issues` is the list) into file ISSUES.
-Per test bead and the epic (`[trd:<slug>]`) run `br comment list <id> --json`; merge the arrays into file COMMENTS as `[{"beadId":"<id>","comments":["<text>",...]}]`.
+   If the tracker.list preflight succeeded: run `node "$TOOLCHAIN_CLI" run tracker.list --json` and merge the result for open, in_progress and closed (a list, or an object whose `.issues` is the list) into file ISSUES.
+Per test bead and the epic (`[trd:<slug>]`) run `node "$TOOLCHAIN_CLI" run tracker.comments --arg id=<id> --json`; merge the arrays into file COMMENTS as `[{"beadId":"<id>","comments":["<text>",...]}]`.
 Verdicts come from `status:closed ... verdict:passed` comments; `req-verified:`/`ac-proven:` tokens are read when present (nothing guarantees they were written, so do not claim ACs proven without them).
-On br failure warn and use checkboxes only.
+On any tracker capability failure warn and use checkboxes only.
 
 
 **3. Run and report**
