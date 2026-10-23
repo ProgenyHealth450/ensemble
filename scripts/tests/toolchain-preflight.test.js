@@ -25,6 +25,10 @@ const {
   DEFAULT_HEALTH_TIMEOUT_MS
 } = require('../../packages/development/lib/toolchain/preflight');
 const { main } = require('../../packages/development/lib/toolchain-cli');
+const {
+  makeMutantToolchainRoot,
+  mutateAndRequire
+} = require('./fixtures/toolchain/mutant-toolchain-copy');
 
 const tempDirs = [];
 
@@ -634,5 +638,78 @@ describe('toolchain-cli run: remaining branches', () => {
     const [calledFile, calledArgs] = execFile.mock.calls[0];
     expect(calledFile).toBe('fixture-tool');
     expect(calledArgs).toEqual(['create', '--title', 'Fix it']);
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 1: `runPreflight` itself threads `ctx.detect` into its
+ * own `resolveCategory` call -- a detection-selected adapter (no project/user config for the
+ * category at all) must be the one health-checked, never the shipped default.
+ */
+describe("runPreflight: ctx.detect threading to resolveCategory (PR 4 review Finding 1)", () => {
+  test('a detection-resolved adapter (injected ctx.detect, no config for the category) is health-checked, not the shipped default', async () => {
+    const projectRoot = mkProjectRoot();
+    // Deliberately NO mkProjectConfig call: 'tracker' has no project/user config entry at all,
+    // so only `detect` (or the shipped default, if detect were ever dropped) can resolve it.
+    mkInstalledAdapter(projectRoot, 'fixture-detect-preflight-tracker', {
+      health: [{ id: 'ok-check', run: ['fixture-tool', 'show'], timeoutMs: 2000 }]
+    });
+
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, '', ''));
+    });
+
+    const detect = (category) =>
+      category === 'tracker'
+        ? { value: 'fixture-detect-preflight-tracker', source: 'detection' }
+        : null;
+
+    const result = await runPreflight(
+      { categories: ['tracker'], runId: 'detect-pf-r1' },
+      { projectRoot, env: {}, detect }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  describe('mutation-proof: dropping detect from the resolveCategory call inside runPreflight', () => {
+    test("reverting runPreflight's own 'resolveCategory(category, { projectRoot, env, detect })' call to drop 'detect' falls through to the shipped default (not installed here) and fails", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle = 'adapterId = resolveCategory(category, { projectRoot, env, detect }).value;';
+        const replacement = 'adapterId = resolveCategory(category, { projectRoot, env }).value;';
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/preflight.js', needle, replacement);
+
+        const projectRoot = mkProjectRoot();
+        mkInstalledAdapter(projectRoot, 'fixture-detect-preflight-mutant-tracker', {
+          health: [{ id: 'ok-check', run: ['fixture-tool', 'show'], timeoutMs: 2000 }]
+        });
+
+        execFile.mockImplementation((file, cmdArgs, options, callback) => {
+          setImmediate(() => callback(null, '', ''));
+        });
+
+        const detect = (category) =>
+          category === 'tracker'
+            ? { value: 'fixture-detect-preflight-mutant-tracker', source: 'detection' }
+            : null;
+
+        const result = await mutated.runPreflight(
+          { categories: ['tracker'], runId: 'detect-pf-mutant-r1' },
+          { projectRoot, env: {}, detect }
+        );
+
+        // With `detect` dropped from this call, resolveCategory falls through to the shipped
+        // default (never 'fixture-detect-preflight-mutant-tracker', which is not installed
+        // under the shipped default id), so the health check never even runs -- exactly what
+        // the real (unmutated) "detection-resolved adapter is health-checked" test above
+        // disproves.
+        expect(result.ok).toBe(false);
+        expect(execFile).not.toHaveBeenCalled();
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
   });
 });

@@ -147,7 +147,11 @@ const { validateAdapterDir } = require('./toolchain/validate');
 const { recordSideEffect, recordFailure, readLedgerEntries } = require('./toolchain/ledger');
 const { isValidRunId, invalidRunIdMessage } = require('./toolchain/run-id');
 const { detectAdapter } = require('./toolchain/detect');
-const { confirmStatus: confirmAdapterStatus, recordConfirmation } = require('./toolchain/confirm');
+const {
+  confirmStatus: confirmAdapterStatus,
+  recordConfirmation,
+  isNonInteractive
+} = require('./toolchain/confirm');
 
 const CATEGORIES = [
   'host',
@@ -252,11 +256,27 @@ function validate(ctx = {}, positionals = []) {
  * entirely — this returns `{ok:false, error:{code:'PREFLIGHT_REQUIRED', message}}` WITHOUT
  * calling `resolveCategory`, `loadAdapter` or `runCapability`: nothing is resolved or spawned.
  *
- * Otherwise (the capability is not side-effecting, or a passing preflight record exists for
- * `runId`), resolves the capability's adapter via `resolveCategory`/`loadAdapter` and invokes
- * it via `runCapability` (TRD-011) with `execFileOptions.cwd` explicitly set to
- * `ctx.projectRoot` (TRD review Finding 6) — never the ambient `process.cwd()` a caller's
- * shell happened to be in.
+ * `resolveCategory(category, ctx)` is called with `ctx` passed straight through, unmodified --
+ * including `ctx.detect` (TRD-016's detection hook) -- so a detection-selected adapter (PR 4
+ * review Finding 1) resolves here exactly as it does for `resolve`/`explain`/`preflight`.
+ *
+ * `interactive` (PR 4 review Finding 2) is derived ONCE, via `./toolchain/confirm.js
+ * #isNonInteractive` -- the SAME explicit-signal precedence (`--non-interactive`,
+ * `ENSEMBLE_NON_INTERACTIVE=1`, a non-empty `FOREMAN_TASK_TITLE`, `CI=true`; never TTY
+ * presence) the confirmation gate itself uses -- and passed to `loadAdapter`. `loadAdapter` is
+ * called BEFORE the confirmation gate below (not after, as a prior wave left it): this lets a
+ * repo-local adapter's `allowlist` reach `confirmAdapterStatus`'s `ctx.allowlist`, so an
+ * interactive run's `CONFIRMATION_REQUIRED` denial (and a `confirm-status` call for the same
+ * capability) can surface the allowlist for display, matching `confirmStatus`'s own CLI handler
+ * below. `loadAdapter` never spawns a process, so moving it earlier never lets a side-effecting
+ * capability's actual tool call happen before confirmation passes -- that guarantee is
+ * unchanged: `runCapability` (the only spawn point) still runs strictly after the confirmation
+ * check below.
+ *
+ * Both the confirmation gate and `runCapability` consume the SAME `adapterId`/`source` this one
+ * `resolveCategory` call produced -- `opts.source` (PR 4 review Finding 2) is now forwarded to
+ * `runCapability` so a successful envelope's `source` field reports the adapter's true
+ * precedence tier (project/user/env-compat/detection/default) instead of always `null`.
  *
  * TRD-015 ledger wiring (TRD review Finding 2: this used to end at `runCapability` and never
  * touched `./toolchain/ledger.js`, so neither data-flow step 4 nor step 6 was reachable from
@@ -270,10 +290,10 @@ function validate(ctx = {}, positionals = []) {
  *   `recordFailure` wrote to) alongside the unchanged `error`.
  * A non-side-effecting capability never touches the ledger at all, success or failure.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.close`
- * @param {{runId?: string, args?: Record<string, string>}} [parsed] the `--run-id`/`--arg`
- *   values `parseArgs` extracted from argv
+ * @param {{runId?: string, args?: Record<string, string>, nonInteractive?: boolean}} [parsed]
+ *   the `--run-id`/`--arg`/`--non-interactive` values `parseArgs` extracted from argv
  * @returns {Promise<{ok:true, capability:string, adapter:string, source:unknown, data:string} |
  *   {ok:false, error:{code:string, message:string}, completedSideEffects?: string[],
  *   failureRecord?: {filePath:string, artifactPath:string|null}}>}
@@ -323,15 +343,26 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
     return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
   }
 
+  const env = ctx.env || process.env;
+  const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
+
+  let loaded;
+  try {
+    loaded = loadAdapter(adapterId, { ...ctx, interactive });
+  } catch (error) {
+    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+  }
+
   if (sideEffect) {
     const confirmation = confirmAdapterStatus(category, {
       projectRoot: ctx.projectRoot || process.cwd(),
-      env: ctx.env || process.env,
+      env,
       nonInteractive: Boolean(parsed.nonInteractive),
       sideEffect: true,
       adapter: adapterId,
       source,
-      runId
+      runId,
+      allowlist: loaded.origin === 'repo-local' ? loaded.manifest.allowlist : undefined
     });
 
     if (confirmation.required !== false && confirmation.confirmed !== true) {
@@ -349,15 +380,9 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
     }
   }
 
-  let loaded;
-  try {
-    loaded = loadAdapter(adapterId, ctx);
-  } catch (error) {
-    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
-  }
-
   const projectRoot = ctx.projectRoot || process.cwd();
   const result = await runCapability(loaded.manifest, capability, args, {
+    source,
     execFileOptions: { cwd: projectRoot }
   });
 
@@ -401,7 +426,14 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
  * `runPreflight`'s own result (`{ok:true, runId, categories, checkedAt}` or `{ok:false,
  * error:{code:'HEALTH_FAILED'|'INVALID_RUN_ID', message}}`) is returned unchanged.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * `ctx.detect` (TRD-016's detection hook) is forwarded to `runPreflight`'s own `ctx` explicitly
+ * (PR 4 review Finding 1: a prior wave rebuilt this call's `ctx` as only `{projectRoot, env}`,
+ * silently dropping `detect` -- a detection-selected adapter resolved fine for `resolve`/
+ * `explain`/`run` but `preflight` fell through to the shipped default and tried to health-check
+ * THAT instead, which is not what was configured). `runPreflight` itself threads `detect` the
+ * rest of the way into its own `resolveCategory` call.
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
  * @param {string[]} [positionals] unused by `preflight`; accepted so every handler shares the
  *   same `(ctx, positionals, parsed)` signature
  * @param {{requires?: string[], runId?: string, nonInteractive?: boolean}} [parsed]
@@ -449,7 +481,11 @@ async function preflight(ctx = {}, positionals = [], parsed = {}) {
 
   return runPreflight(
     { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },
-    { projectRoot: ctx.projectRoot || process.cwd(), env: ctx.env || process.env }
+    {
+      projectRoot: ctx.projectRoot || process.cwd(),
+      env: ctx.env || process.env,
+      detect: ctx.detect
+    }
   );
 }
 
@@ -462,7 +498,16 @@ async function preflight(ctx = {}, positionals = [], parsed = {}) {
  * `confirmAdapterStatus` to avoid colliding with this function's own name) and returns its
  * result verbatim as `data`.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * `interactive` is derived via `./toolchain/confirm.js#isNonInteractive` (PR 4 review Finding
+ * 2) -- the SAME explicit-signal precedence `confirmAdapterStatus` itself uses internally --
+ * rather than the bare `!parsed.nonInteractive` a prior wave used here: that bare check ignored
+ * `ENSEMBLE_NON_INTERACTIVE=1`/`FOREMAN_TASK_TITLE`/`CI=true`, so a run with one of those env
+ * signals set (but no literal `--non-interactive` flag) could tell `loadAdapter` it was
+ * "interactive" (skipping the repo-local trust check) while `confirmAdapterStatus` itself
+ * simultaneously treated it as non-interactive (auto-confirming) -- two different answers to
+ * the same question, computed from two different rules, inside one call.
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
  * @param {{runId?: string, nonInteractive?: boolean}} [parsed]
  * @returns {{ok:true, capability:string, adapter:string, source:string, data:object} |
@@ -499,16 +544,19 @@ function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
     return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
   }
 
+  const env = ctx.env || process.env;
+  const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
+
   let loaded;
   try {
-    loaded = loadAdapter(adapterId, { ...ctx, interactive: !Boolean(parsed.nonInteractive) });
+    loaded = loadAdapter(adapterId, { ...ctx, interactive });
   } catch (error) {
     return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
   }
 
   const data = confirmAdapterStatus(category, {
     projectRoot: ctx.projectRoot || process.cwd(),
-    env: ctx.env || process.env,
+    env,
     nonInteractive: Boolean(parsed.nonInteractive),
     sideEffect,
     adapter: adapterId,
@@ -522,13 +570,19 @@ function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
 
 /**
  * `confirm-record <capability> [--run-id <id>]` subcommand handler (TRD-017, TRD-018, PRD
- * REQ-011). Same capability/category/resolve/load prelude as `confirmStatus` above, then
- * writes a passive confirmation record via `./toolchain/confirm.js#recordConfirmation` --
+ * REQ-011). Same capability/category/resolve/load prelude as `confirmStatus` above (including
+ * the same `isNonInteractive`-derived `interactive` flag, PR 4 review Finding 2), then writes a
+ * passive confirmation record via `./toolchain/confirm.js#recordConfirmation` --
  * `recordConfirmation`'s first production/CLI caller.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * `recordConfirmation` now throws (PR 4 review Finding 3) when the selection is incomplete
+ * (`.code === 'ADAPTER_SOURCE_REQUIRED'`) or no session id/run id is available to key the
+ * record (`.code === 'CONFIRM_KEY_REQUIRED'`): both are caught here and returned as the usual
+ * `{ok:false, error:{code, message}}` envelope, never an uncaught exception out of `main()`.
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
- * @param {{runId?: string}} [parsed]
+ * @param {{runId?: string, nonInteractive?: boolean}} [parsed]
  * @returns {{ok:true, capability:string, adapter:string, source:string,
  *   data:{confirmed:true}} | {ok:false, error:{code:string, message:string}}}
  */
@@ -557,19 +611,29 @@ function confirmRecord(ctx = {}, positionals = [], parsed = {}) {
     return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
   }
 
+  const env = ctx.env || process.env;
+  const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
+
   try {
-    loadAdapter(adapterId, { ...ctx, interactive: !Boolean(parsed.nonInteractive) });
+    loadAdapter(adapterId, { ...ctx, interactive });
   } catch (error) {
     return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
   }
 
-  recordConfirmation(category, {
-    projectRoot: ctx.projectRoot || process.cwd(),
-    env: ctx.env || process.env,
-    adapter: adapterId,
-    source,
-    runId: parsed.runId
-  });
+  try {
+    recordConfirmation(category, {
+      projectRoot: ctx.projectRoot || process.cwd(),
+      env,
+      adapter: adapterId,
+      source,
+      runId: parsed.runId
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: { code: error.code || 'CONFIRM_RECORD_FAILED', message: error.message }
+    };
+  }
 
   return { ok: true, capability, adapter: adapterId, source, data: { confirmed: true } };
 }

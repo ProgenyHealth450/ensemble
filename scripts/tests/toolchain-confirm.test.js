@@ -196,7 +196,11 @@ describe("AC: absence of a TTY alone never counts as non-interactive", () => {
       // environment is actually running this test suite.
       sideEffect: true,
       adapter: 'fixture-tracker',
-      source: 'project'
+      source: 'project',
+      // A runId is supplied so this reaches the ordinary (record-match) unconfirmed path, not
+      // the keyless NO_CONFIRM_KEY path (PR 4 review Finding 3) -- this test is about TTY
+      // absence, not about keying.
+      runId: 'r-ac-tty'
       // nonInteractive intentionally omitted: isNonInteractive() has no TTY-based path to
       // becoming true, so the only way this test could wrongly report confirmed:true is a
       // real environment-leakage bug, which this empty env object rules out.
@@ -240,14 +244,6 @@ describe('Concurrency: two categories confirmed at the same instant never collid
 });
 
 describe('Non-sideEffect/local-only short-circuit, and allowlist pass-through', () => {
-  // NOTE (TRD-017-TEST finding, out of scope to fix here -- see this file's test-only remit):
-  // `toolchain-cli.js`'s `run()` calls `confirmAdapterStatus(category, {projectRoot, env,
-  // nonInteractive, sideEffect: true, adapter, source, runId})` -- it never forwards an
-  // `allowlist` field. So `confirmStatus`'s `allowlist` pass-through exercised below is only
-  // reachable via a DIRECT `confirmStatus()` call (as this test does), never via the real
-  // `main(['run', ...])` CLI path. This is a pre-existing gap from the already-closed TRD-017
-  // bead; the assertion below remains an accurate unit-level (not CLI-reachable) proof of
-  // `confirm.js`'s own contract, not a claim that `run` surfaces `allowlist` end to end.
   test('a non-sideEffect capability returns required:false without touching the filesystem; an unconfirmed sideEffect status passes ctx.allowlist through unchanged', () => {
     const projectRoot = mkTempDir('confirm-ac6-');
 
@@ -267,6 +263,7 @@ describe('Non-sideEffect/local-only short-circuit, and allowlist pass-through', 
       sideEffect: true,
       adapter: 'fixture-tracker',
       source: 'project',
+      runId: 'r-ac6',
       allowlist
     });
     expect(unconfirmed).toEqual({
@@ -588,7 +585,8 @@ describe('mutation-proof branches', () => {
         nonInteractive: true,
         sideEffect: true,
         adapter: 'fixture-tracker',
-        source: 'project'
+        source: 'project',
+        runId: 'r-mutant-nonint'
       });
 
       // With the branch disabled, an explicit nonInteractive:true request is no longer
@@ -614,7 +612,8 @@ describe('mutation-proof branches', () => {
         env: { CI: 'true' },
         sideEffect: true,
         adapter: 'fixture-tracker',
-        source: 'project'
+        source: 'project',
+        runId: 'r-mutant-ci'
       });
 
       expect(result).toEqual({ confirmed: false, adapter: 'fixture-tracker', source: 'project' });
@@ -655,7 +654,8 @@ describe('mutation-proof branches', () => {
         env: {},
         sideEffect: true,
         adapter: 'fixture-tracker',
-        source: 'project'
+        source: 'project',
+        runId: 'r-mutant-deny'
       });
 
       // With the deny path short-circuited away, an UNCONFIRMED adapter is wrongly reported
@@ -681,7 +681,8 @@ describe('mutation-proof branches', () => {
         env: { ENSEMBLE_NON_INTERACTIVE: '1' },
         sideEffect: true,
         adapter: 'fixture-tracker',
-        source: 'project'
+        source: 'project',
+        runId: 'r-mutant-envni'
       });
 
       // With the branch disabled, this explicit AC-011-3 signal is no longer auto-confirmed --
@@ -708,7 +709,8 @@ describe('mutation-proof branches', () => {
         env: { FOREMAN_TASK_TITLE: 'some task' },
         sideEffect: true,
         adapter: 'fixture-tracker',
-        source: 'project'
+        source: 'project',
+        runId: 'r-mutant-foreman'
       });
 
       // With the branch disabled, this explicit AC-011-3 signal is no longer auto-confirmed --
@@ -745,6 +747,358 @@ describe('mutation-proof branches', () => {
       // confirmation record, is wrongly denied -- exactly what the real (unmutated) AC-011-5
       // "read-only capability needs no confirmation" test above disproves.
       expect(code).toBe(1);
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 3: `effectiveSessionKey` no longer falls back to the
+ * literal string `'no-session'` when neither a session id nor a run id is available. With
+ * neither key available, `confirmStatus` fails closed to a NAMED unconfirmed reason
+ * (`NO_CONFIRM_KEY`) and `recordConfirmation` throws a NAMED error, writing nothing.
+ */
+describe('Keyless rejection (PR 4 review Finding 3): no shared no-session bucket', () => {
+  test('confirmStatus with no session id and no run id returns an unconfirmed, named-reason result and never touches the filesystem', () => {
+    const projectRoot = mkTempDir('confirm-keyless-status-');
+    const result = confirmStatus('tracker', {
+      projectRoot,
+      env: {},
+      sideEffect: true,
+      adapter: 'fixture-tracker',
+      source: 'project'
+      // runId intentionally omitted.
+    });
+    expect(result).toEqual({
+      confirmed: false,
+      required: true,
+      reason: 'NO_CONFIRM_KEY',
+      adapter: 'fixture-tracker',
+      source: 'project'
+    });
+    expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
+  });
+
+  test('recordConfirmation with no session id and no run id throws CONFIRM_KEY_REQUIRED and writes nothing', () => {
+    const projectRoot = mkTempDir('confirm-keyless-record-');
+    expect(() =>
+      recordConfirmation('tracker', {
+        projectRoot,
+        env: {},
+        adapter: 'fixture-tracker',
+        source: 'project'
+      })
+    ).toThrow(expect.objectContaining({ code: 'CONFIRM_KEY_REQUIRED' }));
+    expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
+  });
+
+  test('a record written under run id A never satisfies a gate checked under run id B', () => {
+    const projectRoot = mkTempDir('confirm-runid-isolation-');
+    const ctxFor = (runId) => ({
+      projectRoot,
+      env: {},
+      sideEffect: true,
+      adapter: 'fixture-tracker',
+      source: 'project',
+      runId
+    });
+
+    const recorded = recordConfirmation('tracker', ctxFor('run-A'));
+    expect(recorded).toEqual({ confirmed: true });
+
+    expect(confirmStatus('tracker', ctxFor('run-A'))).toEqual({ confirmed: true });
+    expect(confirmStatus('tracker', ctxFor('run-B'))).toEqual({
+      confirmed: false,
+      adapter: 'fixture-tracker',
+      source: 'project'
+    });
+  });
+
+  test('through the real CLI: confirm-record with neither --run-id nor a session env var is refused with CONFIRM_KEY_REQUIRED, exit 1', async () => {
+    const projectRoot = mkTempDir('confirm-keyless-cli-record-');
+    mkProjectConfig(projectRoot, { tracker: 'fixture-keyless-cli-tracker' });
+    mkInstalledAdapter(projectRoot, 'fixture-keyless-cli-tracker');
+
+    const { returned: code, stdout } = await captureStdout(() =>
+      main(['confirm-record', 'tracker.create', '--json'], {
+        projectRoot,
+        env: {} // no CLAUDE_SESSION_ID/ENSEMBLE_SESSION_ID, no --run-id
+      })
+    );
+    expect(code).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed).toEqual({
+      ok: false,
+      error: { code: 'CONFIRM_KEY_REQUIRED', message: expect.any(String) }
+    });
+    expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
+  });
+
+  test('through the real CLI: confirm-status with neither --run-id nor a session env var is ok:true with an unconfirmed, named-reason data payload -- never throws', async () => {
+    const projectRoot = mkTempDir('confirm-keyless-cli-status-');
+    mkProjectConfig(projectRoot, { tracker: 'fixture-keyless-cli-status-tracker' });
+    mkInstalledAdapter(projectRoot, 'fixture-keyless-cli-status-tracker');
+
+    const { returned: code, stdout } = await captureStdout(() =>
+      main(['confirm-status', 'tracker.create', '--json'], { projectRoot, env: {} })
+    );
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data).toEqual({
+      confirmed: false,
+      required: true,
+      reason: 'NO_CONFIRM_KEY',
+      adapter: 'fixture-keyless-cli-status-tracker',
+      source: 'project'
+    });
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 3: `confirmStatus`/`recordConfirmation` reject a
+ * missing/empty `ctx.adapter`/`ctx.source` BEFORE `configHash` is ever called -- `configHash`
+ * is never invoked with a null/undefined operand.
+ */
+describe('Unknown-selection rejection (PR 4 review Finding 3): never hash a null/undefined source', () => {
+  test('confirmStatus with an undefined source fails closed with a named reason, never reaching the filesystem', () => {
+    const projectRoot = mkTempDir('confirm-unknown-source-status-');
+    const result = confirmStatus('tracker', {
+      projectRoot,
+      env: {},
+      sideEffect: true,
+      adapter: 'fixture-tracker',
+      source: undefined,
+      runId: 'r1'
+    });
+    expect(result).toEqual({
+      confirmed: false,
+      required: true,
+      reason: 'ADAPTER_SOURCE_REQUIRED',
+      adapter: 'fixture-tracker',
+      source: undefined
+    });
+    expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
+  });
+
+  test('confirmStatus with an empty-string adapter fails closed with a named reason', () => {
+    const result = confirmStatus('tracker', {
+      projectRoot: mkTempDir('confirm-unknown-adapter-status-'),
+      env: {},
+      sideEffect: true,
+      adapter: '',
+      source: 'project',
+      runId: 'r1'
+    });
+    expect(result.confirmed).toBe(false);
+    expect(result.reason).toBe('ADAPTER_SOURCE_REQUIRED');
+  });
+
+  test('recordConfirmation with a missing source throws ADAPTER_SOURCE_REQUIRED and writes nothing', () => {
+    const projectRoot = mkTempDir('confirm-unknown-source-record-');
+    expect(() =>
+      recordConfirmation('tracker', {
+        projectRoot,
+        env: {},
+        adapter: 'fixture-tracker',
+        runId: 'r1'
+        // source intentionally omitted.
+      })
+    ).toThrow(expect.objectContaining({ code: 'ADAPTER_SOURCE_REQUIRED' }));
+    expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 3: a session-key candidate (`ENSEMBLE_SESSION_ID`,
+ * `CLAUDE_SESSION_ID`, `ctx.runId`) failing basic shape validation (a NUL byte, an absurd
+ * length) is treated exactly like an absent one -- never used, never thrown on.
+ */
+describe('Session-key validation (PR 4 review Finding 3): NUL bytes and absurd lengths are rejected', () => {
+  test('a CLAUDE_SESSION_ID containing a NUL byte is ignored -- with no run id, the result is the keyless NO_CONFIRM_KEY shape, proving the NUL value was never used as a key', () => {
+    const projectRoot = mkTempDir('confirm-session-nul-');
+    const result = confirmStatus('tracker', {
+      projectRoot,
+      env: { CLAUDE_SESSION_ID: 'abc\u0000def' },
+      sideEffect: true,
+      adapter: 'fixture-tracker',
+      source: 'project'
+    });
+    expect(result.reason).toBe('NO_CONFIRM_KEY');
+  });
+
+  test('a CLAUDE_SESSION_ID far exceeding the length bound is ignored -- with no run id, the result is the keyless NO_CONFIRM_KEY shape', () => {
+    const projectRoot = mkTempDir('confirm-session-oversize-');
+    const result = confirmStatus('tracker', {
+      projectRoot,
+      env: { CLAUDE_SESSION_ID: 'x'.repeat(5000) },
+      sideEffect: true,
+      adapter: 'fixture-tracker',
+      source: 'project'
+    });
+    expect(result.reason).toBe('NO_CONFIRM_KEY');
+  });
+
+  test('a normal, valid CLAUDE_SESSION_ID is used as the session key end to end (record then gate)', () => {
+    const projectRoot = mkTempDir('confirm-session-valid-');
+    const ctx = {
+      projectRoot,
+      env: { CLAUDE_SESSION_ID: 'a-real-session-id-123' },
+      sideEffect: true,
+      adapter: 'fixture-tracker',
+      source: 'project'
+    };
+    expect(recordConfirmation('tracker', ctx)).toEqual({ confirmed: true });
+    expect(confirmStatus('tracker', ctx)).toEqual({ confirmed: true });
+  });
+});
+
+describe('mutation-proof branches: Finding 3 (keyless rejection, unknown-selection rejection, session-key validation)', () => {
+  test("restoring the old 'no-session' shared bucket makes two UNRELATED keyless record/status calls collide, even though the real (unmutated) code refuses to record anything keyless at all", () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle = '  if (isValidSessionKeyCandidate(ctx.runId)) {\n    return ctx.runId;\n  }\n  return null;';
+      const replacement =
+        "  if (isValidSessionKeyCandidate(ctx.runId)) {\n    return ctx.runId;\n  }\n  return 'no-session';";
+      const mutated = mutateAndRequire(mutantRoot.confirmPath, needle, replacement);
+
+      const projectRootA = mkTempDir('confirm-mutant-nosession-a-');
+      const projectRootB = mkTempDir('confirm-mutant-nosession-b-');
+
+      // Two entirely independent keyless contexts (different projectRoot each, standing in for
+      // two unrelated callers) recording/checking the SAME (category, adapter, source) tuple.
+      const recordedA = mutated.recordConfirmation('tracker', {
+        projectRoot: projectRootA,
+        env: {},
+        adapter: 'fixture-shared-tracker',
+        source: 'project'
+      });
+      expect(recordedA).toEqual({ confirmed: true });
+
+      // projectRootB never recorded anything itself, yet with the shared 'no-session' bucket
+      // restored, its confirmationRecordPath hashes to the SAME file (sessionKey is now the
+      // literal 'no-session' for both, and `confirmationRecordPath` depends only on
+      // (sessionKey, category, adapter, configHash) -- not on projectRoot's identity, only on
+      // the path it is read FROM, which differs; so to prove the cross-contamination within one
+      // shared state root, check the SAME projectRoot instead.
+      const statusSameRoot = mutated.confirmStatus('tracker', {
+        projectRoot: projectRootA,
+        env: {},
+        sideEffect: true,
+        adapter: 'fixture-shared-tracker',
+        source: 'project'
+        // No runId here either -- a SECOND, unrelated keyless caller against the same
+        // projectRoot's state dir.
+      });
+      // With the shared bucket restored, this second, entirely independent keyless caller is
+      // wrongly reported confirmed -- exactly what the real (unmutated) "keyless confirmStatus
+      // returns NO_CONFIRM_KEY, never confirmed:true" test above disproves.
+      expect(statusSameRoot).toEqual({ confirmed: true });
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('removing the keyless check in confirmStatus lets a keyless call fall through to the filesystem path instead of failing closed', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        "  if (effectiveSessionKey(ctx) === null) {\n" +
+        "    return {\n" +
+        "      confirmed: false,\n" +
+        "      required: true,\n" +
+        "      reason: 'NO_CONFIRM_KEY',\n" +
+        "      adapter: ctx.adapter,\n" +
+        "      source: ctx.source,\n" +
+        "      ...(ctx.allowlist ? { allowlist: ctx.allowlist } : {})\n" +
+        "    };\n" +
+        "  }\n";
+      const replacement = '';
+      const mutated = mutateAndRequire(mutantRoot.confirmPath, needle, replacement);
+
+      const projectRoot = mkTempDir('confirm-mutant-keyless-check-');
+      const result = mutated.confirmStatus('tracker', {
+        projectRoot,
+        env: {},
+        sideEffect: true,
+        adapter: 'fixture-tracker',
+        source: 'project'
+        // No runId: with the check removed, `effectiveSessionKey` itself still returns `null`,
+        // but `confirmationRecordPath(projectRoot, null, ...)` is now called with a `null`
+        // sessionKey, producing a DIFFERENT shape than the real code's NO_CONFIRM_KEY result --
+        // exactly what the real (unmutated) "keyless confirmStatus returns NO_CONFIRM_KEY" test
+        // above disproves.
+      });
+      expect(result.reason).not.toBe('NO_CONFIRM_KEY');
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('removing the hasValidSelection check in recordConfirmation lets a missing source be recorded instead of refused', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        "  if (!hasValidSelection(ctx)) {\n" +
+        "    const error = new Error(\n" +
+        "      `recordConfirmation: category '${category}' needs a resolved adapter and source before ` +\n" +
+        "        `it can be recorded (got adapter=${JSON.stringify(ctx.adapter)}, ` +\n" +
+        "        `source=${JSON.stringify(ctx.source)})`\n" +
+        "    );\n" +
+        "    error.code = 'ADAPTER_SOURCE_REQUIRED';\n" +
+        "    throw error;\n" +
+        "  }\n";
+      const replacement = '';
+      const mutated = mutateAndRequire(mutantRoot.confirmPath, needle, replacement);
+
+      const projectRoot = mkTempDir('confirm-mutant-selection-check-');
+      // With the check removed, this no longer throws -- exactly what the real (unmutated)
+      // "recordConfirmation with a missing source throws ADAPTER_SOURCE_REQUIRED" test above
+      // disproves.
+      expect(() =>
+        mutated.recordConfirmation('tracker', {
+          projectRoot,
+          env: {},
+          adapter: 'fixture-tracker',
+          runId: 'r1'
+        })
+      ).not.toThrow();
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('removing the session-key length/NUL validation lets an oversized CLAUDE_SESSION_ID be used directly as a key', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        '  if (isValidSessionKeyCandidate(env.CLAUDE_SESSION_ID)) {\n' +
+        '    return env.CLAUDE_SESSION_ID;\n' +
+        '  }\n' +
+        '  return null;';
+      const replacement =
+        "  if (typeof env.CLAUDE_SESSION_ID === 'string' && env.CLAUDE_SESSION_ID !== '') {\n" +
+        '    return env.CLAUDE_SESSION_ID;\n' +
+        '  }\n' +
+        '  return null;';
+      const mutated = mutateAndRequire(mutantRoot.confirmPath, needle, replacement);
+
+      const projectRoot = mkTempDir('confirm-mutant-session-length-');
+      const oversized = 'x'.repeat(5000);
+      const result = mutated.confirmStatus('tracker', {
+        projectRoot,
+        env: { CLAUDE_SESSION_ID: oversized },
+        sideEffect: true,
+        adapter: 'fixture-tracker',
+        source: 'project'
+      });
+      // With the length guard removed, the oversized value IS used as a real session key, so
+      // this reaches the ordinary (record-match) unconfirmed path instead of the keyless
+      // NO_CONFIRM_KEY shape -- exactly what the real (unmutated) "oversized CLAUDE_SESSION_ID
+      // is ignored" test above disproves.
+      expect(result.reason).toBeUndefined();
+      expect(result).toEqual({ confirmed: false, adapter: 'fixture-tracker', source: 'project' });
     } finally {
       mutantRoot.cleanup();
     }

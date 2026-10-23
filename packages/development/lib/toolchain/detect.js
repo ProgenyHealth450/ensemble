@@ -67,7 +67,78 @@
  *   `execFile`-based fallback (`./runner.js#buildChildEnv`) if a real adapter ever needs it.
  * - `remote_url_matches` only inspects the `origin` remote; other remote names are not
  *   consulted (no documented signal needs them yet).
+ * - `remote_url_matches` pattern evaluation is bounded (PR 4 review Finding 4): each pattern is
+ *   compiled and run inside a fresh, frozen `vm` context holding only `pattern`/`url`, under a
+ *   hard `REMOTE_URL_MATCH_TIMEOUT_MS` wall-clock deadline -- this interrupts even catastrophic
+ *   backtracking (e.g. `^(a+)+$` against a long near-matching string), which a plain
+ *   `new RegExp(pattern).test(url)` call would otherwise hang on indefinitely. An oversized
+ *   pattern (`MAX_REMOTE_URL_PATTERN_LENGTH`), an oversized origin URL
+ *   (`MAX_REMOTE_URL_LENGTH`), an invalid pattern, or a timeout are never silently treated as
+ *   "no match": each throws a named `Error` with `.code === 'DETECTION_SIGNAL_ERROR'` naming
+ *   the adapter, the `remote_url_matches` signal and the offending pattern, which propagates
+ *   uncaught out of `detectAdapter` (exactly like `AMBIGUOUS_PROVIDER` already does) so the
+ *   failure is reported to the caller -- fail closed, never a silent skip, never a hang.
  */
+
+const vm = require('vm');
+
+const REMOTE_URL_MATCH_TIMEOUT_MS = 200;
+const MAX_REMOTE_URL_PATTERN_LENGTH = 512;
+const MAX_REMOTE_URL_LENGTH = 2048;
+
+/**
+ * Evaluate `new RegExp(pattern).test(url)` under a hard `REMOTE_URL_MATCH_TIMEOUT_MS`
+ * wall-clock deadline, inside a fresh `vm` context holding only `pattern`/`url` -- bounds
+ * catastrophic-backtracking regexes so a single adapter's `remote_url_matches` pattern can
+ * never hang detection. Never returns a bare `false` on failure: an oversized pattern/URL, an
+ * invalid pattern, or a timeout all throw a named `Error` with
+ * `.code === 'DETECTION_SIGNAL_ERROR'` so the caller reports (never silently swallows) which
+ * signal failed.
+ *
+ * @param {unknown} pattern
+ * @param {string} url
+ * @returns {boolean}
+ * @throws {Error} with `.code === 'DETECTION_SIGNAL_ERROR'`
+ */
+function testRemoteUrlPattern(pattern, url) {
+  if (typeof pattern !== 'string' || pattern.length === 0) {
+    const error = new Error('remote_url_matches: pattern must be a non-empty string');
+    error.code = 'DETECTION_SIGNAL_ERROR';
+    throw error;
+  }
+  if (pattern.length > MAX_REMOTE_URL_PATTERN_LENGTH) {
+    const error = new Error(
+      `remote_url_matches: pattern length ${pattern.length} exceeds the ` +
+        `${MAX_REMOTE_URL_PATTERN_LENGTH}-character limit`
+    );
+    error.code = 'DETECTION_SIGNAL_ERROR';
+    throw error;
+  }
+  if (typeof url !== 'string' || url.length > MAX_REMOTE_URL_LENGTH) {
+    const error = new Error(
+      `remote_url_matches: origin URL length exceeds the ${MAX_REMOTE_URL_LENGTH}-character limit`
+    );
+    error.code = 'DETECTION_SIGNAL_ERROR';
+    throw error;
+  }
+
+  const sandbox = vm.createContext({ pattern, url, __result: undefined });
+  try {
+    const script = new vm.Script('__result = new RegExp(pattern).test(url);');
+    script.runInContext(sandbox, { timeout: REMOTE_URL_MATCH_TIMEOUT_MS });
+    return Boolean(sandbox.__result);
+  } catch (cause) {
+    const timedOut = Boolean(cause && /Script execution timed out/.test(cause.message || ''));
+    const error = new Error(
+      timedOut
+        ? `remote_url_matches: pattern '${pattern}' exceeded ${REMOTE_URL_MATCH_TIMEOUT_MS}ms ` +
+          `evaluating against the origin URL (possible catastrophic backtracking)`
+        : `remote_url_matches: pattern '${pattern}' is invalid (${cause && cause.message})`
+    );
+    error.code = 'DETECTION_SIGNAL_ERROR';
+    throw error;
+  }
+}
 
 const fs = require('fs');
 const path = require('path');
@@ -257,13 +328,19 @@ function resolvePathWithinRoot(projectRoot, relativePath) {
 }
 
 /**
- * Evaluate one `manifest.detect[]` entry against the repo at `projectRoot`. Never throws: any
- * unreadable/malformed input is treated as "no match" for that signal.
+ * Evaluate one `manifest.detect[]` entry against the repo at `projectRoot`. `file_exists` /
+ * `dir_exists` / `git_config_set` never throw: any unreadable/malformed input for those is
+ * treated as "no match". `remote_url_matches` is the one exception (see
+ * `testRemoteUrlPattern`'s doc above): it can throw a named `.code === 'DETECTION_SIGNAL_ERROR'`
+ * error on an oversized/invalid pattern or a deadline timeout -- that error is never swallowed
+ * here, it propagates to the caller (`detectAdapter`).
  *
  * @param {{signal?: string, pattern?: string, path?: string, key?: string}} signal
  * @param {string} projectRoot
  * @param {Map<string, string[]>|null} gitConfigMap
  * @returns {boolean}
+ * @throws {Error} with `.code === 'DETECTION_SIGNAL_ERROR'` for a bad/slow `remote_url_matches`
+ *   pattern
  */
 function signalMatches(signal, projectRoot, gitConfigMap) {
   if (!signal || typeof signal.signal !== 'string') {
@@ -294,18 +371,11 @@ function signalMatches(signal, projectRoot, gitConfigMap) {
       }
     }
     case 'remote_url_matches': {
-      if (typeof signal.pattern !== 'string') {
-        return false;
-      }
       const url = resolveOriginRemoteUrl(gitConfigMap);
       if (!url) {
         return false;
       }
-      try {
-        return new RegExp(signal.pattern).test(url);
-      } catch {
-        return false;
-      }
+      return testRemoteUrlPattern(signal.pattern, url);
     }
     case 'git_config_set':
       return gitConfigKeyIsSet(gitConfigMap, signal.key);
@@ -321,7 +391,11 @@ function signalMatches(signal, projectRoot, gitConfigMap) {
  * @param {string} category
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, interactive?: boolean}} [ctx]
  * @returns {{value: string, source: 'detection'}|null}
- * @throws {Error} with `.code === 'AMBIGUOUS_PROVIDER'` per the module doc's I2 ambiguous case
+ * @throws {Error} with `.code === 'AMBIGUOUS_PROVIDER'` per the module doc's I2 ambiguous case,
+ *   or `.code === 'DETECTION_SIGNAL_ERROR'` naming the adapter, the `remote_url_matches`
+ *   signal and the offending pattern when that candidate's pattern is oversized, invalid, or
+ *   exceeds its evaluation deadline (PR 4 review Finding 4) -- fail closed, never a silent
+ *   skip, never a hang.
  */
 function detectAdapter(category, ctx = {}) {
   const { projectRoot = process.cwd() } = ctx;
@@ -355,7 +429,20 @@ function detectAdapter(category, ctx = {}) {
       candidateDeclaresRemoteSignal = true;
     }
 
-    if (detectSignals.some((signal) => signalMatches(signal, projectRoot, gitConfigMap))) {
+    let candidateMatched;
+    try {
+      candidateMatched = detectSignals.some((signal) =>
+        signalMatches(signal, projectRoot, gitConfigMap)
+      );
+    } catch (error) {
+      if (error && error.code === 'DETECTION_SIGNAL_ERROR') {
+        error.message = `detectAdapter: adapter '${name}' ${error.message}`;
+        error.adapter = name;
+      }
+      throw error;
+    }
+
+    if (candidateMatched) {
       matched.push(name);
     }
   }

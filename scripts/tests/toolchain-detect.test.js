@@ -25,11 +25,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const yaml = require('js-yaml');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const { detectAdapter } = require('../../packages/development/lib/toolchain/detect');
 const { resolveCategory } = require('../../packages/development/lib/toolchain/config');
 const { main } = require('../../packages/development/lib/toolchain-cli');
+const {
+  makeMutantToolchainRoot,
+  mutateAndRequire
+} = require('./fixtures/toolchain/mutant-toolchain-copy');
+
+const CLI = path.join(__dirname, '..', '..', 'packages', 'development', 'lib', 'toolchain-cli.js');
 
 const tempDirs = [];
 
@@ -668,6 +674,206 @@ describe('production wiring: main() uses the real detectAdapter via its unmodifi
     expect(parsed).toEqual({
       ok: false,
       error: { code: 'AMBIGUOUS_PROVIDER', message: expect.any(String) }
+    });
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 4: `remote_url_matches` pattern evaluation is bounded
+ * by a hard wall-clock deadline (`./detect.js#testRemoteUrlPattern`), never silently swallowed
+ * on failure. A deliberately catastrophic-backtracking pattern (`^(a+)+$`) is only exercised
+ * against a real near-matching ORIGIN URL (no scheme/host prefix): the pattern is anchored
+ * (`^...$`), so a prefixed URL like `https://evil.example.com/aaa...a!` never even enters the
+ * backtracking group (`^` fails to match at position 0 against `h`) -- the catastrophic case
+ * requires the WHOLE origin URL to be the near-matching string, matching the bead's own worked
+ * example (`'a'.repeat(40) + '!'`).
+ */
+describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)', () => {
+  test('a catastrophic-backtracking pattern against a real near-matching origin URL throws a named DETECTION_SIGNAL_ERROR within a few hundred ms, never hangs', () => {
+    const projectRoot = mkTempDir('toolchain-detect-regex-deadline-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'a'.repeat(40) + '!');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'fixture-evil',
+      fixtureManifest({
+        adapter: 'fixture-evil',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: '^(a+)+$' }]
+      })
+    );
+
+    const start = Date.now();
+    let thrown;
+    try {
+      detectAdapter('tracker', { projectRoot });
+    } catch (error) {
+      thrown = error;
+    }
+    const elapsedMs = Date.now() - start;
+
+    expect(thrown).toBeDefined();
+    expect(thrown.code).toBe('DETECTION_SIGNAL_ERROR');
+    expect(thrown.message).toContain('fixture-evil');
+    expect(thrown.message).toContain('remote_url_matches');
+    expect(thrown.message).toContain('^(a+)+$');
+    // Generous margin above the ~200ms deadline: proves this returns promptly, never hangs.
+    expect(elapsedMs).toBeLessThan(2000);
+  });
+
+  test('an oversized pattern is rejected by name, never evaluated', () => {
+    const projectRoot = mkTempDir('toolchain-detect-regex-oversize-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'fixture-oversize',
+      fixtureManifest({
+        adapter: 'fixture-oversize',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: 'a'.repeat(600) }]
+      })
+    );
+
+    expect(() => detectAdapter('tracker', { projectRoot })).toThrow(
+      expect.objectContaining({ code: 'DETECTION_SIGNAL_ERROR' })
+    );
+  });
+
+  test('an invalid regex pattern is rejected by name, never silently treated as no-match', () => {
+    const projectRoot = mkTempDir('toolchain-detect-regex-invalid-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'fixture-badregex',
+      fixtureManifest({
+        adapter: 'fixture-badregex',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: '(unterminated' }]
+      })
+    );
+
+    expect(() => detectAdapter('tracker', { projectRoot })).toThrow(
+      expect.objectContaining({ code: 'DETECTION_SIGNAL_ERROR' })
+    );
+  });
+
+  test('a well-formed, fast pattern still matches normally -- the deadline never affects ordinary detection', () => {
+    const projectRoot = mkTempDir('toolchain-detect-regex-normal-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'fixture-normal',
+      fixtureManifest({
+        adapter: 'fixture-normal',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
+      })
+    );
+
+    expect(detectAdapter('tracker', { projectRoot })).toEqual({
+      value: 'fixture-normal',
+      source: 'detection'
+    });
+  });
+
+  test('production wiring: a catastrophic pattern reaches a real "toolchain-cli resolve --json" subprocess as a named error, not a hang', () => {
+    const projectRoot = mkTempDir('toolchain-detect-regex-cli-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'a'.repeat(40) + '!');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'fixture-evil-cli',
+      fixtureManifest({
+        adapter: 'fixture-evil-cli',
+        categories: ['tracker'],
+        detect: [{ signal: 'remote_url_matches', pattern: '^(a+)+$' }]
+      })
+    );
+
+    const xdgConfigHome = mkTempDir('toolchain-detect-regex-cli-xdg-');
+    const result = spawnSync('node', [CLI, 'resolve', '--json'], {
+      cwd: projectRoot,
+      env: { PATH: process.env.PATH, XDG_CONFIG_HOME: xdgConfigHome },
+      encoding: 'utf8',
+      timeout: 5000
+    });
+
+    // Never killed by the 5s subprocess timeout: the real deadline bounds this to a few
+    // hundred ms, nowhere near the kill timeout.
+    expect(result.signal).toBeNull();
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toEqual({
+      ok: false,
+      error: { code: 'DETECTION_SIGNAL_ERROR', message: expect.any(String) }
+    });
+    expect(parsed.error.message).toContain('fixture-evil-cli');
+  });
+
+  describe('mutation-proof: removing the vm timeout lets a catastrophic pattern hang', () => {
+    test('a mutant detect.js without the timeout option never completes within a 2s kill window for the same pattern the real code bounds to ~200ms', () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle = '    script.runInContext(sandbox, { timeout: REMOTE_URL_MATCH_TIMEOUT_MS });';
+        const replacement = '    script.runInContext(sandbox);';
+        // Write the mutation to disk (never `require()` it in THIS process -- calling the
+        // mutated detectAdapter here would hang the Jest worker itself). A fresh child
+        // process requires and calls it instead, bounded by `spawnSync`'s own `timeout`.
+        const original = fs.readFileSync(mutantRoot.toolchainLibDir + '/detect.js', 'utf8');
+        if (!original.includes(needle)) {
+          throw new Error('mutation needle not found in detect.js');
+        }
+        fs.writeFileSync(mutantRoot.toolchainLibDir + '/detect.js', original.replace(needle, replacement));
+
+        const projectRoot = mkTempDir('toolchain-detect-regex-mutant-');
+        initGitRepo(projectRoot);
+        setGitRemote(projectRoot, 'a'.repeat(40) + '!');
+        writeInstalledAdapter(
+          projectRoot,
+          'fixture-pkg',
+          'fixture-evil-mutant',
+          fixtureManifest({
+            adapter: 'fixture-evil-mutant',
+            categories: ['tracker'],
+            detect: [{ signal: 'remote_url_matches', pattern: '^(a+)+$' }]
+          })
+        );
+
+        const detectPath = mutantRoot.toolchainLibDir + '/detect.js';
+        const script =
+          `const { detectAdapter } = require(${JSON.stringify(detectPath)});\n` +
+          `detectAdapter('tracker', { projectRoot: ${JSON.stringify(projectRoot)} });\n` +
+          `process.stdout.write('completed');\n`;
+
+        const child = spawnSync(process.execPath, ['-e', script], {
+          timeout: 2000,
+          encoding: 'utf8'
+        });
+
+        // With the deadline removed, the mutant never finishes within the 2s kill window --
+        // spawnSync reports it was killed (signal set / ETIMEDOUT), and it never printed
+        // 'completed' -- exactly what the real (unmutated) "within a few hundred ms" test
+        // above disproves.
+        expect(child.stdout).not.toBe('completed');
+        expect(child.signal !== null || (child.error && child.error.code === 'ETIMEDOUT')).toBe(
+          true
+        );
+      } finally {
+        mutantRoot.cleanup();
+      }
     });
   });
 });

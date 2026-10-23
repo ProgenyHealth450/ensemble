@@ -17,7 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const yaml = require('js-yaml');
-const { spawnSync } = require('child_process');
+const { spawnSync, execFileSync } = require('child_process');
 
 const { resolve, explain, main } = require('../lib/toolchain-cli');
 const { DEFAULT_TOOLCHAIN_PATH } = require('../lib/toolchain/config');
@@ -413,12 +413,18 @@ describe('confirm-record / confirm-status: subprocess round trip (TRD-018)', () 
       mkProjectConfig(projectRoot, { tracker: 'fixture-confirm-tracker' });
       mkInstalledAdapter(projectRoot, 'fixture-confirm-tracker');
       const env = cleanSpawnEnv();
+      // A shared --run-id is supplied on every call: with no CLAUDE_SESSION_ID/
+      // ENSEMBLE_SESSION_ID set (cleanSpawnEnv strips them) and no --run-id, confirm-record
+      // would now be refused with CONFIRM_KEY_REQUIRED (PR 4 review Finding 3 -- no shared
+      // 'no-session' bucket); this round trip is about the confirmed/unconfirmed transition,
+      // not about keying, so a run id keeps the three calls tied to the same record.
+      const runId = 'subprocess-confirm-r1';
 
-      const before = spawnSync('node', [CLI, 'confirm-status', 'tracker.create', '--json'], {
-        cwd: projectRoot,
-        env,
-        encoding: 'utf8'
-      });
+      const before = spawnSync(
+        'node',
+        [CLI, 'confirm-status', 'tracker.create', '--run-id', runId, '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
       expect(before.status).toBe(0);
       const beforeParsed = JSON.parse(before.stdout);
       expect(beforeParsed.ok).toBe(true);
@@ -426,21 +432,21 @@ describe('confirm-record / confirm-status: subprocess round trip (TRD-018)', () 
       expect(beforeParsed.adapter).toBe('fixture-confirm-tracker');
       expect(beforeParsed.data.confirmed).toBe(false);
 
-      const record = spawnSync('node', [CLI, 'confirm-record', 'tracker.create', '--json'], {
-        cwd: projectRoot,
-        env,
-        encoding: 'utf8'
-      });
+      const record = spawnSync(
+        'node',
+        [CLI, 'confirm-record', 'tracker.create', '--run-id', runId, '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
       expect(record.status).toBe(0);
       const recordParsed = JSON.parse(record.stdout);
       expect(recordParsed.ok).toBe(true);
       expect(recordParsed.data).toEqual({ confirmed: true });
 
-      const after = spawnSync('node', [CLI, 'confirm-status', 'tracker.create', '--json'], {
-        cwd: projectRoot,
-        env,
-        encoding: 'utf8'
-      });
+      const after = spawnSync(
+        'node',
+        [CLI, 'confirm-status', 'tracker.create', '--run-id', runId, '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
       expect(after.status).toBe(0);
       const afterParsed = JSON.parse(after.stdout);
       expect(afterParsed.ok).toBe(true);
@@ -678,5 +684,328 @@ describe('mutation proof: preflight async-dispatch branch matters (TRD-018)', ()
       fs.rmSync(projectRoot, { recursive: true, force: true });
       mutantRoot.cleanup();
     }
+  });
+});
+
+function initGitRepo(dir) {
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+}
+
+function setGitRemote(dir, url) {
+  execFileSync('git', ['remote', 'add', 'origin', url], { cwd: dir, stdio: 'ignore' });
+}
+
+/** Run an async `fn` (typically a direct `main()` call for 'run'/'preflight'), capturing
+ * everything written to `process.stdout.write` only AFTER `fn`'s returned promise resolves --
+ * unlike the synchronous `captureStdout` above, this never restores the spy before async
+ * printing has actually happened. */
+async function captureStdoutAsync(fn) {
+  const chunks = [];
+  const spy = jest.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+    chunks.push(String(chunk));
+    return true;
+  });
+  try {
+    const returned = await fn();
+    return { returned, stdout: chunks.join('') };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 1: a detection-selected adapter (no config file at
+ * all; the project's git `origin` remote matches an installed adapter's `remote_url_matches`
+ * signal) must resolve identically -- same adapter id AND `source:'detection'` -- through
+ * EVERY subcommand, not just `resolve`/`explain`. Real git repo, real subprocess, no injected
+ * ctx: every call below uses `main()`'s own unmodified default ctx (`detect: detectAdapter`).
+ */
+describe('detection-selected adapter works end to end through preflight/run/confirm-status (TRD-2026-8d825f54 PR 4 review Finding 1)', () => {
+  function mkDetectionProject(adapterId) {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-detection-e2e-'));
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/widget.git');
+    mkInstalledAdapter(projectRoot, adapterId, {
+      detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }],
+      capabilities: {
+        'tracker.show': { run: [process.execPath, '-e', 'process.stdout.write("ok")'] }
+      }
+    });
+    return projectRoot;
+  }
+
+  test('preflight succeeds for the detection-resolved adapter (not the shipped default)', () => {
+    const projectRoot = mkDetectionProject('fixture-detect-preflight-tracker');
+    try {
+      const res = spawnSync('node', [CLI, 'preflight', '--require', 'tracker.show', '--json'], {
+        cwd: projectRoot,
+        env: cleanSpawnEnv(),
+        encoding: 'utf8'
+      });
+      expect(res.status).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.categories).toEqual(['tracker']);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("run reports source:'detection' for the detection-resolved adapter", () => {
+    const projectRoot = mkDetectionProject('fixture-detect-run-tracker');
+    try {
+      const res = spawnSync('node', [CLI, 'run', 'tracker.show', '--json'], {
+        cwd: projectRoot,
+        env: cleanSpawnEnv(),
+        encoding: 'utf8'
+      });
+      expect(res.status).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed).toEqual({
+        ok: true,
+        capability: 'tracker.show',
+        adapter: 'fixture-detect-run-tracker',
+        source: 'detection',
+        data: 'ok'
+      });
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("confirm-status reports source:'detection' for the detection-resolved adapter", () => {
+    const projectRoot = mkDetectionProject('fixture-detect-confirm-tracker');
+    try {
+      const res = spawnSync('node', [CLI, 'confirm-status', 'tracker.show', '--json'], {
+        cwd: projectRoot,
+        env: cleanSpawnEnv(),
+        encoding: 'utf8'
+      });
+      expect(res.status).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.adapter).toBe('fixture-detect-confirm-tracker');
+      expect(parsed.source).toBe('detection');
+      // tracker.show is sideEffect:false, so confirmation is never required for it.
+      expect(parsed.data).toEqual({ required: false });
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  describe('mutation-proof: dropping ctx.detect in the preflight handler loses the detected adapter', () => {
+    test("removing 'detect: ctx.detect' from the preflight handler's runPreflight ctx falls through to the shipped default and fails, never succeeding for the detected adapter", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          "  return runPreflight(\n" +
+          "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },\n" +
+          "    {\n" +
+          "      projectRoot: ctx.projectRoot || process.cwd(),\n" +
+          "      env: ctx.env || process.env,\n" +
+          "      detect: ctx.detect\n" +
+          "    }\n" +
+          "  );";
+        const replacement =
+          "  return runPreflight(\n" +
+          "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },\n" +
+          "    { projectRoot: ctx.projectRoot || process.cwd(), env: ctx.env || process.env }\n" +
+          "  );";
+        const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+        const projectRoot = mkDetectionProject('fixture-detect-mutant-tracker');
+        const { detectAdapter } = require(mutantRoot.toolchainLibDir + '/detect.js');
+        try {
+          const code = await mutatedCli.main(
+            ['preflight', '--require', 'tracker.show', '--json'],
+            { projectRoot, env: { PATH: process.env.PATH }, detect: detectAdapter }
+          );
+          // With `detect` dropped, resolveCategory falls through to the shipped default (never
+          // 'fixture-detect-mutant-tracker', which is not installed under the shipped default
+          // id either) -- exactly what the real (unmutated) "preflight succeeds for the
+          // detection-resolved adapter" test above disproves.
+          expect(code).toBe(1);
+        } finally {
+          fs.rmSync(projectRoot, { recursive: true, force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+
+  describe('mutation-proof: dropping opts.source in run() loses the true source', () => {
+    test("removing 'source,' from run()'s runCapability opts reports source:null even for a successful detection-resolved run", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          "  const result = await runCapability(loaded.manifest, capability, args, {\n" +
+          "    source,\n" +
+          "    execFileOptions: { cwd: projectRoot }\n" +
+          "  });";
+        const replacement =
+          "  const result = await runCapability(loaded.manifest, capability, args, {\n" +
+          "    execFileOptions: { cwd: projectRoot }\n" +
+          "  });";
+        const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+        const projectRoot = mkDetectionProject('fixture-detect-nosource-tracker');
+        const { detectAdapter } = require(mutantRoot.toolchainLibDir + '/detect.js');
+        try {
+          const { returned: code, stdout } = await captureStdoutAsync(() =>
+            mutatedCli.main(['run', 'tracker.show', '--json'], {
+              projectRoot,
+              env: { PATH: process.env.PATH },
+              detect: detectAdapter
+            })
+          );
+          expect(code).toBe(0);
+          const parsed = JSON.parse(stdout.trim());
+          expect(parsed.ok).toBe(true);
+          // With 'source,' removed, the envelope reports null even though the adapter was
+          // genuinely resolved via detection -- exactly what the real (unmutated)
+          // "run reports source:'detection'" test above disproves.
+          expect(parsed.source).toBeNull();
+        } finally {
+          fs.rmSync(projectRoot, { recursive: true, force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+});
+
+/**
+ * TRD-2026-8d825f54 PR 4 review Finding 2: `run()` derives `interactive` the same way
+ * `confirm-status`/`confirm-record` already do and loads the adapter BEFORE the confirmation
+ * gate, so an interactive run of a repo-local adapter reaches `CONFIRMATION_REQUIRED` (never
+ * `UNTRUSTED_REPO_ADAPTER`), while a non-interactive run without trust is still refused --
+ * and, in both cases, the adapter's own side effect never actually runs (proved by a marker
+ * file the adapter's spawned child would create, which never appears).
+ */
+describe('run(): interactive repo-local adapter reaches confirmation; non-interactive untrusted still refused; no spawn before confirmation (TRD-2026-8d825f54 PR 4 review Finding 2)', () => {
+  function mkRepoLocalMarkerProject(adapterId, markerPath) {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-interactive-repo-local-'));
+    mkProjectConfig(projectRoot, { tracker: adapterId });
+    mkRepoLocalAdapter(projectRoot, adapterId, {
+      capabilities: {
+        'tracker.create': {
+          run: [
+            process.execPath,
+            '-e',
+            `require('fs').writeFileSync(${JSON.stringify(markerPath)}, 'spawned')`
+          ]
+        }
+      }
+    });
+    return projectRoot;
+  }
+
+  test('an interactive run (no --non-interactive, no non-interactive env signal) reaches CONFIRMATION_REQUIRED, never UNTRUSTED_REPO_ADAPTER, and never spawns the adapter', () => {
+    const markerPath = path.join(os.tmpdir(), `toolchain-cli-marker-interactive-${Date.now()}.txt`);
+    const projectRoot = mkRepoLocalMarkerProject('fixture-repo-local-interactive', markerPath);
+    try {
+      const preflightRes = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'tracker.create', '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+      expect(preflightRes.status).toBe(0);
+      const runId = JSON.parse(preflightRes.stdout).runId;
+
+      const runRes = spawnSync(
+        'node',
+        [CLI, 'run', 'tracker.create', '--run-id', runId, '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+      expect(runRes.status).toBe(1);
+      const parsed = JSON.parse(runRes.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.code).toBe('CONFIRMATION_REQUIRED');
+      expect(parsed.error.code).not.toBe('UNTRUSTED_REPO_ADAPTER');
+      expect(fs.existsSync(markerPath)).toBe(false);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(markerPath, { force: true });
+    }
+  });
+
+  test('a non-interactive run without trust is still refused with UNTRUSTED_REPO_ADAPTER, and never spawns the adapter', () => {
+    const markerPath = path.join(os.tmpdir(), `toolchain-cli-marker-noninteractive-${Date.now()}.txt`);
+    const projectRoot = mkRepoLocalMarkerProject('fixture-repo-local-noninteractive', markerPath);
+    try {
+      const preflightRes = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'tracker.create', '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+      // preflight itself is also non-interactive-trust-gated (consistently, Finding 2); an
+      // interactive preflight is used here only to obtain a passing record so this test
+      // isolates the `run` subcommand's own gate.
+      expect(preflightRes.status).toBe(0);
+      const runId = JSON.parse(preflightRes.stdout).runId;
+
+      const runRes = spawnSync(
+        'node',
+        [CLI, 'run', 'tracker.create', '--run-id', runId, '--non-interactive', '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+      expect(runRes.status).toBe(1);
+      const parsed = JSON.parse(runRes.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.code).toBe('UNTRUSTED_REPO_ADAPTER');
+      expect(fs.existsSync(markerPath)).toBe(false);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(markerPath, { force: true });
+    }
+  });
+
+  describe('mutation-proof: removing the interactive derivation makes an interactive run of a repo-local adapter wrongly untrusted', () => {
+    test("reverting run()'s loadAdapter call to the old bare ctx (no derived interactive flag) makes a genuinely interactive run fail UNTRUSTED_REPO_ADAPTER instead of reaching CONFIRMATION_REQUIRED", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle = '    loaded = loadAdapter(adapterId, { ...ctx, interactive });';
+        const replacement = '    loaded = loadAdapter(adapterId, ctx);';
+        const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+        const markerPath = path.join(os.tmpdir(), `toolchain-cli-marker-mutant-${Date.now()}.txt`);
+        const projectRoot = mkRepoLocalMarkerProject('fixture-repo-local-mutant', markerPath);
+        try {
+          // A real preflight record, written directly through the mutant's own (unaffected)
+          // preflight.js, so this test isolates `run()`'s own loadAdapter call -- not
+          // preflight's.
+          const { runPreflight } = require(mutantRoot.toolchainLibDir + '/preflight.js');
+          const runId = 'mutant-interactive-r1';
+          const pf = await runPreflight(
+            { categories: ['tracker'], runId },
+            { projectRoot, env: { PATH: process.env.PATH } }
+          );
+          expect(pf.ok).toBe(true);
+
+          const { returned: code, stdout } = await captureStdoutAsync(() =>
+            mutatedCli.main(['run', 'tracker.create', '--run-id', runId, '--json'], {
+              projectRoot,
+              env: { PATH: process.env.PATH }
+            })
+          );
+          expect(code).toBe(1);
+          const parsed = JSON.parse(stdout.trim());
+          // With the derived `interactive` flag reverted to the old bare `ctx` (always
+          // `interactive:false` by default inside `loadAdapter`), a genuinely interactive run
+          // of a repo-local adapter now fails `UNTRUSTED_REPO_ADAPTER` instead of reaching
+          // `CONFIRMATION_REQUIRED` -- exactly what the real (unmutated) "interactive run
+          // reaches CONFIRMATION_REQUIRED" test above disproves.
+          expect(parsed.error.code).toBe('UNTRUSTED_REPO_ADAPTER');
+          expect(fs.existsSync(markerPath)).toBe(false);
+        } finally {
+          fs.rmSync(projectRoot, { recursive: true, force: true });
+          fs.rmSync(markerPath, { force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
   });
 });

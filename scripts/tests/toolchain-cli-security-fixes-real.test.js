@@ -466,8 +466,13 @@ describe('mutation-restore proof: reviewer Findings 2 and 6 actually discriminat
   test('removing the explicit cwd lets the adapter child resolve relative paths against the wrong directory', async () => {
     const mutantRoot = makeMutantToolchainRoot();
     try {
-      const needle = '  const result = await runCapability(loaded.manifest, capability, args, {\n    execFileOptions: { cwd: projectRoot }\n  });';
-      const replacement = '  const result = await runCapability(loaded.manifest, capability, args, {});';
+      const needle =
+        '  const result = await runCapability(loaded.manifest, capability, args, {\n' +
+        '    source,\n' +
+        '    execFileOptions: { cwd: projectRoot }\n' +
+        '  });';
+      const replacement =
+        '  const result = await runCapability(loaded.manifest, capability, args, { source });';
       const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
 
       const projectRoot = mkProjectRoot();
