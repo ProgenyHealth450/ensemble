@@ -240,6 +240,14 @@ describe('Concurrency: two categories confirmed at the same instant never collid
 });
 
 describe('Non-sideEffect/local-only short-circuit, and allowlist pass-through', () => {
+  // NOTE (TRD-017-TEST finding, out of scope to fix here -- see this file's test-only remit):
+  // `toolchain-cli.js`'s `run()` calls `confirmAdapterStatus(category, {projectRoot, env,
+  // nonInteractive, sideEffect: true, adapter, source, runId})` -- it never forwards an
+  // `allowlist` field. So `confirmStatus`'s `allowlist` pass-through exercised below is only
+  // reachable via a DIRECT `confirmStatus()` call (as this test does), never via the real
+  // `main(['run', ...])` CLI path. This is a pre-existing gap from the already-closed TRD-017
+  // bead; the assertion below remains an accurate unit-level (not CLI-reachable) proof of
+  // `confirm.js`'s own contract, not a claim that `run` surfaces `allowlist` end to end.
   test('a non-sideEffect capability returns required:false without touching the filesystem; an unconfirmed sideEffect status passes ctx.allowlist through unchanged', () => {
     const projectRoot = mkTempDir('confirm-ac6-');
 
@@ -272,15 +280,23 @@ describe('Non-sideEffect/local-only short-circuit, and allowlist pass-through', 
 
 describe('production wiring: toolchain-cli run uses the real confirmStatus via its unmodified default ctx', () => {
   // These vars could theoretically leak from the real host running this suite and silently
-  // flip the CLI into non-interactive auto-confirm, defeating the CONFIRMATION_REQUIRED
+  // flip the CLI into non-interactive auto-confirm, or select a different adapter via a
+  // user-level config file / env-compat fallback, defeating the CONFIRMATION_REQUIRED
   // assertion below -- explicitly cleared for the duration of this describe block so the test
-  // is deterministic regardless of the actual CI/host environment.
+  // is deterministic regardless of the actual CI/host environment. XDG_CONFIG_HOME/
+  // ENSEMBLE_PR_BACKEND/ENSEMBLE_BRANCHING_STRATEGY can never actually change these tests'
+  // outcome (every test here sets a project-level `tracker` entry via mkProjectConfig, which
+  // `resolveCategory` always prefers over the user config or env-compat fallback) but are
+  // cleared anyway since doing so is free and keeps the isolation list exhaustive.
   const CONTROLLED_ENV_VARS = [
     'CI',
     'ENSEMBLE_NON_INTERACTIVE',
     'FOREMAN_TASK_TITLE',
     'CLAUDE_SESSION_ID',
-    'ENSEMBLE_SESSION_ID'
+    'ENSEMBLE_SESSION_ID',
+    'XDG_CONFIG_HOME',
+    'ENSEMBLE_PR_BACKEND',
+    'ENSEMBLE_BRANCHING_STRATEGY'
   ];
   let savedVars;
 
@@ -357,6 +373,200 @@ describe('production wiring: toolchain-cli run uses the real confirmStatus via i
       expect(codeB).toBe(0);
       const parsedB = JSON.parse(stdoutB.trim());
       expect(parsedB.ok).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('AC-011-2: a confirmed category stays confirmed for a 2nd and 3rd main() call in the same session, with no new confirmation record written', async () => {
+    const projectRoot = mkTempDir('confirm-wiring-repeat-');
+    mkProjectConfig(projectRoot, { tracker: 'fixture-confirm-tracker-repeat' });
+    mkInstalledAdapter(projectRoot, 'fixture-confirm-tracker-repeat', {
+      capabilities: {
+        'tracker.create': { run: [process.execPath, '-e', 'process.stdout.write("{}")'] }
+      }
+    });
+
+    const runId = 'confirm-wiring-repeat-r1';
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(projectRoot);
+
+      const preflight = await runPreflight(
+        { categories: ['tracker'], runId },
+        { projectRoot, env: process.env }
+      );
+      expect(preflight.ok).toBe(true);
+
+      const { returned: confirmCode, stdout: confirmStdout } = await captureStdout(() =>
+        main(['confirm-record', 'tracker.create', '--run-id', runId, '--json'])
+      );
+      expect(confirmCode).toBe(0);
+      expect(JSON.parse(confirmStdout.trim()).ok).toBe(true);
+
+      const dir = confirmationsDir(projectRoot);
+      // Prove the equality check below is proven against real content, not an empty directory.
+      expect(fs.readdirSync(dir)).toHaveLength(1);
+      const snapshot = () =>
+        fs
+          .readdirSync(dir)
+          .sort()
+          .map((file) => [file, fs.statSync(path.join(dir, file)).mtimeMs]);
+      const before = snapshot();
+
+      // A 2nd AND a 3rd real main() call for the same confirmed category, each its own
+      // process-level confirmStatus() read -- neither may re-prompt or write a new record.
+      for (let i = 0; i < 2; i += 1) {
+        const { returned: code, stdout } = await captureStdout(() =>
+          main(['run', 'tracker.create', '--run-id', runId, '--json'])
+        );
+        expect(code).toBe(0);
+        expect(JSON.parse(stdout.trim()).ok).toBe(true);
+      }
+
+      expect(snapshot()).toEqual(before);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test.each([
+    ['the --non-interactive flag', (argv) => [...argv, '--non-interactive'], {}],
+    ['ENSEMBLE_NON_INTERACTIVE=1', (argv) => argv, { ENSEMBLE_NON_INTERACTIVE: '1' }],
+    ['a non-empty FOREMAN_TASK_TITLE', (argv) => argv, { FOREMAN_TASK_TITLE: 'some-task' }],
+    ['CI=true', (argv) => argv, { CI: 'true' }]
+  ])(
+    "AC-011-3: a real unconfirmed adapter with a passing preflight record auto-confirms via main() with %s -- ok:true, logs adapter/source, never writes a confirmation record",
+    async (_label, mutateArgv, envOverrides) => {
+      const projectRoot = mkTempDir('confirm-wiring-nonint-');
+      mkProjectConfig(projectRoot, { tracker: 'fixture-confirm-tracker-nonint' });
+      mkInstalledAdapter(projectRoot, 'fixture-confirm-tracker-nonint', {
+        capabilities: {
+          'tracker.create': { run: [process.execPath, '-e', 'process.stdout.write("{}")'] }
+        }
+      });
+
+      const runId = 'confirm-wiring-nonint-r1';
+      const originalCwd = process.cwd();
+      const originalEnvValues = Object.keys(envOverrides).map((name) => [name, process.env[name]]);
+      for (const [name, value] of Object.entries(envOverrides)) {
+        process.env[name] = value;
+      }
+      const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        process.chdir(projectRoot);
+
+        const preflight = await runPreflight(
+          { categories: ['tracker'], runId },
+          { projectRoot, env: process.env }
+        );
+        expect(preflight.ok).toBe(true);
+
+        // Zero recordConfirmation calls -- auto-confirm must come entirely from the
+        // non-interactive signal, never a stale record.
+        const argv = mutateArgv(['run', 'tracker.create', '--run-id', runId, '--json']);
+        const { returned: code, stdout } = await captureStdout(() => main(argv));
+
+        expect(code).toBe(0);
+        expect(JSON.parse(stdout.trim()).ok).toBe(true);
+
+        const logged = stderrSpy.mock.calls.map((call) => call[0]).join('');
+        expect(logged).toContain('fixture-confirm-tracker-nonint');
+        expect(logged).toContain('project');
+
+        expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
+      } finally {
+        stderrSpy.mockRestore();
+        process.chdir(originalCwd);
+        for (const [name, value] of originalEnvValues) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      }
+    }
+  );
+
+  test('AC-011-4: a config edit that selects a DIFFERENT adapter for the same category re-requires confirmation on the next main() call', async () => {
+    const projectRoot = mkTempDir('confirm-wiring-cfgchange-');
+    mkProjectConfig(projectRoot, { tracker: 'fixture-confirm-tracker-cfg-a' });
+    mkInstalledAdapter(projectRoot, 'fixture-confirm-tracker-cfg-a', {
+      capabilities: {
+        'tracker.create': { run: [process.execPath, '-e', 'process.stdout.write("{}")'] }
+      }
+    });
+    mkInstalledAdapter(projectRoot, 'fixture-confirm-tracker-cfg-b', {
+      capabilities: {
+        'tracker.create': { run: [process.execPath, '-e', 'process.stdout.write("{}")'] }
+      }
+    });
+
+    const runId = 'confirm-wiring-cfgchange-r1';
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(projectRoot);
+
+      const preflight = await runPreflight(
+        { categories: ['tracker'], runId },
+        { projectRoot, env: process.env }
+      );
+      expect(preflight.ok).toBe(true);
+
+      const { returned: confirmCode, stdout: confirmStdout } = await captureStdout(() =>
+        main(['confirm-record', 'tracker.create', '--run-id', runId, '--json'])
+      );
+      expect(confirmCode).toBe(0);
+      expect(JSON.parse(confirmStdout.trim()).ok).toBe(true);
+
+      const { returned: codeA, stdout: stdoutA } = await captureStdout(() =>
+        main(['run', 'tracker.create', '--run-id', runId, '--json'])
+      );
+      expect(codeA).toBe(0);
+      expect(JSON.parse(stdoutA.trim()).ok).toBe(true);
+
+      // Config change: the project toolchain.yaml's `tracker` entry now selects a genuinely
+      // different adapter id -- resolveCategory still returns source:'project', but
+      // configHash(adapter, source) depends on `adapter` too, so the stale record for adapter
+      // A is never matched for adapter B.
+      mkProjectConfig(projectRoot, { tracker: 'fixture-confirm-tracker-cfg-b' });
+
+      const { returned: codeB, stdout: stdoutB } = await captureStdout(() =>
+        main(['run', 'tracker.create', '--run-id', runId, '--json'])
+      );
+      expect(codeB).toBe(1);
+      const parsedB = JSON.parse(stdoutB.trim());
+      expect(parsedB).toEqual({
+        ok: false,
+        error: { code: 'CONFIRMATION_REQUIRED', message: expect.any(String) }
+      });
+      expect(parsedB.error.message).toContain('fixture-confirm-tracker-cfg-b');
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('AC-011-5: a read-only (sideEffect:false) capability needs no confirmation or preflight record via main()', async () => {
+    const projectRoot = mkTempDir('confirm-wiring-readonly-');
+    mkProjectConfig(projectRoot, { tracker: 'fixture-confirm-tracker-ro' });
+    mkInstalledAdapter(projectRoot, 'fixture-confirm-tracker-ro', {
+      capabilities: {
+        'tracker.show': { run: [process.execPath, '-e', 'process.stdout.write("{}")'] }
+      }
+    });
+
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(projectRoot);
+
+      // No runPreflight call, no recordConfirmation call: tracker.show is sideEffect:false per
+      // the shipped packages/development/toolchain/categories/tracker.yaml contract, so run()
+      // must never reach the PREFLIGHT_REQUIRED or CONFIRMATION_REQUIRED gates for it at all.
+      const { returned: code, stdout } = await captureStdout(() =>
+        main(['run', 'tracker.show', '--json'])
+      );
+
+      expect(code).toBe(0);
+      expect(JSON.parse(stdout.trim()).ok).toBe(true);
+      expect(fs.existsSync(confirmationsDir(projectRoot))).toBe(false);
     } finally {
       process.chdir(originalCwd);
     }
@@ -452,6 +662,89 @@ describe('mutation-proof branches', () => {
       // confirmed -- exactly what the real (unmutated) AC-011-1 "before" assertion above
       // disproves.
       expect(result).toEqual({ confirmed: true });
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test("isNonInteractive: deleting the ENSEMBLE_NON_INTERACTIVE==='1' branch makes that signal fall through to the (unconfirmed) record check instead of auto-confirming", () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle = "if (env.ENSEMBLE_NON_INTERACTIVE === '1') {\n    return true;\n  }";
+      const replacement =
+        "if (env.ENSEMBLE_NON_INTERACTIVE === 'never-matches') {\n    return true;\n  }";
+      const mutated = mutateAndRequire(mutantRoot.confirmPath, needle, replacement);
+
+      const projectRoot = mkTempDir('confirm-mutant-envni-');
+      const result = mutated.confirmStatus('tracker', {
+        projectRoot,
+        env: { ENSEMBLE_NON_INTERACTIVE: '1' },
+        sideEffect: true,
+        adapter: 'fixture-tracker',
+        source: 'project'
+      });
+
+      // With the branch disabled, this explicit AC-011-3 signal is no longer auto-confirmed --
+      // it falls through to the (unconfirmed) record check, exactly what the real (unmutated)
+      // production-wiring "ENSEMBLE_NON_INTERACTIVE=1" test above disproves.
+      expect(result).toEqual({ confirmed: false, adapter: 'fixture-tracker', source: 'project' });
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('isNonInteractive: deleting the FOREMAN_TASK_TITLE branch makes a set task title fall through to the (unconfirmed) record check instead of auto-confirming', () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle =
+        "if (typeof env.FOREMAN_TASK_TITLE === 'string' && env.FOREMAN_TASK_TITLE.trim() !== '') {\n    return true;\n  }";
+      const replacement =
+        "if (typeof env.FOREMAN_TASK_TITLE === 'string' && env.FOREMAN_TASK_TITLE.trim() === 'never-matches') {\n    return true;\n  }";
+      const mutated = mutateAndRequire(mutantRoot.confirmPath, needle, replacement);
+
+      const projectRoot = mkTempDir('confirm-mutant-foreman-');
+      const result = mutated.confirmStatus('tracker', {
+        projectRoot,
+        env: { FOREMAN_TASK_TITLE: 'some task' },
+        sideEffect: true,
+        adapter: 'fixture-tracker',
+        source: 'project'
+      });
+
+      // With the branch disabled, this explicit AC-011-3 signal is no longer auto-confirmed --
+      // it falls through to the (unconfirmed) record check, exactly what the real (unmutated)
+      // production-wiring "a non-empty FOREMAN_TASK_TITLE" test above disproves.
+      expect(result).toEqual({ confirmed: false, adapter: 'fixture-tracker', source: 'project' });
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+
+  test("toolchain-cli run(): forcing the side-effect-only confirmStatus gate to always run would wrongly require confirmation for a sideEffect:false capability", async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle = 'if (sideEffect) {\n    const confirmation = confirmAdapterStatus(category, {';
+      const replacement = 'if (true) {\n    const confirmation = confirmAdapterStatus(category, {';
+      const mutated = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+      const projectRoot = mkTempDir('confirm-mutant-cli-gate-');
+      mkProjectConfig(projectRoot, { tracker: 'fixture-tracker-mutant-gate' });
+      mkInstalledAdapter(projectRoot, 'fixture-tracker-mutant-gate', {
+        capabilities: {
+          'tracker.show': { run: [process.execPath, '-e', 'process.stdout.write("{}")'] }
+        }
+      });
+
+      const code = await mutated.main(['run', 'tracker.show', '--json'], {
+        projectRoot,
+        env: {}
+      });
+
+      // With the `if (sideEffect)` gate forced always-on, a genuinely read-only
+      // (sideEffect:false) capability now routes through confirmAdapterStatus too and, with no
+      // confirmation record, is wrongly denied -- exactly what the real (unmutated) AC-011-5
+      // "read-only capability needs no confirmation" test above disproves.
+      expect(code).toBe(1);
     } finally {
       mutantRoot.cleanup();
     }
