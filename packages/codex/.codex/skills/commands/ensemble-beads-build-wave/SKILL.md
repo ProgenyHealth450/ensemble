@@ -1,9 +1,17 @@
 ---
 name: ensemble-beads-build-wave
-description: Run a single beads-build wave (one bv --robot-plan or br ready schedule + concurrent Task() dispatch + barrier) and emit a JSON summary suitable for the parent loop (Codex skill for /ensemble:beads-build-wave)
+description: Run a single beads-build wave (one work-graph.plan/work-graph.ready schedule + concurrent Task() dispatch + barrier) and emit a JSON summary suitable for the parent loop (Codex skill for /ensemble:beads-build-wave)
 user-invocable: false
-argument-hint: '--epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--team-roles <json>]'
+argument-hint: '--epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--team-roles <json>] [--foreman]'
 model: gpt-5.1-codex
+capabilities:
+  required:
+    - tracker.show
+    - tracker.list
+    - tracker.sync
+    - work-graph.ready
+  optional:
+    - work-graph.plan
 ---
 
 # Ensemble Command: /ensemble:beads-build-wave
@@ -16,7 +24,7 @@ Follow the workflow below, adapt to the current repository, and keep outputs str
 
 
 Single-wave primitive for the beads-build execution engine. Each invocation
-runs exactly one scheduling wave: bv --robot-plan (or br ready when bv is absent) partitions the ready set,
+runs exactly one scheduling wave: the optional work-graph.plan capability (falling back to the required work-graph.ready capability when plan is unavailable or returns zero tracks) partitions the ready set,
 the parent dispatches every track concurrently to tech-lead-orchestrator via
 Task(), the parent waits for the barrier, and a structured JSON summary is
 emitted so the caller can decide whether to dispatch another wave.
@@ -43,20 +51,19 @@ settles, regardless of remaining work. Callers re-invoke it themselves.
 - Parse --max-parallel N from $ARGUMENTS (default 3). Set MAX_PARALLEL.
 - Parse --trd <path> from $ARGUMENTS (optional); if present set TRD_MODE=true and TRD_PATH=<path>.
 - Parse --strategy <value> from $ARGUMENTS (optional); valid: tdd, characterization, bug-fix, refactor, test-after, flexible.
-- Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes the bv plan to one TRD.
+- Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes the scheduling plan to one TRD.
 - Parse --team-roles <json> from $ARGUMENTS (optional); if present parse as TEAM_ROLES. If absent, parse deprecated --builder <agent> and synthesize compatibility TEAM_ROLES={lead:{agents:["tech-lead-orchestrator"],owns:["planning","escalation"]},builder:{agents:[<builder>],owns:["implementation"]},architect:{agents:["architect"],owns:["task-design"]},documentation:{agents:["documentation-specialist"],owns:["pr-boundary-doc-maintenance"]}}. If neither flag is present, set TEAM_ROLES={} and continue.
 
-**2. Tool Availability Check**
-   Verify br is installed and functional; bv is optional (br ready fallback)
+**2. Toolchain Preflight**
+   Resolve toolchain-cli and verify tracker/work-graph capability health before any tracker or scheduling call
 
-- which br || { echo "ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust"; exit 1; }
-- br list --status=open > /dev/null 2>&1 || { echo "ERROR: br not functional"; exit 1; }
-- which bv >/dev/null 2>&1 && BV_AVAILABLE=true || BV_AVAILABLE=false (bv is OPTIONAL: when absent, print "WARNING: bv not installed; scheduling from br ready" and continue). Install bv from https://github.com/Dicklesworthstone/beads_viewer
+- Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
+- Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.list --require tracker.sync --require work-graph.ready --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation (and every call this wave's track payload hands to the dispatched orchestrator) passes --run-id "$RUN_ID".
 
 **3. Working Directory and Branch Verification**
    Confirm clean working directory AND that the caller already switched off the repository default branch; branch creation itself is still owned by the caller (beads-build.yaml or implement-trd-beads.yaml Feature Branch Creation) -- this step only verifies the precondition, it never creates or switches branches.
 
-- Run: git status --porcelain -- . ':(exclude).beads' and HALT if output non-empty (dirty working directory). .beads/ is br's own state and is ignored.
+- Run: git status --porcelain -- . ':(exclude).beads' and HALT if output non-empty (dirty working directory). .beads/ is the tracker adapter's own state and is ignored.
 - Run: git symbolic-ref --short HEAD to get CURRENT_BRANCH (HALT immediately with "ERROR: detached HEAD -- create or switch to a feature branch before dispatching a wave." if this fails/empty, i.e. detached HEAD).
 - Run: git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed "s@^origin/@@" to get DEFAULT_BRANCH; if empty (no origin configured) fall back to DEFAULT_BRANCH=main.
 - HARD PRECONDITION: if CURRENT_BRANCH == DEFAULT_BRANCH, print "ERROR: beads-build-wave refuses to dispatch on the repository default branch (<DEFAULT_BRANCH>). Run implement-trd-beads.yaml Feature Branch Creation (Preflight Step 10) first, or manually create/switch to a feature branch, then retry." and HALT. Do not implement work directly on <DEFAULT_BRANCH>.
@@ -65,7 +72,7 @@ settles, regardless of remaining work. Callers re-invoke it themselves.
 **4. Epic and TRD Resolution**
    Confirm ROOT_EPIC_ID exists; load TRD file when TRD_MODE=true; rebuild TASK_TRACEABILITY on resume
 
-- Run: br show <ROOT_EPIC_ID>; if exit code != 0 print "ERROR: Bead <ROOT_EPIC_ID> not found." and HALT.
+- Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<ROOT_EPIC_ID> --json [add --non-interactive when --foreman is present]; non-ok -> print "ERROR: Bead <ROOT_EPIC_ID> not found." and HALT.
 - Derive EPIC_SLUG from the epic bead title (lowercase, replace non-alphanumeric with hyphens, strip leading/trailing hyphens).
 - If TRD_MODE=true: verify TRD_PATH file exists on disk; if not found print "ERROR: TRD file not found at <TRD_PATH>" and HALT. Re-parse the TRD to rebuild TASK_TRACEABILITY on every invocation (this is the cross-session resume path; do NOT cache).
 - If TRD_MODE=false: TASK_TRACEABILITY remains empty; print "TRD augmentations: disabled (no --trd flag)".
@@ -95,17 +102,19 @@ The caller owns the loop. Lowering the per-iteration decision cost
 (just a count check) is the design goal, not enforcing continuation.
 
 
-- Step 1 (sync): run br sync --flush-only (ensure JSONL is current before any scheduling call).
-- Step 2 (plan): when BV_AVAILABLE, run bv --robot-plan --label <LABEL> --format toon when LABEL is set, otherwise bv --robot-plan --format toon. If bv exits non-zero or returns malformed TOON, print a warning with the diagnostics and set BV_AVAILABLE=false for this wave. br-only: `br ready --json` (add `--label <LABEL>` when LABEL is set, `--limit <MAX_PARALLEL>`) and make each returned bead its own single-bead track; ready beads are unblocked so no graph partitioning is needed. SCHEDULING SOURCE LOCK: do NOT derive scheduling decisions from .beads/*.jsonl directly; read the bead graph only through bv or br.
-- Step 3 (parse tracks): parse the bv TOON output (or the br ready JSON) to extract the tracks (up to MAX_PARALLEL). Each track is an ordered list of bead IDs. If zero tracks returned: skip to Step 7 (empty-plan edge).
-- Step 3b (scope check, only when LABEL is set; verifies the plan and never replaces the scheduler): LABEL_IDS = the .id of every entry in the issue list of br list --all --label <LABEL> --json. If LABEL_IDS is empty, or any bead ID in the tracks is not in LABEL_IDS: print "ERROR: bv returned beads outside label <LABEL> (bv ignores an unknown label and returns the unscoped plan). Refusing to dispatch." and HALT; do not dispatch any track.
+- Step 1 (sync): before this command's first tracker write run node "$TOOLCHAIN_CLI" confirm-status tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via AskUserQuestion "Allow the tracker adapter to write (sync/update/close/comment) for this session? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record tracker.sync --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs). Then run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] (ensure tracker state is current before any scheduling call).
+- Step 2 (plan): run node "$TOOLCHAIN_CLI" run work-graph.plan --run-id "$RUN_ID" --arg scope=<LABEL or ROOT_EPIC_ID> --json [add --non-interactive when --foreman is present] (optional capability). If it is unavailable, errors, or returns zero tracks: run node "$TOOLCHAIN_CLI" run work-graph.ready --run-id "$RUN_ID" --arg scope=<LABEL or ROOT_EPIC_ID> --json [add --non-interactive when --foreman is present] (required capability; add --arg limit=<MAX_PARALLEL> when the adapter supports it) and make each returned item its own single-bead track; ready items are unblocked so no graph partitioning is needed. Record ORDERING_SOURCE = the chosen result's data.orderingSource (when present) and DEPENDENCY_AWARE = data.dependencyAware (when present) and log both (they are NOT part of the locked JSON summary schema below). SCHEDULING SOURCE LOCK: do NOT derive scheduling decisions from .beads/*.jsonl directly; read the bead graph only through the work-graph.* capabilities.
+- Step 3 (parse tracks): parse the work-graph.plan result's data.items (or the work-graph.ready result's data.items when plan was unavailable/empty) to extract the tracks (up to MAX_PARALLEL). Each track is an ordered list of bead IDs. If zero tracks returned: skip to Step 7 (empty-plan edge).
+- Step 3b (scope check, only when LABEL is set; verifies the plan and never replaces the scheduler): run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and derive LABEL_IDS = the .id of every returned issue whose labels include <LABEL>. If LABEL_IDS is empty, or any bead ID in the tracks is not in LABEL_IDS: print "ERROR: the scheduling source returned beads outside label <LABEL> (an unrecognized label can return the unscoped plan). Refusing to dispatch." and HALT; do not dispatch any track.
 - Step 4 (build payload per track): for each track, construct an immutable track payload with the following fields:
 -   goal: free-text from parent invocation.
 -   scope: { ROOT_EPIC_ID, EPIC_SLUG, LABEL (or null), TRD_PATH (or null), STRATEGY }.
 -   team_roles: TEAM_ROLES object parsed from --team-roles or synthesized from deprecated --builder.
 -   track_beads: ordered string[] of bead IDs for this track only.
--   lifecycle_contract: literal command sequence per bead, in order: (1) claim via 'br update <BEAD_ID> --status=in_progress'; (2) CONTEXT READ per context_contract (mandatory, before any dispatch); (3) dispatch the implementing subagent; (4) COMMIT GATE (hard, non-skippable): after the subagent reports success, run 'git status --porcelain -- . ':(exclude).beads'' -- if non-empty, the subagent left uncommitted work, so stage exactly the files the wave modified ('git add -- <path> ...', paths from git status --porcelain; NEVER git add -A, git commit -a or anything under .beads/, see docs/guides/beads-tracked-export.md) and commit them ('git commit -m "<conventional message referencing the bead/TRD task>"') before proceeding; NEVER call br close while git status --porcelain is non-empty; a subagent's self-reported success narrative is NOT sufficient evidence of a commit, the Commit Gate must independently verify git state; (5) close via 'br close <BEAD_ID>' only after the Commit Gate passes; (6) sync via 'br sync --flush-only' between operations.
--   context_contract: per bead, immediately after claim and BEFORE dispatching any specialist: run 'node "$TRD_CLI" bead-context --bead <BEAD_ID> --trd <TRD_PATH>' (TRD_PATH from scope; omit the --trd flag if null) and parse the JSON. ok:false => do NOT implement the bead: run 'br comment add <BEAD_ID> "blocked:missing-references <missing joined by ''; ''>"' and 'br update <BEAD_ID> --status=open', count the bead as failed in the track, and continue with the next bead only if it does not depend on this one (otherwise stop the track). ok:true => run 'br comment add <BEAD_ID> "context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>"' as evidence; the ENTIRE bead_context JSON plus the instruction "read the referenced files yourself before editing" MUST be included in every specialist, architect, code-reviewer and test-runner delegation prompt for that bead, and the code-reviewer MUST check the diff against the PRD ACs in bead_context.
+-   run_id: RUN_ID (the toolchain-cli preflight record id established in Toolchain Preflight; every tracker.* call in lifecycle_contract/context_contract reuses it, so the dispatched orchestrator never re-runs preflight).
+-   foreman: FOREMAN (boolean, true when --foreman was passed to this command; lifecycle_contract/context_contract capability calls append --non-interactive when true and never prompt).
+-   lifecycle_contract: literal capability-call sequence per bead, in order: (1) claim via 'node "$TOOLCHAIN_CLI" run tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"in_progress"} --json [add --non-interactive when FOREMAN is true]'; (2) CONTEXT READ per context_contract (mandatory, before any dispatch); (3) dispatch the implementing subagent; (4) COMMIT GATE (hard, non-skippable): after the subagent reports success, run 'git status --porcelain -- . ':(exclude).beads'' -- if non-empty, the subagent left uncommitted work, so stage exactly the files the wave modified ('git add -- <path> ...', paths from git status --porcelain; NEVER git add -A, git commit -a or anything under .beads/, see docs/guides/beads-tracked-export.md) and commit them ('git commit -m "<conventional message referencing the bead/TRD task>"') before proceeding; NEVER call tracker.close while git status --porcelain is non-empty; a subagent's self-reported success narrative is NOT sufficient evidence of a commit, the Commit Gate must independently verify git state; (5) close via 'node "$TOOLCHAIN_CLI" run tracker.close --run-id <RUN_ID> --arg id=<BEAD_ID> --json [add --non-interactive when FOREMAN is true]' only after the Commit Gate passes; (6) sync via 'node "$TOOLCHAIN_CLI" run tracker.sync --run-id <RUN_ID> --json [add --non-interactive when FOREMAN is true]' between operations.
+-   context_contract: per bead, immediately after claim and BEFORE dispatching any specialist: run 'node "$TRD_CLI" bead-context --bead <BEAD_ID> --trd <TRD_PATH>' (TRD_PATH from scope; omit the --trd flag if null) and parse the JSON. ok:false => do NOT implement the bead: run 'node "$TOOLCHAIN_CLI" run tracker.comment --run-id <RUN_ID> --arg id=<BEAD_ID> --arg text="blocked:missing-references <missing joined by ''; ''>" --json [add --non-interactive when FOREMAN is true]' and 'node "$TOOLCHAIN_CLI" run tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"open"} --json [add --non-interactive when FOREMAN is true]', count the bead as failed in the track, and continue with the next bead only if it does not depend on this one (otherwise stop the track). ok:true => run 'node "$TOOLCHAIN_CLI" run tracker.comment --run-id <RUN_ID> --arg id=<BEAD_ID> --arg text="context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>" --json [add --non-interactive when FOREMAN is true]' as evidence; the ENTIRE bead_context JSON plus the instruction "read the referenced files yourself before editing" MUST be included in every specialist, architect, code-reviewer and test-runner delegation prompt for that bead, and the code-reviewer MUST check the diff against the PRD ACs in bead_context.
 -   quality_loop: pointer to packages/development/agents/tech-lead-orchestrator.* Quality Loop Execution expertise (lines 99-104 of the YAML source) - the orchestrator follows claim, implement, run tests, delegate to code-reviewer, then if reviewer approves routes through advisor before QA. Architect is invoked on in_design, PM on in_clarification. On REJECTED with fixable issues, delegate back to original specialist with feedback (max 2 review rounds). Skip review only if strategy == 'flexible' or task type is docs/documentation-only.
 -   pm_clarification_guard: maximum 3 PM clarification rounds per task. On the 4th request, HALT that task path and escalate to the lead with the full clarification history instead of looping again.
 - The payload is constructed once by the parent and never mutated. The orchestrator inside the track runs beads sequentially; it does NOT re-run the scheduler or re-partition.
@@ -126,5 +135,5 @@ The caller owns the loop. Lowering the per-iteration decision cost
 ## Usage
 
 ```
-/ensemble:beads-build-wave --epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--team-roles <json>]
+/ensemble:beads-build-wave --epic <id> [--max-parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--team-roles <json>] [--foreman]
 ```

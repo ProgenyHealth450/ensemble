@@ -6,27 +6,31 @@ description: >-
   resolve-sdlc branching / PR_BACKEND policy that /ensemble-beads-build uses for
   an epic. Use /ensemble-beads-build for an epic or any multi-bead scope and
   /ensemble-implement-trd-beads for a TRD. Rules shared with the other engines:
-  bv is not needed here; never run `git add -A`, `git add .`, `git add .beads/`
-  or `git commit -a`; stage explicit paths only; `.beads/` is br's own state
+  all bead reads/writes go through the tracker.* toolchain capabilities
+  (resolved via toolchain-cli; never a direct tracker-binary invocation); never
+  run `git add -A`, `git add .`, `git add .beads/` or `git commit -a`; stage
+  explicit paths only; `.beads/` is the tracker adapter's own state
   (docs/guides/beads-tracked-export.md); the bead is closed only after its work
   is committed.
 disable-model-invocation: true
 ---
-<!-- Command: ensemble-implement-bead | Version: 2.1.0 -->
+<!-- Command: ensemble-implement-bead | Version: 2.2.0 -->
 <!-- Description: Implement one bead by ID on a feature branch using the same branching, commit and PR_BACKEND policy as beads-build and implement-trd-beads -->
+<!-- Capabilities: required=[tracker.show, tracker.update, tracker.close, tracker.comment], optional=[] -->
 
 # ensemble-implement-bead
 
-> **Mission:** Single-bead entry to the beads execution engine. It runs exactly one bead as a one-bead track: the same tech-lead-orchestrator quality loop, Commit Gate and resolve-sdlc branching / PR_BACKEND policy that /ensemble-beads-build uses for an epic. Use /ensemble-beads-build for an epic or any multi-bead scope and /ensemble-implement-trd-beads for a TRD. Rules shared with the other engines: bv is not needed here; never run `git add -A`, `git add .`, `git add .beads/` or `git commit -a`; stage explicit paths only; `.beads/` is br's own state (docs/guides/beads-tracked-export.md); the bead is closed only after its work is committed.
+> **Mission:** Single-bead entry to the beads execution engine. It runs exactly one bead as a one-bead track: the same tech-lead-orchestrator quality loop, Commit Gate and resolve-sdlc branching / PR_BACKEND policy that /ensemble-beads-build uses for an epic. Use /ensemble-beads-build for an epic or any multi-bead scope and /ensemble-implement-trd-beads for a TRD. Rules shared with the other engines: all bead reads/writes go through the tracker.* toolchain capabilities (resolved via toolchain-cli; never a direct tracker-binary invocation); never run `git add -A`, `git add .`, `git add .beads/` or `git commit -a`; stage explicit paths only; `.beads/` is the tracker adapter's own state (docs/guides/beads-tracked-export.md); the bead is closed only after its work is committed.
 
 ## Phase 1: Preflight
 
-### Step 1: Arguments and Tools
+### Step 1: Arguments and Toolchain Preflight
 
 **Actions:**
-1. BEAD_ID = first token of $ARGUMENTS (a bare integer is fine; br accepts it). If absent, ask the user for it.
-2. Verify `which br` and `br list --status=open > /dev/null 2>&1`; otherwise print the br install URL (https://github.com/Dicklesworthstone/beads_rust) and HALT.
-3. Run: br show <BEAD_ID> --json. Non-zero exit -> print "ERROR: Bead <BEAD_ID> not found." and HALT. Status closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels.
+1. BEAD_ID = first token of $ARGUMENTS (a bare integer is fine; the tracker adapter accepts it). If absent, ask the user for it.
+2. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
+3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.update --require tracker.close --require tracker.comment --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID".
+4. Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<BEAD_ID> --json. Non-ok -> print "ERROR: Bead <BEAD_ID> not found." and HALT. data.status == closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels from data.
 
 ### Step 2: Branching Strategy and PR Backend
 
@@ -51,8 +55,8 @@ Same resolution as beads-build Preflight step 3, never cached across invocations
 ### Step 1: Run the Bead as a One-Bead Track
 
 **Actions:**
-1. Run: br update <BEAD_ID> --status=in_progress; br comment add <BEAD_ID> "status:in_progress agent:implement-bead branch:<branch>"
-2. Context read (mandatory, BEFORE any specialist is dispatched): run `node "$TRD_CLI" bead-context --bead <BEAD_ID>` (this command has no TRD_PATH; the bead's `## References` block supplies it; a legacy bead without one needs `--trd <path>` and is blocked if none is known) and parse the JSON as BEAD_CONTEXT. `ok:false`: do NOT implement the bead; run `br comment add <BEAD_ID> "blocked:missing-references <missing joined by '; '>"` and `br update <BEAD_ID> --status=open`, print the missing items and HALT. `ok:true`: run `br comment add <BEAD_ID> "context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>"` as evidence.
+1. Before this command's first tracker write: run node "$TOOLCHAIN_CLI" confirm-status tracker.update --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the tracker adapter to write (status/comment/close) for this session? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record tracker.update --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs). Run: node "$TOOLCHAIN_CLI" run tracker.update --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg fields='{"status":"in_progress"}' --json [add --non-interactive when --foreman is present]; then node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="status:in_progress agent:implement-bead branch:<branch>" --json [add --non-interactive when --foreman is present].
+2. Context read (mandatory, BEFORE any specialist is dispatched): run `node "$TRD_CLI" bead-context --bead <BEAD_ID>` (this command has no TRD_PATH; the bead's `## References` block supplies it; a legacy bead without one needs `--trd <path>` and is blocked if none is known) and parse the JSON as BEAD_CONTEXT. `ok:false`: do NOT implement the bead; run `node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="blocked:missing-references <missing joined by '; '>" --json [add --non-interactive when --foreman is present]` and `node "$TOOLCHAIN_CLI" run tracker.update --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg fields='{"status":"open"}' --json [add --non-interactive when --foreman is present]`, print the missing items and HALT. `ok:true`: run `node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>" --json [add --non-interactive when --foreman is present]` as evidence.
 3. Dispatch Task(subagent_type=<tech-lead-orchestrator resolved by its namespaced identifier>, prompt=<track payload>) where the payload is the beads-build-wave track payload for a single bead: goal (implement the bead, run its tests), scope { ROOT_EPIC_ID: null, LABEL: first bead label or null, STRATEGY: tdd }, track_beads [<BEAD_ID>] with BEAD_TITLE and BEAD_DESCRIPTION, the `context_contract` (the bead-context command above; already executed for this bead), `bead_context` = the entire BEAD_CONTEXT JSON (the orchestrator MUST embed it plus "read the referenced files yourself before editing" in every specialist, architect, code-reviewer and test-runner prompt, and the code-reviewer MUST check the diff against the PRD ACs in it), the quality_loop (implement, test, code-reviewer, then advisor before QA; max 2 review rounds) and the pm_clarification_guard (max 3 rounds). The orchestrator routes to the right specialist; do not pick one by keyword here.
 4. If tests still fail after the orchestrator reports its attempts: print the failure details and HALT. Do not close the bead or create a PR.
 
@@ -60,7 +64,7 @@ Same resolution as beads-build Preflight step 3, never cached across invocations
 
 **Actions:**
 1. Run: git status --porcelain -- . ':(exclude).beads'. For each listed path run `git add -- <path>` (never -A, ., or .beads/) and commit with a conventional message ending in [bead:<BEAD_ID>] (feat: for features, fix: for bugs).
-2. Only after the tree is clean: br update <BEAD_ID> --status=closed; br comment add <BEAD_ID> "status:closed agent:implement-bead"; br sync --flush-only. If the bead has a label and the repo tracks the export, stage only that label's beads: node "$TRD_CLI" beads-stage --label <label>, then commit "chore: beads sync"; otherwise leave .beads/ unstaged.
+2. Only after the tree is clean: run node "$TOOLCHAIN_CLI" run tracker.close --run-id "$RUN_ID" --arg id=<BEAD_ID> --json [add --non-interactive when --foreman is present]; then node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="status:closed agent:implement-bead" --json [add --non-interactive when --foreman is present]; then node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present]. If the bead has a label and the repo tracks the export, stage only that label's beads: node "$TRD_CLI" beads-stage --label <label>, then commit "chore: beads sync"; otherwise leave .beads/ unstaged.
 
 ## Phase 3: Pull Request
 
@@ -69,4 +73,4 @@ Same resolution as beads-build Preflight step 3, never cached across invocations
 **Actions:**
 1. Run: git push -u origin <branch>. PR title = BEAD_TITLE; body = Bead <BEAD_ID>, description, changes summary, test plan.
 2. PR_BACKEND==gh: gh pr create --title "<BEAD_TITLE>" --body "<body>" and capture the URL. PR_BACKEND==ado: use the azure-devops MCP tool when connected, else print: az repos pr create --source-branch <branch> --target-branch <base> --title "<BEAD_TITLE>". PR_BACKEND==manual: print the push result and tell the user to open the PR themselves.
-3. br comment add <BEAD_ID> "pr:<URL or manual>"; print "Bead <BEAD_ID> complete. PR: <URL> | Branch: <branch>".
+3. node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="pr:<URL or manual>" --json [add --non-interactive when --foreman is present]; print "Bead <BEAD_ID> complete. PR: <URL> | Branch: <branch>".

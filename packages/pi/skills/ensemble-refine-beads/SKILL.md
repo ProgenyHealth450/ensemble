@@ -6,19 +6,22 @@ description: >-
   --scope project is explicitly supplied. It detects hierarchy gaps, dependency
   issues, PR-boundary mismatches, missing requirement/AC traceability, duplicate
   tasks, and priority/order contradictions. Analysis is read-only until the user
-  approves selected fixes. All Beads updates use br. Graph analysis uses only bv
-  --robot-* flags; never run bare interactive bv. This command uses
+  approves selected fixes. All Beads updates go through the tracker.* toolchain
+  capabilities, resolved via toolchain-cli (never a direct tracker-binary
+  invocation). Optional dependency-graph health analysis uses the
+  work-graph.graph-health capability when available. This command uses
   beads-scaffold-specialist semantics for graph audit/repair work rather than
   backend-developer. It never executes implementation work, tests, builders,
   reviewers, branches, commits, or PR creation.
 disable-model-invocation: true
 ---
-<!-- Command: ensemble-refine-beads | Version: 1.0.0 -->
+<!-- Command: ensemble-refine-beads | Version: 1.1.0 -->
 <!-- Description: Approval-gated Beads graph refinement before execution -->
+<!-- Capabilities: required=[tracker.list, tracker.update, tracker.comment, tracker.sync], optional=[work-graph.graph-health, tracker.dep-add, tracker.dep-remove] -->
 
 # ensemble-refine-beads
 
-> **Mission:** Refine a Beads dependency graph before execution. The command analyzes a selected epic/release-train subtree by default, or the whole project when --scope project is explicitly supplied. It detects hierarchy gaps, dependency issues, PR-boundary mismatches, missing requirement/AC traceability, duplicate tasks, and priority/order contradictions. Analysis is read-only until the user approves selected fixes. All Beads updates use br. Graph analysis uses only bv --robot-* flags; never run bare interactive bv. This command uses beads-scaffold-specialist semantics for graph audit/repair work rather than backend-developer. It never executes implementation work, tests, builders, reviewers, branches, commits, or PR creation.
+> **Mission:** Refine a Beads dependency graph before execution. The command analyzes a selected epic/release-train subtree by default, or the whole project when --scope project is explicitly supplied. It detects hierarchy gaps, dependency issues, PR-boundary mismatches, missing requirement/AC traceability, duplicate tasks, and priority/order contradictions. Analysis is read-only until the user approves selected fixes. All Beads updates go through the tracker.* toolchain capabilities, resolved via toolchain-cli (never a direct tracker-binary invocation). Optional dependency-graph health analysis uses the work-graph.graph-health capability when available. This command uses beads-scaffold-specialist semantics for graph audit/repair work rather than backend-developer. It never executes implementation work, tests, builders, reviewers, branches, commits, or PR creation.
 
 ## Phase 1: Preflight
 
@@ -31,21 +34,20 @@ Parse scope and mode from arguments
 2. Otherwise extract first token as SCOPE_QUERY. It may be an epic ID, release train ID, or slug pattern.
 3. If no SCOPE_QUERY and SCOPE_MODE is not project, prepare to list candidate open epics/release trains and ask the user to select one.
 
-### Step 2: Tool Availability Check
+### Step 2: Toolchain Preflight
 
-Verify br and detect bv without launching interactive tools
+Resolve toolchain-cli and verify tracker capability health before any tracker call
 
 **Actions:**
-1. Run: which br || { echo "ERROR: br (beads_rust) not installed."; exit 1; }
-2. Run: br list --status=open > /dev/null 2>&1 || { echo "ERROR: br not functional — check beads store."; exit 1; }
-3. Run: which bv && BV_AVAILABLE=true || { echo "WARNING: bv unavailable; br-only analysis will run."; BV_AVAILABLE=false; }
+1. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
+2. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list --require tracker.update --require tracker.comment --require tracker.sync --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID".
 
 ### Step 3: Scope Resolution
 
 Resolve exactly one subtree scope or explicit project scope
 
 **Actions:**
-1. Run: br list --json and capture ISSUE_JSON. This is read-only.
+1. Run: node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" --json and capture ISSUE_JSON from the result's data. This is read-only.
 2. If SCOPE_MODE=project: continue with all issues and include affected epic/release-train context in every finding where possible.
 3. If SCOPE_QUERY is empty: list open epic/release-train candidates from ISSUE_JSON and ask the user to select one; store selected bead ID as SCOPE_QUERY.
 4. Resolve BEADS_REFINE_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/beads-refine-cli.js. If none of the 4 tiers resolve OR 'which node' fails: print 'ERROR: Node.js and the beads refine CLI (lib/beads-refine-cli.js) are required. Ensure Node.js is installed and the ensemble-development plugin is present.' and exit 1. Resolved once here and reused by every later phase.
@@ -55,39 +57,38 @@ Resolve exactly one subtree scope or explicit project scope
 
 ### Step 1: Sync Before Graph Analysis
 
-Flush Beads state before bv reads it
+Confirm tracker writes for this session, then flush pending tracker state before analysis reads it
 
 **Actions:**
-1. Run: br sync --flush-only
+1. Before this command's first tracker write: run node "$TOOLCHAIN_CLI" confirm-status tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the tracker adapter to write (sync/comment/update/dep changes) for this session? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record tracker.sync --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
+2. Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present].
 
-### Step 2: Robot Graph Analysis
+### Step 2: Optional Graph Health Analysis
 
-Collect bv robot outputs without running bare bv
+Collect dependency-graph health signals without blocking on an unavailable adapter
 
 **Actions:**
-1. If BV_AVAILABLE=true: run bv --robot-insights and capture JSON/text output. Do not run bare bv.
-2. If BV_AVAILABLE=true: run bv --robot-plan and capture JSON/text output. Do not run bare bv.
-3. If BV_AVAILABLE=true and supported: run bv --robot-alerts or bv --robot-suggest. Do not run bare bv.
-4. If any bv --robot-* call fails, warn and continue with br-derived findings.
+1. Run: node "$TOOLCHAIN_CLI" run work-graph.graph-health --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and capture the result as GRAPH_HEALTH.
+2. If the call fails or the capability is unavailable, warn and continue with tracker-derived findings only.
 
 ### Step 3: Finding Detection
 
 Detect graph, hierarchy, PR-boundary, traceability, duplicate, and order issues
 
 **Actions:**
-1. Run: node "$BEADS_REFINE_CLI" analyze --issues-json <ISSUE_JSON_FILE> [--bv-json <BV_JSON_FILE>] [--query <SCOPE_QUERY>|--scope project] and capture FINDINGS_JSON.
-2. Findings MUST include affected bead IDs, severity, issue type, recommendation, and source (br, bv, or derived).
+1. Run: node "$BEADS_REFINE_CLI" analyze --issues-json <ISSUE_JSON_FILE> [--bv-json <GRAPH_HEALTH_FILE>] [--query <SCOPE_QUERY>|--scope project] and capture FINDINGS_JSON.
+2. Findings MUST include affected bead IDs, severity, issue type, recommendation, and source (tracker, work-graph, or derived).
 3. Detect cycles, stale blockers, missing blockers, contradictory priority/order recommendations, orphaned tasks, missing parent/child links, PR-boundary mismatches, missing PR metadata, missing requirement/AC traceability, missing requirement detail, duplicate or near-duplicate tasks.
-4. No br update, br dep add, br dep remove, br close, branch, test, builder, reviewer, or implementation command may run in this phase.
+4. No tracker.update, tracker.dep-add, tracker.dep-remove, tracker.close, branch, test, builder, reviewer, or implementation capability call may run in this phase.
 
 ### Step 4: Generate Repair Plan
 
-Convert findings into approval-gated br repair commands
+Convert findings into approval-gated tracker repair capability calls
 
 **Actions:**
 1. Run: node "$BEADS_REFINE_CLI" plan --findings <FINDINGS_JSON_FILE> and capture REPAIR_PLAN.
-2. Each repair plan entry must include finding ID, proposed br command(s), expected graph effect, verification spec, risk, and inverse commands when available.
-3. If a finding requires user resolution, the repair plan entry must be marked skipped/manual and must not include executable br commands.
+2. Each repair plan entry must include finding ID, proposed tracker capability call(s), expected graph effect, verification spec, risk, and inverse calls when available.
+3. If a finding requires user resolution, the repair plan entry must be marked skipped/manual and must not include executable tracker capability calls.
 
 ## Phase 3: Approval and Repair Planning
 
@@ -96,8 +97,8 @@ Convert findings into approval-gated br repair commands
 Show consolidated findings before any mutation
 
 **Actions:**
-1. Group findings by issue type. For each finding print finding ID, severity, affected bead IDs, recommendation, proposed br command(s) from REPAIR_PLAN, and expected graph effect.
-2. If no findings are detected: print "Graph is refinement-ready" and suggest /ensemble-beads-build <scope> --plan or /ensemble-beads-build; then run br sync --flush-only and exit.
+1. Group findings by issue type. For each finding print finding ID, severity, affected bead IDs, recommendation, proposed tracker capability call(s) from REPAIR_PLAN, and expected graph effect.
+2. If no findings are detected: print "Graph is refinement-ready" and suggest /ensemble-beads-build <scope> --plan or /ensemble-beads-build; then run node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and exit.
 
 ### Step 2: User Approval
 
@@ -105,28 +106,28 @@ Apply only explicitly approved fixes
 
 **Actions:**
 1. Ask user to approve none, selected fix IDs, or all non-dependency fixes.
-2. If the user selects all and any fix contains br dep add or br dep remove, ask a separate explicit confirmation before dependency commands run.
+2. If the user selects all and any fix contains tracker.dep-add or tracker.dep-remove, ask a separate explicit confirmation before dependency capability calls run.
 3. For cycles or contradictory dependency recommendations, ask the user how to resolve: retry with chosen edge, skip, reverse selected edge, or abort.
 4. If the user does not choose a cycle/contradiction resolution, skip or block the affected fix. Never guess.
 
 ## Phase 4: Apply Approved Repairs
 
-### Step 1: Ordered br Repair Plan
+### Step 1: Ordered Tracker Repair Plan
 
-Execute approved br commands one at a time
+Execute approved tracker capability calls one at a time
 
 **Actions:**
-1. Run: br sync --flush-only before applying fixes.
+1. Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] before applying fixes.
 2. Print the ordered repair plan.
-3. For each approved fix, run exactly one br command at a time. Supported mutations include br comments add, br update, br dep add, and br dep remove as generated by the repair plan.
-4. After each successful br command, run node "$BEADS_REFINE_CLI" verify with the verification spec for that fix. Continue only if verification passes.
+3. For each approved fix, run exactly one tracker capability call at a time via node "$TOOLCHAIN_CLI" run <capability> --run-id "$RUN_ID" --arg <k>=<v> --json [add --non-interactive when --foreman is present]. Supported mutations include tracker.comment, tracker.update, tracker.dep-add, and tracker.dep-remove as generated by the repair plan.
+4. After each successful tracker capability call, run node "$BEADS_REFINE_CLI" verify with the verification spec for that fix. Continue only if verification passes.
 
 ### Step 2: Failure Recovery
 
 Stop on failure and ask user how to proceed
 
 **Actions:**
-1. If a br command fails, stop applying further fixes immediately.
+1. If a tracker capability call fails, stop applying further fixes immediately.
 2. Report failed command, stdout/stderr summary, fix ID, and progress count.
 3. Offer recovery choices: retry failed command, skip failed fix, print/run inverse commands when possible, cancel remaining fixes, or abort.
 4. Do not run remaining fixes before the user chooses a recovery option.
@@ -138,8 +139,8 @@ Stop on failure and ask user how to proceed
 Persist successful changes and rerun graph validation
 
 **Actions:**
-1. If at least one fix succeeded, run br sync --flush-only.
-2. If BV_AVAILABLE=true, rerun bv --robot-insights and bv --robot-plan. Do not run bare bv.
+1. If at least one fix succeeded, run node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present].
+2. Rerun node "$TOOLCHAIN_CLI" run work-graph.graph-health --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] (optional capability; if unavailable, warn and continue).
 3. Summarize remaining cycles, blockers, hierarchy gaps, and risks.
 
 ### Step 2: Final Refinement Summary
@@ -150,4 +151,4 @@ Print concise summary and next steps
 1. Print counts: findings found, fixes approved, fixes applied, fixes skipped, failed fixes, and remaining graph issues.
 2. If dependency updates were applied, list each changed dependency edge with source and target bead IDs.
 3. Print next steps: /ensemble-beads-build <scope> --plan or /ensemble-beads-build <scope>.
-4. Run: br sync --flush-only before exit.
+4. Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] before exit.
