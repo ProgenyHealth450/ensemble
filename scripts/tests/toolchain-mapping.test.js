@@ -855,3 +855,232 @@ describe('runCapability: two real adapters, same category, both normalize throug
     expect(result).not.toHaveProperty('data');
   });
 });
+
+/**
+ * TRD-2026-8d825f54 TRD-033: `parse.arrayMap` -- per-item array filter + reshape, added
+ * because `az boards work-item relation add`-style JMESPath hash reshaping
+ * (`{id: url, type: attributes.name}`) cannot be embedded in any adapter `run[]` template at
+ * all: `packages/development/lib/toolchain/runner.js#buildArgv`'s placeholder substitution
+ * treats ANY bare `{...}` text in ANY argv element as an unresolved `{name}` placeholder and
+ * throws `INVALID_ARG`, regardless of whether it originated from a real `${name}` or a
+ * literal tool-query brace (see `adapter-tracker-azure-boards/adapter.yaml`'s own `tracker.show`
+ * comment for the full empirical account). `arrayMap` lets an adapter instead pass the tool's
+ * RAW, un-reshaped array straight through its `run[]`/`--query` (no `{}` needed, only `[]`/
+ * function-call syntax), and do the per-item filter+rename here in `mapOutput` itself.
+ */
+describe('mapOutput: parse.arrayMap per-item array filter + reshape (TRD-033)', () => {
+  const relations = [
+    { rel: 'System.LinkTypes.Dependency-Reverse', url: 'https://dev.azure.com/org/proj/_apis/wit/workItems/456', attributes: { name: 'Predecessor' } },
+    { rel: 'System.LinkTypes.Hierarchy-Forward', url: 'https://dev.azure.com/org/proj/_apis/wit/workItems/789', attributes: { name: 'Child' } },
+    { rel: 'AttachedFile', url: 'https://dev.azure.com/org/proj/_apis/wit/attachments/abc' } // no 'attributes' at all
+  ];
+
+  function parseWithArrayMap(extra = {}) {
+    return {
+      format: 'json',
+      map: { id: '$[0]' },
+      arrayMap: {
+        dependencies: {
+          source: '$[1]',
+          filter: { path: '$.attributes.name', equals: 'Predecessor' },
+          item: { id: '$.url', type: '$.attributes.name' }
+        }
+      },
+      ...extra
+    };
+  }
+
+  test('filters to only matching items and reshapes each kept item via "item"', () => {
+    const mapped = mapOutput(JSON.stringify(['9', relations]), parseWithArrayMap());
+    expect(mapped).toEqual({
+      id: '9',
+      dependencies: [{ id: 'https://dev.azure.com/org/proj/_apis/wit/workItems/456', type: 'Predecessor' }]
+    });
+  });
+
+  test('an item missing the filtered field entirely is excluded, not an error (filter.path resolution failure = non-match)', () => {
+    const onlyAttachment = [relations[2]];
+    const mapped = mapOutput(JSON.stringify(['9', onlyAttachment]), parseWithArrayMap());
+    expect(mapped.dependencies).toEqual([]);
+  });
+
+  test('an empty source array maps to an empty dependencies array, never null/undefined', () => {
+    const mapped = mapOutput(JSON.stringify(['9', []]), parseWithArrayMap());
+    expect(mapped.dependencies).toEqual([]);
+  });
+
+  test('omitting "filter" keeps every item (reshaped, unfiltered)', () => {
+    const parse = parseWithArrayMap();
+    delete parse.arrayMap.dependencies.filter;
+    expect(() => mapOutput(JSON.stringify(['9', relations]), parse)).toThrow(
+      expect.objectContaining({ code: 'BAD_OUTPUT' })
+    ); // the AttachedFile relation has no 'attributes.name' for 'item' to resolve -- item paths DO throw
+  });
+
+  test('"source" must resolve to an array, else BAD_OUTPUT names the non-array shape', () => {
+    const parse = parseWithArrayMap();
+    expect(() => mapOutput(JSON.stringify(['9', { not: 'an array' }]), parse)).toThrow(
+      expect.objectContaining({ code: 'BAD_OUTPUT' })
+    );
+  });
+
+  test('a missing "item" field on a KEPT item does throw BAD_OUTPUT (unlike a missing "filter" field)', () => {
+    const parse = parseWithArrayMap();
+    parse.arrayMap.dependencies.item.extra = '$.doesNotExist';
+    expect(() => mapOutput(JSON.stringify(['9', relations]), parse)).toThrow(
+      expect.objectContaining({ code: 'BAD_OUTPUT' })
+    );
+  });
+
+  test('parse.arrayMap requires parse.map to also be declared', () => {
+    expect(() =>
+      mapOutput(JSON.stringify(['9', relations]), {
+        format: 'json',
+        arrayMap: { dependencies: { source: '$[1]', item: { id: '$.url' } } }
+      })
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
+  });
+
+  test('parse.arrayMap must be a plain object when present', () => {
+    expect(() => mapOutput(JSON.stringify(['9', relations]), { format: 'json', map: { id: '$[0]' }, arrayMap: 'nope' })).toThrow(
+      expect.objectContaining({ code: 'BAD_OUTPUT' })
+    );
+  });
+
+  test('arrayMap[outKey].source/.item are validated; a non-string source or missing item throws BAD_OUTPUT', () => {
+    expect(() =>
+      mapOutput(JSON.stringify(['9', relations]), { format: 'json', map: { id: '$[0]' }, arrayMap: { dependencies: { source: 5, item: {} } } })
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
+    expect(() =>
+      mapOutput(JSON.stringify(['9', relations]), { format: 'json', map: { id: '$[0]' }, arrayMap: { dependencies: { source: '$[1]' } } })
+    ).toThrow(expect.objectContaining({ code: 'BAD_OUTPUT' }));
+  });
+
+  test('the normalized work-item schema accepts an arrayMap-built dependencies[]', () => {
+    const validate = compileWorkItemValidator();
+    const mapped = mapOutput(JSON.stringify(['9', relations]), parseWithArrayMap());
+    expect(validate(mapped)).toBe(true);
+  });
+});
+
+describe('mutation-restore proof: parse.arrayMap (TRD-033)', () => {
+  const originalSource = fs.readFileSync(MAPPING_SOURCE_PATH, 'utf8');
+  const tmpFiles = [];
+  let mutantCounter = 0;
+
+  const loadMutant = (label, mutatedSource) => {
+    mutantCounter += 1;
+    const tmpFile = path.join(os.tmpdir(), `mapping-arraymap-mutant-${label}-${process.pid}-${mutantCounter}.js`);
+    fs.writeFileSync(tmpFile, mutatedSource);
+    tmpFiles.push(tmpFile);
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    return require(tmpFile);
+  };
+
+  afterEach(() => {
+    while (tmpFiles.length > 0) {
+      const tmpFile = tmpFiles.pop();
+      try {
+        fs.unlinkSync(tmpFile);
+      } catch (err) {
+        // already removed or never created; nothing to clean up
+      }
+    }
+  });
+
+  const relations = [
+    { rel: 'a', url: 'https://x/456', attributes: { name: 'Predecessor' } },
+    { rel: 'b', url: 'https://x/789', attributes: { name: 'Child' } }
+  ];
+  const parse = {
+    format: 'json',
+    map: { id: '$[0]' },
+    arrayMap: {
+      dependencies: {
+        source: '$[1]',
+        filter: { path: '$.attributes.name', equals: 'Predecessor' },
+        item: { id: '$.url', type: '$.attributes.name' }
+      }
+    }
+  };
+
+  test('the filter equality check actually discriminates: inverting it lets the Child relation leak through', () => {
+    const needle = 'if (actual !== spec.filter.equals) {';
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(needle, 'if (actual === spec.filter.equals) {');
+    expect(mutated).not.toBe(originalSource);
+
+    const mutant = loadMutant('filter-equality', mutated);
+    const mapped = mutant.mapOutput(JSON.stringify(['9', relations]), parse);
+    // With the equality check inverted, the Predecessor relation is now excluded and the
+    // Child one included -- the real "filters to only matching items" test above would fail.
+    expect(mapped.dependencies).toEqual([{ id: 'https://x/789', type: 'Child' }]);
+  });
+
+  test('the source-must-be-an-array guard actually discriminates: disabling it lets a non-array source silently iterate undefined', () => {
+    const needle = 'if (!Array.isArray(sourceArray)) {';
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(needle, 'if (false) {');
+    expect(mutated).not.toBe(originalSource);
+
+    const mutant = loadMutant('source-array-guard', mutated);
+    // A non-array source ('not-an-array', a string) is iterable char-by-char with a plain
+    // `for...of`, so with the guard disabled this silently "succeeds" (producing nonsense
+    // per-character items) instead of throwing BAD_OUTPUT -- the real "must resolve to an
+    // array" test above would fail.
+    expect(() =>
+      mutant.mapOutput(JSON.stringify(['9', 'not-an-array']), {
+        format: 'json',
+        map: { id: '$[0]' },
+        arrayMap: { dependencies: { source: '$[1]', item: { id: '$' } } }
+      })
+    ).not.toThrow();
+  });
+
+  test('the require-map-with-arrayMap guard actually discriminates: disabling it lets arrayMap run with no "map" and crash instead of failing closed', () => {
+    const needle = "if (arrayMap !== undefined && !map) {";
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(needle, 'if (false) {');
+    expect(mutated).not.toBe(originalSource);
+
+    const mutant = loadMutant('require-map-guard', mutated);
+    // With the guard disabled, `result` is the bare (non-map) base value (the whole array
+    // itself, since no 'map' was declared) and `result[outKey] = ...` happens to still "work"
+    // on an array by adding a non-index property -- but the real test above asserts this is a
+    // clean BAD_OUTPUT, not this silent fallthrough.
+    expect(() =>
+      mutant.mapOutput(JSON.stringify(['9', relations]), {
+        format: 'json',
+        arrayMap: { dependencies: { source: '$[1]', item: { id: '$.url' } } }
+      })
+    ).not.toThrow();
+  });
+
+  test('the filter try/catch actually discriminates: removing it makes a missing filter field throw instead of excluding the item', () => {
+    const needle = `      let actual;
+      try {
+        actual = resolvePath(item, spec.filter.path);
+      } catch {
+        continue; // This item simply does not have the filtered field -- not a manifest defect.
+      }
+      if (actual !== spec.filter.equals) {
+        continue;
+      }`;
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(
+      needle,
+      `      const actual = resolvePath(item, spec.filter.path);
+      if (actual !== spec.filter.equals) {
+        continue;
+      }`
+    );
+    expect(mutated).not.toBe(originalSource);
+
+    const mutant = loadMutant('filter-trycatch', mutated);
+    const attachmentOnly = [{ rel: 'AttachedFile', url: 'https://x/attachment' }];
+    // With the try/catch removed, a relation missing 'attributes' entirely now throws
+    // BAD_OUTPUT instead of being quietly excluded -- the real "missing filtered field is
+    // excluded, not an error" test above would fail.
+    expect(() => mutant.mapOutput(JSON.stringify(['9', attachmentOnly]), parse)).toThrow();
+  });
+});

@@ -153,6 +153,48 @@ describe('runCapability: runtime allowlist denial (Implementation AC 1, TRD-011 
     expect(result.error.code).toBe('NOT_ALLOWED');
     expect(execFile).not.toHaveBeenCalled();
   });
+
+  test("TRD-033: a declared binary called with a subcommand that is only a prefix of a multi-word allowlist entry ('boards' vs 'boards work-item show') returns NOT_ALLOWED and spawns nothing (proves word-count is enforced, not a prefix match)", async () => {
+    const adapter = minimalAdapter({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show'] }],
+      capabilities: {
+        'tracker.list': {
+          run: ['az', 'boards', '--output', 'json']
+        }
+      }
+    });
+    const result = await runCapability(adapter, 'tracker.list', {});
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('NOT_ALLOWED');
+    expect(result.error.message).toContain('az boards');
+    expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('runCapability: runtime allowlist permits multi-word subcommand entries (TRD-033)', () => {
+  test("a declared binary called with argv matching a multi-word allowlist entry ('boards work-item show') spawns the resolved argv", async () => {
+    const adapter = minimalAdapter({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show'] }],
+      capabilities: {
+        'tracker.show': {
+          run: ['az', 'boards', 'work-item', 'show', '--id', '${id}', '--output', 'json']
+        }
+      }
+    });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, '{}', ''));
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'AB-1' });
+
+    expect(result.ok).toBe(true);
+    expect(execFile).toHaveBeenCalledTimes(1);
+    const [calledFile, calledArgs] = execFile.mock.calls[0];
+    expect(calledFile).toBe('az');
+    expect(calledArgs).toEqual(['boards', 'work-item', 'show', '--id', 'AB-1', '--output', 'json']);
+  });
 });
 
 describe('runCapability: timeout (TRD-011 AC 2)', () => {

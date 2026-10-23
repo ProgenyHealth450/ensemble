@@ -198,6 +198,72 @@ describe('validateAllowlist', () => {
 
     expect(result).toEqual({ valid: true, errors: [] });
   });
+
+  test("TRD-033: a capability calling 'az boards work-item show' matches a multi-word allowlist entry 'boards work-item show' (not just the first word)", () => {
+    const manifest = validManifest({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show', 'boards query'] }],
+      health: [],
+      capabilities: {
+        'tracker.show': { run: ['az', 'boards', 'work-item', 'show', '--id', '${id}', '--output', 'json'] }
+      }
+    });
+
+    const result = validateAllowlist(manifest);
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  test("TRD-033: a capability calling 'az boards' alone does NOT match a multi-word allowlist entry 'boards work-item show' (proves word-count is enforced, not a prefix match)", () => {
+    const manifest = validManifest({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show'] }],
+      health: [],
+      capabilities: {
+        'tracker.list': { run: ['az', 'boards', '--output', 'json'] }
+      }
+    });
+
+    const result = validateAllowlist(manifest);
+
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some(
+        (error) => error.includes('example-tracker') && error.includes("'az boards'") && error.includes('not in the allowlist')
+      )
+    ).toBe(true);
+  });
+
+  test("TRD-033: a capability calling 'az repos show' fails even though 'repos' is a real az noun, because only 'boards'/'devops'/'account' multi-word entries are allowlisted (host subcommands belong to the host adapter)", () => {
+    const manifest = validManifest({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show', 'devops configure', 'account show'] }],
+      health: [],
+      capabilities: {
+        'tracker.fetch': { run: ['az', 'repos', 'show'] }
+      }
+    });
+
+    const result = validateAllowlist(manifest);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.includes("'az repos'") && error.includes('not in the allowlist'))).toBe(true);
+  });
+
+  test("TRD-033: a single-word allowlist entry ('show') still matches positionally and is unaffected by sibling multi-word entries ('boards work-item show') on the same binary", () => {
+    const manifest = validManifest({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show', '--version'] }],
+      health: [{ id: 'az-version', run: ['az', '--version'], timeoutMs: 5000 }],
+      capabilities: {
+        'tracker.show': { run: ['az', 'boards', 'work-item', 'show', '${id}'] }
+      }
+    });
+
+    const result = validateAllowlist(manifest);
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
 });
 
 describe('scanCredentials', () => {

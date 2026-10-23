@@ -209,8 +209,10 @@
  * manifest's own declared `run` templates against its own `binaries`/`allowlist` at
  * install/validate time, before any placeholder substitution (see that function's own header).
  * `runCapability` performs its own, separate check on the real, substituted `argv` array
- * immediately before spawning: `argv[0]` must be one of `adapter.binaries`, and the matching
- * `adapter.allowlist` entry's `sub` must include `argv[1]`. This is an intentional, documented
+ * immediately before spawning: `argv[0]` must be one of `adapter.binaries`, and the subcommand
+ * words that follow it must match one `adapter.allowlist` entry's `sub` (a single word or a
+ * space-separated multi-word subcommand such as `boards work-item show`, TRD-033, matched
+ * positionally -- see `matchesSubcommandWords` below). This is an intentional, documented
  * duplication, not a refactor of `validateAllowlist`, because it operates on a concrete argv
  * array rather than a manifest template string. Any failure here returns `NOT_ALLOWED` and
  * never spawns a process.
@@ -492,6 +494,31 @@ function translateManifestTemplate(run) {
 }
 
 /**
+ * Compare a declared allowlist subcommand (a single word like `show`, or a space-separated
+ * multi-word subcommand like `boards work-item show`, TRD-033) against the argv elements that
+ * follow the binary, matching each word positionally. Every word of `allowedSub` must equal
+ * the argv element at the same index -- this is never a substring or prefix match on a single
+ * token, so `showall` never matches an argv of `show`, and `boards` alone never matches a
+ * declared `boards work-item show` entry. Mirrors `validate.js#matchesSubcommandWords`
+ * (intentional duplication, see this module's runtime allowlist header above).
+ *
+ * @param {string} allowedSub one `allowlist[].sub` entry, e.g. 'show' or 'boards work-item show'
+ * @param {string[]} argvAfterBin the argv elements after the binary (argv[1], argv[2], ...)
+ * @returns {boolean} true only when every word of `allowedSub` equals the argv element at the
+ *   same position
+ */
+function matchesSubcommandWords(allowedSub, argvAfterBin) {
+  if (typeof allowedSub !== 'string' || allowedSub.length === 0) {
+    return false;
+  }
+  const words = allowedSub.split(' ');
+  if (words.length > argvAfterBin.length) {
+    return false;
+  }
+  return words.every((word, i) => argvAfterBin[i] === word);
+}
+
+/**
  * Runtime counterpart to `validate.js#validateAllowlist`: that function statically checks a
  * manifest's own declared `run` templates against its own `binaries`/`allowlist` at
  * install/validate time, before any placeholder substitution. This function instead checks the
@@ -519,7 +546,9 @@ function denyRuntimeAllowlist(adapterId, binaries, allowlist, argv) {
 
   const sub = argv.length > 1 ? argv[1] : undefined;
   const allowedSubs = (Array.isArray(entry.sub) && entry.sub) || [];
-  if (sub === undefined || !allowedSubs.includes(sub)) {
+  const argvAfterBin = argv.slice(1);
+  const matched = sub !== undefined && allowedSubs.some((candidateSub) => matchesSubcommandWords(candidateSub, argvAfterBin));
+  if (!matched) {
     return (
       `${adapterId}: resolved call '${bin} ${sub}' is not permitted by the allowlist for '${bin}' ` +
       `(allowed subcommands: ${allowedSubs.join(', ') || '(none)'})`
