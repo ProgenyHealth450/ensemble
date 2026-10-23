@@ -23,8 +23,9 @@ const wave = read('commands/beads-build-wave.yaml');
 const waveAgent = read('agents/beads-build-wave.yaml');
 
 describe('implement-trd-beads labels the beads it scaffolds', () => {
-  test('br create passes --labels from the plan entry for every bead kind', () => {
-    expect(itb).toMatch(/br create --title='<title>' --type=<type> --priority=<priority> --labels=<labels comma-joined>/);
+  test('tracker.create has no labels arg; every bead kind gets labeled via the beads-label backfill instead', () => {
+    expect(itb).toMatch(/run tracker\.create --arg title=\\?"<title>\\?" --arg type=<type> --arg description=\\?"<description>\\?"/);
+    expect(itb).toMatch(/no priority\/labels\/externalRef arg[^)]*labels backfilled later/);
     expect(itb).toMatch(/plan\.epic`, `plan\.stories\[\]`, `plan\.tasks\[\]`, `plan\.synthesizedTests\[\]/);
   });
 

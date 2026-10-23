@@ -52,8 +52,8 @@ describe('implement-trd-beads scaffold executes the scaffold-plan PLAN', () => {
   test('creates epic, stories, tasks, synthesized tests with --labels and wires plan.deps once', () => {
     const scaffold = actions('Scaffold', 'Plan and create beads');
     expect(scaffold).toMatch(/plan\.epic`, `plan\.stories\[\]`, `plan\.tasks\[\]`, `plan\.synthesizedTests\[\]/);
-    expect(scaffold).toContain('--labels=<labels comma-joined>');
-    expect(scaffold).toContain('br dep add <blocked_bead_id> <blocker_bead_id>');
+    expect(scaffold).toContain('no priority/labels/externalRef arg; externalRef folds into description, labels backfilled later');
+    expect(scaffold).toContain('tracker.dep-add --arg id=<blocked_bead_id> --arg dependsOnId=<blocker_bead_id>');
     expect(scaffold).toMatch(/title prefix|titlePrefix/);
   });
 
@@ -66,7 +66,7 @@ describe('implement-trd-beads Preflight contracts', () => {
   test('--plan and --execute are mutually exclusive; --branch and --use-current-branch are mutually exclusive', () => {
     const args = actions('Preflight', 'Arguments and early exits');
     expect(args).toContain('--plan` with `--execute');
-    expect(args).toMatch(/both together HALT before any br\/git\/scaffold side effect/);
+    expect(args).toMatch(/both together HALT before any tracker\/git\/scaffold side effect/);
   });
 
   test('argument_hint advertises the branch-intent flags callers use', () => {
@@ -213,7 +213,7 @@ describe('implement-trd-beads Quality Gate and Completion ordering', () => {
     const gate = actions('Quality Gate', 'Per-phase gate');
     expect(gate).toMatch(/do NOT close the story yet/);
     expect(gate).toMatch(/BLOCKED -> print the reasons[^.]*HALT with the story still open, no PR and no branch append/);
-    expect(gate).toMatch(/COMPLETE -> close the story \(reason/);
+    expect(gate).toMatch(/COMPLETE -> close the story \(tracker\.close/);
     expect(gate.indexOf('HALT with the story still open')).toBeLessThan(gate.indexOf('COMPLETE -> close the story'));
   });
 
@@ -298,22 +298,23 @@ describe('implement-trd-beads completion', () => {
     expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('git commit'));
   });
 
-  test('requirement table comes from trd-cli req-status over a br list --json dump', () => {
+  test('requirement table comes from trd-cli req-status over tracker.list data, with VERIFIED ids omitted (tracker.comments capability gap)', () => {
     const report = actions('Completion', 'Completion report');
     expect(report).toContain('req-status');
     expect(report).toContain('--issues-json');
-    expect(report).toContain('--verified');
+    expect(report).toContain('tracker.comments');
+    expect(report).toContain('omit VERIFIED ids');
   });
 
   test('closes the root epic and syncs after verification', () => {
-    expect(actions('Completion', 'Epic closure and TRD checkboxes')).toContain("br close <ROOT_EPIC_ID> --reason='TRD implementation complete'");
+    expect(actions('Completion', 'Epic closure and TRD checkboxes')).toContain('node "$TOOLCHAIN_CLI" run tracker.close --arg id=<ROOT_EPIC_ID>');
   });
 });
 
 describe('implement-trd-beads bead references contract', () => {
-  test('scaffold passes the plan entry externalRef to br create', () => {
+  test('scaffold folds the plan entry externalRef into the tracker.create description (tracker.create has no externalRef field)', () => {
     const scaffold = actions('Scaffold', 'Plan and create beads');
-    expect(scaffold).toContain("--external-ref='<externalRef>'");
+    expect(scaffold).toContain('externalRef folds into description');
     expect(scaffold).toContain('## References');
   });
 

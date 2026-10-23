@@ -49,7 +49,7 @@ describe('beads engine sources', () => {
     const build = yaml.load(read('commands/beads-build.yaml'));
     expect(build.metadata.capabilities.required).toContain('work-graph.ready');
     expect(build.metadata.capabilities.optional).toContain('work-graph.plan');
-    expect(read('commands/implement-trd-beads.yaml')).toMatch(/bv is OPTIONAL/);
+    expect(read('commands/implement-trd-beads.yaml')).toMatch(/work-graph\.ready \(graph-aware parallel tracks[^)]*\) or plan order when that is unavailable/);
   });
 });
 
