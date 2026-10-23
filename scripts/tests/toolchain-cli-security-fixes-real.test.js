@@ -467,12 +467,12 @@ describe('mutation-restore proof: reviewer Findings 2 and 6 actually discriminat
     const mutantRoot = makeMutantToolchainRoot();
     try {
       const needle =
-        '  const result = await runCapability(loaded.manifest, capability, args, {\n' +
-        '    source,\n' +
-        '    execFileOptions: { cwd: projectRoot }\n' +
-        '  });';
+        '    : await runCapability(loaded.manifest, capability, args, {\n' +
+        '        source,\n' +
+        '        execFileOptions: { cwd: projectRoot }\n' +
+        '      });';
       const replacement =
-        '  const result = await runCapability(loaded.manifest, capability, args, { source });';
+        '    : await runCapability(loaded.manifest, capability, args, { source });';
       const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
 
       const projectRoot = mkProjectRoot();
