@@ -1,0 +1,25 @@
+# Static input fixture for scripts/tests/toolchain-runtime-parity.test.js (TRD-2026-8d825f54
+# TRD-021, PRD AC-021-1, AC-021-2). Every one of the 14 toolchain categories is set explicitly
+# so `resolveCategory()` always resolves via `source: 'project'` for every category, in every
+# runtime, regardless of the host machine's own $XDG_CONFIG_HOME/user config, legacy env-compat
+# variables, or git-remote-based detection -- the parity assertion must depend only on this
+# file's content, never on ambient test-runner environment.
+#
+# Values mirror packages/development/toolchain/toolchain.default.yaml; `resolveCategory` never
+# validates that a configured adapter id actually resolves to an installed adapter (it only
+# returns the configured string and its precedence tier), so any string is schema-valid here --
+# the shipped defaults are reused simply so this fixture reads as a plausible real config.
+host: github
+workflow: plain-git
+worktree: plain-git
+tracker: beads
+work-graph: auto
+ci-local: act
+review: coderabbit
+lint: reviewdog
+test-runner: default
+e2e-quality: playwright
+container-deploy: docker-kubectl
+iac: terraform
+platform-cloud: aws
+package-runner: npm
