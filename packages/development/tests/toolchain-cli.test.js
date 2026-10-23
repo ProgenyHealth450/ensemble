@@ -1489,6 +1489,89 @@ describe('work-graph auto resolution: real CLI subprocess, both branches (TRD-02
     }
   });
 
+  test("branch (b), required-and-absent halt: work-graph.graph-health required by preflight, tracker lacks work-graph and the built-in fallback does not implement graph-health either -> UNAVAILABLE naming the fallback adapter, exit non-zero, no preflight record written, before any health check spawns", () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-'));
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-bin-'));
+    try {
+      const binPath = writeNoWorkGraphTrackerStub(binDir);
+      writeWorkGraphTrackerControl(binDir, [{ id: 'wg-x', status: 'open' }]);
+      mkProjectConfig(projectRoot, { tracker: 'fixture-wg-halt-tracker' });
+      mkNoWorkGraphTrackerAdapter(projectRoot, 'fixture-wg-halt-tracker', binPath, {
+        declareDependencies: false
+      });
+      // 'work-graph' is deliberately left unset -> shipped default 'auto', which (per the
+      // branch (b) test above) expands to the built-in 'work-graph-links-fallback' adapter --
+      // whose own scope is only work-graph.ready/work-graph.plan, so work-graph.graph-health
+      // is genuinely unavailable through BOTH the tracker and the resolved fallback.
+      const env = cleanSpawnEnv();
+      const runId = 'wg-halt-run';
+
+      const res = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'work-graph.graph-health', '--run-id', runId, '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
+
+      expect(res.status).not.toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.code).toBe('UNAVAILABLE');
+      expect(parsed.error.message).toContain('work-graph.graph-health');
+      expect(parsed.error.message).toContain('work-graph-links-fallback');
+
+      const recordPath = path.join(projectRoot, '.ensemble', 'state', 'toolchain', `preflight-${runId}.json`);
+      expect(fs.existsSync(recordPath)).toBe(false);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  describe('mutation-proof: the "auto" resolver\'s tracker-vs-fallback branch selection actually matters for which adapter a required-and-absent halt names', () => {
+    test("forcing resolveWorkGraphAdapter's 'auto' expansion to always treat the tracker as providing work-graph (skipping the real trackerProvidesWorkGraph check) makes the required-and-absent halt above wrongly name the TRACKER adapter instead of 'work-graph-links-fallback'", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const resolverPath = path.join(mutantRoot.toolchainLibDir, 'work-graph-resolve.js');
+        const needle = '  if (trackerProvidesWorkGraph) {';
+        const replacement = '  if (true) {';
+        mutateAndRequire(resolverPath, needle, replacement);
+        const mutatedCli = require(mutantRoot.cliPath);
+
+        const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-mutant-'));
+        const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-mutant-bin-'));
+        try {
+          const binPath = writeNoWorkGraphTrackerStub(binDir);
+          writeWorkGraphTrackerControl(binDir, [{ id: 'wg-x', status: 'open' }]);
+          mkProjectConfig(projectRoot, { tracker: 'fixture-wg-halt-mutant-tracker' });
+          mkNoWorkGraphTrackerAdapter(projectRoot, 'fixture-wg-halt-mutant-tracker', binPath, {
+            declareDependencies: false
+          });
+
+          const { returned: code, stdout } = await captureStdoutAsync(() =>
+            mutatedCli.main(
+              ['preflight', '--require', 'work-graph.graph-health', '--run-id', 'wg-halt-mutant-run', '--json'],
+              { projectRoot, env: { PATH: process.env.PATH } }
+            )
+          );
+          expect(code).toBe(1);
+          const parsed = JSON.parse(stdout.trim());
+          expect(parsed.ok).toBe(false);
+          expect(parsed.error.code).toBe('UNAVAILABLE');
+          // The mutated resolver now (wrongly) treats the tracker-only adapter as if it
+          // provided work-graph itself, so the halt names the TRACKER adapter, never the
+          // built-in fallback -- exactly what the real (unmutated) test above disproves.
+          expect(parsed.error.message).toContain('fixture-wg-halt-mutant-tracker');
+          expect(parsed.error.message).not.toContain('work-graph-links-fallback');
+        } finally {
+          fs.rmSync(projectRoot, { recursive: true, force: true });
+          fs.rmSync(binDir, { recursive: true, force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+
   describe('mutation-proof: the work-graph "auto" special case in run() actually matters', () => {
     test("removing run()'s work-graph auto branch falls through to a bare loadAdapter('auto', ...) call, which crashes NOT_INSTALLED instead of resolving the fallback", async () => {
       const mutantRoot = makeMutantToolchainRoot();
