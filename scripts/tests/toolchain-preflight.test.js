@@ -674,10 +674,10 @@ describe("runPreflight: ctx.detect threading to resolveCategory (PR 4 review Fin
   });
 
   describe('mutation-proof: dropping detect from the resolveCategory call inside runPreflight', () => {
-    test("reverting runPreflight's own 'resolveCategory(category, { projectRoot, env, detect })' call to drop 'detect' falls through to the shipped default (not installed here) and fails", async () => {
+    test("reverting runPreflight's own 'resolveCategory(category, ctx)' call to narrow ctx (dropping 'detect') falls through to the shipped default (not installed here) and fails", async () => {
       const mutantRoot = makeMutantToolchainRoot();
       try {
-        const needle = 'adapterId = resolveCategory(category, { projectRoot, env, detect }).value;';
+        const needle = 'adapterId = resolveCategory(category, ctx).value;';
         const replacement = 'adapterId = resolveCategory(category, { projectRoot, env }).value;';
         const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/preflight.js', needle, replacement);
 

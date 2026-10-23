@@ -12,11 +12,73 @@
  *                   `$XDG_CONFIG_HOME/ensemble/adapters/<dir>/`). This module never duplicates
  *                   the XDG root-resolution algorithm: it derives the adapters root as the
  *                   sibling of the resolved `toolchain.yaml` path.
- *   3. installed:  `<projectRoot>/packages/*\/skills/<dir>/` -- adapters shipped inside a
- *                   package tree (this repo's own packages, or a consumer's). Any subdirectory
- *                   of a package's `skills/` is a candidate; there is no required directory-name
- *                   prefix, since one manifest's declared `adapter` id is what selects it, not
- *                   its directory name (TRD interpretation I7).
+ *   3. installed:  every package's `skills/<dir>/` -- adapters shipped inside a package tree.
+ *                   Any subdirectory of a package's `skills/` is a candidate; there is no
+ *                   required directory-name prefix, since one manifest's declared `adapter` id
+ *                   is what selects it, not its directory name (TRD interpretation I7). The
+ *                   "installed" tier scans TWO independent sets of package roots, in this
+ *                   order, collapsed to a single deduplicated (by `fs.realpathSync`) list of
+ *                   "skills root" directories before any of them is read:
+ *
+ *                   a. project-relative: `<projectRoot>/packages/*\/skills/` -- adapters that
+ *                      ship alongside a *consumer's own* monorepo-style `packages/` tree.
+ *                   b. library-relative (PR 5 independent review: the shipped default adapter
+ *                      for a category, e.g. TRD-024's `beads` for `tracker`/`work-graph`, was
+ *                      unreachable from every real consumer, since (a) only ever matches when
+ *                      `projectRoot` happens to be a `packages/`-based monorepo -- i.e. almost
+ *                      never, outside this repo's own tests): derived from where THIS MODULE
+ *                      ITSELF lives on disk (`__dirname`), recognizing one of four fixed,
+ *                      literal "tails" this library is actually shipped at (longest match
+ *                      wins; `LIBRARY_LOCATION_TAILS` below), so every copy of this library
+ *                      finds the adapters shipped next to it, not next to whatever project
+ *                      happens to be running it:
+ *
+ *                        - `.../skills/vendor/lib/toolchain`  (Codex: `.codex/skills/vendor/`)
+ *                          -> the matched ancestor (3 levels up) IS the skills root: every
+ *                          other installed skill, including `adapter-*` dirs, is already a
+ *                          direct sibling of `vendor` there.
+ *                        - `.../skill/vendor/lib/toolchain`   (OpenCode: `.opencode/skill/`)
+ *                          -> identical shape, singular "skill".
+ *                        - `.../vendor/lib/toolchain`         (Pi's npm package: `<pkg>/vendor/`)
+ *                          -> the matched ancestor (3 levels up) is the npm package root;
+ *                          its adapters live at `<pkg>/skills/*`, a SIBLING of `vendor`, not
+ *                          inside it. When that package root's own parent directory name
+ *                          starts with `@` (an npm scope directory under `node_modules`),
+ *                          every sibling package's `skills/` under that same scope is ALSO
+ *                          searched (one publisher's other installed packages).
+ *                        - `.../lib/toolchain`                 (monorepo source:
+ *                          `packages/development/lib/toolchain`, and a Claude plugin install
+ *                          sharing the identical relative shape: `<plugin>/lib/toolchain`)
+ *                          -> the matched ancestor (2 levels up) is the package/plugin root;
+ *                          its adapters live at `<root>/skills/*`. When that root's own
+ *                          parent directory is literally named `packages` (this monorepo's
+ *                          own convention), every sibling package's `skills/` under it is
+ *                          ALSO searched (TRD-023's future `jira` adapter living in a
+ *                          different package than `beads` does, for example).
+ *
+ *                   A caller may also supply `ctx.installedRoots` (an array of absolute
+ *                   directory paths), APPENDED after both derived sets above -- never
+ *                   replacing them -- so a test or an advanced user can layer in an extra
+ *                   fixed location without losing real discovery; each entry is treated as a
+ *                   "skills root" itself (its own immediate subdirectories are adapter
+ *                   candidates), the same shape as every other installed-tier root, not a
+ *                   `packages/`-style parent needing one more directory level.
+ *
+ *                   SECURITY: every library-relative root above is computed with a FIXED
+ *                   number of `path.dirname()` hops up from this module's own `__dirname`,
+ *                   matched against the short, explicit `LIBRARY_LOCATION_TAILS` allow-list --
+ *                   never an upward walk that keeps climbing until it finds *something*. A
+ *                   directory this library does not actually ship from (an attacker-planted
+ *                   `/tmp/x/skills/adapter-evil`, a user's home directory, an unrelated
+ *                   ancestor two levels off from one of the recognized layouts) is never
+ *                   visited, because it is never one of the fixed, literal relative offsets
+ *                   any of the four recognized layouts defines. The sibling-package expansion
+ *                   is itself layout-gated the same way: it only fires when the directory the
+ *                   library's own root sits inside is named EXACTLY `packages` or starts with
+ *                   `@` -- never for an arbitrarily-named parent. This is a consent-UX/
+ *                   correctness boundary (finding adapters that genuinely ship with the code),
+ *                   not a sandbox: a process that can already write next to this library's own
+ *                   install location has already compromised it.
  *
  * In every location, an adapter directory may be a real directory or a symlink that resolves to
  * one: symlinking a repo-local or user adapter slot to an externally-developed skill directory
@@ -30,10 +92,14 @@
  * non-interactive runs (TRD interpretation I5, PRD AC-007-3). When more than one directory in
  * the same location declares the same `adapter` id, the tie-break is discovery order: first by
  * origin priority (repo-local, then user, then installed, matching the search order above),
- * then by each location's deterministic ascending directory-name sort (for installed adapters,
- * ascending package directory name, then ascending skill directory name within it). An adapter
- * name that resolves nowhere fails with a `NOT_INSTALLED` error naming the adapter, all three
- * search locations it was looked for in, and how to install it (PRD AC-007-2).
+ * then -- for "installed" -- by each "skills root"'s own position in the ordered list
+ * documented above (project-relative roots each in ascending package-directory-name order,
+ * then the library-relative roots in the fixed order listed above, then any
+ * `ctx.installedRoots` in the order supplied), and within one skills root, ascending
+ * directory-name sort. An adapter name that resolves nowhere fails with a `NOT_INSTALLED`
+ * error naming the adapter, every location it was looked for in (repo-local, user, and every
+ * "installed" skills root actually searched for this call), and how to install it (PRD
+ * AC-007-2).
  *
  * Every manifest and `SKILL.md` is re-read and re-parsed from disk on every call: there is no
  * module-level cache, no `require()` of YAML, and no memoization keyed by path, so an edit to
@@ -180,12 +246,154 @@ function userAdaptersRoot(env) {
 
 /**
  * Installed-package root: `<projectRoot>/packages`, under which each package's `skills/<dir>`
- * directories are searched.
+ * directories are searched (project-relative installed tier, part (a) of the module doc).
  * @param {string} projectRoot
  * @returns {string}
  */
 function installedPackagesRoot(projectRoot) {
   return path.join(projectRoot, 'packages');
+}
+
+/**
+ * Every "skills root" a project-relative `packages/` tree contributes to the installed tier:
+ * `<projectRoot>/packages/<pkg>/skills` for each package directory, in ascending name order
+ * (via `listSubdirs`). A missing or non-directory `packages/` root contributes none.
+ *
+ * @param {string} projectRoot
+ * @returns {string[]}
+ */
+function projectPackagesSkillsRoots(projectRoot) {
+  const packagesRoot = installedPackagesRoot(projectRoot);
+  return listSubdirs(packagesRoot).map((pkg) => path.join(packagesRoot, pkg, 'skills'));
+}
+
+/**
+ * The small, fixed set of relative directory "tails" this library's own `__dirname` (the
+ * `lib/toolchain` directory containing this file) is actually shipped at, longest segment list
+ * first so a more specific tail is never shadowed by a shorter one that is also technically a
+ * suffix of it (`vendor/lib/toolchain` vs. `lib/toolchain`). See the module doc's "installed"
+ * section for the full rationale and the security argument for why this is a fixed allow-list,
+ * never an upward search.
+ *
+ * `shape: 'skills-root'` means the matched ancestor directory itself IS a skills root (its own
+ * immediate children are adapter candidates). `shape: 'package-root'` means the matched
+ * ancestor is a package/plugin root whose `skills` subdirectory is the root; `npmScopeSiblings`/
+ * `packagesSiblings` additionally expand to that root's sibling packages when the structural
+ * condition documented above holds.
+ */
+const LIBRARY_LOCATION_TAILS = [
+  { segments: ['skills', 'vendor', 'lib', 'toolchain'], shape: 'skills-root' },
+  { segments: ['skill', 'vendor', 'lib', 'toolchain'], shape: 'skills-root' },
+  { segments: ['vendor', 'lib', 'toolchain'], shape: 'package-root', npmScopeSiblings: true },
+  { segments: ['lib', 'toolchain'], shape: 'package-root', packagesSiblings: true }
+];
+
+/**
+ * Match `dirPath` against `LIBRARY_LOCATION_TAILS`, walking backward from its last path
+ * component (never forward/upward beyond the tail's own fixed length), and return the matched
+ * tail plus the ancestor directory sitting directly above the whole matched tail, or `null`
+ * when `dirPath` ends in none of them.
+ *
+ * @param {string} dirPath
+ * @returns {{tail: {segments: string[], shape: string, npmScopeSiblings?: boolean,
+ *   packagesSiblings?: boolean}, ancestor: string}|null}
+ */
+function matchLibraryLocationTail(dirPath) {
+  for (const tail of LIBRARY_LOCATION_TAILS) {
+    let cursor = dirPath;
+    let matched = true;
+    for (let i = tail.segments.length - 1; i >= 0; i -= 1) {
+      if (path.basename(cursor) !== tail.segments[i]) {
+        matched = false;
+        break;
+      }
+      cursor = path.dirname(cursor);
+    }
+    if (matched) {
+      return { tail, ancestor: cursor };
+    }
+  }
+  return null;
+}
+
+/**
+ * Every "skills root" THIS LIBRARY's own on-disk location contributes to the installed tier
+ * (part (b) of the module doc), derived from `matchLibraryLocationTail(__dirname)`. Returns
+ * `[]` when `__dirname` ends in none of the four recognized layouts (an unknown/future layout
+ * gets no library-relative roots at all -- `ctx.installedRoots` is the documented escape hatch
+ * for that case, not a guess at an unconfirmed layout).
+ *
+ * @returns {string[]}
+ */
+function libraryRelativeSkillsRoots() {
+  const matched = matchLibraryLocationTail(__dirname);
+  if (!matched) {
+    return [];
+  }
+  const { tail, ancestor } = matched;
+  if (tail.shape === 'skills-root') {
+    // `ancestor` is the directory ABOVE the whole matched tail, including its own leading
+    // segment (`tail.segments[0]`, 'skills' or 'skill') -- the skills root we actually want is
+    // THAT leading segment itself, not its parent.
+    return [path.join(ancestor, tail.segments[0])];
+  }
+
+  const roots = [path.join(ancestor, 'skills')];
+  if (tail.npmScopeSiblings) {
+    const scopeDir = path.dirname(ancestor);
+    if (path.basename(scopeDir).startsWith('@')) {
+      for (const sibling of listSubdirs(scopeDir)) {
+        roots.push(path.join(scopeDir, sibling, 'skills'));
+      }
+    }
+  }
+  if (tail.packagesSiblings) {
+    const parent = path.dirname(ancestor);
+    if (path.basename(parent) === 'packages') {
+      for (const sibling of listSubdirs(parent)) {
+        roots.push(path.join(parent, sibling, 'skills'));
+      }
+    }
+  }
+  return roots;
+}
+
+/**
+ * The full, ordered, deduplicated list of "skills root" directories the installed tier scans:
+ * project-relative roots, then library-relative roots, then `ctx.installedRoots` (appended,
+ * never replacing the derived roots -- see the module doc). Deduplicated by
+ * `fs.realpathSync` (first occurrence wins) so a root reachable two different ways (for
+ * example running inside this monorepo itself, where the project-relative and library-
+ * relative roots for `packages/development` are the literal same directory) is only ever
+ * scanned once.
+ *
+ * @param {string} projectRoot
+ * @param {string[]} [installedRootsOverride] `ctx.installedRoots`
+ * @returns {string[]}
+ */
+function installedSkillsRoots(projectRoot, installedRootsOverride) {
+  const ordered = [
+    ...projectPackagesSkillsRoots(projectRoot),
+    ...libraryRelativeSkillsRoots(),
+    ...(Array.isArray(installedRootsOverride) ? installedRootsOverride : [])
+  ];
+
+  const seen = new Set();
+  const deduped = [];
+  for (const root of ordered) {
+    let key;
+    try {
+      key = fs.realpathSync(root);
+    } catch {
+      key = path.resolve(root);
+    }
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(root);
+  }
+  return deduped;
 }
 
 /**
@@ -201,10 +409,12 @@ function installedPackagesRoot(projectRoot) {
  * @param {object} [ctx]
  * @param {string} [ctx.projectRoot] defaults to `process.cwd()`
  * @param {NodeJS.ProcessEnv} [ctx.env] defaults to `process.env`
+ * @param {string[]} [ctx.installedRoots] extra installed-tier "skills root" directories,
+ *   appended after the derived project-relative and library-relative roots
  * @returns {Array<{name: string, origin: 'repo-local'|'user'|'installed', dir: string}>}
  */
 function discoverAdapters(ctx = {}) {
-  const { projectRoot = process.cwd(), env = process.env } = ctx;
+  const { projectRoot = process.cwd(), env = process.env, installedRoots } = ctx;
   const found = [];
 
   const repoLocalRoot = repoLocalAdaptersRoot(projectRoot);
@@ -225,11 +435,9 @@ function discoverAdapters(ctx = {}) {
     }
   }
 
-  const packagesRoot = installedPackagesRoot(projectRoot);
-  for (const packageName of listSubdirs(packagesRoot)) {
-    const skillsDir = path.join(packagesRoot, packageName, 'skills');
-    for (const entryName of listSubdirs(skillsDir)) {
-      const dir = path.join(skillsDir, entryName);
+  for (const skillsRoot of installedSkillsRoots(projectRoot, installedRoots)) {
+    for (const entryName of listSubdirs(skillsRoot)) {
+      const dir = path.join(skillsRoot, entryName);
       const manifest = readManifest(dir);
       if (manifest && typeof manifest.adapter === 'string') {
         found.push({ name: manifest.adapter, origin: 'installed', dir });
@@ -272,19 +480,24 @@ function discoverAdapters(ctx = {}) {
  * @param {NodeJS.ProcessEnv} [ctx.env] defaults to `process.env`; replaces `process.env`
  *   wholesale rather than merging with it
  * @param {boolean} [ctx.interactive] defaults to `false`
+ * @param {string[]} [ctx.installedRoots] extra installed-tier "skills root" directories; see
+ *   `discoverAdapters`'s own doc
  * @returns {{origin: 'repo-local'|'user'|'installed', dir: string, manifest: object,
  *   skillMd: {ok: true, content: string} | {ok: false, error: string}}}
- * @throws {Error} with `.code === 'NOT_INSTALLED'` naming `name`, all three search locations,
- *   and an install hint when no location has a matching adapter; with
+ * @throws {Error} with `.code === 'NOT_INSTALLED'` naming `name` and every location actually
+ *   searched (repo-local, user, and every "installed" skills root for this call), and an
+ *   install hint, when no location has a matching adapter; with
  *   `.code === 'UNTRUSTED_REPO_ADAPTER'` naming `name` and the `trustedRepoAdapters` setting
  *   when a repo-local match exists but the non-interactive trust requirement is not met; with
  *   `.code === 'CONFIG_INVALID'` naming the user `toolchain.yaml` path when that file exists
  *   but fails schema validation during the trust lookup.
  */
 function loadAdapter(name, ctx = {}) {
-  const { projectRoot = process.cwd(), env = process.env, interactive = false } = ctx;
+  const { projectRoot = process.cwd(), env = process.env, interactive = false, installedRoots } = ctx;
 
-  const candidates = discoverAdapters({ projectRoot, env }).filter((entry) => entry.name === name);
+  const candidates = discoverAdapters({ projectRoot, env, installedRoots }).filter(
+    (entry) => entry.name === name
+  );
   const byOrigin = (origin) => candidates.find((entry) => entry.origin === origin);
 
   const repoLocalMatch = byOrigin('repo-local');
@@ -344,11 +557,17 @@ function loadAdapter(name, ctx = {}) {
   const repoLocalRoot = repoLocalAdaptersRoot(projectRoot);
   const userRoot = userAdaptersRoot(env);
   const packagesRoot = installedPackagesRoot(projectRoot);
+  const searchedInstalledRoots = installedSkillsRoots(projectRoot, installedRoots);
+  const installedLocations =
+    searchedInstalledRoots.length > 0
+      ? searchedInstalledRoots.map((root) => path.join(root, name)).join(', ')
+      : '(no package subdirectories found)';
   const error = new Error(
     `adapter '${name}' is not installed: ensemble looked for a '${name}' skill directory in the repo-local ` +
       `adapters directory (${path.join(repoLocalRoot, name)}), the user adapters directory ` +
-      `(${path.join(userRoot, name)}), and every installed package's skills directory under ${packagesRoot} ` +
-      `(packages/*/skills/<dir>/adapter.yaml declaring \`adapter: ${name}\`); install a marketplace package ` +
+      `(${path.join(userRoot, name)}), every installed package's skills directory under ${packagesRoot}, ` +
+      `and every other installed-tier skills root this library ships adapters alongside: ${installedLocations} ` +
+      `(each as <root>/<dir>/adapter.yaml declaring \`adapter: ${name}\`); install a marketplace package ` +
       `that provides '${name}' (for example, "/plugin install <package>@ensemble" in Claude Code) or place its ` +
       `skill directory in one of the locations above.`
   );
