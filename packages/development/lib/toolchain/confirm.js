@@ -78,10 +78,11 @@
  *
  * ## Known limits
  *
- * - `recordConfirmation` has NO CLI entry point yet: "confirm-record subcommand: not yet
- *   reachable from CLI, wired by TRD-018." Only `confirmStatus`'s deny path
- *   (`CONFIRMATION_REQUIRED`, wired into `toolchain-cli.js`'s `run` subcommand) is reachable
- *   from the shipped `run` subcommand in this PR.
+ * - `recordConfirmation` is now reachable from the CLI via `toolchain-cli.js confirm-record`
+ *   (TRD-018), which shares `confirmStatus`'s own `confirm-status` subcommand's resolve/load
+ *   prelude. Both `confirmStatus`'s deny path (`CONFIRMATION_REQUIRED`, wired into
+ *   `toolchain-cli.js`'s `run` subcommand) and `recordConfirmation` are reachable from the
+ *   shipped CLI.
  * - This module never prompts a user itself (no TTY read); it is a passive status check plus a
  *   passive record-writer. The interactive confirmation UI that would call `recordConfirmation`
  *   after a real user says "yes" is out of scope here (TRD-018).

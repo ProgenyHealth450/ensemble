@@ -206,28 +206,50 @@ describe('TRD-004-TEST: explain output in human and machine-readable form', () =
  * and a human error line on stderr when it is not.
  */
 describe('TRD-004-TEST: unknown subcommand handling', () => {
-  test('Scenario: Unknown subcommand fails -- --json prints {ok:false,error:{code,message}} to stdout and returns 1', () => {
+  test('Scenario: Unknown subcommand fails -- --json prints {ok:false,error:{code,message}} to stdout and returns 2', () => {
     let code;
     const output = captureStdout(() => {
       code = main(['bogus', '--json']);
     });
 
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     const parsed = JSON.parse(output);
     expect(parsed.ok).toBe(false);
     expect(typeof parsed.error.code).toBe('string');
     expect(typeof parsed.error.message).toBe('string');
     expect(parsed.error.message).toContain('bogus');
+    for (const name of [
+      'resolve',
+      'explain',
+      'validate',
+      'run',
+      'preflight',
+      'confirm-status',
+      'confirm-record'
+    ]) {
+      expect(parsed.error.message).toContain(name);
+    }
   });
 
-  test('Scenario: Unknown subcommand fails -- without --json prints a human error line to stderr and returns 1', () => {
+  test('Scenario: Unknown subcommand fails -- without --json prints a human error line to stderr and returns 2', () => {
     let code;
     const output = captureStderr(() => {
       code = main(['bogus']);
     });
 
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     expect(output).toContain('bogus');
+    for (const name of [
+      'resolve',
+      'explain',
+      'validate',
+      'run',
+      'preflight',
+      'confirm-status',
+      'confirm-record'
+    ]) {
+      expect(output).toContain(name);
+    }
   });
 
   test('Scenario: Unknown subcommand fails -- a missing subcommand is treated the same way', () => {
@@ -236,12 +258,23 @@ describe('TRD-004-TEST: unknown subcommand handling', () => {
       code = main(['--json']);
     });
 
-    expect(code).toBe(1);
+    expect(code).toBe(2);
     const parsed = JSON.parse(output);
     expect(parsed).toEqual({
       ok: false,
       error: { code: 'UNKNOWN_SUBCOMMAND', message: expect.any(String) }
     });
+    for (const name of [
+      'resolve',
+      'explain',
+      'validate',
+      'run',
+      'preflight',
+      'confirm-status',
+      'confirm-record'
+    ]) {
+      expect(parsed.error.message).toContain(name);
+    }
   });
 });
 

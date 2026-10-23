@@ -3,7 +3,8 @@
 
 /**
  * toolchain-cli.js — CLI over the toolchain configuration resolver library
- * (TRD-2026-8d825f54 TRD-004/TRD-007/TRD-014, PRD REQ-012, REQ-008, REQ-003, REQ-013).
+ * (TRD-2026-8d825f54 TRD-004/TRD-007/TRD-014/TRD-018, PRD REQ-012, REQ-008, REQ-003, REQ-013,
+ * REQ-011).
  *
  * Subcommands:
  *   resolve [--json]   Resolve every one of the 14 tool categories to its selected adapter
@@ -46,28 +47,73 @@
  *                      ledger itself (`#readLedgerEntries`), since each `toolchain-cli run`
  *                      invocation is its own process with no memory of an earlier one under the
  *                      same `--run-id`. No retry, no resume, exactly one `runCapability` call.
+ *   preflight --require <capability> [--require <capability> ...] [--run-id <id>]
+ *             [--non-interactive] [--json]
+ *                      Run every health check declared by the adapters selected for the union
+ *                      of `--require`'d capabilities' categories (`capability.split('.')[0]`),
+ *                      via `runPreflight()` in `./toolchain/preflight.js` (TRD-014, PRD
+ *                      REQ-013). `--require` must be supplied at least once (`INVALID_ARG`
+ *                      otherwise). `--run-id` is optional: when supplied it is validated with
+ *                      the same `./toolchain/run-id.js#isValidRunId` charset `run` uses
+ *                      (`INVALID_RUN_ID` on failure, checked before anything else runs); when
+ *                      omitted, a fresh id is generated with `crypto.randomUUID()` (always
+ *                      charset-valid, so it is never separately re-validated). On a full pass
+ *                      this writes a preflight record and returns `{ok:true, runId,
+ *                      categories, checkedAt}`; on the first failing check it returns
+ *                      `{ok:false, error:{code:'HEALTH_FAILED', message}}` naming the adapter
+ *                      and check id, writing no record. This is `run`'s own
+ *                      `PREFLIGHT_REQUIRED` gate's production counterpart: a `--run-id` passed
+ *                      to `run` must have a prior passing `preflight` invocation under the
+ *                      same id.
+ *   confirm-status <capability> [--run-id <id>] [--non-interactive] [--json]
+ *                      Look up whether `capability`'s category (`capability.split('.')[0]`)
+ *                      has already been confirmed for this session, via
+ *                      `./toolchain/confirm.js#confirmStatus` (TRD-017, PRD REQ-011), after
+ *                      resolving the category's adapter (`resolveCategory`/`loadAdapter`, the
+ *                      same `RESOLVE_FAILED`/`NOT_INSTALLED`-style errors `run` uses) and
+ *                      looking up `sideEffect` from the category contract the same way `run`
+ *                      does. Returns `{ok:true, capability, adapter, source, data}` where
+ *                      `data` is `confirmStatus`'s own result verbatim (`{required:false}` |
+ *                      `{confirmed:true, prompt:false}` | `{confirmed:true}` |
+ *                      `{confirmed:false, adapter, source, allowlist?}`) -- a repo-local
+ *                      adapter's manifest `allowlist` is passed through so a denied status can
+ *                      show a caller exactly what the adapter is permitted to run.
+ *   confirm-record <capability> [--run-id <id>] [--json]
+ *                      Write a passive confirmation record for `capability`'s category's
+ *                      currently-resolved adapter, via
+ *                      `./toolchain/confirm.js#recordConfirmation` (TRD-017, PRD REQ-011), with
+ *                      the same resolve/load prelude as `confirm-status`. This is
+ *                      `recordConfirmation`'s first production/CLI caller (TRD-018): a future
+ *                      interactive confirmation UI, or an operator confirming a session once up
+ *                      front, calls this after a user says yes. Returns `{ok:true, capability,
+ *                      adapter, source, data:{confirmed:true}}`.
  *
  * Output:
  *   - Default (no `--json`): a human-readable table with columns `category`, `adapter`,
  *     `source`, one row per category, printed to stdout for `resolve`/`explain`; for
  *     `validate`, `ok` on success or one error per line (to stderr) on failure; for `run`, the
  *     capability's raw output on success (to stdout) or `<code>: <message>` on failure (to
- *     stderr).
+ *     stderr); for `preflight`, a one-line `preflight ok: runId=<id> categories=<list>` on
+ *     success (to stdout) or `<code>: <message>` on failure (to stderr); for `confirm-status`/
+ *     `confirm-record`, a one-line human summary of `data` on success (to stdout) or
+ *     `<code>: <message>` on failure (to stderr).
  *   - `--json`: `{ok:true, data:{<category>:{adapter, source}, ...}}` on success, or
  *     `{ok:false, error:{code, message}}` on failure, printed to stdout for `resolve`/`explain`;
  *     for `validate`, `{ok:true, errors:[]}` or `{ok:false, errors:[...]}` (matching
- *     `validateConformance`'s own return shape) printed to stdout either way; for `run`, the
- *     runner envelope (`{ok:true, capability, adapter, source, data}` or
+ *     `validateConformance`'s own return shape) printed to stdout either way; for `run`/
+ *     `preflight`/`confirm-status`/`confirm-record`, the respective envelope (`{ok:true,
+ *     capability, adapter, source, data}` or `{ok:true, runId, categories, checkedAt}`, or
  *     `{ok:false, error:{code, message}}`) printed to stdout either way.
  *   - Unknown or missing subcommand: with `--json`, `{ok:false, error:{code:'UNKNOWN_SUBCOMMAND',
- *     message}}` to stdout; without `--json`, a human error line to stderr. Either way the
- *     process exits non-zero.
+ *     message}}` to stdout; without `--json`, a human error line to stderr naming all seven
+ *     subcommands. Either way the process exits with code 2.
  *
- * The module is both importable (`resolve`, `explain`, `validate`, `run`, `main` are exported
- * for in-process callers such as other `packages/development` CLIs) and executable
- * (`if (require.main === module) { ... }`), mirroring `trd-cli.js`'s convention. Note the JSON
- * envelope and error shape here (`{ok, data}` / `{ok:false, error:{code, message}}`) are
- * distinct from `trd-cli.js`'s own `{error}`-only shape; do not conflate the two.
+ * The module is both importable (`resolve`, `explain`, `validate`, `run`, `preflight`,
+ * `confirmStatus`, `confirmRecord`, `main` are exported for in-process callers such as other
+ * `packages/development` CLIs) and executable (`if (require.main === module) { ... }`),
+ * mirroring `trd-cli.js`'s convention. Note the JSON envelope and error shape here (`{ok,
+ * data}` / `{ok:false, error:{code, message}}`) are distinct from `trd-cli.js`'s own `{error}`-
+ * only shape; do not conflate the two.
  *
  * `resolve(ctx)`/`explain(ctx)` accept the same `{projectRoot, env, detect}` context that
  * `resolveCategory()` accepts and pass it straight through for every category, unmodified.
@@ -83,29 +129,25 @@
  * detection engine. Real invocations never pass it, so `ctx` always defaults to
  * `{projectRoot: process.cwd(), env: process.env, detect: detectAdapter}`, matching this
  * command's documented behavior exactly.
- * `main()` returns a plain `number` exit code for every subcommand except
- * `run`, which is inherently asynchronous (it may call `runCapability`, which spawns a child
- * process): for `run` it returns a `Promise<number>` instead. This is the one place the return
- * type varies; the `if (require.main === module)` guard below handles both uniformly via
- * `Promise.resolve(...)`, and every synchronous subcommand's direct callers (including the
- * existing test suite) keep receiving a plain number exactly as before.
- *
- * Non-goals (out of scope for this task, left to later tasks): no `preflight`/`confirm-status`/
- * `confirm-record` subcommands (TRD-011, TRD-018); `run`'s side-effecting-capability path now
- * enforces `confirm.js#confirmStatus` (TRD-017) but has no way to call `recordConfirmation`
- * from the CLI yet — that remains TRD-018.
+ * `main()` returns a plain `number` exit code for every subcommand except `run` and
+ * `preflight`, which are inherently asynchronous (each may spawn a child process): for those
+ * two it returns a `Promise<number>` instead. This is the one place the return type varies; the
+ * `if (require.main === module)` guard below handles both uniformly via `Promise.resolve(...)`,
+ * and every synchronous subcommand's direct callers (including the existing test suite) keep
+ * receiving a plain number exactly as before.
  */
 
+const crypto = require('crypto');
 const { resolveCategory } = require('./toolchain/config');
 const { loadAdapter } = require('./toolchain/adapters');
 const { runCapability } = require('./toolchain/runner');
 const { loadContracts } = require('./toolchain/contracts');
-const { hasPassingPreflightRecord } = require('./toolchain/preflight');
+const { hasPassingPreflightRecord, runPreflight } = require('./toolchain/preflight');
 const { validateAdapterDir } = require('./toolchain/validate');
 const { recordSideEffect, recordFailure, readLedgerEntries } = require('./toolchain/ledger');
 const { isValidRunId, invalidRunIdMessage } = require('./toolchain/run-id');
 const { detectAdapter } = require('./toolchain/detect');
-const { confirmStatus } = require('./toolchain/confirm');
+const { confirmStatus: confirmAdapterStatus, recordConfirmation } = require('./toolchain/confirm');
 
 const CATEGORIES = [
   'host',
@@ -282,7 +324,7 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
   }
 
   if (sideEffect) {
-    const confirmation = confirmStatus(category, {
+    const confirmation = confirmAdapterStatus(category, {
       projectRoot: ctx.projectRoot || process.cwd(),
       env: ctx.env || process.env,
       nonInteractive: Boolean(parsed.nonInteractive),
@@ -344,7 +386,203 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
   return { ...result, completedSideEffects, failureRecord: { filePath, artifactPath } };
 }
 
-const HANDLERS = { resolve, explain, validate, run };
+/**
+ * `preflight --require <capability> [--require <capability> ...] [--run-id <id>]` subcommand
+ * handler (TRD-014, TRD-018, PRD REQ-013). Derives the unique set of categories
+ * (`capability.split('.')[0]`) across every `--require`'d capability and runs every one of
+ * those categories' declared health checks via `runPreflight()` (`./toolchain/preflight.js`).
+ *
+ * `parsed.requires` must be non-empty (`INVALID_ARG` otherwise -- `preflight` with nothing to
+ * check is never meaningful). When `parsed.runId` was actually supplied by the caller it is
+ * validated FIRST with the same `./toolchain/run-id.js#isValidRunId`/`invalidRunIdMessage`
+ * pair `run()` already uses (`INVALID_RUN_ID` on failure, checked before `runPreflight` is
+ * ever called); when omitted entirely, a fresh id is generated with `crypto.randomUUID()`,
+ * which always satisfies `isValidRunId` so no separate validation branch exists for that case.
+ * `runPreflight`'s own result (`{ok:true, runId, categories, checkedAt}` or `{ok:false,
+ * error:{code:'HEALTH_FAILED'|'INVALID_RUN_ID', message}}`) is returned unchanged.
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * @param {string[]} [positionals] unused by `preflight`; accepted so every handler shares the
+ *   same `(ctx, positionals, parsed)` signature
+ * @param {{requires?: string[], runId?: string, nonInteractive?: boolean}} [parsed]
+ * @returns {Promise<{ok:true, runId:string, categories:string[], checkedAt:string} |
+ *   {ok:false, error:{code:string, message:string}}>}
+ */
+async function preflight(ctx = {}, positionals = [], parsed = {}) {
+  const requires = Array.isArray(parsed.requires) ? parsed.requires : [];
+  if (requires.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: 'INVALID_ARG',
+        message: 'preflight: at least one --require <capability> is required'
+      }
+    };
+  }
+
+  for (const capability of requires) {
+    if (
+      !capability.includes('.') ||
+      capability.split('.')[0].length === 0 ||
+      capability.split('.')[1].length === 0
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_ARG',
+          message: `preflight: '${capability}' is not a valid '<category>.<capability>' id`
+        }
+      };
+    }
+  }
+
+  const categories = [...new Set(requires.map((capability) => capability.split('.')[0]))];
+
+  let runId = parsed.runId;
+  if (runId !== undefined) {
+    if (!isValidRunId(runId)) {
+      return { ok: false, error: { code: 'INVALID_RUN_ID', message: invalidRunIdMessage(runId) } };
+    }
+  } else {
+    runId = crypto.randomUUID();
+  }
+
+  return runPreflight(
+    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },
+    { projectRoot: ctx.projectRoot || process.cwd(), env: ctx.env || process.env }
+  );
+}
+
+/**
+ * `confirm-status <capability> [--run-id <id>] [--non-interactive]` subcommand handler
+ * (TRD-017, TRD-018, PRD REQ-011). Resolves `capability`'s category's adapter and looks up
+ * `sideEffect` from the category contract the same ~5-line way `run()` already does (a
+ * deliberate, small duplication per this file's own documented convention for these lookups --
+ * not a shared helper), then calls `./toolchain/confirm.js#confirmStatus` (imported here as
+ * `confirmAdapterStatus` to avoid colliding with this function's own name) and returns its
+ * result verbatim as `data`.
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
+ * @param {{runId?: string, nonInteractive?: boolean}} [parsed]
+ * @returns {{ok:true, capability:string, adapter:string, source:string, data:object} |
+ *   {ok:false, error:{code:string, message:string}}}
+ */
+function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
+  const capability = positionals[0];
+  if (!capability) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_ARG', message: 'confirm-status: missing required <capability> argument' }
+    };
+  }
+
+  if (parsed.runId !== undefined && !isValidRunId(parsed.runId)) {
+    return { ok: false, error: { code: 'INVALID_RUN_ID', message: invalidRunIdMessage(parsed.runId) } };
+  }
+
+  const category = capability.split('.')[0];
+
+  const contracts = loadContracts();
+  const contractFile = contracts[`${category}.yaml`];
+  const capabilityDef =
+    contractFile && contractFile.capabilities && contractFile.capabilities[capability];
+  const sideEffect = Boolean(capabilityDef && capabilityDef.sideEffect);
+
+  let adapterId;
+  let source;
+  try {
+    const resolved = resolveCategory(category, ctx);
+    adapterId = resolved.value;
+    source = resolved.source;
+  } catch (error) {
+    return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+  }
+
+  let loaded;
+  try {
+    loaded = loadAdapter(adapterId, { ...ctx, interactive: !Boolean(parsed.nonInteractive) });
+  } catch (error) {
+    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+  }
+
+  const data = confirmAdapterStatus(category, {
+    projectRoot: ctx.projectRoot || process.cwd(),
+    env: ctx.env || process.env,
+    nonInteractive: Boolean(parsed.nonInteractive),
+    sideEffect,
+    adapter: adapterId,
+    source,
+    runId: parsed.runId,
+    allowlist: loaded.origin === 'repo-local' ? loaded.manifest.allowlist : undefined
+  });
+
+  return { ok: true, capability, adapter: adapterId, source, data };
+}
+
+/**
+ * `confirm-record <capability> [--run-id <id>]` subcommand handler (TRD-017, TRD-018, PRD
+ * REQ-011). Same capability/category/resolve/load prelude as `confirmStatus` above, then
+ * writes a passive confirmation record via `./toolchain/confirm.js#recordConfirmation` --
+ * `recordConfirmation`'s first production/CLI caller.
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
+ * @param {{runId?: string}} [parsed]
+ * @returns {{ok:true, capability:string, adapter:string, source:string,
+ *   data:{confirmed:true}} | {ok:false, error:{code:string, message:string}}}
+ */
+function confirmRecord(ctx = {}, positionals = [], parsed = {}) {
+  const capability = positionals[0];
+  if (!capability) {
+    return {
+      ok: false,
+      error: { code: 'INVALID_ARG', message: 'confirm-record: missing required <capability> argument' }
+    };
+  }
+
+  if (parsed.runId !== undefined && !isValidRunId(parsed.runId)) {
+    return { ok: false, error: { code: 'INVALID_RUN_ID', message: invalidRunIdMessage(parsed.runId) } };
+  }
+
+  const category = capability.split('.')[0];
+
+  let adapterId;
+  let source;
+  try {
+    const resolved = resolveCategory(category, ctx);
+    adapterId = resolved.value;
+    source = resolved.source;
+  } catch (error) {
+    return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+  }
+
+  try {
+    loadAdapter(adapterId, { ...ctx, interactive: !Boolean(parsed.nonInteractive) });
+  } catch (error) {
+    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+  }
+
+  recordConfirmation(category, {
+    projectRoot: ctx.projectRoot || process.cwd(),
+    env: ctx.env || process.env,
+    adapter: adapterId,
+    source,
+    runId: parsed.runId
+  });
+
+  return { ok: true, capability, adapter: adapterId, source, data: { confirmed: true } };
+}
+
+const HANDLERS = {
+  resolve,
+  explain,
+  validate,
+  run,
+  preflight,
+  'confirm-status': confirmStatus,
+  'confirm-record': confirmRecord
+};
 
 /**
  * Render a resolved category map as a human-readable table.
@@ -366,11 +604,13 @@ function renderTable(data) {
 }
 
 /**
- * Parse CLI argv into a subcommand name, the `--json` flag, positional arguments, and `run`'s
- * own `--run-id <id>` / repeated `--arg k=v` flags. `--run-id`'s value and every `--arg` pair
- * are consumed (never left in `positionals`) so `validate <adapter-dir>` and `resolve`/
- * `explain` (which ignore `positionals` entirely) are unaffected when those flags are absent,
- * which is always true for every subcommand except `run`.
+ * Parse CLI argv into a subcommand name, the `--json` flag, positional arguments, and the
+ * flags various subcommands consume: `run`'s own `--run-id <id>` / repeated `--arg k=v`,
+ * `preflight`'s repeated `--require <capability>`, and `confirm-status`/`confirm-record`'s
+ * shared `--run-id <id>` / `--non-interactive`. Every consumed flag's value is removed (never
+ * left in `positionals`) so `validate <adapter-dir>` and `resolve`/`explain` (which ignore
+ * `positionals` entirely) are unaffected when those flags are absent, which is always true for
+ * every subcommand except `run`, `preflight`, `confirm-status` and `confirm-record`.
  *
  * TRD review Finding 5: `--run-id`/`--arg` used to blindly consume the NEXT token as their
  * value even when that token was itself another flag (e.g. `--run-id --json` used to silently
@@ -384,7 +624,7 @@ function renderTable(data) {
  *
  * @param {string[]} argv
  * @returns {{subcommand: string|undefined, json: boolean, positionals: string[],
- *   runId: string|undefined, args: Record<string, string>,
+ *   runId: string|undefined, args: Record<string, string>, requires: string[],
  *   error?: {code: string, message: string}}}
  */
 function parseArgs(argv) {
@@ -400,6 +640,7 @@ function parseArgs(argv) {
   const nonInteractive = list.includes('--non-interactive');
   let runId;
   const args = {};
+  const requires = [];
   const positionals = [];
 
   const invalidArg = (message) => ({
@@ -409,6 +650,7 @@ function parseArgs(argv) {
     positionals,
     runId,
     args,
+    requires,
     error: { code: 'INVALID_ARG', message }
   });
 
@@ -440,12 +682,21 @@ function parseArgs(argv) {
       }
       args[pair.slice(0, eqIndex)] = pair.slice(eqIndex + 1);
       i += 1;
+    } else if (token === '--require') {
+      const value = rest[i + 1];
+      if (typeof value !== 'string' || value.startsWith('--')) {
+        return invalidArg(
+          `--require requires a value (got ${value === undefined ? 'nothing' : JSON.stringify(value)})`
+        );
+      }
+      requires.push(value);
+      i += 1;
     } else {
       positionals.push(token);
     }
   }
 
-  return { subcommand, json, nonInteractive, positionals, runId, args };
+  return { subcommand, json, nonInteractive, positionals, runId, args, requires };
 }
 
 /**
@@ -486,6 +737,29 @@ function printResult(subcommand, json, result) {
     return;
   }
 
+  if (subcommand === 'preflight') {
+    if (result.ok) {
+      process.stdout.write(
+        `preflight ok: runId=${result.runId} categories=${result.categories.join(',')}\n`
+      );
+    } else {
+      process.stderr.write(`${result.error.code}: ${result.error.message}\n`);
+    }
+    return;
+  }
+
+  if (subcommand === 'confirm-status' || subcommand === 'confirm-record') {
+    if (result.ok) {
+      process.stdout.write(
+        `${subcommand} ok: capability=${result.capability} adapter=${result.adapter} ` +
+          `source=${result.source} data=${JSON.stringify(result.data)}\n`
+      );
+    } else {
+      process.stderr.write(`${result.error.code}: ${result.error.message}\n`);
+    }
+    return;
+  }
+
   if (result.ok) {
     process.stdout.write(renderTable(result.data) + '\n');
   } else {
@@ -501,7 +775,7 @@ function printResult(subcommand, json, result) {
  *   `{projectRoot: process.cwd(), env: process.env, detect: detectAdapter}`; real invocations
  *   never override this.
  * @returns {number|Promise<number>} process exit code; a `Promise<number>` only for the `run`
- *   subcommand (see this file's header doc).
+ *   and `preflight` subcommands (see this file's header doc).
  */
 function main(argv, ctx = { projectRoot: process.cwd(), env: process.env, detect: detectAdapter }) {
   const parsed = parseArgs(argv);
@@ -519,9 +793,11 @@ function main(argv, ctx = { projectRoot: process.cwd(), env: process.env, detect
   const handler = subcommand && HANDLERS[subcommand];
 
   if (!handler) {
+    const usage =
+      'Usage: toolchain-cli <resolve|explain|validate|run|preflight|confirm-status|confirm-record> [--json]';
     const message = subcommand
-      ? `Unknown subcommand '${subcommand}'. Usage: toolchain-cli <resolve|explain|validate|run> [--json]`
-      : 'Missing subcommand. Usage: toolchain-cli <resolve|explain|validate|run> [--json]';
+      ? `Unknown subcommand '${subcommand}'. ${usage}`
+      : `Missing subcommand. ${usage}`;
     if (json) {
       process.stdout.write(
         JSON.stringify({ ok: false, error: { code: 'UNKNOWN_SUBCOMMAND', message } }) + '\n'
@@ -529,22 +805,22 @@ function main(argv, ctx = { projectRoot: process.cwd(), env: process.env, detect
     } else {
       process.stderr.write(message + '\n');
     }
-    return 1;
+    return 2;
   }
 
-  if (subcommand === 'run') {
+  if (subcommand === 'run' || subcommand === 'preflight') {
     return handler(ctx, positionals, parsed).then((result) => {
       printResult(subcommand, json, result);
       return result.ok ? 0 : 1;
     });
   }
 
-  const result = handler(ctx, positionals);
+  const result = handler(ctx, positionals, parsed);
   printResult(subcommand, json, result);
   return result.ok ? 0 : 1;
 }
 
-module.exports = { resolve, explain, validate, run, main };
+module.exports = { resolve, explain, validate, run, preflight, confirmStatus, confirmRecord, main };
 
 if (require.main === module) {
   Promise.resolve(main(process.argv.slice(2))).then((code) => process.exit(code));
