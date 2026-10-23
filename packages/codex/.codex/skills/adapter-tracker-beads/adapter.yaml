@@ -12,6 +12,7 @@ contract:
 binaries:
   - br
   - bv
+  - cat
 
 allowlist:
   - bin: br
@@ -31,6 +32,9 @@ allowlist:
       - "--robot-plan"
       - "--robot-insights"
       - "--version"
+  - bin: cat
+    sub:
+      - ".beads/issues.jsonl"
 
 env: []
 
@@ -198,6 +202,24 @@ capabilities:
   # actionable item across every track should run `bv --robot-plan --format json` directly
   # and flatten `plan.tracks[].items[]` itself (bv's own `usage_hints` documents the
   # equivalent jq filter).
+
+  # cat .beads/issues.jsonl: TRD-026's `tracker.stage-export` is a read-only textual mirror of
+  # the literal file `beads-stage.js` used to read directly via `fs.readFileSync` before this
+  # capability existed -- `cat` on the exact tracked path returns the live working-tree
+  # content unchanged, matching that prior direct read byte-for-byte. The allowlist entry
+  # below is deliberately a LITERAL path (`.beads/issues.jsonl`), not a generic `cat`
+  # subcommand: this adapter's allowlist only ever grants exactly the arguments a declared
+  # capability's `run[]` template can produce, and this template has no `${file}` placeholder
+  # to substitute -- its one real caller (`beads-stage.js#stageBeadsExport`) always resolves
+  # this capability only for the default `.beads/issues.jsonl` path; a caller overriding
+  # `file` bypasses this capability and falls back to its own direct `fs.readFileSync`, never
+  # reaching `cat` with any other argument. No `parse` block, same CATEGORY_NORMALIZED_SCHEMA
+  # reason as `tracker.list`/`tracker.comments`/`tracker.label`/`tracker.sync` above: raw
+  # JSONL text has no top-level `id`, so a `parse` block mapping it to `{text:...}` would
+  # always fail the per-category Ajv work-item gate (`runner.js#CATEGORY_NORMALIZED_SCHEMA`);
+  # `data` is therefore the raw file text, exactly as `beads-stage.js` consumed it before.
+  tracker.stage-export:
+    run: ["cat", ".beads/issues.jsonl"]
   work-graph.ready:
     run: ["bv", "--robot-plan", "--format", "json"]
     parse:

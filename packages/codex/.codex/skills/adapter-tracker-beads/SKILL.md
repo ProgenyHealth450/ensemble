@@ -33,6 +33,8 @@ neither needs network access or a credential.
 - `tracker.dep-remove`: remove a dependency link (`br dep remove <id> <dependsOnId>`)
 - `tracker.label`: add label(s) to issue(s) (`br label add <ids> -l <labels>`)
 - `tracker.sync`: flush local tracker state to durable storage (`br sync --flush-only`)
+- `tracker.stage-export`: return the tracked export's raw text, or an unavailable status with
+  a documented fallback when the resolved adapter declares none (`cat .beads/issues.jsonl`)
 - `work-graph.ready`: ready (unblocked) work, bv's own order (`bv --robot-plan --format json`)
 - `work-graph.plan`: dependency-respecting execution plan (`bv --robot-plan --format json`)
 - `work-graph.graph-health`: dependency-graph health signals, e.g. cycles (`bv --robot-insights --format json`)
@@ -125,3 +127,18 @@ separately), matching `validate.js`'s own documented limit.
   probable TRD gap, out of this bead's scope), call this adapter's `work-graph.*`
   capabilities directly by capability name against the `beads` adapter rather than
   through category resolution.
+- **`tracker.stage-export`'s allowlist entry is a literal path, not a `${file}`
+  placeholder.** `run: ["cat", ".beads/issues.jsonl"]` has no substitutable argument, so
+  `allowlist[].sub` for `cat` is the exact tracked path rather than a generic subcommand;
+  this matches the one real caller, `packages/development/lib/beads-stage.js
+  #stageBeadsExport`, which only resolves this capability for the DEFAULT export path
+  (`DEFAULT_FILE`). A caller that overrides the `file` option keeps using that function's own
+  direct `fs.readFileSync` fallback instead, never reaching this capability with a different
+  argument. The category contract (`toolchain/categories/tracker.yaml`) declares
+  `required: false` with `fallback: full-export-unscoped`: an adapter that does not declare
+  `tracker.stage-export` resolves `UNAVAILABLE` with that fallback id rather than
+  `NOT_ALLOWED`, and `stageBeadsExport` surfaces it as `{staged:false, unavailable:true,
+  fallback:'full-export-unscoped'}` without touching the index or the working file -- "full
+  export, unscoped" names the degraded behavior a caller must fall back to by hand: reading
+  the whole tracked file directly (as this function always did before this capability
+  existed) rather than getting a tool-mediated read.
