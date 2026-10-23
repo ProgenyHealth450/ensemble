@@ -71,6 +71,7 @@ const { runCapability } = require('./runner');
 const { redactSecrets } = require('../complexity-analyzer');
 const { isValidRunId, invalidRunIdMessage } = require('./run-id');
 const { isNonInteractive } = require('./confirm');
+const { requireCapabilities } = require('./resolve');
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 10000;
 
@@ -161,7 +162,7 @@ async function runHealthCheck(adapterId, manifest, check) {
  *   {ok:false, error:{code:string, message:string}}>}
  */
 async function runPreflight(input = {}, ctx = {}) {
-  const { categories, runId, nonInteractive = false } = input;
+  const { categories, runId, nonInteractive = false, requires = [] } = input;
   const { projectRoot = process.cwd(), env = process.env, detect } = ctx;
 
   if (!isSafeRunId(runId)) {
@@ -205,6 +206,16 @@ async function runPreflight(input = {}, ctx = {}) {
           code: 'HEALTH_FAILED',
           message: `${adapterId}: could not load the adapter for category '${category}' (${error.message})`
         }
+      };
+    }
+
+    const requiredForCategory = requires.filter((capability) => capability.split('.')[0] === category);
+    try {
+      requireCapabilities(loaded.manifest || {}, requiredForCategory, []);
+    } catch (error) {
+      return {
+        ok: false,
+        error: { code: error.code || 'UNAVAILABLE', message: error.message }
       };
     }
 

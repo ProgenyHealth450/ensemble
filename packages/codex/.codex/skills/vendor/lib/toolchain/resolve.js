@@ -46,17 +46,34 @@
  * calling this function repeatedly; no caching is added here since none of the real callers in
  * this repo are a hot loop (preflight check, one-off CLI subcommand).
  *
- * ## Not yet reachable from a shipped entry point
+ * ## Reachable from a shipped entry point
  *
- * `requireCapabilities` has no production caller anywhere in this repo today (TRD review
- * Finding: an enforcement function with no caller enforces nothing). Command-level
- * `capabilities: {required, optional}` declarations on a command YAML, and the code that reads
- * one and calls this function before dispatching the command's body, arrive with TRD-022 (PR 5,
- * which depends on TRD-013, this file's own task). Do not invent a caller here or elsewhere in
- * this wave to make this function "used"; `./runner.js#runCapability` calling
- * `lookupContractCapability` directly (see that export's own doc above) is a different,
- * already-wired code path and does not substitute for `requireCapabilities` itself being
- * reachable.
+ * `requireCapabilities`'s production caller is `toolchain-cli.js`'s `preflight --require
+ * <capability>` subcommand (via `./preflight.js#runPreflight`, TRD-013/TRD-014): for each
+ * `--require`'d capability's category, `runPreflight` resolves that category's adapter, loads
+ * its manifest, and calls `requireCapabilities(manifest, <that category's slice of
+ * --require'd ids>, [])` BEFORE running the category's declared health checks -- a missing
+ * required capability aborts the whole preflight (`{ok:false, error:{code:'UNAVAILABLE',
+ * message}}`) with no health check spawned for any category. `preflight` has no `--optional`
+ * flag and never passes a non-empty `optional` list: an optional capability's documented
+ * fallback is reported at CALL time instead, by `./runner.js#runCapability`'s own `!cap`
+ * branch (see this file's own `lookupContractCapability` doc above) -- `optional` exists on
+ * this function's signature for direct callers (and this module's own tests) that want
+ * per-capability availability reporting, not because `preflight` uses it.
+ *
+ * What does NOT exist yet: a command YAML's own `capabilities: {required, optional}` field
+ * does not yet make the command's dispatch automatically call `toolchain-cli preflight
+ * --require` with those ids before running the command's body. That property, its schema/
+ * validator/generator wiring, ships with TRD-022 (PR 5, which depends on TRD-013, this file's
+ * own task) -- TRD-022 does NOT wire a runtime caller. The command-preamble refactor that
+ * actually inserts a `toolchain-cli preflight --require <ids from capabilities.required>` call
+ * into each refactored command's body (`implement-trd-beads.yaml`, `pr-review-cycle/SKILL.md`,
+ * `pr-review-remediation/SKILL.md`, `act-local-ci/SKILL.md`) is TRD-045 (PR 10: Long-tail
+ * categories, depends on TRD-022/TRD-042/TRD-043/TRD-036); TRD-047 (PR 11: Lint, equivalence,
+ * documentation)'s `lint-provider-refs.js` then enforces the pattern with a `MISSING_PREFLIGHT`
+ * violation class for any refactored command missing that preamble call. Do not invent that
+ * caller here or elsewhere in this wave; `preflight --require` itself being wired to
+ * `requireCapabilities` (this section) is a separate, already-shipped step.
  */
 
 const { loadContracts } = require('./contracts');

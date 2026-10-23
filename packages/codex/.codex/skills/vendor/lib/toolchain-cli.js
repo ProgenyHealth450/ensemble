@@ -49,22 +49,29 @@
  *                      same `--run-id`. No retry, no resume, exactly one `runCapability` call.
  *   preflight --require <capability> [--require <capability> ...] [--run-id <id>]
  *             [--non-interactive] [--json]
- *                      Run every health check declared by the adapters selected for the union
- *                      of `--require`'d capabilities' categories (`capability.split('.')[0]`),
- *                      via `runPreflight()` in `./toolchain/preflight.js` (TRD-014, PRD
- *                      REQ-013). `--require` must be supplied at least once (`INVALID_ARG`
- *                      otherwise). `--run-id` is optional: when supplied it is validated with
- *                      the same `./toolchain/run-id.js#isValidRunId` charset `run` uses
- *                      (`INVALID_RUN_ID` on failure, checked before anything else runs); when
- *                      omitted, a fresh id is generated with `crypto.randomUUID()` (always
- *                      charset-valid, so it is never separately re-validated). On a full pass
- *                      this writes a preflight record and returns `{ok:true, runId,
- *                      categories, checkedAt}`; on the first failing check it returns
- *                      `{ok:false, error:{code:'HEALTH_FAILED', message}}` naming the adapter
- *                      and check id, writing no record. This is `run`'s own
- *                      `PREFLIGHT_REQUIRED` gate's production counterpart: a `--run-id` passed
- *                      to `run` must have a prior passing `preflight` invocation under the
- *                      same id.
+ *                      For the union of `--require`'d capabilities' categories
+ *                      (`capability.split('.')[0]`), resolve each category's adapter and check
+ *                      that its manifest declares every `--require`'d capability belonging to
+ *                      that category (`./toolchain/resolve.js#requireCapabilities`, TRD-013,
+ *                      PRD REQ-004) BEFORE running that category's declared health checks; the
+ *                      first missing required capability returns `{ok:false,
+ *                      error:{code:'UNAVAILABLE', message}}` naming the capability and the
+ *                      adapter, with no health check spawned for any category and no preflight
+ *                      record written. Once every category's required capabilities are present,
+ *                      runs every health check declared by those adapters via `runPreflight()`
+ *                      in `./toolchain/preflight.js` (TRD-014, PRD REQ-013). `--require` must
+ *                      be supplied at least once (`INVALID_ARG` otherwise). `--run-id` is
+ *                      optional: when supplied it is validated with the same
+ *                      `./toolchain/run-id.js#isValidRunId` charset `run` uses (`INVALID_RUN_ID`
+ *                      on failure, checked before anything else runs); when omitted, a fresh id
+ *                      is generated with `crypto.randomUUID()` (always charset-valid, so it is
+ *                      never separately re-validated). On a full pass this writes a preflight
+ *                      record and returns `{ok:true, runId, categories, checkedAt}`; on the
+ *                      first failing health check it returns `{ok:false,
+ *                      error:{code:'HEALTH_FAILED', message}}` naming the adapter and check id,
+ *                      writing no record. This is `run`'s own `PREFLIGHT_REQUIRED` gate's
+ *                      production counterpart: a `--run-id` passed to `run` must have a prior
+ *                      passing `preflight` invocation under the same id.
  *   confirm-status <capability> [--run-id <id>] [--non-interactive] [--json]
  *                      Look up whether `capability`'s category (`capability.split('.')[0]`)
  *                      has already been confirmed for this session, via
@@ -423,9 +430,23 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
 
 /**
  * `preflight --require <capability> [--require <capability> ...] [--run-id <id>]` subcommand
- * handler (TRD-014, TRD-018, PRD REQ-013). Derives the unique set of categories
- * (`capability.split('.')[0]`) across every `--require`'d capability and runs every one of
- * those categories' declared health checks via `runPreflight()` (`./toolchain/preflight.js`).
+ * handler (TRD-013, TRD-014, TRD-018, PRD REQ-004, REQ-013, AC-004-1). Derives the unique set
+ * of categories (`capability.split('.')[0]`) across every `--require`'d capability and, via
+ * `runPreflight()` (`./toolchain/preflight.js`), resolves each category's adapter and checks
+ * that adapter's manifest declares every `--require`'d capability belonging to that category
+ * BEFORE running that category's declared health checks.
+ *
+ * The capability check itself is `./toolchain/resolve.js#requireCapabilities`, called per
+ * category with that category's slice of `requires` as the `required` list and `[]` as the
+ * `optional` list -- this handler has no `--optional` flag; a capability's documented fallback
+ * when it is unavailable is reported at CALL time by `./toolchain/runner.js#runCapability`'s
+ * own `!cap` branch (TRD-013), not here. The first missing required capability aborts the
+ * whole preflight with `{ok:false, error:{code:'UNAVAILABLE', message}}` naming the capability
+ * and the adapter (`requireCapabilities`'s own thrown `error.code`/`message`, mapped into this
+ * envelope unchanged) -- no health check for ANY category is spawned once this happens
+ * (`runPreflight` only reaches its health-check `Promise.all` after every category's loop
+ * iteration, including this check, has completed without error) -- and no preflight record is
+ * written.
  *
  * `parsed.requires` must be non-empty (`INVALID_ARG` otherwise -- `preflight` with nothing to
  * check is never meaningful). When `parsed.runId` was actually supplied by the caller it is
@@ -434,7 +455,8 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
  * ever called); when omitted entirely, a fresh id is generated with `crypto.randomUUID()`,
  * which always satisfies `isValidRunId` so no separate validation branch exists for that case.
  * `runPreflight`'s own result (`{ok:true, runId, categories, checkedAt}` or `{ok:false,
- * error:{code:'HEALTH_FAILED'|'INVALID_RUN_ID', message}}`) is returned unchanged.
+ * error:{code:'HEALTH_FAILED'|'INVALID_RUN_ID'|'UNAVAILABLE', message}}`) is returned
+ * unchanged.
  *
  * `ctx.detect` (TRD-016's detection hook) is forwarded to `runPreflight`'s own `ctx` explicitly
  * (PR 4 review Finding 1: a prior wave rebuilt this call's `ctx` as only `{projectRoot, env}`,
@@ -490,7 +512,7 @@ async function preflight(ctx = {}, positionals = [], parsed = {}) {
   }
 
   return runPreflight(
-    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },
+    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive), requires },
     {
       projectRoot: ctx.projectRoot || process.cwd(),
       env: ctx.env || process.env,

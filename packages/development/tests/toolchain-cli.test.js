@@ -406,6 +406,255 @@ describe('preflight: subprocess (TRD-018)', () => {
   });
 });
 
+describe('preflight: requireCapabilities gating before health checks (TRD-013/TRD-014 follow-up, PRD REQ-004)', () => {
+  test('node toolchain-cli.js preflight --require tracker.close against an adapter missing it -> UNAVAILABLE naming the capability and adapter, exit non-zero, no health check spawned, no preflight record', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-preflight-unavail-'));
+    try {
+      const markerPath = path.join(projectRoot, 'health-ran.marker');
+      mkProjectConfig(projectRoot, { tracker: 'fixture-preflight-unavail-tracker' });
+      mkInstalledAdapter(projectRoot, 'fixture-preflight-unavail-tracker', {
+        // Deliberately no 'tracker.close' entry in capabilities (defaults only declare
+        // tracker.show/tracker.create).
+        health: [
+          {
+            id: 'marker-check',
+            run: [
+              process.execPath,
+              '-e',
+              `require('fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran')`
+            ],
+            timeoutMs: 2000
+          }
+        ]
+      });
+
+      const res = spawnSync('node', [CLI, 'preflight', '--require', 'tracker.close', '--json'], {
+        cwd: projectRoot,
+        env: cleanSpawnEnv(),
+        encoding: 'utf8'
+      });
+
+      expect(res.status).not.toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.code).toBe('UNAVAILABLE');
+      expect(parsed.error.message).toContain('tracker.close');
+      expect(parsed.error.message).toContain('fixture-preflight-unavail-tracker');
+
+      // No spawn: the health check's marker file -- which only a real spawned process could
+      // create -- does not exist.
+      expect(fs.existsSync(markerPath)).toBe(false);
+
+      // No preflight record written for any run id.
+      const stateDir = path.join(projectRoot, '.ensemble', 'state', 'toolchain');
+      const recordFiles = fs.existsSync(stateDir)
+        ? fs.readdirSync(stateDir).filter((f) => f.startsWith('preflight-'))
+        : [];
+      expect(recordFiles).toHaveLength(0);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('node toolchain-cli.js preflight --require tracker.show --require tracker.create --json with both declared -> ok:true with a runId', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-preflight-both-required-'));
+    try {
+      mkProjectConfig(projectRoot, { tracker: 'fixture-preflight-both-required-tracker' });
+      mkInstalledAdapter(projectRoot, 'fixture-preflight-both-required-tracker', {
+        health: [
+          { id: 'ok-check', run: [process.execPath, '-e', 'process.exit(0)'], timeoutMs: 2000 }
+        ]
+        // capabilities defaults already declare both tracker.show and tracker.create.
+      });
+
+      const res = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'tracker.show', '--require', 'tracker.create', '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+
+      expect(res.status).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(typeof parsed.runId).toBe('string');
+      expect(parsed.runId.length).toBeGreaterThan(0);
+      expect(parsed.categories).toEqual(['tracker']);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('category grouping: a required capability is checked against its own category\'s adapter, not a sibling category\'s', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-preflight-cat-group-'));
+    try {
+      const trackerMarker = path.join(projectRoot, 'tracker-health-ran.marker');
+      mkProjectConfig(projectRoot, {
+        tracker: 'fixture-preflight-cat-a-tracker',
+        'work-graph': 'fixture-preflight-cat-b-workgraph'
+      });
+      mkInstalledAdapter(projectRoot, 'fixture-preflight-cat-a-tracker', {
+        health: [
+          {
+            id: 'tracker-marker-check',
+            run: [
+              process.execPath,
+              '-e',
+              `require('fs').writeFileSync(${JSON.stringify(trackerMarker)}, 'ran')`
+            ],
+            timeoutMs: 2000
+          }
+        ]
+        // tracker.show is declared by default.
+      });
+      mkInstalledAdapter(projectRoot, 'fixture-preflight-cat-b-workgraph', {
+        categories: ['work-graph'],
+        contract: { 'work-graph': '1.0' },
+        health: [],
+        // Deliberately no 'work-graph.ready' capability.
+        capabilities: {}
+      });
+
+      const res = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'tracker.show', '--require', 'work-graph.ready', '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+
+      expect(res.status).not.toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.code).toBe('UNAVAILABLE');
+      expect(parsed.error.message).toContain('work-graph.ready');
+      expect(parsed.error.message).toContain('fixture-preflight-cat-b-workgraph');
+      // Never names the OTHER category's adapter or capability -- the gap is specific to the
+      // category whose adapter actually lacks it.
+      expect(parsed.error.message).not.toContain('fixture-preflight-cat-a-tracker');
+      expect(parsed.error.message).not.toContain('tracker.show');
+
+      // The tracker category's required capability WAS satisfied, but its health check never
+      // spawned either: the work-graph category's gate failure aborts the whole preflight
+      // before the shared health-check Promise.all (built across every category's loop
+      // iteration) is ever reached.
+      expect(fs.existsSync(trackerMarker)).toBe(false);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('category grouping: two categories with both required capabilities present -> ok:true naming both categories', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-preflight-cat-group-ok-'));
+    try {
+      mkProjectConfig(projectRoot, {
+        tracker: 'fixture-preflight-cat-ok-a-tracker',
+        'work-graph': 'fixture-preflight-cat-ok-b-workgraph'
+      });
+      mkInstalledAdapter(projectRoot, 'fixture-preflight-cat-ok-a-tracker', { health: [] });
+      mkInstalledAdapter(projectRoot, 'fixture-preflight-cat-ok-b-workgraph', {
+        categories: ['work-graph'],
+        contract: { 'work-graph': '1.0' },
+        health: [],
+        capabilities: {
+          'work-graph.ready': { run: [process.execPath, '-e', 'process.stdout.write("ready")'] }
+        }
+      });
+
+      const res = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'tracker.show', '--require', 'work-graph.ready', '--json'],
+        { cwd: projectRoot, env: cleanSpawnEnv(), encoding: 'utf8' }
+      );
+
+      expect(res.status).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.categories.sort()).toEqual(['tracker', 'work-graph']);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('mutation proof: requireCapabilities gate actually blocks preflight health-check spawning (TRD-013/TRD-014 follow-up)', () => {
+  function mkUnavailableFixture(prefix) {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const markerPath = path.join(projectRoot, 'health-ran.marker');
+    mkProjectConfig(projectRoot, { tracker: 'fixture-mutant-unavail-tracker' });
+    mkInstalledAdapter(projectRoot, 'fixture-mutant-unavail-tracker', {
+      health: [
+        {
+          id: 'marker-check',
+          run: [
+            process.execPath,
+            '-e',
+            `require('fs').writeFileSync(${JSON.stringify(markerPath)}, 'ran')`
+          ],
+          timeoutMs: 2000
+        }
+      ]
+    });
+    return { projectRoot, markerPath };
+  }
+
+  test('removing the requireCapabilities call makes a missing required capability no longer fail preflight (the real (a) test is sensitive to this mutation)', async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    const { projectRoot, markerPath } = mkUnavailableFixture('toolchain-preflight-mutant-remove-');
+    try {
+      const preflightPath = path.join(mutantRoot.toolchainLibDir, 'preflight.js');
+      const needle = "requireCapabilities(loaded.manifest || {}, requiredForCategory, []);";
+      const replacement = "void requiredForCategory; /* mutated: requireCapabilities call removed */";
+      const mutatedPreflight = mutateAndRequire(preflightPath, needle, replacement);
+
+      const ctx = { projectRoot, env: {} };
+      const result = await mutatedPreflight.runPreflight(
+        { categories: ['tracker'], runId: 'mutant-r1', requires: ['tracker.close'] },
+        ctx
+      );
+
+      // Pre-fix/mutant behavior: with the gate removed, the missing required capability no
+      // longer blocks -- preflight proceeds straight to the health check and passes, instead
+      // of the fixed code's {ok:false, error:{code:'UNAVAILABLE', ...}}.
+      expect(result.ok).toBe(true);
+      expect(fs.existsSync(markerPath)).toBe(true);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      mutantRoot.cleanup();
+    }
+  });
+
+  test('swallowing the requireCapabilities failure instead of returning early lets the health check spawn anyway (equivalent to moving the gate after the health checks)', async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    const { projectRoot, markerPath } = mkUnavailableFixture('toolchain-preflight-mutant-swallow-');
+    try {
+      const preflightPath = path.join(mutantRoot.toolchainLibDir, 'preflight.js');
+      const needle =
+        "    } catch (error) {\n" +
+        "      return {\n" +
+        "        ok: false,\n" +
+        "        error: { code: error.code || 'UNAVAILABLE', message: error.message }\n" +
+        "      };\n" +
+        "    }";
+      const replacement =
+        "    } catch (error) {\n" +
+        "      // mutated: swallow instead of returning early -- the gate no longer blocks\n" +
+        "    }";
+      const mutatedPreflight = mutateAndRequire(preflightPath, needle, replacement);
+
+      const ctx = { projectRoot, env: {} };
+      await mutatedPreflight.runPreflight(
+        { categories: ['tracker'], runId: 'mutant-r2', requires: ['tracker.close'] },
+        ctx
+      );
+
+      // The gate no longer aborts before the health-check Promise.all -- the marker file now
+      // exists, proving the real (a) test's "no spawn" assertion is sensitive to this mutation.
+      expect(fs.existsSync(markerPath)).toBe(true);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      mutantRoot.cleanup();
+    }
+  });
+});
+
 describe('confirm-record / confirm-status: subprocess round trip (TRD-018)', () => {
   test('confirm-status is confirmed:false before confirm-record and confirmed:true after it, across three real subprocesses', () => {
     const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-confirm-'));
@@ -799,7 +1048,7 @@ describe('detection-selected adapter works end to end through preflight/run/conf
       try {
         const needle =
           "  return runPreflight(\n" +
-          "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },\n" +
+          "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive), requires },\n" +
           "    {\n" +
           "      projectRoot: ctx.projectRoot || process.cwd(),\n" +
           "      env: ctx.env || process.env,\n" +
@@ -808,7 +1057,7 @@ describe('detection-selected adapter works end to end through preflight/run/conf
           "  );";
         const replacement =
           "  return runPreflight(\n" +
-          "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive) },\n" +
+          "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive), requires },\n" +
           "    { projectRoot: ctx.projectRoot || process.cwd(), env: ctx.env || process.env }\n" +
           "  );";
         const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
