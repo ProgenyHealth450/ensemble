@@ -142,7 +142,7 @@ describe('AC-011-4: a config change re-requires confirmation', () => {
 describe('AC-011-3: explicit non-interactive signals auto-confirm and log adapter/source', () => {
   test('ctx.nonInteractive === true auto-confirms without writing or reading a record, and logs the adapter/source', () => {
     const projectRoot = mkTempDir('confirm-ac3a-');
-    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       const result = confirmStatus('tracker', {
         projectRoot,
@@ -166,7 +166,7 @@ describe('AC-011-3: explicit non-interactive signals auto-confirm and log adapte
 
   test('env.ENSEMBLE_NON_INTERACTIVE === "1" auto-confirms and logs the adapter/source', () => {
     const projectRoot = mkTempDir('confirm-ac3b-');
-    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       const result = confirmStatus('tracker', {
         projectRoot,

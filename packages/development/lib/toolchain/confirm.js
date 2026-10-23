@@ -85,6 +85,10 @@
  * - This module never prompts a user itself (no TTY read); it is a passive status check plus a
  *   passive record-writer. The interactive confirmation UI that would call `recordConfirmation`
  *   after a real user says "yes" is out of scope here (TRD-018).
+ * - `configHash` is keyed on the *selection* (adapter id + precedence tier) per the bead's
+ *   AC-011-2 wording, not on the selected adapter's own manifest/SKILL content: an edit to an
+ *   already-selected adapter's `adapter.yaml` (allowlist, capabilities, contractVersion) does
+ *   not by itself invalidate an existing confirmation.
  */
 
 const fs = require('fs');
@@ -202,8 +206,8 @@ function confirmationRecordPath(projectRoot, sessionKey, category, adapter, hash
  *   checking a local-only capability never routed through this gate at all) -> `{required:
  *   false}` immediately, no filesystem access.
  * - `isNonInteractive(ctx)` -> logs one line naming `ctx.adapter`/`ctx.source`/`category` via
- *   `console.error` and returns `{confirmed: true, prompt: false}` (AC-011-3: no prompt, the
- *   log records adapter and source).
+ *   `process.stderr.write` and returns `{confirmed: true, prompt: false}` (AC-011-3: no prompt,
+ *   the log records adapter and source).
  * - Otherwise: reads back the record at `confirmationRecordPath(...)` (fail closed to
  *   unconfirmed on any missing/unreadable/corrupt file — this NEVER throws for that); a record
  *   whose `category`/`adapter`/`configHash` all match the current ones means `{confirmed:
@@ -223,8 +227,8 @@ function confirmStatus(category, ctx = {}) {
   }
 
   if (isNonInteractive(ctx)) {
-    console.error(
-      `toolchain confirm: non-interactive, adapter=${ctx.adapter} source=${ctx.source} category=${category}`
+    process.stderr.write(
+      `toolchain confirm: non-interactive, adapter=${ctx.adapter} source=${ctx.source} category=${category}\n`
     );
     return { confirmed: true, prompt: false };
   }
