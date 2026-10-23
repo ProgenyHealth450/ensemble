@@ -159,6 +159,7 @@ function resolveCategory(category, ctx = {}) {
 module.exports = {
   resolveCategory,
   loadToolchainConfigFile,
+  loadDefaultToolchainConfig,
   DEFAULT_TOOLCHAIN_PATH,
   TOOLCHAIN_CONFIG_SCHEMA_PATH
 };
