@@ -617,16 +617,6 @@ function runPrPlan(argv, env) {
 // a malformed/unexpected value the CLI should reject rather than pass through.
 const VALID_GIT_TOWN_EXIT_CODES = new Set([0, 1, 2, 3, 4]);
 
-/**
- * `resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>`
- *   -> { ok:true, branchingStrategy, prBackend, consolidatedMessage }
- *
- * Thin CLI adapter over pr-strategy.js's resolveBranchingStrategy /
- * resolvePrBackend / buildConsolidatedResolutionMessage (TRD §1.1-1.4).
- * Reads ENSEMBLE_BRANCHING_STRATEGY / ENSEMBLE_PR_BACKEND from the `env`
- * param rather than process.env directly, matching runPrPlan/runNextTask's
- * pattern for testability.
- */
 function runQuickstart(argv) {
   const { positionals, flags } = parseArgs(argv, new Set(['out']));
   const trdPath = positionals[0];
@@ -654,6 +644,42 @@ function runQuickstart(argv) {
   };
 }
 
+// Legacy `ENSEMBLE_PR_BACKEND` values (pr-strategy.js's `gh`/`ado`/`manual`, REQ-006) predate
+// the toolchain resolver's adapter-name vocabulary (TRD-036 `github`, TRD-040 `azure-devops`).
+// `workflow`'s legacy `ENSEMBLE_BRANCHING_STRATEGY` vocabulary (`git-town`/`plain-git`) already
+// matches adapter names 1:1, so only `host` needs this translation. Applied to a CLONE of `env`
+// BEFORE calling `resolveCategory('host', ...)` so config.js's generic, category-agnostic
+// ENV_COMPAT precedence step (TRD-003) keeps reading `ENSEMBLE_PR_BACKEND` verbatim and still
+// reports `source: 'env-compat'` -- config.js itself must never special-case host's legacy
+// spelling (TRD-037).
+const LEGACY_HOST_BACKEND_TO_ADAPTER = { gh: 'github', ado: 'azure-devops', manual: 'manual' };
+
+function translateHostEnvCompat(env) {
+  const raw = (env || {}).ENSEMBLE_PR_BACKEND;
+  const adapterName = raw != null ? LEGACY_HOST_BACKEND_TO_ADAPTER[raw] : undefined;
+  if (adapterName == null) return env || {};
+  return { ...(env || {}), ENSEMBLE_PR_BACKEND: adapterName };
+}
+
+/**
+ * `resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>`
+ *   -> { ok:true, branchingStrategy, prBackend, consolidatedMessage, host, workflow }
+ *
+ * Thin CLI adapter over pr-strategy.js's resolveBranchingStrategy / resolvePrBackend /
+ * buildConsolidatedResolutionMessage (TRD §1.1-1.4) for the pre-existing `branchingStrategy` /
+ * `prBackend` / `consolidatedMessage` fields -- kept byte-for-byte so every existing caller of
+ * this command is unchanged (TRD-037, AC-037-2/3). Reads ENSEMBLE_BRANCHING_STRATEGY /
+ * ENSEMBLE_PR_BACKEND from the `env` param rather than process.env directly, matching
+ * runPrPlan/runNextTask's pattern for testability.
+ *
+ * Additionally delegates host/workflow resolution to the toolchain resolver
+ * (`./toolchain/config.js#resolveCategory`, TRD-003/TRD-036), through the SAME
+ * resolveCategory/detectAdapter pipeline `resolveTrackerAdapter` above uses, surfacing the
+ * result as new `host`/`workflow` fields (TRD-037, AC-037-1). `ENSEMBLE_PR_BACKEND`'s legacy
+ * `gh`/`ado`/`manual` vocabulary is translated to the toolchain's adapter-name vocabulary
+ * before that call (see `translateHostEnvCompat` above); `ENSEMBLE_BRANCHING_STRATEGY` needs no
+ * translation since its legacy `git-town`/`plain-git` values already are adapter names.
+ */
 function runResolveSdlc(argv, env) {
   const { flags } = parseArgs(argv, new Set(['git-town-exit-code', 'remote-url']));
 
@@ -675,7 +701,22 @@ function runResolveSdlc(argv, env) {
   const prBackend = resolvePrBackend(env || {}, remoteUrl);
   const consolidatedMessage = buildConsolidatedResolutionMessage(branchingStrategy, prBackend);
 
-  return { ok: true, branchingStrategy, prBackend, consolidatedMessage };
+  const projectRoot = process.cwd();
+  const hostResolved = resolveCategory('host', {
+    projectRoot,
+    env: translateHostEnvCompat(env),
+    detect: detectAdapter,
+  });
+  const workflowResolved = resolveCategory('workflow', { projectRoot, env: env || {}, detect: detectAdapter });
+
+  return {
+    ok: true,
+    branchingStrategy,
+    prBackend,
+    consolidatedMessage,
+    host: { adapter: hostResolved.value, source: hostResolved.source },
+    workflow: { adapter: workflowResolved.value, source: workflowResolved.source },
+  };
 }
 
 /** Load all TRD paths for combined workstream helpers. */
