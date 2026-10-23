@@ -448,6 +448,7 @@ function generateCommandSkills({ dryRun, verbose, packagesDir = PACKAGES_DIR, ou
       'user-invocable': !(yamlData.metadata?.visibility === 'hidden' || data['user-invocable'] === false),
       ...(data['argument-hint'] ? { 'argument-hint': data['argument-hint'] } : {}),
       ...(data.model ? { model: ANTHROPIC_ALIASES.has(data.model) ? DEFAULT_MODEL : data.model } : {}),
+      ...(yamlData.metadata?.capabilities ? { capabilities: yamlData.metadata.capabilities } : {}),
     };
 
     const body = [

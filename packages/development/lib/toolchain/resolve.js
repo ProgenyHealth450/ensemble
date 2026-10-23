@@ -50,11 +50,15 @@
  *
  * `requireCapabilities` has no production caller anywhere in this repo today (TRD review
  * Finding: an enforcement function with no caller enforces nothing). Command-level
- * `capabilities: {required, optional}` declarations on a command YAML, and the code that reads
- * one and calls this function before dispatching the command's body, arrive with TRD-022 (PR 5,
- * which depends on TRD-013, this file's own task). Do not invent a caller here or elsewhere in
- * this wave to make this function "used"; `./runner.js#runCapability` calling
- * `lookupContractCapability` directly (see that export's own doc above) is a different,
+ * `capabilities: {required, optional}` declarations on a command YAML -- the schema property,
+ * `scripts/validate-all.js` existence check against the category contracts, and passthrough
+ * for all four generators -- ship with TRD-022 (PR 5, which depends on TRD-013, this file's own
+ * task). TRD-022 does NOT wire a runtime caller: the code that reads a command's
+ * `capabilities.required`/`.optional` and calls `toolchain-cli preflight --require` (which in
+ * turn calls this function) before dispatching the command's body arrives with TRD-045 (refactor
+ * ci/review/test prose to capabilities, PR 7), which depends on TRD-022. Do not invent a caller
+ * here or elsewhere in this wave to make this function "used"; `./runner.js#runCapability`
+ * calling `lookupContractCapability` directly (see that export's own doc above) is a different,
  * already-wired code path and does not substitute for `requireCapabilities` itself being
  * reachable.
  */

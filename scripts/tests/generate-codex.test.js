@@ -262,6 +262,59 @@ describe('generateCommandSkills — metadata.visibility (temp-root smoke run, TR
   });
 });
 
+describe('generateCommandSkills — metadata.capabilities (temp-root smoke run, TRD-022)', () => {
+  const yaml = require('js-yaml');
+  let tmp;
+
+  const skillDir = (n) => path.join(tmp.outputDir, 'skills', 'commands', `ensemble-${n}`);
+  const readSkill = (n) => fs.readFileSync(path.join(skillDir(n), 'SKILL.md'), 'utf-8');
+  const frontmatterOf = (n) => yaml.load(readSkill(n).split('---\n')[1]);
+
+  beforeAll(() => {
+    tmp = makeCodexTempRoot();
+    const fixtureCommandsDir = path.join(tmp.packagesDir, 'codex-capabilities-fixture', 'commands');
+    fs.mkdirSync(fixtureCommandsDir, { recursive: true });
+    const write = (n, body) =>
+      fs.writeFileSync(path.join(fixtureCommandsDir, `${n}.yaml`), body.join('\n') + '\n');
+    write('cap-with-fixture', [
+      'metadata:',
+      '  name: ensemble:cap-with-fixture',
+      '  description: Fixture command with capabilities',
+      '  capabilities:',
+      '    required: [tracker.show]',
+      '    optional: [work-graph.ready]',
+    ]);
+    write('cap-without-fixture', [
+      'metadata:',
+      '  name: ensemble:cap-without-fixture',
+      '  description: Fixture command with no capabilities',
+    ]);
+    generateCommandSkills({
+      dryRun: false,
+      verbose: false,
+      packagesDir: tmp.packagesDir,
+      outputDir: tmp.outputDir,
+      rootDir: tmp.rootDir,
+    });
+  });
+
+  afterAll(() => {
+    tmp.cleanup();
+  });
+
+  test('a command with capabilities emits a capabilities frontmatter block with both lists', () => {
+    const fm = frontmatterOf('cap-with-fixture');
+    expect(fm.capabilities).toEqual({ required: ['tracker.show'], optional: ['work-graph.ready'] });
+  });
+
+  test('a command without capabilities omits the key entirely (byte-identical passthrough)', () => {
+    const fm = frontmatterOf('cap-without-fixture');
+    expect(fm.capabilities).toBeUndefined();
+    const frontmatterBlock = readSkill('cap-without-fixture').split('---\n')[1];
+    expect(frontmatterBlock).not.toContain('capabilities');
+  });
+});
+
 describe('detectAgentSkills — dotnet skill is separate from blazor', () => {
   test.each([
     ['an ASP.NET mention', 'Builds ASP.NET Core APIs'],

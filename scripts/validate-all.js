@@ -9,6 +9,7 @@ const { execSync } = require('child_process');
 const { checkFrontmatter } = require('./lib/frontmatter-check');
 const promptBudget = require('./lib/prompt-budget');
 const { checkStepKeys } = require('./lib/step-keys-check');
+const { loadValidCapabilityIds, checkCapabilityIds } = require('./lib/capability-ids-check');
 const yamlLib = require('js-yaml');
 
 const PACKAGES_DIR = path.join(__dirname, '..', 'packages');
@@ -287,6 +288,33 @@ function validateStepKeys() {
   return failures;
 }
 
+/**
+ * Every command YAML's `metadata.capabilities.{required,optional}` entries must
+ * be ids a real packages/development/toolchain/categories/*.yaml declares.
+ * Source packages only: pi/codex/opencode are generated output.
+ *
+ * @returns {string[]} One message per unknown capability id
+ */
+function validateCapabilityIds() {
+  const categoriesDir = path.join(__dirname, '..', 'packages', 'development', 'toolchain', 'categories');
+  const validIds = loadValidCapabilityIds(categoriesDir);
+  const failures = [];
+  let checked = 0;
+  for (const pkg of fs.readdirSync(PACKAGES_DIR)) {
+    if (pkg === 'pi' || pkg === 'codex' || pkg === 'opencode') continue;
+    const dir = path.join(PACKAGES_DIR, pkg, 'commands');
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.yaml'))) {
+      const rel = path.join('packages', pkg, 'commands', file);
+      const commandData = yamlLib.load(fs.readFileSync(path.join(dir, file), 'utf8'));
+      failures.push(...checkCapabilityIds(commandData, rel, validIds));
+      checked++;
+    }
+  }
+  console.log(`  ✓ ${checked} command YAML file(s) checked for valid capability ids`);
+  return failures;
+}
+
 function safeLstatExists(p) {
   try {
     fs.lstatSync(p);
@@ -483,6 +511,12 @@ function main() {
     errors++;
   });
 
+  console.log('\nValidating command capability ids...');
+  validateCapabilityIds().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
   // Prompt word-budget ratchet (see scripts/lib/prompt-budget.js)
   console.log('\nValidating prompt word budgets...');
   const sizes = promptBudget.collectSizes(PACKAGES_DIR);
@@ -523,4 +557,5 @@ module.exports = {
   validateFullSkillsMirror,
   validateFullLibMirror,
   validateStepKeys,
+  validateCapabilityIds,
 };

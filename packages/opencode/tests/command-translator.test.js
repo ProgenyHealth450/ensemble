@@ -323,6 +323,50 @@ describe('OC-S1-CMD-005: Constraints section', () => {
 });
 
 // ---------------------------------------------------------------------------
+// TRD-022: metadata.capabilities passthrough
+// ---------------------------------------------------------------------------
+describe('TRD-022: Capabilities section', () => {
+  let translator;
+
+  beforeEach(() => {
+    translator = new CommandTranslator({
+      packagesDir: PACKAGES_DIR,
+      outputDir: '/tmp/test-output',
+      dryRun: true,
+      verbose: false,
+    });
+  });
+
+  function baseCommand(capabilities) {
+    return {
+      metadata: {
+        name: 'ensemble:fix-issue',
+        description: 'Fix a bug end to end',
+        version: '1.0.0',
+        ...(capabilities ? { capabilities } : {}),
+      },
+      workflow: { phases: [] },
+    };
+  }
+
+  it('renders a ## Capabilities section with Required and Optional lists', () => {
+    const markdown = translator.translateToMarkdown(
+      baseCommand({ required: ['tracker.show'], optional: ['work-graph.ready', 'lint.run'] })
+    );
+    expect(markdown).toContain('## Capabilities');
+    expect(markdown).toContain('**Required:** tracker.show');
+    expect(markdown).toContain('**Optional:** work-graph.ready, lint.run');
+  });
+
+  it('omits the Capabilities section when metadata.capabilities is absent', () => {
+    const withField = translator.translateToMarkdown(baseCommand());
+    const without = translator.translateToMarkdown(baseCommand());
+    expect(withField).not.toContain('## Capabilities');
+    expect(withField).toBe(without);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OC-S1-CMD-006: Expected output section rendering
 // ---------------------------------------------------------------------------
 describe('OC-S1-CMD-006: Expected output section', () => {
