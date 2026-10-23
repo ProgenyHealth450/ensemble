@@ -10,6 +10,7 @@ const { globSync } = require('glob');
 // below matched zero files on Windows and the generator deleted its own output
 // as orphaned.
 const { toGlobPattern } = require('../lib/file-discovery');
+const { vendorToolchainLibrary } = require('../lib/toolchain-vendor');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGES_DIR = path.join(ROOT, 'packages');
@@ -277,6 +278,93 @@ function copyFrameworkSkills({ dryRun, verbose }) {
 }
 
 /**
+ * Copy adapter skill directories (TRD-020, PRD REQ-021): a `packages/<pkg>/skills/adapter-NAME`
+ * directory ships a `SKILL.md` describing the adapter plus an `adapter.yaml` manifest the
+ * toolchain resolver reads. Both files land together under `.codex/skills/<adapter-dir-name>/`,
+ * keyed by the adapter DIRECTORY's own name (not the owning package name) so two adapters
+ * shipped from the same package never collide. Two DIFFERENT packages shipping an adapter
+ * directory with the same basename is a hard generator failure (see the collision check
+ * below), not a silent last-writer-wins overwrite.
+ *
+ * SKILL.md goes through the same frontmatter-synthesis path as copyFrameworkSkills (fixture
+ * adapter SKILL.md files — see scripts/tests/fixtures/toolchain/good-adapter/SKILL.md — ship
+ * with no frontmatter of their own, same as most framework skills) for consistency with every
+ * other Codex skill. adapter.yaml is never rewritten: it is the toolchain resolver's own
+ * manifest format, copied byte-for-byte like lib-bundler.ts copies vendored libs.
+ */
+function copyAdapterSkills({ dryRun, verbose }) {
+  const adapterSkillFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/skills/adapter-*/SKILL.md'))).sort();
+
+  // Detect adapter directory-name collisions (TRD-020 P2 fix). Output is keyed purely by the
+  // adapter directory's own basename (not the owning package), so two different packages
+  // shipping e.g. `skills/adapter-cc/` would otherwise silently last-writer-wins into the same
+  // `.codex/skills/adapter-cc/` with no warning -- directly contradicting the PRD's "fail
+  // explicitly rather than falling back/silently losing data" posture. Fail loudly instead,
+  // naming every colliding source path, before writing anything.
+  const sourcesByAdapterName = new Map();
+  for (const skillFile of adapterSkillFiles) {
+    const adapterDir = path.dirname(skillFile);
+    const adapterName = path.basename(adapterDir);
+    const sources = sourcesByAdapterName.get(adapterName) || [];
+    sources.push(adapterDir);
+    sourcesByAdapterName.set(adapterName, sources);
+  }
+  for (const [adapterName, sources] of sourcesByAdapterName) {
+    if (sources.length <= 1) continue;
+    throw new Error(
+      `Adapter directory name collision: "${adapterName}" is shipped by multiple packages ` +
+        `(${sources.join(', ')}); each adapter directory name must be unique across the ` +
+        "monorepo because Codex output is keyed by the adapter directory's own name."
+    );
+  }
+
+  let count = 0;
+  for (const skillFile of adapterSkillFiles) {
+    const adapterDir = path.dirname(skillFile);
+    const adapterName = path.basename(adapterDir);
+    const dest = path.join(OUTPUT_DIR, 'skills', adapterName, 'SKILL.md');
+    const raw = readFile(skillFile);
+    const parsed = parseFrontmatter(raw);
+    const frontmatter = Object.keys(parsed.data).length > 0
+      ? { ...parsed.data, 'user-invocable': parsed.data['user-invocable'] ?? true }
+      : {
+          name: adapterName,
+          description: firstMeaningfulLine(parsed.content),
+          'user-invocable': true,
+        };
+
+    writeFile(dest, `${yamlFrontmatter(frontmatter)}\n${normalizeSkillBody(parsed.content)}\n`, dryRun, verbose);
+    count += 1;
+
+    const adapterYaml = path.join(adapterDir, 'adapter.yaml');
+    if (fs.existsSync(adapterYaml)) {
+      copyFile(adapterYaml, path.join(OUTPUT_DIR, 'skills', adapterName, 'adapter.yaml'), dryRun, verbose);
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Vendor the toolchain-cli.js runtime (TRD-020, PRD REQ-021) into
+ * `.codex/skills/vendor/`, so a standalone copy of `.codex/` (no monorepo checkout) can run
+ * `node .codex/skills/vendor/lib/toolchain-cli.js resolve --json` after its own `npm install`.
+ * See scripts/lib/toolchain-vendor.js for the exact file set and the relative-layout
+ * constraint that dictates this placement.
+ */
+function vendorCodexToolchain({ dryRun, verbose }) {
+  const vendorRoot = path.join(OUTPUT_DIR, 'skills', 'vendor');
+  const { files } = vendorToolchainLibrary({
+    sourceRoot: ROOT,
+    vendorRoot,
+    packageName: '@sunstone-partners/ensemble-codex-toolchain-vendor',
+    dryRun,
+    verbose,
+  });
+  return files.length;
+}
+
+/**
  * Generate the "## Subcommands" section for a Codex dispatcher command,
  * mirroring Claude Code's `generateSubcommandsSection` (scripts/lib/command-transformer.js)
  * section order and content pattern, but pointing at each sibling's Codex
@@ -445,7 +533,8 @@ function main() {
   ensureDir(path.join(OUTPUT_DIR, 'agents'), dryRun);
   ensureDir(path.join(OUTPUT_DIR, 'skills'), dryRun);
 
-  const skillCount = copyFrameworkSkills(options);
+  const skillCount = copyFrameworkSkills(options) + copyAdapterSkills(options);
+  vendorCodexToolchain(options);
   const commandCount = generateCommandSkills(options);
   const agentCount = generateAgents(options);
   const agentsMd = buildCodexAgentsMd(commandCount, agentCount, skillCount);
@@ -468,4 +557,6 @@ module.exports = {
   normalizeLineEndings,
   generateCodexSubcommandsSection,
   generateCommandSkills,
+  copyAdapterSkills,
+  vendorCodexToolchain,
 };

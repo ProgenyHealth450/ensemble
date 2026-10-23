@@ -1,0 +1,19 @@
+category: work-graph
+version: "1.0"
+
+capabilities:
+  work-graph.ready:
+    description: List work items with no unresolved dependency, ordered for pickup.
+    inputs: [scope]
+    outputs: [items]
+    required: false
+    sideEffect: false
+    fallback: work-graph-links-fallback
+
+  work-graph.dependencies:
+    description: List the dependency links of a work item.
+    inputs: [id]
+    outputs: [id, dependencies, dependents]
+    required: false
+    sideEffect: false
+    fallback: work-graph-links-fallback

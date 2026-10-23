@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { vendorToolchainLibrary } = require('../lib/toolchain-vendor');
 
 // ---------------------------------------------------------------------------
 // CLI-001: Argument parsing (using commander, available in devDependencies)
@@ -134,7 +135,10 @@ class StepTimer {
 // ---------------------------------------------------------------------------
 
 /**
- * Discover source files for a given category to compute hashes.
+ * Discover source files for a given category to compute hashes. Includes every
+ * `skills/adapter-NAME/{SKILL.md,adapter.yaml}` pair (TRD-020, PRD REQ-021) alongside the
+ * flat `skills/SKILL.md`/`skills/REFERENCE.md` sources, so an adapter.yaml-only edit still
+ * invalidates the incremental hash cache instead of being silently skipped as "unchanged".
  */
 function discoverSkillSourceFiles() {
   const files = [];
@@ -148,6 +152,15 @@ function discoverSkillSourceFiles() {
       const refFile = path.join(skillPath, 'REFERENCE.md');
       if (fs.existsSync(skillFile)) files.push(skillFile);
       if (fs.existsSync(refFile)) files.push(refFile);
+
+      for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
+        if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
+        const adapterPath = path.join(skillPath, sub.name);
+        const adapterSkillFile = path.join(adapterPath, 'SKILL.md');
+        const adapterYamlFile = path.join(adapterPath, 'adapter.yaml');
+        if (fs.existsSync(adapterSkillFile)) files.push(adapterSkillFile);
+        if (fs.existsSync(adapterYamlFile)) files.push(adapterYamlFile);
+      }
     }
   }
   return files;
@@ -261,6 +274,33 @@ async function runPipeline(opts) {
     }
   }
 
+  // --- Step 1b: ToolchainVendor (TRD-020, PRD REQ-021) ---
+  // Vendors toolchain-cli.js + its toolchain/*.js submodules + the toolchain/ data
+  // directory under the skill output dir, so a standalone copy of this OpenCode bundle (no
+  // monorepo checkout) can run its own `toolchain-cli.js resolve --json` after `npm install`.
+  // Unconditional (no hash-cache gate): the vendored tree is small and bounded, and only
+  // changes alongside packages/development/lib/toolchain, which already isn't on the
+  // skill-copier staleness watch list.
+  {
+    const timer = new StepTimer('ToolchainVendor', verbose);
+    try {
+      const vendorRoot = path.join(outputDir, '.opencode', 'skill', 'vendor');
+      const toolchainVendorResult = vendorToolchainLibrary({
+        sourceRoot: ROOT,
+        vendorRoot,
+        packageName: '@sunstone-partners/ensemble-opencode-toolchain-vendor',
+        dryRun,
+        verbose,
+      });
+      const info = timer.end(`${toolchainVendorResult.files.length} file(s) vendored`);
+      stepResults.push(info);
+    } catch (err) {
+      errors.push({ step: 'ToolchainVendor', message: err.message });
+      const info = timer.end(`ERROR: ${err.message}`);
+      stepResults.push(info);
+    }
+  }
+
   // --- Step 2: CommandTranslator ---
   let cmdResult = { commands: [], configBlock: {}, errors: [] };
   {
@@ -365,7 +405,9 @@ async function runPipeline(opts) {
         $schema: 'https://opencode.ai/schema/opencode.json',
         command: cmdResult.configBlock || {},
         skills: {
-          paths: skillResult.paths || [path.join(outputDir, '.opencode', 'skill')],
+          paths: (skillResult.paths || [path.join(outputDir, '.opencode', 'skill')]).concat([
+            path.join(outputDir, '.opencode', 'skill', 'vendor'),
+          ]),
         },
         agent: agentResult.configBlock || {},
         plugin: [],
@@ -511,7 +553,7 @@ async function main() {
 }
 
 // Export for testing
-module.exports = { createProgram, runPipeline, loadHashCache, saveHashCache, hashFile, formatDuration };
+module.exports = { createProgram, runPipeline, loadHashCache, saveHashCache, hashFile, formatDuration, discoverSkillSourceFiles };
 
 if (require.main === module) {
   main().catch((err) => {

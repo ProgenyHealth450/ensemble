@@ -19,6 +19,8 @@ const {
   generateCodexSubcommandsSection,
   generateCommandSkills,
   normalizeSkillBody,
+  copyAdapterSkills,
+  vendorCodexToolchain,
 } = require('../generate-codex/index.js');
 
 describe('parseFrontmatter — CRLF line endings', () => {
@@ -275,5 +277,176 @@ describe('normalizeSkillBody / buildCodexAgentsMd — dotnet skill', () => {
 
   test('lists dotnet among the framework skills in the generated AGENTS.md', () => {
     expect(buildCodexAgentsMd(1, 1, 1)).toContain('`blazor`, `dotnet`');
+  });
+});
+
+describe('copyAdapterSkills — adapter directories (TRD-020, live smoke run, throwaway fixture)', () => {
+  const ROOT = path.resolve(__dirname, '..', '..');
+  const FIXTURE_SOURCE_DIR = path.join(__dirname, 'fixtures', 'toolchain', 'good-adapter');
+  const FIXTURE_PACKAGE_DIR = path.join(ROOT, 'packages', '__codex_adapter_fixture__');
+  const FIXTURE_ADAPTER_DIR = path.join(FIXTURE_PACKAGE_DIR, 'skills', 'adapter-fixture-tracker');
+  const ADAPTER_SKILL_OUTPUT_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'adapter-fixture-tracker');
+
+  function cleanupFixtures() {
+    fs.rmSync(FIXTURE_PACKAGE_DIR, { recursive: true, force: true });
+    fs.rmSync(ADAPTER_SKILL_OUTPUT_DIR, { recursive: true, force: true });
+  }
+
+  beforeAll(() => {
+    cleanupFixtures();
+    fs.mkdirSync(FIXTURE_ADAPTER_DIR, { recursive: true });
+    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'SKILL.md'), path.join(FIXTURE_ADAPTER_DIR, 'SKILL.md'));
+    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'adapter.yaml'), path.join(FIXTURE_ADAPTER_DIR, 'adapter.yaml'));
+  });
+
+  afterAll(() => {
+    cleanupFixtures();
+  });
+
+  test('copies SKILL.md (frontmatter-synthesized) and adapter.yaml (byte-identical) keyed by the adapter directory name, leaving unrelated skills untouched', () => {
+    // Two known pre-existing, adapter-free skills: prove this generator run is a byte-identical
+    // no-op for both, rather than asserting zero git changes overall (fragile in a shared
+    // worktree; see the identical rationale on the dispatcher-commands test above).
+    const KNOWN_SKILL_REACT = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'react', 'SKILL.md');
+    const KNOWN_SKILL_NESTJS = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'nestjs', 'SKILL.md');
+    const beforeReact = fs.readFileSync(KNOWN_SKILL_REACT);
+    const beforeNestjs = fs.readFileSync(KNOWN_SKILL_NESTJS);
+
+    // Runs the real end-to-end function (globs every packages/*/skills/adapter-*/SKILL.md,
+    // including our throwaway fixture) so this proves the live wiring, not just a pure-function
+    // unit test.
+    const count = copyAdapterSkills({ dryRun: false, verbose: false });
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    const skillDest = path.join(ADAPTER_SKILL_OUTPUT_DIR, 'SKILL.md');
+    const yamlDest = path.join(ADAPTER_SKILL_OUTPUT_DIR, 'adapter.yaml');
+    expect(fs.existsSync(skillDest)).toBe(true);
+    expect(fs.existsSync(yamlDest)).toBe(true);
+
+    const skillContent = fs.readFileSync(skillDest, 'utf-8');
+    expect(skillContent).toMatch(/^---\nname: adapter-fixture-tracker\n/);
+    expect(skillContent).toContain('# Fixture Good Tracker Adapter');
+
+    // adapter.yaml must be byte-identical to the source -- never rewritten, unlike SKILL.md's
+    // frontmatter-synthesis path.
+    const sourceYamlBytes = fs.readFileSync(path.join(FIXTURE_SOURCE_DIR, 'adapter.yaml'));
+    const destYamlBytes = fs.readFileSync(yamlDest);
+    expect(destYamlBytes.equals(sourceYamlBytes)).toBe(true);
+
+    // Byte-identical-no-regression proof (actual comparison, not asserted in prose): a skill
+    // with no adapter.yaml is unaffected by this run.
+    expect(fs.readFileSync(KNOWN_SKILL_REACT).equals(beforeReact)).toBe(true);
+    expect(fs.readFileSync(KNOWN_SKILL_NESTJS).equals(beforeNestjs)).toBe(true);
+  });
+});
+
+describe('copyAdapterSkills — adapter directory name collision across packages (TRD-020 P2 fix, live smoke run, throwaway fixtures)', () => {
+  const ROOT = path.resolve(__dirname, '..', '..');
+  const FIXTURE_PACKAGE_A = path.join(ROOT, 'packages', '__codex_adapter_collision_fixture_a__');
+  const FIXTURE_PACKAGE_B = path.join(ROOT, 'packages', '__codex_adapter_collision_fixture_b__');
+  const ADAPTER_DIR_A = path.join(FIXTURE_PACKAGE_A, 'skills', 'adapter-collision-regression');
+  const ADAPTER_DIR_B = path.join(FIXTURE_PACKAGE_B, 'skills', 'adapter-collision-regression');
+  const COLLIDING_OUTPUT_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'adapter-collision-regression');
+
+  function cleanupFixtures() {
+    fs.rmSync(FIXTURE_PACKAGE_A, { recursive: true, force: true });
+    fs.rmSync(FIXTURE_PACKAGE_B, { recursive: true, force: true });
+    fs.rmSync(COLLIDING_OUTPUT_DIR, { recursive: true, force: true });
+  }
+
+  beforeEach(() => {
+    cleanupFixtures();
+    fs.mkdirSync(ADAPTER_DIR_A, { recursive: true });
+    fs.mkdirSync(ADAPTER_DIR_B, { recursive: true });
+    fs.writeFileSync(path.join(ADAPTER_DIR_A, 'SKILL.md'), '# Package A Collision Adapter\n');
+    fs.writeFileSync(path.join(ADAPTER_DIR_A, 'adapter.yaml'), 'adapter: collision-a\n');
+    fs.writeFileSync(path.join(ADAPTER_DIR_B, 'SKILL.md'), '# Package B Collision Adapter\n');
+    fs.writeFileSync(path.join(ADAPTER_DIR_B, 'adapter.yaml'), 'adapter: collision-b\n');
+  });
+
+  afterEach(() => {
+    cleanupFixtures();
+  });
+
+  test('two different packages shipping an adapter dir with the same basename is a hard generator failure, naming both colliding source paths, and writes nothing', () => {
+    // Mutation-proof target: with the pre-fix behavior (no collision check), this call would
+    // silently succeed and last-writer-wins one of the two adapter.yaml files into
+    // COLLIDING_OUTPUT_DIR instead of throwing.
+    let thrown = null;
+    try {
+      copyAdapterSkills({ dryRun: false, verbose: false });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).not.toBeNull();
+    expect(thrown.message).toContain('adapter-collision-regression');
+    expect(thrown.message).toContain(ADAPTER_DIR_A);
+    expect(thrown.message).toContain(ADAPTER_DIR_B);
+
+    // Fails before writing anything for the colliding name -- no last-writer-wins partial
+    // output silently left behind.
+    expect(fs.existsSync(COLLIDING_OUTPUT_DIR)).toBe(false);
+  });
+});
+
+describe('vendorCodexToolchain — toolchain-cli.js runtime vendoring (TRD-020, live smoke run)', () => {
+  const ROOT = path.resolve(__dirname, '..', '..');
+  const VENDOR_ROOT = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'vendor');
+
+  afterAll(() => {
+    fs.rmSync(VENDOR_ROOT, { recursive: true, force: true });
+  });
+
+  test('vendors toolchain-cli.js, every toolchain/*.js submodule, the complexity-analyzer.js sibling dependency, the toolchain data dir, and a package.json declaring ajv/js-yaml', () => {
+    const count = vendorCodexToolchain({ dryRun: false, verbose: false });
+    // 35 files as of this change (cli + complexity-analyzer + 13 toolchain/*.js + package.json
+    // + the toolchain/ data tree); asserted loosely so an unrelated data-file addition upstream
+    // doesn't make this brittle.
+    expect(count).toBeGreaterThan(30);
+
+    expect(fs.existsSync(path.join(VENDOR_ROOT, 'lib', 'toolchain-cli.js'))).toBe(true);
+    // ledger.js and preflight.js require('../complexity-analyzer') -- a sibling of
+    // toolchain-cli.js, NOT a toolchain/ submodule. Easy to drop when hand-listing files;
+    // this assertion is the regression guard for that.
+    expect(fs.existsSync(path.join(VENDOR_ROOT, 'lib', 'complexity-analyzer.js'))).toBe(true);
+
+    const expectedSubmodules = [
+      'adapters.js', 'confirm.js', 'config.js', 'config-path.js', 'contracts.js',
+      'detect.js', 'ledger.js', 'mapping.js', 'preflight.js', 'resolve.js',
+      'run-id.js', 'runner.js', 'validate.js',
+    ];
+    for (const name of expectedSubmodules) {
+      expect(fs.existsSync(path.join(VENDOR_ROOT, 'lib', 'toolchain', name))).toBe(true);
+    }
+
+    expect(fs.existsSync(path.join(VENDOR_ROOT, 'toolchain', 'toolchain.default.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(VENDOR_ROOT, 'toolchain', 'categories', 'tracker.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(VENDOR_ROOT, 'toolchain', 'schemas', 'adapter-manifest-schema.json'))).toBe(true);
+    expect(fs.existsSync(path.join(VENDOR_ROOT, 'toolchain', 'schemas', 'normalized'))).toBe(true);
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(VENDOR_ROOT, 'package.json'), 'utf-8'));
+    expect(pkg.dependencies).toEqual({ ajv: '^8.12.0', 'js-yaml': '^4.1.0' });
+    expect(pkg.name).toBe('@sunstone-partners/ensemble-codex-toolchain-vendor');
+  });
+
+  test('the vendored toolchain-cli.js resolves its sibling requires and __dirname-based data-dir lookups from inside the vendor tree alone', () => {
+    // Runs the vendored COPY (not packages/development/lib/toolchain-cli.js) in a child
+    // process with cwd set to the vendor root, so every relative require/__dirname lookup
+    // resolves inside the copy. This does not by itself prove the copy is installable outside
+    // the monorepo (ajv/js-yaml still resolve via this repo's hoisted root node_modules here,
+    // which ancestor-walks from VENDOR_ROOT); that standalone proof was run manually (real
+    // `npm install` against a copy placed under /tmp, outside the repo checkout) and is not
+    // repeated here as an automated test per the "no reliance on real network" determinism
+    // requirement -- see this track's report for the exact commands and output.
+    const { execFileSync } = require('child_process');
+    const out = execFileSync(
+      process.execPath,
+      [path.join(VENDOR_ROOT, 'lib', 'toolchain-cli.js'), 'resolve', '--json'],
+      { encoding: 'utf-8', cwd: VENDOR_ROOT }
+    );
+    const parsed = JSON.parse(out);
+    expect(parsed.ok).toBe(true);
+    expect(Object.keys(parsed.data).length).toBeGreaterThan(0);
   });
 });

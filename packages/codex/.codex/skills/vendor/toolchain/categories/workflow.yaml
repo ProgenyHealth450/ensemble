@@ -1,0 +1,17 @@
+category: workflow
+version: "1.0"
+
+capabilities:
+  workflow.createBranch:
+    description: Create a new branch following the configured branching strategy.
+    inputs: [name, baseBranch]
+    outputs: [name]
+    required: true
+    sideEffect: true
+
+  workflow.sync:
+    description: Sync the current branch with its parent/trunk.
+    inputs: [branch]
+    outputs: [branch, ahead, behind]
+    required: false
+    sideEffect: true
