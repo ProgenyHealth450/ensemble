@@ -17,6 +17,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const yaml = require('js-yaml');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const COMMANDS_DIR = path.join(REPO_ROOT, 'packages', 'development', 'commands');
@@ -106,6 +107,103 @@ describe('PR7 Track029: no literal br/bv tracker-binary invocation in refactored
       // Confirm again against the real, unmutated source: still zero.
       expect(findInvocationLines(fs.readFileSync(src, 'utf8'), TRACKER_BINARY_INVOCATION)).toEqual([]);
       expect(findInvocationLines(fs.readFileSync(src, 'utf8'), AC1_PATTERN)).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('PR7 Track029 scenario 3: refine-beads.yaml repair-plan entries name a tracker capability, never a literal br/bv command', () => {
+  // Every narrative line about the repair plan (title/description/action), matching both the
+  // prose phrase "repair plan" and the REPAIR_PLAN variable name, case-insensitively.
+  const REPAIR_PLAN_LINE_PATTERN = /repair[ _]plan/i;
+
+  test('every repair-plan line in refine-beads.yaml is free of literal br/bv tracker-binary invocations', () => {
+    const contents = fs.readFileSync(path.join(COMMANDS_DIR, 'refine-beads.yaml'), 'utf8');
+    const repairPlanLines = findInvocationLines(contents, REPAIR_PLAN_LINE_PATTERN);
+    expect(repairPlanLines.length).toBeGreaterThan(0);
+
+    for (const { line } of repairPlanLines) {
+      expect(TRACKER_BINARY_INVOCATION.test(line)).toBe(false);
+      expect(AC1_PATTERN.test(line)).toBe(false);
+    }
+  });
+
+  test('the repair-plan execution step names a tracker.* capability id invoked with --arg, not a bare command', () => {
+    const contents = fs.readFileSync(path.join(COMMANDS_DIR, 'refine-beads.yaml'), 'utf8');
+    const repairPlanLines = findInvocationLines(contents, REPAIR_PLAN_LINE_PATTERN);
+
+    const executionLine = repairPlanLines.find(
+      ({ line }) => /--arg\b/.test(line) && /tracker\.(?:comment|update|dep-add|dep-remove)/.test(line)
+    );
+    expect(executionLine).toBeTruthy();
+    expect(executionLine.line).toContain('run <capability>');
+    expect(executionLine.line).not.toMatch(TRACKER_BINARY_INVOCATION);
+  });
+});
+
+describe('PR7 Track029 scenario 4: command preamble lists exactly its required capabilities and gates the first tracker write behind confirm-status', () => {
+  function extractRequiredFromPreflightLine(contents) {
+    const preflightLine = contents.split('\n').find((line) => /\bpreflight\b.*--require/.test(line));
+    if (!preflightLine) return null;
+    return [...preflightLine.matchAll(/--require\s+(\S+)/g)].map((m) => m[1]).sort();
+  }
+
+  function metadataRequired(contents) {
+    const doc = yaml.load(contents);
+    const required = (doc.metadata && doc.metadata.capabilities && doc.metadata.capabilities.required) || [];
+    return [...required].sort();
+  }
+
+  for (const file of TARGET_FILES) {
+    test(`${file} preflight --require set matches metadata.capabilities.required exactly`, () => {
+      const contents = fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8');
+      const fromPreflight = extractRequiredFromPreflightLine(contents);
+      const fromMetadata = metadataRequired(contents);
+
+      expect(fromPreflight).not.toBeNull();
+      expect(fromMetadata.length).toBeGreaterThan(0);
+      expect(fromPreflight).toEqual(fromMetadata);
+    });
+
+    test(`${file} gates its first tracker write behind a confirm-status check`, () => {
+      const contents = fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8');
+      const confirmIdx = contents.indexOf('confirm-status');
+      const writeMatch = contents.match(/run tracker\.(?:update|close|comment|sync|dep-add|dep-remove)\b/);
+
+      expect(confirmIdx).toBeGreaterThan(-1);
+      expect(writeMatch).toBeTruthy();
+      expect(confirmIdx).toBeLessThan(writeMatch.index);
+    });
+  }
+
+  test('mutation proof: a preflight --require set drifting from metadata.capabilities.required is caught', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'track029-mutation-scenario4-'));
+    try {
+      const src = path.join(COMMANDS_DIR, 'refine-beads.yaml');
+      const copyPath = path.join(tmpDir, 'refine-beads.yaml');
+      const original = fs.readFileSync(src, 'utf8');
+      fs.writeFileSync(copyPath, original, 'utf8');
+
+      // Sanity: the unmutated copy's preflight --require set matches metadata exactly (proves
+      // the detector isn't vacuously true before we assert it catches a drift).
+      expect(extractRequiredFromPreflightLine(fs.readFileSync(copyPath, 'utf8'))).toEqual(
+        metadataRequired(fs.readFileSync(copyPath, 'utf8'))
+      );
+
+      const needle = '--require tracker.sync --json';
+      expect(original).toContain(needle);
+      const mutated = original.replace(needle, '--json');
+      expect(mutated).not.toBe(original);
+      fs.writeFileSync(copyPath, mutated, 'utf8');
+
+      const mutatedContents = fs.readFileSync(copyPath, 'utf8');
+      expect(extractRequiredFromPreflightLine(mutatedContents)).not.toEqual(metadataRequired(mutatedContents));
+
+      // Confirm again against the real, unmutated source: still matches.
+      expect(extractRequiredFromPreflightLine(fs.readFileSync(src, 'utf8'))).toEqual(
+        metadataRequired(fs.readFileSync(src, 'utf8'))
+      );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
