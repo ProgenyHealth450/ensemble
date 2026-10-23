@@ -635,25 +635,39 @@ describe('bundleLibs against real packages directory', () => {
     // threw MODULE_NOT_FOUND the first time it was actually run (not just
     // checked for existence) from a real vendor install. Running each real
     // entry point here — not a fixture — is the only way to catch that.
-    await bundleLibs(repoRoot, outputRoot, {});
+    //
+    // trd-cli.js (and beads-label.js) now also require ./toolchain/config.js,
+    // which unconditionally requires js-yaml/ajv — genuinely installed and
+    // hoisted to the monorepo root's node_modules/ — but Node's module
+    // resolution only finds them by walking up from the requiring file's own
+    // ancestors, so the output root must be nested inside the monorepo tree
+    // (not a plain os.tmpdir() path, which has no node_modules/ ancestor at
+    // all). Placed inside the repo's gitignored node_modules/ itself so
+    // nothing leaks into git even if cleanup below is skipped.
+    const entryPointOutputRoot = fs.mkdtempSync(path.join(repoRoot, 'node_modules', '.pi-lib-bundler-test-'));
+    try {
+      await bundleLibs(repoRoot, entryPointOutputRoot, {});
 
-    for (const entry of ['trd-cli.js', 'trd-graph-cli.js', 'prd-cli.js', 'pr-review-cli.js', 'local-ci-cli.js']) {
-      const entryPath = path.join(outputRoot, 'vendor', 'lib', entry);
-      expect(fs.existsSync(entryPath)).toBe(true);
+      for (const entry of ['trd-cli.js', 'trd-graph-cli.js', 'prd-cli.js', 'pr-review-cli.js', 'local-ci-cli.js']) {
+        const entryPath = path.join(entryPointOutputRoot, 'vendor', 'lib', entry);
+        expect(fs.existsSync(entryPath)).toBe(true);
 
-      // No args: each CLI prints a "missing subcommand" usage error and exits
-      // non-zero, but only AFTER its top-level requires resolve successfully.
-      // A MODULE_NOT_FOUND would throw before that point, with a distinct
-      // stack trace — that's what this test actually guards against.
-      let output: string;
-      try {
-        output = execFileSync('node', [entryPath], { encoding: 'utf-8', stdio: 'pipe' });
-      } catch (err) {
-        const execErr = err as { stdout?: string; stderr?: string };
-        output = (execErr.stdout ?? '') + (execErr.stderr ?? '');
+        // No args: each CLI prints a "missing subcommand" usage error and exits
+        // non-zero, but only AFTER its top-level requires resolve successfully.
+        // A MODULE_NOT_FOUND would throw before that point, with a distinct
+        // stack trace — that's what this test actually guards against.
+        let output: string;
+        try {
+          output = execFileSync('node', [entryPath], { encoding: 'utf-8', stdio: 'pipe' });
+        } catch (err) {
+          const execErr = err as { stdout?: string; stderr?: string };
+          output = (execErr.stdout ?? '') + (execErr.stderr ?? '');
+        }
+        expect(output).not.toMatch(/MODULE_NOT_FOUND/);
+        expect(output).not.toMatch(/Cannot find module/);
       }
-      expect(output).not.toMatch(/MODULE_NOT_FOUND/);
-      expect(output).not.toMatch(/Cannot find module/);
+    } finally {
+      rmrf(entryPointOutputRoot);
     }
   });
 

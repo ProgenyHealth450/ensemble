@@ -82,6 +82,10 @@ const {
 const { buildQuickstart } = require('./quickstart-generator');
 const { ensureLabel } = require('./beads-label');
 const { stageBeadsExport, checkStagedExport } = require('./beads-stage');
+const { resolveCategory } = require('./toolchain/config');
+const { loadAdapter } = require('./toolchain/adapters');
+const { detectAdapter } = require('./toolchain/detect');
+const { runCapabilitySync } = require('./toolchain/runner');
 
 // ---------------------------------------------------------------------------
 // Small utilities
@@ -307,6 +311,28 @@ function runScaffoldPlan(argv) {
 }
 
 /**
+ * Resolve and load the adapter manifest for the `tracker` category through the same
+ * `resolveCategory`/`loadAdapter` pipeline `toolchain-cli.js#run` uses for every other
+ * capability call (TRD-2026-8d825f54 TRD-025, PRD AC-016-2) -- never `br`/`bv` directly.
+ * Confirmation/ledger/preflight gating (TRD-014/015/017) governs only the shell-invoked
+ * `toolchain-cli run` surface; this in-process CLI routing intentionally omits it, matching
+ * every capability this file calls (`tracker.show`, `tracker.list`), neither of which
+ * `tracker.yaml` declares `sideEffect:true`.
+ *
+ * @returns {{manifest: object, source: string}}
+ * @throws {Error} whatever `resolveCategory`/`loadAdapter` throws -- never caught here, so a
+ *   caller decides whether an unresolved tracker is fatal (`bead-context`) or swallowed
+ *   (`getBeadCounts`).
+ */
+function resolveTrackerAdapter() {
+  const projectRoot = process.cwd();
+  const env = process.env;
+  const resolved = resolveCategory('tracker', { projectRoot, env, detect: detectAdapter });
+  const loaded = loadAdapter(resolved.value, { projectRoot, env, interactive: false });
+  return { manifest: loaded.manifest, source: resolved.source };
+}
+
+/**
  * `bead-context --bead <id> [--trd <path>] [--issue-json <file>]`
  *
  * Resolves a bead's `## References` block (or, for legacy beads without one, its title
@@ -333,17 +359,22 @@ function runBeadContext(argv) {
   // ---- load the bead -------------------------------------------------------
   let issue = null;
   try {
-    let raw;
     if (flags['issue-json'] && flags['issue-json'] !== true) {
-      raw = fs.readFileSync(String(flags['issue-json']), 'utf8');
+      const raw = fs.readFileSync(String(flags['issue-json']), 'utf8');
+      const data = JSON.parse(raw);
+      issue = Array.isArray(data) ? data[0] : data;
     } else {
-      raw = execFileSync('br', ['show', beadId, '--json'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
+      const { manifest } = resolveTrackerAdapter();
+      const result = runCapabilitySync(manifest, 'tracker.show', { id: beadId }, {
+        execFileOptions: { cwd: process.cwd() },
       });
+      if (!result.ok) {
+        const err = new Error(result.error.message);
+        err.code = result.error.code;
+        throw err;
+      }
+      issue = result.data;
     }
-    const data = JSON.parse(raw);
-    issue = Array.isArray(data) ? data[0] : data;
   } catch (err) {
     missing.push(`bead ${beadId} could not be loaded: ${err && err.message ? err.message.split('\n')[0] : err}`);
     return out;
@@ -844,16 +875,21 @@ function inferStatus(frontmatter, slug, beadCounts) {
  */
 function getBeadCounts(slug) {
   try {
-    const { execSync } = require('child_process');
     const needle = `[trd:${slug}:`;
     let raw;
     try {
-      raw = execSync('br list --all --json', { cwd: process.cwd(), timeout: 10000 });
+      const { manifest } = resolveTrackerAdapter();
+      const result = runCapabilitySync(manifest, 'tracker.list', {}, {
+        timeoutMs: 10000,
+        execFileOptions: { cwd: process.cwd() },
+      });
+      if (!result.ok) return { total: 0, open: 0, in_progress: 0, closed: 0 };
+      raw = result.data;
     } catch {
       return { total: 0, open: 0, in_progress: 0, closed: 0 };
     }
     // br 0.2.x wraps list output as { issues: [...] }; older versions print a bare array.
-    const parsed = JSON.parse(raw.toString('utf8'));
+    const parsed = JSON.parse(raw);
     const beads = Array.isArray(parsed) ? parsed : (parsed && parsed.issues) || [];
     const matches = beads.filter((b) => (b.title || '').includes(needle));
     return {

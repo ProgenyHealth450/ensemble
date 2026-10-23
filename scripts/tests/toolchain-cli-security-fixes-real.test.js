@@ -542,8 +542,8 @@ describe('mutation-restore proof: reviewer Finding 4 actually discriminates (rea
   test('bypassing redactSecrets on the TOOL_FAILED detail lets a secret reach the envelope message', async () => {
     const mutantRoot = makeMutantToolchainRoot();
     try {
-      const needle = 'const redactedDetail = redactSecrets(rawDetail).text;';
-      const replacement = 'const redactedDetail = rawDetail;';
+      const needle = 'const redacted = redactSecrets(rawDetail).text;';
+      const replacement = 'const redacted = rawDetail;';
       const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
 
       const secret = `ghp_${'y'.repeat(36)}`;
