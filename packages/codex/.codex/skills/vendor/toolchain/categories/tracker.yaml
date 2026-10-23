@@ -9,6 +9,13 @@ capabilities:
     required: true
     sideEffect: false
 
+  tracker.list:
+    description: List work items, optionally filtered (for example by label or status).
+    inputs: [filter]
+    outputs: [items]
+    required: false
+    sideEffect: false
+
   tracker.create:
     description: Create a new work item.
     inputs: [title, description, type]
@@ -29,3 +36,52 @@ capabilities:
     outputs: [id, status]
     required: true
     sideEffect: true
+
+  tracker.comment:
+    description: Add a comment to a work item.
+    inputs: [id, text]
+    outputs: [id]
+    required: false
+    sideEffect: true
+
+  tracker.comments:
+    description: List the comments on a work item, in source-tool order.
+    inputs: [id]
+    outputs: [comments]
+    required: false
+    sideEffect: false
+
+  tracker.dep-add:
+    description: Add a dependency link from one work item to another.
+    inputs: [id, dependsOnId, type]
+    outputs: [id]
+    required: false
+    sideEffect: true
+
+  tracker.dep-remove:
+    description: Remove a dependency link from one work item to another.
+    inputs: [id, dependsOnId]
+    outputs: [id]
+    required: false
+    sideEffect: true
+
+  tracker.label:
+    description: Add or replace labels on one or more work items.
+    inputs: [ids, labels]
+    outputs: [ids, labels]
+    required: false
+    sideEffect: true
+
+  tracker.sync:
+    description: Flush pending local tracker state to durable storage.
+    inputs: [scope]
+    outputs: [status]
+    required: false
+    sideEffect: true
+
+  tracker.stage-export:
+    description: Return export text for the tracked file, or an unavailable status when the resolved adapter has none.
+    inputs: [scope]
+    outputs: [text, status]
+    required: false
+    sideEffect: false

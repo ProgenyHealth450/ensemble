@@ -173,7 +173,7 @@ describe('validateManifest', () => {
   test("a capability with 'variants' not declared in its category contract at all fails naming the capability (not a sibling capability's inputs)", () => {
     const manifest = validManifest({
       capabilities: {
-        'tracker.list': {
+        'tracker.zz-never-declared': {
           run: ['example-tool', 'list'],
           // 'title' IS a declared input of the sibling tracker.create capability, so a bug that
           // fell back to the wrong capability's inputs (or to []) must not silently pass this.
@@ -189,7 +189,7 @@ describe('validateManifest', () => {
 
     expect(result.valid).toBe(false);
     expect(
-      result.errors.some((error) => error.includes("'tracker.list'") && error.includes('not declared in the'))
+      result.errors.some((error) => error.includes("'tracker.zz-never-declared'") && error.includes('not declared in the'))
     ).toBe(true);
   });
 

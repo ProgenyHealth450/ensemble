@@ -1,5 +1,5 @@
 category: work-graph
-version: "1.0"
+version: "2.0"
 
 capabilities:
   work-graph.ready:
@@ -10,10 +10,18 @@ capabilities:
     sideEffect: false
     fallback: work-graph-links-fallback
 
-  work-graph.dependencies:
-    description: List the dependency links of a work item.
-    inputs: [id]
-    outputs: [id, dependencies, dependents]
+  work-graph.plan:
+    description: Order work items for sequential pickup, using dependency links when available.
+    inputs: [scope]
+    outputs: [items, orderingSource, dependencyAware]
+    required: false
+    sideEffect: false
+    fallback: work-graph-links-fallback
+
+  work-graph.graph-health:
+    description: Report dependency-graph health signals (for example cycles, stale blockers).
+    inputs: [scope]
+    outputs: [status, findings]
     required: false
     sideEffect: false
     fallback: work-graph-links-fallback
