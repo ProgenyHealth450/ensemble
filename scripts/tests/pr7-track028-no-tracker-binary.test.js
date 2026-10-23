@@ -6,11 +6,29 @@
  * `toolchain-cli run tracker.*`/`work-graph.*`. This mirrors the exact AC-1 grep
  * (`grep -nE '\b(br|bv) ' ...`) as a Jest assertion so CI catches a regression, not just a
  * manual grep run at review time.
+ *
+ * Extended by br-qbzx (TRD-028-TEST) to prove the commit's other three ACs with real
+ * assertions instead of a one-time manual check:
+ *  - AC-2 (capabilities validate): reuses scripts/validate-all.js's OWN capability-id
+ *    mechanism (scripts/lib/capability-ids-check.js's checkCapabilityIds/loadValidCapabilityIds,
+ *    plus the exported validateCapabilityIds from scripts/validate-all.js itself) -- not a
+ *    hand-rolled check.
+ *  - AC-3 (retro.yaml non-tracker steps unchanged): diffs the 10 git-log/estimate/PRD-metric/
+ *    incident/report-writing action lines against the pre-refactor commit
+ *    (881381c6119176c48d44e0fc91c90d5cec8d02b1) for byte-identity.
+ *  - AC-4 (command preamble): asserts each file's toolchain-cli preflight line lists exactly
+ *    its declared capability ids (required + optional), and that tracker.create-declaring
+ *    files (onboard, retro) call confirm-status before their first tracker.create call while
+ *    the three read-only files never call confirm-status at all.
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
+const yaml = require('js-yaml');
+const { checkCapabilityIds, loadValidCapabilityIds } = require('../lib/capability-ids-check');
+const { validateCapabilityIds } = require('../validate-all');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const COMMANDS_DIR = path.join(REPO_ROOT, 'packages', 'development', 'commands');
@@ -26,6 +44,32 @@ function findInvocationLines(contents) {
     .split('\n')
     .map((line, i) => ({ line, n: i + 1 }))
     .filter(({ line }) => TRACKER_BINARY_INVOCATION.test(line));
+}
+
+const PRE_REFACTOR_REF = '881381c6119176c48d44e0fc91c90d5cec8d02b1';
+const CATEGORIES_DIR = path.join(REPO_ROOT, 'packages', 'development', 'toolchain', 'categories');
+
+function readPreRefactorFile(relPath) {
+  return execFileSync('git', ['show', `${PRE_REFACTOR_REF}:${relPath}`], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8'
+  });
+}
+
+function loadCommandYaml(file) {
+  return yaml.load(fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8'));
+}
+
+// The single `node "$TOOLCHAIN_CLI" preflight --require ... --json` line each of the five
+// files opens its tracker-facing step with (AC-4). Not tied to a fixed YAML path because
+// retro.yaml's preflight call lives in a step `actions` entry while the other four embed it
+// in a step `description` -- a raw-text line scan is robust to that structural difference.
+function findPreflightLine(contents) {
+  return contents.split('\n').find((line) => line.includes('preflight --require'));
+}
+
+function extractRequireIds(line) {
+  return [...line.matchAll(/--require (\S+)/g)].map((m) => m[1]);
 }
 
 describe('PR7 Track028: no literal br/bv tracker-binary invocation in refactored command YAMLs', () => {
@@ -62,6 +106,188 @@ describe('PR7 Track028: no literal br/bv tracker-binary invocation in refactored
 
       // Confirm again against the real, unmutated source: still zero.
       expect(findInvocationLines(fs.readFileSync(src, 'utf8'))).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('PR7 Track028 AC-2: capabilities declarations validate against the real toolchain-cli category contracts', () => {
+  const validIds = loadValidCapabilityIds(CATEGORIES_DIR);
+
+  for (const file of TARGET_FILES) {
+    test(`${file} metadata.capabilities passes scripts/validate-all.js's own capability-id check (checkCapabilityIds)`, () => {
+      const commandData = loadCommandYaml(file);
+      const failures = checkCapabilityIds(commandData, `packages/development/commands/${file}`, validIds);
+      expect(failures).toEqual([]);
+    });
+  }
+
+  test("the real scripts/validate-all.js exported validateCapabilityIds() reports zero failures for these five files", () => {
+    // Calls the exact function `npm run validate` runs (scripts/validate-all.js's
+    // validateCapabilityIds), not a reimplementation, then narrows its repo-wide failure
+    // list to just the five TRD-028 files.
+    const allFailures = validateCapabilityIds();
+    const relevant = allFailures.filter((msg) =>
+      TARGET_FILES.some((file) => msg.startsWith(`packages/development/commands/${file}:`))
+    );
+    expect(relevant).toEqual([]);
+  });
+
+  test('mutation proof: an invalid capability id in a /tmp copy of list-issue.yaml is caught by checkCapabilityIds, and the real source still validates clean', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'track028-capability-mutation-'));
+    try {
+      const src = path.join(COMMANDS_DIR, 'list-issue.yaml');
+      const original = fs.readFileSync(src, 'utf8');
+      const needle = '    required:\n      - tracker.list\n';
+      expect(original).toContain(needle);
+      const mutated = original.replace(needle, '    required:\n      - tracker.not-a-real-capability\n');
+      expect(mutated).not.toBe(original);
+
+      const copyPath = path.join(tmpDir, 'list-issue.yaml');
+      fs.writeFileSync(copyPath, mutated, 'utf8');
+
+      const mutatedData = yaml.load(fs.readFileSync(copyPath, 'utf8'));
+      const failures = checkCapabilityIds(mutatedData, 'packages/development/commands/list-issue.yaml', validIds);
+      expect(failures.length).toBeGreaterThan(0);
+      expect(failures[0]).toContain('tracker.not-a-real-capability');
+
+      // Confirm again against the real, unmutated source: still zero failures.
+      const realData = loadCommandYaml('list-issue.yaml');
+      expect(checkCapabilityIds(realData, 'packages/development/commands/list-issue.yaml', validIds)).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('PR7 Track028 AC-3: retro.yaml non-tracker steps are byte-identical to the pre-refactor commit', () => {
+  const preRefactor = readPreRefactorFile('packages/development/commands/retro.yaml');
+  const current = fs.readFileSync(path.join(COMMANDS_DIR, 'retro.yaml'), 'utf8');
+
+  // Every retro.yaml action line NOT touched by TRD-028 -- i.e. everything except the
+  // tracker.list listing bullet (Collect What Shipped) and the tracker.create confirm-status/
+  // approval bullet (Propose Follow-ups) -- identified by reading both the pre- and
+  // post-refactor retro.yaml side by side (git show 881381c6...:retro.yaml vs. current).
+  const NON_TRACKER_LINE_PREFIXES = [
+    '            - "--release vX.Y.Z: the range is the previous tag',
+    '            - "git log <range> --merges --oneline plus gh pr list',
+    '            - "Resolve ESTIMATE_ACTUAL (RELATIVE_PATH packages/development/lib/estimate-actual.js)',
+    '            - "Narrow its beads to the shipped set.',
+    '            - "Find the TRD for the release (docs/TRD/, from bead labels or titles).',
+    '            - "Extract the PRD\'s success metrics.',
+    '            - "gh issue list --state all --search',
+    '            - "Query an error-tracker MCP tool ONLY if one is configured',
+    '            - "Sections: What Shipped (PRs, beads), Estimate Accuracy',
+    '            - "List proposed beads (title, rationale, source:'
+  ];
+
+  for (const prefix of NON_TRACKER_LINE_PREFIXES) {
+    test(`non-tracker line byte-identical to pre-refactor: ${JSON.stringify(prefix.slice(12, 60))}`, () => {
+      const preLine = preRefactor.split('\n').find((l) => l.startsWith(prefix));
+      const currentLine = current.split('\n').find((l) => l.startsWith(prefix));
+      expect(preLine).toBeTruthy();
+      expect(currentLine).toBeTruthy();
+      expect(currentLine).toBe(preLine);
+    });
+  }
+
+  test('mutation proof: breaking byte-identity of a non-tracker line in a /tmp copy of retro.yaml is caught', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'track028-retro-nontracker-mutation-'));
+    try {
+      const prefix = '            - "Sections: What Shipped (PRs, beads), Estimate Accuracy';
+      const preLine = preRefactor.split('\n').find((l) => l.startsWith(prefix));
+      const realCurrentLine = current.split('\n').find((l) => l.startsWith(prefix));
+      expect(realCurrentLine).toBe(preLine); // sanity: real source passes before mutating
+
+      const copyPath = path.join(tmpDir, 'retro.yaml');
+      const mutated = current.replace(realCurrentLine, realCurrentLine.replace('Follow-ups"', 'Follow-ups, MUTATED"'));
+      expect(mutated).not.toBe(current);
+      fs.writeFileSync(copyPath, mutated, 'utf8');
+
+      const mutatedLine = fs.readFileSync(copyPath, 'utf8').split('\n').find((l) => l.startsWith(prefix));
+      expect(mutatedLine).not.toBe(preLine);
+
+      // Confirm again against the real, unmutated source: still byte-identical.
+      expect(current.split('\n').find((l) => l.startsWith(prefix))).toBe(preLine);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('PR7 Track028 AC-4: command preamble lists capabilities and gates tracker.create writes behind confirm-status', () => {
+  for (const file of TARGET_FILES) {
+    test(`${file} preflight line lists exactly its declared capability ids (required + optional)`, () => {
+      const contents = fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8');
+      const commandData = yaml.load(contents);
+      const declared = new Set([
+        ...(commandData.metadata.capabilities.required || []),
+        ...(commandData.metadata.capabilities.optional || [])
+      ]);
+
+      const preflightLine = findPreflightLine(contents);
+      expect(preflightLine).toBeTruthy();
+      expect(preflightLine).toMatch(/TOOLCHAIN_CLI\\?" preflight/);
+
+      const listedIds = extractRequireIds(preflightLine);
+      expect(new Set(listedIds)).toEqual(declared);
+      expect(listedIds.length).toBe(declared.size);
+    });
+
+    test(`${file} calls toolchain-cli confirm-status before its first tracker.create call iff it declares tracker.create`, () => {
+      const contents = fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8');
+      const commandData = yaml.load(contents);
+      const required = commandData.metadata.capabilities.required || [];
+      const optional = commandData.metadata.capabilities.optional || [];
+      const declaresCreate = required.includes('tracker.create') || optional.includes('tracker.create');
+
+      const confirmStatusIdx = contents.indexOf('confirm-status tracker.create');
+      const firstRunCreateIdx = contents.indexOf('run tracker.create --arg');
+
+      if (declaresCreate) {
+        expect(confirmStatusIdx).toBeGreaterThan(-1);
+        expect(firstRunCreateIdx).toBeGreaterThan(-1);
+        expect(confirmStatusIdx).toBeLessThan(firstRunCreateIdx);
+      } else {
+        // Matches the commit's documented contract: a read-only command "has no
+        // side-effecting write and so never calls confirm-status/confirm-record".
+        expect(confirmStatusIdx).toBe(-1);
+      }
+    });
+  }
+
+  test('mutation proof: dropping a --require flag from the preflight line in a /tmp copy of requirement-status.yaml is caught', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'track028-preflight-mutation-'));
+    try {
+      const src = path.join(COMMANDS_DIR, 'requirement-status.yaml');
+      const original = fs.readFileSync(src, 'utf8');
+      const needle = 'preflight --require tracker.list --require tracker.comments';
+      expect(original).toContain(needle);
+      const mutated = original.replace(needle, 'preflight --require tracker.list');
+      expect(mutated).not.toBe(original);
+
+      const copyPath = path.join(tmpDir, 'requirement-status.yaml');
+      fs.writeFileSync(copyPath, mutated, 'utf8');
+
+      const mutatedContents = fs.readFileSync(copyPath, 'utf8');
+      const mutatedData = yaml.load(mutatedContents);
+      const declared = new Set([
+        ...(mutatedData.metadata.capabilities.required || []),
+        ...(mutatedData.metadata.capabilities.optional || [])
+      ]);
+      const listedIds = extractRequireIds(findPreflightLine(mutatedContents));
+      expect(new Set(listedIds)).not.toEqual(declared);
+      expect(listedIds).not.toContain('tracker.comments');
+
+      // Confirm again against the real, unmutated source: still lists both declared ids.
+      const realContents = fs.readFileSync(src, 'utf8');
+      const realData = yaml.load(realContents);
+      const realDeclared = new Set([
+        ...(realData.metadata.capabilities.required || []),
+        ...(realData.metadata.capabilities.optional || [])
+      ]);
+      expect(new Set(extractRequireIds(findPreflightLine(realContents)))).toEqual(realDeclared);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
