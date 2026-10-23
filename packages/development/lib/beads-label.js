@@ -67,6 +67,9 @@ function raiseOnFailure(result) {
 function runBr(args) {
   const { manifest } = resolveTrackerAdapter();
   const execFileOptions = { cwd: process.cwd() };
+  // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+  // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable for both
+  // calls below since `br list`/`br label add` are short, one-shot invocations.
 
   if (args[0] === 'list') {
     const result = runCapabilitySync(manifest, 'tracker.list', {}, { timeoutMs: 60000, execFileOptions });

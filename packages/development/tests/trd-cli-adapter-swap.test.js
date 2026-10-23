@@ -247,6 +247,134 @@ describe('status (getBeadCounts) routes through the swapped, non-br-named tracke
   });
 });
 
+/**
+ * `tracker.list` fixture data for the large-output test below (PR 6 review item 1): the SAME
+ * 3 in-scope + 1 foreign issues as `LIST_ISSUES`, PLUS ~400 padding foreign issues carrying an
+ * 8 KB filler description each (~3.2 MB total) -- comfortably over Node's own 1 MiB
+ * `execFile`/`execFileSync` default `maxBuffer` and comfortably under this runner's 64 MiB
+ * `DEFAULT_MAX_BUFFER_BYTES`, approximating this repo's own real `br list --all --json` size
+ * (TRD-024 reviewer round 2, P2: ~3.4 MB at this repo's own live `.beads/` database).
+ */
+const LARGE_LIST_ISSUES = [
+  ...LIST_ISSUES,
+  ...Array.from({ length: 400 }, (_, i) => ({
+    id: `pad-${i}`,
+    title: '[trd:other-slug] padding',
+    status: 'open',
+    labels: [],
+    description: 'x'.repeat(8000),
+  })),
+];
+const LARGE_LIST_RESPONSE = {
+  issues: LARGE_LIST_ISSUES,
+  total: LARGE_LIST_ISSUES.length,
+  limit: 0,
+  offset: 0,
+  has_more: false,
+};
+
+/** Same shape as `STUB_SOURCE` above, but `list` answers with `LARGE_LIST_RESPONSE` instead
+ * of the small `LIST_RESPONSE` -- a dedicated stub rather than parameterizing the shared one,
+ * since every other test in this file depends on the exact small fixture counts. */
+const LARGE_STUB_SOURCE = `#!/usr/bin/env node
+'use strict';
+const argv = process.argv.slice(2);
+function out(value) {
+  process.stdout.write(JSON.stringify(value));
+}
+if (argv[0] === 'list') {
+  out(${JSON.stringify(LARGE_LIST_RESPONSE)});
+} else {
+  process.stderr.write('stub ${BIN_NAME}: unrecognized argv ' + JSON.stringify(argv) + '\\n');
+  process.exit(1);
+}
+`;
+
+/** Fresh throwaway project root wired to `LARGE_STUB_SOURCE` instead of the shared small one. */
+function mkLargeListProjectRoot() {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'trd-cli-adapter-swap-large-')));
+  fs.mkdirSync(path.join(dir, '.ensemble'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.ensemble', 'toolchain.yaml'), `tracker: ${ADAPTER_ID}\n`);
+  writeAdapter(dir, ADAPTER_ID);
+  const binDir = path.join(dir, 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const stubPath = path.join(binDir, BIN_NAME);
+  fs.writeFileSync(stubPath, LARGE_STUB_SOURCE, { mode: 0o755 });
+  fs.chmodSync(stubPath, 0o755);
+  fs.mkdirSync(path.join(dir, 'docs', 'TRD'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'docs', 'TRD', `${SLUG}.md`), TRD_TEXT);
+  return { dir, binDir };
+}
+
+describe("status (getBeadCounts) with a ~3 MB tracker.list response (PR 6 review item 1: real, non-zero counts, not a maxBuffer-overflow-induced zero)", () => {
+  test('bead counts come from the REAL ~3 MB fixture-tracker list response, not an all-zero fallback', () => {
+    const { dir, binDir } = mkLargeListProjectRoot();
+    const constructedPath = buildPath(binDir);
+    const { status, json } = run(
+      ['status', SLUG, '--dir', path.join(dir, 'docs', 'TRD')],
+      dir,
+      { PATH: constructedPath }
+    );
+
+    expect(status).toBe(0);
+    expect(json.ok).toBe(true);
+    // The exact same 3-in-scope-of-4 counts LIST_ISSUES always produces -- proving the 400
+    // padding issues (and the ~3.2 MB they add) were actually read and parsed, not truncated,
+    // silently dropped, or swallowed into the getBeadCounts `{total:0,...}` failure fallback.
+    expect(json.bead_counts).toEqual({ total: 3, open: 1, in_progress: 1, closed: 1 });
+    expect(json.bead_counts.total).not.toBe(0);
+  });
+
+  describe('mutation-proof: removing the runner default maxBuffer breaks this through the real trd-cli.js status command', () => {
+    test('the real (unmutated) CLI still returns true counts (same as the test above)', () => {
+      const { dir, binDir } = mkLargeListProjectRoot();
+      const constructedPath = buildPath(binDir);
+      const { status, json } = run(['status', SLUG, '--dir', path.join(dir, 'docs', 'TRD')], dir, {
+        PATH: constructedPath,
+      });
+      expect(status).toBe(0);
+      expect(json.bead_counts).toEqual({ total: 3, open: 1, in_progress: 1, closed: 1 });
+    });
+
+    test("reverting runner.js's own 'maxBuffer: DEFAULT_MAX_BUFFER_BYTES,' inside runCapabilitySync makes the SAME status command silently report all-zero counts again (TRD-024 reviewer round 2, P2's original defect)", () => {
+      const { dir, binDir } = mkLargeListProjectRoot();
+      const constructedPath = buildPath(binDir);
+      const mutant = makeTrdCliMutantRoot();
+      try {
+        const runnerPath = path.join(path.dirname(mutant.trdCliPath), 'toolchain', 'runner.js');
+        mutateFile(
+          runnerPath,
+          'stdout = execFileSync(argv[0], argv.slice(1), {\n' + '      maxBuffer: DEFAULT_MAX_BUFFER_BYTES,',
+          'stdout = execFileSync(argv[0], argv.slice(1), {'
+        );
+
+        const mutantResult = run(
+          ['status', SLUG, '--dir', path.join(dir, 'docs', 'TRD')],
+          dir,
+          { PATH: constructedPath },
+          mutant.trdCliPath
+        );
+        // getBeadCounts' own try/catch swallows the runner's ENOBUFS-mapped TOOL_FAILED
+        // envelope to the documented all-zero fallback (by contract, TRD-025 AC -- see that
+        // function's own JSDoc) rather than propagating the error -- exactly the silent,
+        // hard-to-notice symptom the original review finding described.
+        expect(mutantResult.status).toBe(0);
+        expect(mutantResult.json.ok).toBe(true);
+        expect(mutantResult.json.bead_counts).toEqual({ total: 0, open: 0, in_progress: 0, closed: 0 });
+
+        // Control: the SAME fixture, against the real (unmutated) CLI, still reports true
+        // counts -- so the mutant's zeros above are attributable to the mutation.
+        const realResult = run(['status', SLUG, '--dir', path.join(dir, 'docs', 'TRD')], dir, {
+          PATH: constructedPath,
+        });
+        expect(realResult.json.bead_counts).toEqual({ total: 3, open: 1, in_progress: 1, closed: 1 });
+      } finally {
+        mutant.cleanup();
+      }
+    });
+  });
+});
+
 describe('beads-label routes through the swapped, non-br-named tracker adapter (real subprocess)', () => {
   test('labels the matched beads via tracker.list + tracker.label on fixture-tracker', () => {
     const { dir, binDir } = mkProjectRoot();

@@ -45,6 +45,12 @@ beforeAll(() => {
       '  process.exit(7);',
       "} else if (cmd === 'sleep') {",
       "  setTimeout(() => process.stdout.write('done'), 5000);",
+      // 3 MiB of stdout: well over Node's own 1 MiB execFile*/execFileSync default maxBuffer,
+      // well under this runner's 64 MiB DEFAULT_MAX_BUFFER_BYTES -- PR 6 review item 1
+      // (`runCapabilitySync` must apply the SAME default as `runCapability`, not Node's bare
+      // 1 MiB one).
+      "} else if (cmd === 'largeOutput') {",
+      "  process.stdout.write(JSON.stringify({ items: [{ id: 'x', filler: 'y'.repeat(3 * 1024 * 1024) }] }));",
       '} else {',
       "  process.stderr.write('unknown cmd ' + cmd);",
       '  process.exit(2);',
@@ -63,7 +69,7 @@ function adapter(overrides = {}) {
   return {
     adapter: 'faketool-adapter',
     binaries: [bin],
-    allowlist: [{ bin, sub: ['echo', 'wrapped', 'env', 'fail', 'sleep'] }],
+    allowlist: [{ bin, sub: ['echo', 'wrapped', 'env', 'fail', 'sleep', 'largeOutput'] }],
     env: ['FAKE_TOOL_TOKEN'],
     capabilities: {
       'test.echo': { run: [bin, 'echo'] },
@@ -76,6 +82,10 @@ function adapter(overrides = {}) {
       'test.sleep': { run: [bin, 'sleep'] },
       'test.badarg': { run: [bin, 'echo', '{missingArg}'] },
       'test.unlisted-binary': { run: ['/definitely/not/on/the/allowlist', 'x'] },
+      'test.largeOutput': {
+        run: [bin, 'largeOutput'],
+        parse: { format: 'json', root: '$', map: { items: '$.items' } }
+      },
       ...overrides
     }
   };
@@ -183,4 +193,56 @@ describe('runCapability vs runCapabilitySync: identical envelopes for every guar
     },
     15000
   );
+
+  test(
+    "large output (3 MiB, over Node's own 1 MiB execFile*/execFileSync default maxBuffer) -> both entry points succeed via this runner's own 64 MiB DEFAULT_MAX_BUFFER_BYTES default, with mapOutput applied identically (PR 6 review item 1)",
+    async () => {
+      const a = await runCapability(adapter(), 'test.largeOutput', {}, {});
+      const s = runCapabilitySync(adapter(), 'test.largeOutput', {}, {});
+      expect(a.ok).toBe(true);
+      expect(s.ok).toBe(true);
+      expect(a.data.items).toHaveLength(1);
+      expect(a.data.items[0].id).toBe('x');
+      expect(a.data.items[0].filler).toHaveLength(3 * 1024 * 1024);
+      expect(s).toEqual(a);
+    },
+    15000
+  );
+
+  test('output beyond an explicitly injected small maxBuffer override fails closed with the SAME error code for both entry points (PR 6 review item 1)', async () => {
+    const a = await runCapability(adapter(), 'test.largeOutput', {}, { execFileOptions: { maxBuffer: 1024 } });
+    const s = runCapabilitySync(adapter(), 'test.largeOutput', {}, { execFileOptions: { maxBuffer: 1024 } });
+    expect(a.ok).toBe(false);
+    expect(s.ok).toBe(false);
+    // Same CODE (never a real timeout misclassification): message text differs because each
+    // entry point's underlying Node error object differs (`ERR_CHILD_PROCESS_STDIO_MAXBUFFER`
+    // for `execFile`, `ENOBUFS` for `execFileSync`), but both are output-size failures, never
+    // the TIMEOUT taxonomy branch.
+    expect(a.error.code).toBe('TOOL_FAILED');
+    expect(s.error.code).toBe('TOOL_FAILED');
+  });
+
+  describe('mutation-proof: removing the default maxBuffer from runCapabilitySync', () => {
+    test("the real (unmutated) runCapabilitySync still succeeds on 3 MiB of stdout (same as the test above)", () => {
+      const s = runCapabilitySync(adapter(), 'test.largeOutput', {}, {});
+      expect(s.ok).toBe(true);
+    });
+
+    test("reverting runCapabilitySync's own 'maxBuffer: DEFAULT_MAX_BUFFER_BYTES,' (the execFileSync options block) makes the SAME 3 MiB output fail closed under Node's bare 1 MiB default", () => {
+      const { makeMutantToolchainRoot, mutateAndRequire } = require('../../../scripts/tests/fixtures/toolchain/mutant-toolchain-copy');
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          'stdout = execFileSync(argv[0], argv.slice(1), {\n' + '      maxBuffer: DEFAULT_MAX_BUFFER_BYTES,';
+        const replacement = 'stdout = execFileSync(argv[0], argv.slice(1), {';
+        const mutated = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+        const result = mutated.runCapabilitySync(adapter(), 'test.largeOutput', {}, {});
+        expect(result.ok).toBe(false);
+        expect(result.error.code).toBe('TOOL_FAILED');
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
 });

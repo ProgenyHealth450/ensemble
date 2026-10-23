@@ -311,6 +311,9 @@ function loadBead(id, cwd) {
     // Lazy require: see the top-of-file comment next to the other `./toolchain/*` requires.
     const { runCapabilitySync } = require('./toolchain/runner');
     const { manifest } = resolveTrackerAdapter(cwd);
+    // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+    // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here since
+    // `tracker.show` is a short, one-shot `br` read.
     const result = runCapabilitySync(manifest, 'tracker.show', { id }, { execFileOptions: { cwd } });
     if (!result.ok) return null;
     const bead = result.data;

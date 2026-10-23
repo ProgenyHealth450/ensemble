@@ -291,6 +291,22 @@
  * `USERPROFILE` must declare those names in its own manifest `env[]` like any other variable
  * it needs -- this module does not special-case Windows base variables, since every adapter
  * shipped in this repo targets POSIX tools today.
+ *
+ * ## runCapabilitySync (TRD-025) -- known limit vs. the process-tree containment above
+ *
+ * `runCapabilitySync` (documented in full at its own JSDoc below) shares `runCapability`'s
+ * 64 MiB `DEFAULT_MAX_BUFFER_BYTES` default and its `NOT_ALLOWED`/`INVALID_ARG`/`TIMEOUT`/
+ * `TOOL_FAILED`/`BAD_OUTPUT` taxonomy, but spawns via `child_process.execFileSync`, which
+ * blocks the one JS thread for its whole duration: NONE of the "Timeout containment" process-
+ * tree polling above can run alongside it. On timeout, `runCapabilitySync` relies solely on
+ * `execFileSync`'s own `timeout`/`killSignal` option -- like plain `execFile` with no
+ * containment layered on top, this kills only the DIRECT child, never a detached grandchild it
+ * may have spawned (PR 6 review item 2). This is an accepted, documented reduction, not an
+ * oversight: every real synchronous caller today (`trd-cli.js#getBeadCounts`/
+ * `#runBeadContext`, `beads-label.js#runBr`, `complexity-analyzer.js#loadBead`) invokes a
+ * short-lived, one-shot `br` read/write, which never spawns a detached descendant of its own.
+ * A future synchronous caller whose underlying tool might do so should use `runCapability`
+ * (accepting becoming `async`) instead of `runCapabilitySync`.
  */
 
 const { execFile, execFileSync } = require('child_process');
@@ -1316,7 +1332,18 @@ function runCapabilitySync(adapter, capability, args = {}, opts = {}) {
       shell: false
     });
   } catch (error) {
-    if (error.killed || error.signal) {
+    // `execFileSync`'s own maxBuffer-exceeded shape (Node's documented `err.code ===
+    // 'ENOBUFS'` contract for this case) ALSO sets `error.signal` (observed: `'SIGTERM'` --
+    // Node's own internal kill signal for this failure, never this function's own configured
+    // `killSignal:'SIGKILL'`), which would otherwise be misread as a real timeout-triggered
+    // kill by the check below (PR 6 review item 2 follow-up: confirmed by direct experiment
+    // that `runCapability`'s own `execFile` maxBuffer-exceeded error sets NEITHER `killed` nor
+    // `signal`, so it already falls through to the generic `TOOL_FAILED` branch there -- this
+    // `error.code !== 'ENOBUFS'` guard makes this function classify the SAME failure the SAME
+    // way, instead of reporting a buffer-size problem as a misleading "exceeded its timeout").
+    // A genuine sync timeout kill is unaffected: it reports `code: 'ETIMEDOUT'`, never
+    // `'ENOBUFS'`.
+    if (error.code !== 'ENOBUFS' && (error.killed || error.signal)) {
       return {
         ok: false,
         error: {

@@ -365,6 +365,9 @@ function runBeadContext(argv) {
       issue = Array.isArray(data) ? data[0] : data;
     } else {
       const { manifest } = resolveTrackerAdapter();
+      // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+      // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here
+      // since `tracker.show` is a short, one-shot `br` read.
       const result = runCapabilitySync(manifest, 'tracker.show', { id: beadId }, {
         execFileOptions: { cwd: process.cwd() },
       });
@@ -868,8 +871,19 @@ function inferStatus(frontmatter, slug, beadCounts) {
 }
 
 /**
- * Run `br list --all --json` and return counts for beads whose title
- * contains the given slug prefix.
+ * Run `tracker.list` (via the resolved tracker adapter, TRD-025) and return counts for beads
+ * whose title contains the given slug prefix.
+ *
+ * By contract (TRD-025 AC), EVERY failure -- adapter resolution, the runner call itself
+ * (`TOOL_FAILED`/`TIMEOUT`/any other `runCapabilitySync` error code), a non-JSON or
+ * unexpectedly-shaped `raw` -- is swallowed to the same `{total:0, open:0, in_progress:0,
+ * closed:0}` zero envelope, never thrown or logged; this function intentionally has no way to
+ * tell a caller "zero real matches" apart from "the read itself failed" -- that distinction is
+ * only ever visible by calling `runCapabilitySync` directly (as this function does internally)
+ * and inspecting its own `{ok:false, error:{code, message}}` envelope, never through this
+ * function's return value. Do not change this swallow-to-zeros behavior: callers (CLI status
+ * output, TRD staleness inference) were built around it.
+ *
  * @param {string} slug
  * @returns {Object} {total, open, in_progress, closed}
  */
@@ -879,6 +893,11 @@ function getBeadCounts(slug) {
     let raw;
     try {
       const { manifest } = resolveTrackerAdapter();
+      // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+      // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here
+      // since `tracker.list` is a short, one-shot `br` read; its real ~MB-scale output (TRD-024
+      // reviewer round 2, P2) is handled by this same runner's 64 MiB default `maxBuffer`, not
+      // by anything in this function.
       const result = runCapabilitySync(manifest, 'tracker.list', {}, {
         timeoutMs: 10000,
         execFileOptions: { cwd: process.cwd() },
