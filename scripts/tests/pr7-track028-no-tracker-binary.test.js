@@ -33,6 +33,15 @@ const { validateCapabilityIds } = require('../validate-all');
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const COMMANDS_DIR = path.join(REPO_ROOT, 'packages', 'development', 'commands');
 const TARGET_FILES = ['list-issue.yaml', 'requirement-status.yaml', 'analyze-complexity.yaml', 'onboard.yaml', 'retro.yaml'];
+// Superset used ONLY by the generic "no literal br/bv invocation" describe block below: PR 7
+// independent review P2 found verify-requirements.yaml still called `br list --json`/`br
+// comment list <id>` directly with no CI coverage at all (absent from TARGET_FILES above,
+// which drives three OTHER, TRD-028-specific ACs -- capabilities-schema validation against a
+// fixed required/optional shape, retro.yaml's own byte-identical-to-pre-refactor check, and
+// AC-4's preflight-matches-declared-ids check -- none of which verify-requirements.yaml's
+// different, all-optional-with-no-preflight design would satisfy). Only the no-literal-
+// invocation sweep is generic enough to apply to it unmodified.
+const NO_BINARY_TARGET_FILES = [...TARGET_FILES, 'verify-requirements.yaml'];
 
 // Same pattern as the AC-1 grep: a bare `br` or `bv` word followed by a space -- i.e. an
 // invocation like `br list` or `bv --robot-triage`, not incidental prose like `br/bv` or
@@ -73,7 +82,7 @@ function extractRequireIds(line) {
 }
 
 describe('PR7 Track028: no literal br/bv tracker-binary invocation in refactored command YAMLs', () => {
-  for (const file of TARGET_FILES) {
+  for (const file of NO_BINARY_TARGET_FILES) {
     test(`${file} contains zero br/bv invocations`, () => {
       const contents = fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8');
       const hits = findInvocationLines(contents);
@@ -217,22 +226,41 @@ describe('PR7 Track028 AC-3: retro.yaml non-tracker steps are byte-identical to 
 });
 
 describe('PR7 Track028 AC-4: command preamble lists capabilities and gates tracker.create writes behind confirm-status', () => {
+  // Capabilities declared `optional` that a file's preflight line ALSO requires anyway, as a
+  // deliberate fail-fast UX choice confirmed by that file's own prose (no documented fallback
+  // exists for them -- retro.yaml's tracker.create is only ever invoked later, behind
+  // confirm-status, after explicit user approval; preflighting it has no alternate behavior to
+  // make unreachable). Every OTHER optional capability must be ABSENT from the preflight
+  // --require list: preflighting an optional capability that DOES have a documented fallback
+  // (e.g. list-issue.yaml's work-graph.plan -> tracker.list) makes that fallback unreachable
+  // (PR 7 independent review P2 finding).
+  const OPTIONAL_CAPABILITIES_ALSO_PREFLIGHTED = {
+    'retro.yaml': ['tracker.create']
+  };
+
   for (const file of TARGET_FILES) {
-    test(`${file} preflight line lists exactly its declared capability ids (required + optional)`, () => {
+    test(`${file} preflight line lists exactly its required capability ids, plus any optional id this file deliberately also preflights (no documented fallback)`, () => {
       const contents = fs.readFileSync(path.join(COMMANDS_DIR, file), 'utf8');
       const commandData = yaml.load(contents);
-      const declared = new Set([
-        ...(commandData.metadata.capabilities.required || []),
-        ...(commandData.metadata.capabilities.optional || [])
-      ]);
+      const required = commandData.metadata.capabilities.required || [];
+      const optional = commandData.metadata.capabilities.optional || [];
+      const alsoPreflighted = OPTIONAL_CAPABILITIES_ALSO_PREFLIGHTED[file] || [];
+      const expected = new Set([...required, ...alsoPreflighted]);
 
       const preflightLine = findPreflightLine(contents);
       expect(preflightLine).toBeTruthy();
       expect(preflightLine).toMatch(/TOOLCHAIN_CLI\\?" preflight/);
 
       const listedIds = extractRequireIds(preflightLine);
-      expect(new Set(listedIds)).toEqual(declared);
-      expect(listedIds.length).toBe(declared.size);
+      expect(new Set(listedIds)).toEqual(expected);
+      expect(listedIds.length).toBe(expected.size);
+
+      // Every optional capability with a documented fallback (i.e. not in this file's own
+      // deliberate-preflight allowlist above) must be ABSENT from the preflight line.
+      const fallbackOptionalIds = optional.filter((id) => !alsoPreflighted.includes(id));
+      for (const id of fallbackOptionalIds) {
+        expect(listedIds).not.toContain(id);
+      }
     });
 
     test(`${file} calls toolchain-cli confirm-status before its first tracker.create call iff it declares tracker.create`, () => {
@@ -256,6 +284,40 @@ describe('PR7 Track028 AC-4: command preamble lists capabilities and gates track
       }
     });
   }
+
+  test("mutation proof: reintroducing the optional work-graph.plan into list-issue.yaml's preflight --require list (PR 7 independent review P2) is caught, and the real source still passes", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'track028-preflight-optional-mutation-'));
+    try {
+      const src = path.join(COMMANDS_DIR, 'list-issue.yaml');
+      const original = fs.readFileSync(src, 'utf8');
+      const needle = 'preflight --require tracker.list [add --non-interactive when FOREMAN_TASK_TITLE is set] --json';
+      expect(original).toContain(needle);
+      const mutated = original.replace(
+        needle,
+        'preflight --require tracker.list --require work-graph.plan [add --non-interactive when FOREMAN_TASK_TITLE is set] --json'
+      );
+      expect(mutated).not.toBe(original);
+
+      const copyPath = path.join(tmpDir, 'list-issue.yaml');
+      fs.writeFileSync(copyPath, mutated, 'utf8');
+
+      const mutatedContents = fs.readFileSync(copyPath, 'utf8');
+      const mutatedData = yaml.load(mutatedContents);
+      const required = mutatedData.metadata.capabilities.required || [];
+      const listedIds = extractRequireIds(findPreflightLine(mutatedContents));
+      // The mutant now preflights 'work-graph.plan' even though it carries a documented
+      // fallback (the exact regression this task fixed) -- listedIds no longer equals
+      // required-only, proving the mutation is observable.
+      expect(new Set(listedIds)).not.toEqual(new Set(required));
+      expect(listedIds).toContain('work-graph.plan');
+
+      // Confirm again against the real, unmutated source: work-graph.plan is absent.
+      const realContents = fs.readFileSync(src, 'utf8');
+      expect(extractRequireIds(findPreflightLine(realContents))).not.toContain('work-graph.plan');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 
   test('mutation proof: dropping a --require flag from the preflight line in a /tmp copy of requirement-status.yaml is caught', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'track028-preflight-mutation-'));

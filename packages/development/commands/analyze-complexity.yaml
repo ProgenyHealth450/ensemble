@@ -20,7 +20,7 @@ parameters:
   - name: bead
     type: string
     required: false
-    description: Classify a bead (read via the tracker.show capability) instead of free text; its type and dependency counts become cited signals, and its priority and labels are cited but not scored
+    description: Classify a bead (read via `node "$TOOLCHAIN_CLI" run tracker.show --arg id=<bead-id> --json`) instead of free text; its type and dependency counts become cited signals, and its priority and labels are cited but not scored
   - name: route
     type: string
     required: false

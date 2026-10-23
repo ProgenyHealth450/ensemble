@@ -16,7 +16,7 @@ disable-model-invocation: true
 ---
 <!-- Command: ensemble-implement-bead | Version: 2.2.0 -->
 <!-- Description: Implement one bead by ID on a feature branch using the same branching, commit and PR_BACKEND policy as beads-build and implement-trd-beads -->
-<!-- Capabilities: required=[tracker.show, tracker.update, tracker.close, tracker.comment], optional=[] -->
+<!-- Capabilities: required=[tracker.show, tracker.update, tracker.close, tracker.comment, tracker.sync], optional=[] -->
 
 # ensemble-implement-bead
 
@@ -29,7 +29,7 @@ disable-model-invocation: true
 **Actions:**
 1. BEAD_ID = first token of $ARGUMENTS (a bare integer is fine; the tracker adapter accepts it). If absent, ask the user for it.
 2. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
-3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.update --require tracker.close --require tracker.comment --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID".
+3. Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.update --require tracker.close --require tracker.comment --require tracker.sync --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID".
 4. Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<BEAD_ID> --json. Non-ok -> print "ERROR: Bead <BEAD_ID> not found." and HALT. data.status == closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels from data.
 
 ### Step 2: Branching Strategy and PR Backend

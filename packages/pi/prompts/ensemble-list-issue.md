@@ -12,11 +12,11 @@
 ### Step 1: Resolve toolchain-cli and preflight capabilities
 
 Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
-Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list --require work-graph.plan [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before calling either capability. This command has no side-effecting write and so never calls confirm-status/confirm-record.
+Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before calling either capability. work-graph.plan is optional and is NOT part of this preflight call (marking an optional capability mandatory here would make the documented fallback below unreachable, exactly the bug this file previously had) -- its availability is instead discovered by calling it directly in step 2 and treating any non-ok/unavailable result as "not available", never a HALT. This command has no side-effecting write and so never calls confirm-status/confirm-record.
 
 ### Step 2: Run tracker listing for ranked or flat output
 
-Run `node "$TOOLCHAIN_CLI" run work-graph.plan --json` for ranked/scored triage output when the caller asked for --ranked or --robot-triage, falling back to `node "$TOOLCHAIN_CLI" run tracker.list --json` (filtered to status=open) when work-graph.plan was not among the preflighted optional capabilities, fails, or the caller asked for the flat form (default when $ARGUMENTS is empty).
+Run `node "$TOOLCHAIN_CLI" run work-graph.plan --json` for ranked/scored triage output when the caller asked for --ranked or --robot-triage, falling back to `node "$TOOLCHAIN_CLI" run tracker.list --json` (filtered to status=open) when that work-graph.plan call is unavailable or fails, or the caller asked for the flat form (default when $ARGUMENTS is empty).
 
 **Actions:**
 1. Present the result to the user as-is, printing data.orderingSource and data.dependencyAware when work-graph.plan was used. Do not create, modify, or close any issues.

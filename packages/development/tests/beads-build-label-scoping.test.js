@@ -7,10 +7,13 @@
  * plan that starved, or mixed in, another TRD's beads.
  *
  * Contract pinned here: beads are created with the TRD slug as a label; beads-build and
- * the wave runner accept --label, pass it to the `work-graph.plan`/`work-graph.ready`
- * capability call as `--arg scope=<LABEL or ROOT_EPIC_ID>`, verify the plan stays inside
- * the label (the scheduling source silently ignores an unknown label), and backfill
- * labels on older TRDs.
+ * the wave runner accept --label and pass it through (scope/LABEL/ROOT_EPIC_ID fields in the
+ * track payload), but do NOT pass it as `--arg scope=` to the work-graph.plan/work-graph.ready
+ * capability calls: no shipped adapter path (the real beads adapter's run template, nor
+ * TRD-027's builtin link-based fallback) honors a scope input, so passing it would be a pure
+ * no-op dead argument (PR 7 independent review item 3). Instead, when --label is set, the wave
+ * runner verifies the plan stayed inside the label itself (Step 3b, via tracker.list), HALTing
+ * rather than trusting an unscoped or unknown-label scheduling result.
  */
 
 const fs = require('fs');
@@ -71,8 +74,8 @@ describe('beads-build', () => {
 });
 
 describe('beads-build-wave', () => {
-  test('scopes the plan with work-graph.plan --arg scope=<LABEL> when LABEL is set', () => {
-    expect(wave).toMatch(/work-graph\.plan --run-id "\$RUN_ID" --arg scope=<LABEL or ROOT_EPIC_ID>/);
+  test('does not pass --arg scope= to work-graph.plan: no adapter path honors it, so it would be a dead no-op argument (PR 7 item 3)', () => {
+    expect(wave).not.toMatch(/run work-graph\.plan --run-id "\$RUN_ID" --arg scope=/);
   });
 
   test('verifies the plan stays inside the label instead of trusting the scheduling source', () => {
@@ -84,8 +87,8 @@ describe('beads-build-wave', () => {
     expect(wave).toMatch(/scope: \{ ROOT_EPIC_ID, EPIC_SLUG, LABEL \(or null\),/);
   });
 
-  test('br-only scheduling is label-scoped too', () => {
-    expect(wave).toMatch(/work-graph\.ready --run-id "\$RUN_ID" --arg scope=<LABEL or ROOT_EPIC_ID>/);
+  test('does not pass --arg scope= to work-graph.ready either, for the same reason', () => {
+    expect(wave).not.toMatch(/run work-graph\.ready --run-id "\$RUN_ID" --arg scope=/);
   });
 
   test('the runner agent maps the payload LABEL to --label', () => {

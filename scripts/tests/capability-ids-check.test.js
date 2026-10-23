@@ -14,7 +14,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { loadValidCapabilityIds, checkCapabilityIds } = require('../lib/capability-ids-check');
+const { loadValidCapabilityIds, checkCapabilityIds, checkCapabilityInvocationDrift } = require('../lib/capability-ids-check');
 
 const REAL_FILE = path.resolve(__dirname, '..', 'lib', 'capability-ids-check.js');
 
@@ -213,6 +213,96 @@ describe('checkCapabilityIds: an id declared in both required and optional is re
       metadata: { capabilities: { required: ['tracker.show'], optional: ['tracker.show'] } }
     };
     const failures = mutated.checkCapabilityIds(commandData, 'f.yaml', validIds);
+    expect(failures).toEqual([]);
+  });
+});
+
+describe('checkCapabilityInvocationDrift: every run/--require/confirm-status reference must be declared (PR 7 independent review item 7)', () => {
+  test('a run <capability> invocation absent from declared capabilities fails, naming the file and the id', () => {
+    const commandData = { metadata: { capabilities: { required: ['tracker.show'], optional: [] } } };
+    const rawText = 'Run: node "$TOOLCHAIN_CLI" run tracker.list --json; print the result.';
+    const failures = checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('f.yaml');
+    expect(failures[0]).toContain('tracker.list');
+  });
+
+  test('a --require <capability> flag absent from declared capabilities fails, naming the file and the id', () => {
+    const commandData = { metadata: { capabilities: { required: ['tracker.show'], optional: [] } } };
+    const rawText = 'preflight --require tracker.show --require work-graph.plan --json';
+    const failures = checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('work-graph.plan');
+  });
+
+  test('a confirm-status <capability> call absent from declared capabilities fails, naming the file and the id', () => {
+    const commandData = { metadata: { capabilities: { required: ['tracker.create'], optional: [] } } };
+    const rawText = 'run node "$TOOLCHAIN_CLI" confirm-status tracker.create --json; then confirm-status tracker.sync --json';
+    const failures = checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('tracker.sync');
+  });
+
+  test('every invoked id declared (required or optional) produces zero failures', () => {
+    const commandData = {
+      metadata: { capabilities: { required: ['tracker.show'], optional: ['work-graph.plan'] } }
+    };
+    const rawText = [
+      'preflight --require tracker.show --json',
+      'run node "$TOOLCHAIN_CLI" run work-graph.plan --json',
+      'run node "$TOOLCHAIN_CLI" run tracker.show --arg id=<id> --json'
+    ].join('\n');
+    expect(checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText)).toEqual([]);
+  });
+
+  test('a command with no metadata.capabilities block at all produces zero failures (nothing to compare against)', () => {
+    const commandData = { metadata: {} };
+    const rawText = 'run node "$TOOLCHAIN_CLI" run tracker.list --json';
+    expect(checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText)).toEqual([]);
+  });
+
+  test('a declared-but-never-invoked optional capability is never flagged (one-directional: invocation -> declaration only)', () => {
+    const commandData = {
+      metadata: { capabilities: { required: ['tracker.show'], optional: ['work-graph.plan'] } }
+    };
+    const rawText = 'run node "$TOOLCHAIN_CLI" run tracker.show --arg id=<id> --json';
+    expect(checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText)).toEqual([]);
+  });
+
+  test('each undeclared id is reported only once even when invoked multiple times', () => {
+    const commandData = { metadata: { capabilities: { required: [], optional: [] } } };
+    const rawText = 'run tracker.list --json; later: run tracker.list --json again';
+    const failures = checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
+    expect(failures).toHaveLength(1);
+  });
+
+  test('MUTATION PROOF: removing the RUN_CAPABILITY_RE scan silently stops catching an undeclared run <capability> invocation', () => {
+    const mutated = mutateAndRequireCheck(
+      'for (const re of [RUN_CAPABILITY_RE, PREFLIGHT_REQUIRE_ID_RE, CONFIRM_STATUS_ID_RE]) {',
+      'for (const re of [PREFLIGHT_REQUIRE_ID_RE, CONFIRM_STATUS_ID_RE]) {'
+    );
+    const commandData = { metadata: { capabilities: { required: [], optional: [] } } };
+    const rawText = 'run node "$TOOLCHAIN_CLI" run tracker.list --json';
+    const failures = mutated.checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
+    expect(failures).toEqual([]);
+  });
+
+  test('MUTATION PROOF: removing the --require id scan silently stops catching an undeclared preflight --require reference', () => {
+    const mutated = mutateAndRequireCheck(
+      'for (const re of [RUN_CAPABILITY_RE, PREFLIGHT_REQUIRE_ID_RE, CONFIRM_STATUS_ID_RE]) {',
+      'for (const re of [RUN_CAPABILITY_RE, CONFIRM_STATUS_ID_RE]) {'
+    );
+    const commandData = { metadata: { capabilities: { required: [], optional: [] } } };
+    const rawText = 'preflight --require tracker.list --json';
+    const failures = mutated.checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
+    expect(failures).toEqual([]);
+  });
+
+  test('MUTATION PROOF: making the declared-set check always pass silently accepts an undeclared id', () => {
+    const mutated = mutateAndRequireCheck('if (!declared.has(id)) {', 'if (false) {');
+    const commandData = { metadata: { capabilities: { required: [], optional: [] } } };
+    const rawText = 'run node "$TOOLCHAIN_CLI" run tracker.list --json';
+    const failures = mutated.checkCapabilityInvocationDrift(commandData, 'f.yaml', rawText);
     expect(failures).toEqual([]);
   });
 });

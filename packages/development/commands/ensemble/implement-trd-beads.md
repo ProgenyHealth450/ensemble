@@ -6,7 +6,7 @@ category: "implementation"
 last-updated: "2026-10-21"
 allowed-tools: "Read, Write, Edit, Bash, Grep, Glob, Task"
 capabilities-required: "tracker.list, tracker.create, tracker.dep-add, tracker.comment, tracker.close, tracker.sync"
-capabilities-optional: "work-graph.plan, work-graph.graph-health, tracker.stage-export"
+capabilities-optional: "work-graph.plan, work-graph.graph-health, tracker.stage-export, tracker.comments"
 argument-hint: "[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman] [<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]]"
 model: "sonnet"
 ---
@@ -170,7 +170,7 @@ finished), COMPLETE (epic closed, report printed).
 **4. Completion report**
    Final summary, completion PR (single-PR mode) and next steps.
 
-- Print TRD file, branch, strategy, epic id, `node "$TRD_CLI" status <TRD_SLUG>` progress, and the completion report path. Requirement table: write tracker.list's `data` to a temp file and run `node "$TRD_CLI" req-status "<TRD_FILE_PATH>" --issues-json <file>`. `tracker.comments` is not declared here (gap): omit VERIFIED ids, print a warning once. Print SATISFIED / NOT VERIFIED per requirement and a total.
+- Write tracker.list's `data` to ISSUES_FILE; run `node "$TOOLCHAIN_CLI" run tracker.comments --arg id=<ROOT_EPIC_ID> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json`; on `{ok:true}` extract `req-verified:REQ-NNN` tokens into VERIFIED_REQS (else empty); run `node "$TRD_CLI" req-status "<TRD_FILE_PATH>" --issues-json <ISSUES_FILE> --verified <VERIFIED_REQS>` (omit when empty). Print TRD file, branch, strategy, epic id, `node "$TRD_CLI" status <TRD_SLUG>` progress, SATISFIED/NOT VERIFIED per requirement, and total.
 - Single-PR mode (`COMPLETION_ACTION.createPr == true`): the whole-branch review already passed in step 2; do not re-run it. Pre-PR test gate `npm run test --workspaces --if-present` (non-zero -> HALT). Create the PR per `PR_BACKEND` using COMPLETION_ACTION (base = default branch, body `Implements TRD <TRD_SLUG>. Strategy: <strategy>. <phase_count> phases, <task_count> tasks — all complete. Bead: <ROOT_EPIC_ID>.`; reference section 3). Print a PR SUMMARY with the URL and 'Review: REVIEW_PENDING (head-bound remote review has not run; re-invoke pr-review-cycle MODE=remote for PR_ID <TRD_SLUG>-completion)', or, if no PR was auto-created, 'PR: not auto-created' and 'Review: PENDING (no PR created)'.
 - Stacked mode (`STACKED_PRS=true`): print a STACKED PR SUMMARY, one line per `PHASE_BRANCH_MAP` entry: `<PR|Phase> <N>: <url or 'not auto-created — see manual instructions printed at that phase gate'> (branch -> parent) -- review: <PR_REVIEW_STATUS[N]>`, plus `Shippable: <state>` when PR_FORMAT is true. Say to merge PR 1 first (it targets the default branch); git-town auto-retargets the rest, plain-git needs manual retargeting.
 - Remind user: after all PRs merge run `mv <trd_file> docs/TRD/completed/`. Beads-backed quickstart.md generation is unsupported.

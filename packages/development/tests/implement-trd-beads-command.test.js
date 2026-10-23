@@ -298,12 +298,14 @@ describe('implement-trd-beads completion', () => {
     expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('git commit'));
   });
 
-  test('requirement table comes from trd-cli req-status over tracker.list data, with VERIFIED ids omitted (tracker.comments capability gap)', () => {
+  test('requirement table comes from trd-cli req-status over tracker.list data, with VERIFIED ids restored via tracker.comments (PR 7 item 2: pre-refactor behavior restored, not omitted)', () => {
     const report = actions('Completion', 'Completion report');
     expect(report).toContain('req-status');
     expect(report).toContain('--issues-json');
     expect(report).toContain('tracker.comments');
-    expect(report).toContain('omit VERIFIED ids');
+    expect(report).toContain('req-verified:REQ-NNN');
+    expect(report).toContain('VERIFIED_REQS');
+    expect(report).toContain('--verified <VERIFIED_REQS>');
   });
 
   test('closes the root epic and syncs after verification', () => {
