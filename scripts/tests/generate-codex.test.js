@@ -22,6 +22,7 @@ const {
   copyAdapterSkills,
   vendorCodexToolchain,
 } = require('../generate-codex/index.js');
+const { makeCodexTempRoot } = require('./fixtures/codex-generate/temp-codex-root');
 
 describe('parseFrontmatter — CRLF line endings', () => {
   const CRLF_CONTENT =
@@ -93,24 +94,15 @@ describe('generateCodexSubcommandsSection', () => {
   });
 });
 
-describe('generateCommandSkills — dispatcher commands (live smoke run, throwaway fixture)', () => {
-  const ROOT = path.resolve(__dirname, '..', '..');
-  const FIXTURE_PACKAGE_DIR = path.join(ROOT, 'packages', '__codex_dispatch_fixture__');
-  const FIXTURE_COMMANDS_DIR = path.join(FIXTURE_PACKAGE_DIR, 'commands');
-  const DISPATCHER_SKILL_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'commands', 'ensemble-dispatcher-fixture');
-  const LEAF_SKILL_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'commands', 'ensemble-subcommand-fixture');
+describe('generateCommandSkills — dispatcher commands (temp-root smoke run, TRD-020 test-isolation fix)', () => {
+  let baseRoot;
+  let fixtureRoot;
 
-  function cleanupFixtures() {
-    fs.rmSync(FIXTURE_PACKAGE_DIR, { recursive: true, force: true });
-    fs.rmSync(DISPATCHER_SKILL_DIR, { recursive: true, force: true });
-    fs.rmSync(LEAF_SKILL_DIR, { recursive: true, force: true });
-  }
-
-  beforeAll(() => {
-    cleanupFixtures();
-    fs.mkdirSync(FIXTURE_COMMANDS_DIR, { recursive: true });
+  function writeFixtureCommands(packagesDir) {
+    const fixtureCommandsDir = path.join(packagesDir, 'codex-dispatch-fixture', 'commands');
+    fs.mkdirSync(fixtureCommandsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(FIXTURE_COMMANDS_DIR, 'dispatcher-fixture.yaml'),
+      path.join(fixtureCommandsDir, 'dispatcher-fixture.yaml'),
       [
         'metadata:',
         '  name: ensemble:dispatcher-fixture',
@@ -124,30 +116,54 @@ describe('generateCommandSkills — dispatcher commands (live smoke run, throwaw
       ].join('\n')
     );
     fs.writeFileSync(
-      path.join(FIXTURE_COMMANDS_DIR, 'subcommand-fixture.yaml'),
+      path.join(fixtureCommandsDir, 'subcommand-fixture.yaml'),
       ['metadata:', '  name: ensemble:subcommand-fixture', '  description: Fixture leaf command', ''].join('\n')
     );
+  }
+
+  beforeAll(() => {
+    // Two isolated temp roots, both seeded with the same real, pre-existing dispatch-free
+    // command (fix-issue): baseRoot has nothing else, fixtureRoot additionally has the
+    // throwaway dispatcher fixture. Comparing fix-issue's generated output between the two is
+    // an A/B idempotency proof that the fixture doesn't perturb unrelated output -- without
+    // ever reading, writing, or deleting anything under the live repo's generated output.
+    baseRoot = makeCodexTempRoot();
+    baseRoot.seedFile(path.join('packages', 'development', 'commands', 'fix-issue.yaml'));
+    baseRoot.seedFile(path.join('packages', 'development', 'commands', 'ensemble', 'fix-issue.md'));
+    generateCommandSkills({
+      dryRun: false,
+      verbose: false,
+      packagesDir: baseRoot.packagesDir,
+      outputDir: baseRoot.outputDir,
+      rootDir: baseRoot.rootDir,
+    });
+
+    fixtureRoot = makeCodexTempRoot();
+    fixtureRoot.seedFile(path.join('packages', 'development', 'commands', 'fix-issue.yaml'));
+    fixtureRoot.seedFile(path.join('packages', 'development', 'commands', 'ensemble', 'fix-issue.md'));
+    writeFixtureCommands(fixtureRoot.packagesDir);
+    generateCommandSkills({
+      dryRun: false,
+      verbose: false,
+      packagesDir: fixtureRoot.packagesDir,
+      outputDir: fixtureRoot.outputDir,
+      rootDir: fixtureRoot.rootDir,
+    });
   });
 
   afterAll(() => {
-    cleanupFixtures();
+    baseRoot.cleanup();
+    fixtureRoot.cleanup();
   });
 
   test('always reads the raw YAML .dispatch field (invisible in frontmatter-only .md) and appends a ## Subcommands section', () => {
-    // Known pre-existing, dispatch-free command: prove this generator run is
-    // a byte-identical no-op for it, rather than asserting zero git changes
-    // overall (fragile in a shared worktree, since this same feature's own
-    // real dispatcher YAMLs legitimately produce their own new, expected
-    // untracked output -- that is not a regression to detect here).
-    const KNOWN_LEAF_SKILL = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'commands', 'ensemble-fix-issue', 'SKILL.md');
-    const beforeContent = fs.readFileSync(KNOWN_LEAF_SKILL, 'utf-8');
+    // Runs the real end-to-end generator (globs every <packagesDir>/*/commands/*.yaml,
+    // including our throwaway fixture pair) so this proves the live wiring, not just the
+    // pure-function unit tests above.
+    const dispatcherSkillDir = path.join(fixtureRoot.outputDir, 'skills', 'commands', 'ensemble-dispatcher-fixture');
+    const leafSkillDir = path.join(fixtureRoot.outputDir, 'skills', 'commands', 'ensemble-subcommand-fixture');
 
-    // Runs the real end-to-end generator (globs every packages/*/commands/*.yaml,
-    // including our throwaway fixture pair) so this proves the live wiring, not
-    // just the pure-function unit tests above.
-    generateCommandSkills({ dryRun: false, verbose: false });
-
-    const dispatcherSkill = fs.readFileSync(path.join(DISPATCHER_SKILL_DIR, 'SKILL.md'), 'utf-8');
+    const dispatcherSkill = fs.readFileSync(path.join(dispatcherSkillDir, 'SKILL.md'), 'utf-8');
     expect(dispatcherSkill).toContain('## Subcommands');
     expect(dispatcherSkill).toContain(
       '- **`sub`** - Fixture leaf subcommand. see the `ensemble-subcommand-fixture` skill (`packages/codex/.codex/skills/commands/ensemble-subcommand-fixture/SKILL.md`).'
@@ -158,38 +174,36 @@ describe('generateCommandSkills — dispatcher commands (live smoke run, throwaw
       dispatcherSkill.indexOf('Fixture dispatcher command for Codex subcommand rendering test')
     );
 
-    const leafSkill = fs.readFileSync(path.join(LEAF_SKILL_DIR, 'SKILL.md'), 'utf-8');
+    const leafSkill = fs.readFileSync(path.join(leafSkillDir, 'SKILL.md'), 'utf-8');
     expect(leafSkill).not.toContain('## Subcommands');
 
-    // Idempotency/no-regression proof: a known pre-existing, dispatch-free
-    // command's output is unchanged by this generator run.
-    const afterContent = fs.readFileSync(KNOWN_LEAF_SKILL, 'utf-8');
-    expect(afterContent).toBe(beforeContent);
+    // Idempotency/no-regression proof: a real, pre-existing, dispatch-free command
+    // (fix-issue) generates byte-identical output whether or not the fixture dispatcher
+    // package is also present in packagesDir.
+    const baselineFixIssue = fs.readFileSync(
+      path.join(baseRoot.outputDir, 'skills', 'commands', 'ensemble-fix-issue', 'SKILL.md')
+    );
+    const afterFixIssue = fs.readFileSync(
+      path.join(fixtureRoot.outputDir, 'skills', 'commands', 'ensemble-fix-issue', 'SKILL.md')
+    );
+    expect(afterFixIssue.equals(baselineFixIssue)).toBe(true);
   });
 });
 
-describe('generateCommandSkills — metadata.visibility (live smoke run, throwaway fixture)', () => {
+describe('generateCommandSkills — metadata.visibility (temp-root smoke run, TRD-020 test-isolation fix)', () => {
   const yaml = require('js-yaml');
-  const ROOT = path.resolve(__dirname, '..', '..');
-  const FIXTURE_PACKAGE_DIR = path.join(ROOT, 'packages', '__codex_visibility_fixture__');
-  const FIXTURE_COMMANDS_DIR = path.join(FIXTURE_PACKAGE_DIR, 'commands');
-  const SKILLS_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'commands');
-  const names = ['vis-hub-fixture', 'vis-hidden-fixture', 'vis-shown-fixture'];
+  let tmp;
 
-  const skillDir = (n) => path.join(SKILLS_DIR, `ensemble-${n}`);
+  const skillDir = (n) => path.join(tmp.outputDir, 'skills', 'commands', `ensemble-${n}`);
   const readSkill = (n) => fs.readFileSync(path.join(skillDir(n), 'SKILL.md'), 'utf-8');
   const frontmatterOf = (n) => yaml.load(readSkill(n).split('---\n')[1]);
 
-  function cleanupFixtures() {
-    fs.rmSync(FIXTURE_PACKAGE_DIR, { recursive: true, force: true });
-    names.forEach((n) => fs.rmSync(skillDir(n), { recursive: true, force: true }));
-  }
-
   beforeAll(() => {
-    cleanupFixtures();
-    fs.mkdirSync(FIXTURE_COMMANDS_DIR, { recursive: true });
+    tmp = makeCodexTempRoot();
+    const fixtureCommandsDir = path.join(tmp.packagesDir, 'codex-visibility-fixture', 'commands');
+    fs.mkdirSync(fixtureCommandsDir, { recursive: true });
     const write = (n, body) =>
-      fs.writeFileSync(path.join(FIXTURE_COMMANDS_DIR, `${n}.yaml`), body.join('\n') + '\n');
+      fs.writeFileSync(path.join(fixtureCommandsDir, `${n}.yaml`), body.join('\n') + '\n');
     write('vis-hub-fixture', [
       'metadata:',
       '  name: ensemble:vis-hub-fixture',
@@ -214,11 +228,17 @@ describe('generateCommandSkills — metadata.visibility (live smoke run, throwaw
       '  name: ensemble:vis-shown-fixture',
       '  description: Fixture visible leaf',
     ]);
-    generateCommandSkills({ dryRun: false, verbose: false });
+    generateCommandSkills({
+      dryRun: false,
+      verbose: false,
+      packagesDir: tmp.packagesDir,
+      outputDir: tmp.outputDir,
+      rootDir: tmp.rootDir,
+    });
   });
 
   afterAll(() => {
-    cleanupFixtures();
+    tmp.cleanup();
   });
 
   test('a hidden command still gets a wrapper skill, marked not user-invocable', () => {
@@ -280,46 +300,43 @@ describe('normalizeSkillBody / buildCodexAgentsMd — dotnet skill', () => {
   });
 });
 
-describe('copyAdapterSkills — adapter directories (TRD-020, live smoke run, throwaway fixture)', () => {
-  const ROOT = path.resolve(__dirname, '..', '..');
+describe('copyAdapterSkills — adapter directories (TRD-020, temp-root smoke run, throwaway fixture)', () => {
   const FIXTURE_SOURCE_DIR = path.join(__dirname, 'fixtures', 'toolchain', 'good-adapter');
-  const FIXTURE_PACKAGE_DIR = path.join(ROOT, 'packages', '__codex_adapter_fixture__');
-  const FIXTURE_ADAPTER_DIR = path.join(FIXTURE_PACKAGE_DIR, 'skills', 'adapter-fixture-tracker');
-  const ADAPTER_SKILL_OUTPUT_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'adapter-fixture-tracker');
-
-  function cleanupFixtures() {
-    fs.rmSync(FIXTURE_PACKAGE_DIR, { recursive: true, force: true });
-    fs.rmSync(ADAPTER_SKILL_OUTPUT_DIR, { recursive: true, force: true });
-  }
+  let tmp;
 
   beforeAll(() => {
-    cleanupFixtures();
-    fs.mkdirSync(FIXTURE_ADAPTER_DIR, { recursive: true });
-    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'SKILL.md'), path.join(FIXTURE_ADAPTER_DIR, 'SKILL.md'));
-    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'adapter.yaml'), path.join(FIXTURE_ADAPTER_DIR, 'adapter.yaml'));
+    tmp = makeCodexTempRoot();
+    // Two known pre-existing, adapter-free skills (copied from the already-generated,
+    // committed output) to prove this run is a byte-identical no-op for both -- the same
+    // regression guard as the live-tree version had, without reading or writing the live tree.
+    tmp.seedFile(path.join('packages', 'codex', '.codex', 'skills', 'react', 'SKILL.md'));
+    tmp.seedFile(path.join('packages', 'codex', '.codex', 'skills', 'nestjs', 'SKILL.md'));
+
+    const fixtureAdapterDir = path.join(tmp.packagesDir, 'codex-adapter-fixture', 'skills', 'adapter-fixture-tracker');
+    fs.mkdirSync(fixtureAdapterDir, { recursive: true });
+    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'SKILL.md'), path.join(fixtureAdapterDir, 'SKILL.md'));
+    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'adapter.yaml'), path.join(fixtureAdapterDir, 'adapter.yaml'));
   });
 
   afterAll(() => {
-    cleanupFixtures();
+    tmp.cleanup();
   });
 
   test('copies SKILL.md (frontmatter-synthesized) and adapter.yaml (byte-identical) keyed by the adapter directory name, leaving unrelated skills untouched', () => {
-    // Two known pre-existing, adapter-free skills: prove this generator run is a byte-identical
-    // no-op for both, rather than asserting zero git changes overall (fragile in a shared
-    // worktree; see the identical rationale on the dispatcher-commands test above).
-    const KNOWN_SKILL_REACT = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'react', 'SKILL.md');
-    const KNOWN_SKILL_NESTJS = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'nestjs', 'SKILL.md');
+    const KNOWN_SKILL_REACT = path.join(tmp.outputDir, 'skills', 'react', 'SKILL.md');
+    const KNOWN_SKILL_NESTJS = path.join(tmp.outputDir, 'skills', 'nestjs', 'SKILL.md');
     const beforeReact = fs.readFileSync(KNOWN_SKILL_REACT);
     const beforeNestjs = fs.readFileSync(KNOWN_SKILL_NESTJS);
 
-    // Runs the real end-to-end function (globs every packages/*/skills/adapter-*/SKILL.md,
+    // Runs the real end-to-end function (globs every <packagesDir>/*/skills/adapter-*/SKILL.md,
     // including our throwaway fixture) so this proves the live wiring, not just a pure-function
     // unit test.
-    const count = copyAdapterSkills({ dryRun: false, verbose: false });
+    const count = copyAdapterSkills({ dryRun: false, verbose: false, packagesDir: tmp.packagesDir, outputDir: tmp.outputDir });
     expect(count).toBeGreaterThanOrEqual(1);
 
-    const skillDest = path.join(ADAPTER_SKILL_OUTPUT_DIR, 'SKILL.md');
-    const yamlDest = path.join(ADAPTER_SKILL_OUTPUT_DIR, 'adapter.yaml');
+    const adapterOutputDir = path.join(tmp.outputDir, 'skills', 'adapter-fixture-tracker');
+    const skillDest = path.join(adapterOutputDir, 'SKILL.md');
+    const yamlDest = path.join(adapterOutputDir, 'adapter.yaml');
     expect(fs.existsSync(skillDest)).toBe(true);
     expect(fs.existsSync(yamlDest)).toBe(true);
 
@@ -340,22 +357,20 @@ describe('copyAdapterSkills — adapter directories (TRD-020, live smoke run, th
   });
 });
 
-describe('copyAdapterSkills — adapter directory name collision across packages (TRD-020 P2 fix, live smoke run, throwaway fixtures)', () => {
-  const ROOT = path.resolve(__dirname, '..', '..');
-  const FIXTURE_PACKAGE_A = path.join(ROOT, 'packages', '__codex_adapter_collision_fixture_a__');
-  const FIXTURE_PACKAGE_B = path.join(ROOT, 'packages', '__codex_adapter_collision_fixture_b__');
-  const ADAPTER_DIR_A = path.join(FIXTURE_PACKAGE_A, 'skills', 'adapter-collision-regression');
-  const ADAPTER_DIR_B = path.join(FIXTURE_PACKAGE_B, 'skills', 'adapter-collision-regression');
-  const COLLIDING_OUTPUT_DIR = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'adapter-collision-regression');
-
-  function cleanupFixtures() {
-    fs.rmSync(FIXTURE_PACKAGE_A, { recursive: true, force: true });
-    fs.rmSync(FIXTURE_PACKAGE_B, { recursive: true, force: true });
-    fs.rmSync(COLLIDING_OUTPUT_DIR, { recursive: true, force: true });
-  }
+describe('copyAdapterSkills — adapter directory name collision across packages (TRD-020 P2 fix, temp-root smoke run, throwaway fixtures)', () => {
+  let tmp;
+  let ADAPTER_DIR_A;
+  let ADAPTER_DIR_B;
+  let COLLIDING_OUTPUT_DIR;
 
   beforeEach(() => {
-    cleanupFixtures();
+    tmp = makeCodexTempRoot();
+    const FIXTURE_PACKAGE_A = path.join(tmp.packagesDir, 'codex-adapter-collision-fixture-a');
+    const FIXTURE_PACKAGE_B = path.join(tmp.packagesDir, 'codex-adapter-collision-fixture-b');
+    ADAPTER_DIR_A = path.join(FIXTURE_PACKAGE_A, 'skills', 'adapter-collision-regression');
+    ADAPTER_DIR_B = path.join(FIXTURE_PACKAGE_B, 'skills', 'adapter-collision-regression');
+    COLLIDING_OUTPUT_DIR = path.join(tmp.outputDir, 'skills', 'adapter-collision-regression');
+
     fs.mkdirSync(ADAPTER_DIR_A, { recursive: true });
     fs.mkdirSync(ADAPTER_DIR_B, { recursive: true });
     fs.writeFileSync(path.join(ADAPTER_DIR_A, 'SKILL.md'), '# Package A Collision Adapter\n');
@@ -365,7 +380,7 @@ describe('copyAdapterSkills — adapter directory name collision across packages
   });
 
   afterEach(() => {
-    cleanupFixtures();
+    tmp.cleanup();
   });
 
   test('two different packages shipping an adapter dir with the same basename is a hard generator failure, naming both colliding source paths, and writes nothing', () => {
@@ -374,7 +389,7 @@ describe('copyAdapterSkills — adapter directory name collision across packages
     // COLLIDING_OUTPUT_DIR instead of throwing.
     let thrown = null;
     try {
-      copyAdapterSkills({ dryRun: false, verbose: false });
+      copyAdapterSkills({ dryRun: false, verbose: false, packagesDir: tmp.packagesDir, outputDir: tmp.outputDir });
     } catch (err) {
       thrown = err;
     }
@@ -390,16 +405,25 @@ describe('copyAdapterSkills — adapter directory name collision across packages
   });
 });
 
-describe('vendorCodexToolchain — toolchain-cli.js runtime vendoring (TRD-020, live smoke run)', () => {
-  const ROOT = path.resolve(__dirname, '..', '..');
-  const VENDOR_ROOT = path.join(ROOT, 'packages', 'codex', '.codex', 'skills', 'vendor');
+describe('vendorCodexToolchain — toolchain-cli.js runtime vendoring (TRD-020, temp-root smoke run)', () => {
+  let tmp;
+  let VENDOR_ROOT;
+
+  beforeAll(() => {
+    tmp = makeCodexTempRoot();
+    VENDOR_ROOT = path.join(tmp.outputDir, 'skills', 'vendor');
+  });
 
   afterAll(() => {
-    fs.rmSync(VENDOR_ROOT, { recursive: true, force: true });
+    tmp.cleanup();
   });
 
   test('vendors toolchain-cli.js, every toolchain/*.js submodule, the complexity-analyzer.js sibling dependency, the toolchain data dir, and a package.json declaring ajv/js-yaml', () => {
-    const count = vendorCodexToolchain({ dryRun: false, verbose: false });
+    // sourceRoot stays the real repo root (vendorCodexToolchain always vendors the real,
+    // production toolchain library -- only outputDir, the write target, is overridden here);
+    // nothing under the real repo tree is read-write except the normal require() reads of the
+    // real lib source files this generator ships in production.
+    const count = vendorCodexToolchain({ dryRun: false, verbose: false, outputDir: tmp.outputDir });
     // 35 files as of this change (cli + complexity-analyzer + 13 toolchain/*.js + package.json
     // + the toolchain/ data tree); asserted loosely so an unrelated data-file addition upstream
     // doesn't make this brittle.
@@ -433,12 +457,14 @@ describe('vendorCodexToolchain — toolchain-cli.js runtime vendoring (TRD-020, 
   test('the vendored toolchain-cli.js resolves its sibling requires and __dirname-based data-dir lookups from inside the vendor tree alone', () => {
     // Runs the vendored COPY (not packages/development/lib/toolchain-cli.js) in a child
     // process with cwd set to the vendor root, so every relative require/__dirname lookup
-    // resolves inside the copy. This does not by itself prove the copy is installable outside
-    // the monorepo (ajv/js-yaml still resolve via this repo's hoisted root node_modules here,
-    // which ancestor-walks from VENDOR_ROOT); that standalone proof was run manually (real
-    // `npm install` against a copy placed under /tmp, outside the repo checkout) and is not
-    // repeated here as an automated test per the "no reliance on real network" determinism
-    // requirement -- see this track's report for the exact commands and output.
+    // resolves inside the copy. ajv/js-yaml resolve via makeCodexTempRoot()'s <root>/node_modules
+    // symlink to this repo's real, hoisted node_modules (Node's normal upward resolution walk
+    // from VENDOR_ROOT finds it there) -- the same pattern
+    // scripts/tests/fixtures/toolchain/mutant-toolchain-copy.js uses. This does not by itself
+    // prove the copy is installable outside the monorepo; that standalone proof was run
+    // manually (real `npm install` against a copy placed under /tmp, outside the repo checkout)
+    // and is not repeated here as an automated test per the "no reliance on real network"
+    // determinism requirement -- see this track's report for the exact commands and output.
     const { execFileSync } = require('child_process');
     const out = execFileSync(
       process.execPath,

@@ -292,8 +292,8 @@ function copyFrameworkSkills({ dryRun, verbose }) {
  * other Codex skill. adapter.yaml is never rewritten: it is the toolchain resolver's own
  * manifest format, copied byte-for-byte like lib-bundler.ts copies vendored libs.
  */
-function copyAdapterSkills({ dryRun, verbose }) {
-  const adapterSkillFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/skills/adapter-*/SKILL.md'))).sort();
+function copyAdapterSkills({ dryRun, verbose, packagesDir = PACKAGES_DIR, outputDir = OUTPUT_DIR }) {
+  const adapterSkillFiles = globSync(toGlobPattern(path.join(packagesDir, '*/skills/adapter-*/SKILL.md'))).sort();
 
   // Detect adapter directory-name collisions (TRD-020 P2 fix). Output is keyed purely by the
   // adapter directory's own basename (not the owning package), so two different packages
@@ -322,7 +322,7 @@ function copyAdapterSkills({ dryRun, verbose }) {
   for (const skillFile of adapterSkillFiles) {
     const adapterDir = path.dirname(skillFile);
     const adapterName = path.basename(adapterDir);
-    const dest = path.join(OUTPUT_DIR, 'skills', adapterName, 'SKILL.md');
+    const dest = path.join(outputDir, 'skills', adapterName, 'SKILL.md');
     const raw = readFile(skillFile);
     const parsed = parseFrontmatter(raw);
     const frontmatter = Object.keys(parsed.data).length > 0
@@ -338,7 +338,7 @@ function copyAdapterSkills({ dryRun, verbose }) {
 
     const adapterYaml = path.join(adapterDir, 'adapter.yaml');
     if (fs.existsSync(adapterYaml)) {
-      copyFile(adapterYaml, path.join(OUTPUT_DIR, 'skills', adapterName, 'adapter.yaml'), dryRun, verbose);
+      copyFile(adapterYaml, path.join(outputDir, 'skills', adapterName, 'adapter.yaml'), dryRun, verbose);
     }
   }
 
@@ -352,8 +352,8 @@ function copyAdapterSkills({ dryRun, verbose }) {
  * See scripts/lib/toolchain-vendor.js for the exact file set and the relative-layout
  * constraint that dictates this placement.
  */
-function vendorCodexToolchain({ dryRun, verbose }) {
-  const vendorRoot = path.join(OUTPUT_DIR, 'skills', 'vendor');
+function vendorCodexToolchain({ dryRun, verbose, outputDir = OUTPUT_DIR }) {
+  const vendorRoot = path.join(outputDir, 'skills', 'vendor');
   const { files } = vendorToolchainLibrary({
     sourceRoot: ROOT,
     vendorRoot,
@@ -372,10 +372,17 @@ function vendorCodexToolchain({ dryRun, verbose }) {
  * @param {Array<{keyword: string, ref: string, description?: string}>} subcommands
  * @param {Map<string, string>} baseNameToYamlFile - bare command name -> its source YAML path
  * @param {string} sourceYamlPath - the dispatcher's own YAML path, for error messages
+ * @param {object} [overrides]
+ * @param {string} [overrides.outputDir] - defaults to OUTPUT_DIR; overridden by tests so the
+ *   sibling skill's SKILL.md path is computed inside an isolated temp tree instead of the real
+ *   repo's `.codex/` output.
+ * @param {string} [overrides.rootDir] - defaults to ROOT; must be the ancestor `outputDir` sits
+ *   under so the rendered path (e.g. `packages/codex/.codex/skills/commands/...`) stays
+ *   structurally correct even when both are overridden to a temp root.
  * @returns {string}
  */
-function generateCodexSubcommandsSection(subcommands, baseNameToYamlFile, sourceYamlPath) {
-  const repoRoot = path.resolve(__dirname, '..', '..');
+function generateCodexSubcommandsSection(subcommands, baseNameToYamlFile, sourceYamlPath, { outputDir = OUTPUT_DIR, rootDir = ROOT } = {}) {
+  const repoRoot = rootDir;
   const lines = ['## Subcommands', ''];
 
   for (const sub of subcommands) {
@@ -383,7 +390,7 @@ function generateCodexSubcommandsSection(subcommands, baseNameToYamlFile, source
       throw new Error(`dispatch.subcommands references unknown command '${sub.ref}' (${sourceYamlPath})`);
     }
     const codexSkillName = `ensemble-${sub.ref}`;
-    const outputPath = path.join(OUTPUT_DIR, 'skills', 'commands', codexSkillName, 'SKILL.md');
+    const outputPath = path.join(outputDir, 'skills', 'commands', codexSkillName, 'SKILL.md');
     const relPath = path.relative(repoRoot, outputPath);
     const description = sub.description ? sub.description.trim().replace(/\s+/g, ' ') : '';
     const descPrefix = description ? `${description}. ` : '';
@@ -394,8 +401,8 @@ function generateCodexSubcommandsSection(subcommands, baseNameToYamlFile, source
   return lines.join('\n');
 }
 
-function generateCommandSkills({ dryRun, verbose }) {
-  const commandYamlFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/commands/*.yaml'))).sort();
+function generateCommandSkills({ dryRun, verbose, packagesDir = PACKAGES_DIR, outputDir = OUTPUT_DIR, rootDir = ROOT }) {
+  const commandYamlFiles = globSync(toGlobPattern(path.join(packagesDir, '*/commands/*.yaml'))).sort();
   // Resolves each dispatch.subcommands[].ref to its sibling's own YAML path,
   // so we can validate the ref and derive that sibling's Codex output path.
   const baseNameToYamlFile = new Map(commandYamlFiles.map((f) => [path.basename(f, '.yaml'), f]));
@@ -408,7 +415,7 @@ function generateCommandSkills({ dryRun, verbose }) {
     const raw = fs.existsSync(markdownPath) ? readFile(markdownPath) : readFile(yamlFile);
     const { data, content } = parseFrontmatter(raw);
     const codexSkillName = `ensemble-${baseName}`;
-    const dest = path.join(OUTPUT_DIR, 'skills', 'commands', codexSkillName, 'SKILL.md');
+    const dest = path.join(outputDir, 'skills', 'commands', codexSkillName, 'SKILL.md');
     const description = data.description || `Run Ensemble command /ensemble:${baseName}`;
     const commandName = data.name || `ensemble:${baseName}`;
 
@@ -420,7 +427,7 @@ function generateCommandSkills({ dryRun, verbose }) {
     // the raw YAML directly.
     const yamlData = yaml.load(normalizeLineEndings(readFile(yamlFile))) || {};
     const subcommandsSection = yamlData.dispatch?.subcommands
-      ? generateCodexSubcommandsSection(yamlData.dispatch.subcommands, baseNameToYamlFile, yamlFile)
+      ? generateCodexSubcommandsSection(yamlData.dispatch.subcommands, baseNameToYamlFile, yamlFile, { outputDir, rootDir })
       : null;
 
     // When `content` is mirrored from Claude's already-generated .md, a
