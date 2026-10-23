@@ -90,6 +90,15 @@ capabilities:
   # `trd-cli.js#getBeadCounts` already does (`Array.isArray(parsed) ? parsed :
   # parsed.issues || []`, defending against the older-br bare-array shape this adapter's
   # declarative mapping engine cannot itself branch on -- see "Known limits" in SKILL.md).
+  # `--limit 0` (unlimited) previously crashed on this repo's own real `.beads/` database
+  # (~3.4 MB of JSON, confirmed live) against Node's `execFile` 1 MiB default `maxBuffer`;
+  # fixed at the engine level (not here) via
+  # packages/development/lib/toolchain/runner.js's `DEFAULT_MAX_BUFFER_BYTES` (64 MiB),
+  # applied to every capability's child process, not specific to this one (TRD-024 reviewer
+  # round 2, P2). A zero-exit error envelope on stdout (e.g. a stale-DB-guard conflict) is
+  # also now fail-closed as `TOOL_FAILED` by that same runner.js layer, not silently
+  # `ok:true`, for this capability and `tracker.comments`/`tracker.label`/`tracker.sync`
+  # below (reviewer round 2, P1).
   tracker.list:
     run: ["br", "list", "--all", "--limit", "0", "--json"]
 

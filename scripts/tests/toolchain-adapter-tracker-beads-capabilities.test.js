@@ -33,11 +33,7 @@ const { main } = require('../../packages/development/lib/toolchain-cli');
 const { loadAdapter } = require('../../packages/development/lib/toolchain/adapters');
 const { runCapability } = require('../../packages/development/lib/toolchain/runner');
 const { mapOutput } = require('../../packages/development/lib/toolchain/mapping');
-const {
-  writeBeadsStubs,
-  writeStubControl,
-  clearStubControl
-} = require('./fixtures/toolchain/adapter-tracker-beads-stub');
+const { writeBeadsStubs, writeStubControl } = require('./fixtures/toolchain/adapter-tracker-beads-stub');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const WORK_ITEM_SCHEMA_PATH = path.join(
@@ -64,7 +60,6 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.PATH = savedPath;
-  clearStubControl();
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
   }
@@ -97,8 +92,8 @@ const CLI_CTX = { projectRoot: REPO_ROOT, env: process.env };
 
 describe('TRD-024-TEST: non-side-effecting tracker capabilities, real CLI entry point', () => {
   test('tracker.show: real `run` through main() normalizes and validates against work-item.json', async () => {
-    mkStubBinDir();
-    writeStubControl({ brShowStatus: 'in_progress' });
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { brShowStatus: 'in_progress' });
 
     const { returned: code, stdout } = await captureStdout(() =>
       main(['run', 'tracker.show', '--arg', 'id=br-x', '--json'], CLI_CTX)
@@ -119,7 +114,7 @@ describe('TRD-024-TEST: non-side-effecting tracker capabilities, real CLI entry 
   });
 
   test('tracker.show: every statusMap entry normalizes (deferred -> open, in_review -> in_progress)', async () => {
-    mkStubBinDir();
+    const binDir = mkStubBinDir();
     for (const [raw, normalized] of [
       ['open', 'open'],
       ['in_progress', 'in_progress'],
@@ -127,7 +122,7 @@ describe('TRD-024-TEST: non-side-effecting tracker capabilities, real CLI entry 
       ['deferred', 'open'],
       ['in_review', 'in_progress']
     ]) {
-      writeStubControl({ brShowStatus: raw });
+      writeStubControl(binDir, { brShowStatus: raw });
       const { returned: code, stdout } = await captureStdout(() =>
         main(['run', 'tracker.show', '--arg', 'id=br-x', '--json'], CLI_CTX)
       );
@@ -137,8 +132,8 @@ describe('TRD-024-TEST: non-side-effecting tracker capabilities, real CLI entry 
   });
 
   test('tracker.list: declares no parse block, so `data` is the raw stdout text for either br shape', async () => {
-    mkStubBinDir();
-    writeStubControl({ brListShape: 'wrapped' });
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { brListShape: 'wrapped' });
     const wrapped = await captureStdout(() => main(['run', 'tracker.list', '--json'], CLI_CTX));
     expect(wrapped.returned).toBe(0);
     const wrappedData = JSON.parse(wrapped.stdout.trim()).data;
@@ -151,7 +146,7 @@ describe('TRD-024-TEST: non-side-effecting tracker capabilities, real CLI entry 
       has_more: false
     });
 
-    writeStubControl({ brListShape: 'bare' });
+    writeStubControl(binDir, { brListShape: 'bare' });
     const bare = await captureStdout(() => main(['run', 'tracker.list', '--json'], CLI_CTX));
     expect(bare.returned).toBe(0);
     const bareData = JSON.parse(bare.stdout.trim()).data;
@@ -160,14 +155,51 @@ describe('TRD-024-TEST: non-side-effecting tracker capabilities, real CLI entry 
     ]);
   });
 
+  test('tracker.list: a ~3.6 MB synthetic payload (sized past this repo\'s own live ~3.4 MB `br list`) succeeds instead of TOOL_FAILED maxBuffer (reviewer round 2, P2)', async () => {
+    const binDir = mkStubBinDir();
+    // 450 issues * ~8KB filler description each; comfortably exceeds Node's execFile 1 MiB
+    // default (the bug) and this repo's own live ~3.4 MB `br list --all --json` measurement,
+    // while staying under runner.js's DEFAULT_MAX_BUFFER_BYTES (64 MiB, the fix).
+    writeStubControl(binDir, { brListLargeIssueCount: 450 });
+    const { returned: code, stdout } = await captureStdout(() => main(['run', 'tracker.list', '--json'], CLI_CTX));
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
+    const data = JSON.parse(parsed.data);
+    expect(data.issues).toHaveLength(450);
+    expect(JSON.stringify(data).length).toBeGreaterThan(3 * 1024 * 1024);
+  });
+
+  test('tracker.list: an error envelope on stdout despite a zero exit fails closed (ok:false, TOOL_FAILED, reviewer round 2, P1)', async () => {
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { brErrorEnvelope: true });
+    const { returned: code, stdout } = await captureStdout(() => main(['run', 'tracker.list', '--json'], CLI_CTX));
+    expect(code).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe('TOOL_FAILED');
+  });
+
   test('tracker.comments: declares no parse block, so `data` is the raw stdout array text', async () => {
-    mkStubBinDir();
+    const binDir = mkStubBinDir();
     const { returned: code, stdout } = await captureStdout(() =>
       main(['run', 'tracker.comments', '--arg', 'id=br-x', '--json'], CLI_CTX)
     );
     expect(code).toBe(0);
     const data = JSON.parse(stdout.trim()).data;
     expect(JSON.parse(data)).toEqual([{ author: 'stub', text: 'a stub comment' }]);
+  });
+
+  test('tracker.comments: an error envelope on stdout despite a zero exit fails closed (ok:false, TOOL_FAILED, reviewer round 2, P1)', async () => {
+    const binDir = mkStubBinDir();
+    writeStubControl(binDir, { brErrorEnvelope: true });
+    const { returned: code, stdout } = await captureStdout(() =>
+      main(['run', 'tracker.comments', '--arg', 'id=br-x', '--json'], CLI_CTX)
+    );
+    expect(code).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe('TOOL_FAILED');
   });
 });
 
@@ -198,7 +230,7 @@ describe('TRD-024-TEST: tracker.list "bare array vs {issues:[...]}" normalizatio
 describe('TRD-024-TEST: work-graph capabilities, real runCapability() (the "work-graph: auto" default-selection indirection is a different, out-of-scope bead -- TRD-027 -- so these call runCapability() directly against the real beads manifest, same as the side-effecting tracker capabilities below, rather than through main()\'s category resolution)', () => {
   test('work-graph.ready: normalized item order matches the stub bv sample\'s own order exactly (no re-sorting)', async () => {
     const binDir = mkStubBinDir();
-    writeStubControl({ bvItemIds: ['br-zz-last', 'br-aa-first', 'br-mm-mid'] });
+    writeStubControl(binDir, { bvItemIds: ['br-zz-last', 'br-aa-first', 'br-mm-mid'] });
 
     const result = await runCapability(REAL_MANIFEST, 'work-graph.ready', {}, {
       parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
@@ -210,7 +242,7 @@ describe('TRD-024-TEST: work-graph capabilities, real runCapability() (the "work
 
   test('work-graph.plan: same command, same track-0 items, in order', async () => {
     const binDir = mkStubBinDir();
-    writeStubControl({ bvItemIds: ['br-3', 'br-1', 'br-2'] });
+    writeStubControl(binDir, { bvItemIds: ['br-3', 'br-1', 'br-2'] });
 
     const result = await runCapability(REAL_MANIFEST, 'work-graph.plan', {}, {
       parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
@@ -284,6 +316,21 @@ describe('TRD-024-TEST: side-effecting tracker capabilities, real runCapability(
     expect(typeof result.data).toBe('string');
     expect(JSON.parse(result.data)).toEqual({ status: 'flushed' });
   });
+
+  test.each(['tracker.label', 'tracker.sync'])(
+    '%s: an error envelope on stdout despite a zero exit fails closed (ok:false, TOOL_FAILED, reviewer round 2, P1)',
+    async (capability) => {
+      const binDir = mkStubBinDir();
+      writeStubControl(binDir, { brErrorEnvelope: true });
+      const args = capability === 'tracker.label' ? { ids: 'br-x', labels: 'stub-label' } : {};
+      const result = await runCapability(REAL_MANIFEST, capability, args, {
+        parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+        timeoutMs: 10000
+      });
+      expect(result.ok).toBe(false);
+      expect(result.error.code).toBe('TOOL_FAILED');
+    }
+  );
 });
 
 describe('TRD-024-TEST: health checks run the real (stubbed) br/bv --version', () => {

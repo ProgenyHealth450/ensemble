@@ -31,7 +31,7 @@ const { validateAdapterDir, checkVocabularyBlock } = require('../../packages/dev
 const { loadAdapter } = require('../../packages/development/lib/toolchain/adapters');
 const { resolveCategory } = require('../../packages/development/lib/toolchain/config');
 const { runCapability } = require('../../packages/development/lib/toolchain/runner');
-const { writeBeadsStubs, writeStubControl, clearStubControl } = require('./fixtures/toolchain/adapter-tracker-beads-stub');
+const { writeBeadsStubs, writeStubControl } = require('./fixtures/toolchain/adapter-tracker-beads-stub');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const ADAPTER_DIR = path.join(REPO_ROOT, 'packages', 'development', 'skills', 'adapter-tracker-beads');
@@ -56,7 +56,6 @@ const EXPECTED_CAPABILITIES = [
 
 const tempDirs = [];
 afterEach(() => {
-  clearStubControl();
   while (tempDirs.length > 0) {
     fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
   }
@@ -182,7 +181,7 @@ describe('TRD-024-TEST: mutation check proves the validators are capable of fail
 
     const binDir = mkTempDir('adapter-tracker-beads-bin-');
     writeBeadsStubs(binDir);
-    writeStubControl({ brShowStatus: 'closed' });
+    writeStubControl(binDir, { brShowStatus: 'closed' });
     const result = await runCapability(manifest, 'tracker.show', { id: 'br-x' }, {
       parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` }
     });
@@ -193,12 +192,32 @@ describe('TRD-024-TEST: mutation check proves the validators are capable of fail
     // Present-case control: the SAME manifest, SAME stub, with "open" status (still mapped)
     // succeeds -- proving the prior failure is specific to the removed "closed" entry, not a
     // broken stub or a broken manifest in general.
-    writeStubControl({ brShowStatus: 'open' });
+    writeStubControl(binDir, { brShowStatus: 'open' });
     const controlResult = await runCapability(manifest, 'tracker.show', { id: 'br-x' }, {
       parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` }
     });
     expect(controlResult.ok).toBe(true);
     expect(controlResult.data.status).toBe('open');
+  });
+
+  test('a statusMap entry mapped OUTSIDE the normalized {open,in_progress,closed} enum fails closed via work-item.json\'s own Ajv enum gate, not just statusMap presence (reviewer round 2, P3)', async () => {
+    const dir = mkMutableAdapterCopy();
+    const manifest = loadMutableManifest(dir);
+    // statusMap still HAS an entry for the raw "open" status (so mapOutput's own
+    // has-an-entry check does not fire) -- the entry's own VALUE is the typo, not a
+    // normalized vocabulary word, proving the Ajv enum on work-item.json's "status" field is
+    // the gate that actually catches this, independent of statusMap's presence check.
+    manifest.capabilities['tracker.show'].parse.statusMap.open = 'frozen';
+
+    const binDir = mkTempDir('adapter-tracker-beads-bin-');
+    writeBeadsStubs(binDir);
+    writeStubControl(binDir, { brShowStatus: 'open' });
+    const result = await runCapability(manifest, 'tracker.show', { id: 'br-x' }, {
+      parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('BAD_OUTPUT');
+    expect(result.error.message).toMatch(/status/);
   });
 });
 
@@ -218,5 +237,22 @@ describe('TRD-024-TEST: the normalized work-item schema itself (sanity check for
     const validate = ajv.compile(schema);
     expect(validate({ id: 'br-x' })).toBe(true);
     expect(validate({ items: [] })).toBe(false);
+  });
+
+  test('"status" is constrained to the normalized {open,in_progress,closed} enum -- an out-of-enum value fails Ajv directly (reviewer round 2, P3)', () => {
+    const schemaPath = path.join(
+      REPO_ROOT,
+      'packages',
+      'development',
+      'toolchain',
+      'schemas',
+      'normalized',
+      'work-item.json'
+    );
+    const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+    const ajv = new Ajv({ allErrors: true });
+    const validate = ajv.compile(schema);
+    expect(validate({ id: 'br-x', status: 'open' })).toBe(true);
+    expect(validate({ id: 'br-x', status: 'cancelled' })).toBe(false);
   });
 });

@@ -64,7 +64,24 @@ separately), matching `validate.js`'s own documented limit.
   list/labels/sync result structurally has no top-level `id`. These four capabilities
   therefore return their tool's raw JSON stdout as `data` (unparsed); a caller parses
   it directly, exactly as `packages/development/lib/trd-cli.js#getBeadCounts` already
-  does for `br list` (`Array.isArray(parsed) ? parsed : parsed.issues || []`).
+  does for `br list` (`Array.isArray(parsed) ? parsed : parsed.issues || []`). A tool
+  failure reported on a ZERO exit (an error envelope on stdout -- `br`'s own `br schema
+  commands` documents this for `comments list`/`sync`) is still fail-closed for these
+  four: `runner.js#runCapability` checks stdout for a top-level JSON object with an
+  own `error` property before any `parse` handling runs, independent of whether a
+  `parse` block is declared, and resolves `TOOL_FAILED` rather than passing the
+  envelope through as `ok:true` data (TRD-024 reviewer round 2, P1).
+- **`tracker.list`'s `--limit 0` (unlimited) output is bounded only by `runner.js`'s
+  `maxBuffer`, not by this adapter.** Against this repo's own real `.beads/` database
+  (~3.4 MB of JSON, confirmed live) it previously exceeded Node's `execFile` 1 MiB
+  default `maxBuffer` and failed `TOOL_FAILED`. `runner.js` now sets a
+  `DEFAULT_MAX_BUFFER_BYTES` (64 MiB) floor for every capability's child process
+  (caller-overridable via `opts.execFileOptions.maxBuffer`), matching this repo's own
+  sibling `execFile`/`spawnSync` callers' convention (TRD-024 reviewer round 2, P2).
+  This is a buffer-size fix, not a page-size one: `tracker.list` still returns every
+  matching issue in one response, and a database large enough to exceed 64 MiB would
+  still need a real `limit`/pagination input this category's contract does not
+  currently declare.
 - **`tracker.list`'s "bare array vs `{issues:[...]}`" br-version variance is not, and
   cannot be, handled by this adapter's declarative mapping even if it DID declare a
   `parse` block.** The shared mapping engine's dotted-path grammar
@@ -101,3 +118,13 @@ separately), matching `validate.js`'s own documented limit.
   "$[0]"` is independently confirmed live. The mutating capabilities above reuse that
   same `root: "$[0]"` array-of-one convention by inference from this documented
   pattern, not a captured live sample.
+- **`toolchain.default.yaml`'s `work-graph: auto` does not yet resolve to any
+  adapter.** No shipped task implements the TRD's own `auto`-sentinel selection
+  algorithm (use the resolved tracker adapter's own work-graph capabilities when
+  present, else a work-graph-links-fallback adapter) in `resolveCategory`/`config.js`;
+  `node toolchain-cli.js resolve --json` echoes `"work-graph":{"adapter":"auto"}`
+  unchanged, and `run work-graph.*` against that default fails `NOT_INSTALLED` (no
+  manifest declares `adapter: auto`). Until that resolver work lands (flagged as a
+  probable TRD gap, out of this bead's scope), call this adapter's `work-graph.*`
+  capabilities directly by capability name against the `beads` adapter rather than
+  through category resolution.

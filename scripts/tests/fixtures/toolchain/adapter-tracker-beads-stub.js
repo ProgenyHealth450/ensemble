@@ -17,58 +17,63 @@
  *
  * A per-test CONTROL FILE, not an env var, drives the handful of response variations the
  * suite needs (which `status` `br show` reports, whether `br list` wraps its output, which ids
- * `bv --robot-plan` lists): `packages/development/lib/toolchain/runner.js#buildChildEnv`
- * deliberately strips every env var the resolved adapter's own `env: []` does not declare
- * (plus a small fixed allowlist: `PATH`/`HOME`/`USER`/`LOGNAME`/`LANG`/`TMPDIR`/`TERM`/`TZ`)
- * before spawning ANY adapter child process -- a custom `STUB_*` env var set on the TEST
- * process would never reach the stub child at all (proven empirically: an earlier version of
- * this helper tried exactly that and every "variant" test silently saw only the stub's
- * hard-coded default). `TMPDIR` IS in that fixed allowlist and is always copied through
- * unchanged from the real parent environment, so `os.tmpdir()` resolves identically inside the
- * spawned stub child as it does inside the test process that wrote the control file --
- * `writeStubControl`/the stub's own read both resolve `controlFilePath()` the same way,
- * giving the test process a channel to the stub child that survives `buildChildEnv`'s
- * filtering without needing any new entry in `BASE_ENV_ALLOWLIST` or the adapter's `env: []`.
+ * `bv --robot-plan` lists, whether a command should report an error envelope, how large a
+ * synthetic `br list` payload to emit): `packages/development/lib/toolchain/runner.js
+ * #buildChildEnv` deliberately strips every env var the resolved adapter's own `env: []` does
+ * not declare (plus a small fixed allowlist) before spawning ANY adapter child process -- a
+ * custom `STUB_*` env var set on the TEST process would never reach the stub child at all
+ * (proven empirically: an earlier version of this helper tried exactly that and every
+ * "variant" test silently saw only the stub's hard-coded default).
+ *
+ * The control file lives INSIDE the caller-supplied `binDir` (`<binDir>/control.json`), never
+ * at one fixed `os.tmpdir()` path. `binDir` is already unique per test (created via
+ * `mkTempDir('adapter-tracker-beads-bin-')`/`mkStubBinDir()`), so colocating the control file
+ * there gives every test its own private channel with no shared state across jest worker
+ * processes -- a single fixed `os.tmpdir()` path was last-writer-wins across the two test
+ * suites' separate workers, silently corrupting whichever test lost the race (reviewer round
+ * 2, P2: reproduced as 2 failures running both suites together, one of them a mutation-proof
+ * guard test passing vacuously). Both stub sources resolve the identical path via their own
+ * `path.dirname(process.argv[1])` (the directory the stub binary itself was spawned from, which
+ * is always `binDir`) -- no env var, no shared `require`, and no fixed-name collision risk is
+ * possible even under full jest parallelism.
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
-const CONTROL_FILE_NAME = '.adapter-tracker-beads-stub-control.json';
+const CONTROL_FILE_NAME = 'control.json';
 
-/** Resolve the control-file path; shared by `writeStubControl`/`clearStubControl` and the
- * stub scripts' own inline copy of this same one-liner (duplicated there, not required, so
- * each stub stays a single self-contained file with no local `require` of this module). */
-function controlFilePath() {
-  return path.join(os.tmpdir(), CONTROL_FILE_NAME);
+/**
+ * Resolve one test's control-file path, colocated with its stub binaries inside `binDir`.
+ * @param {string} binDir absolute path to the per-test stub bin directory
+ * @returns {string}
+ */
+function controlFilePath(binDir) {
+  return path.join(binDir, CONTROL_FILE_NAME);
 }
 
 /**
- * Write this test's stub response overrides. Call once per test (after `writeBeadsStubs`,
- * before invoking the adapter); `afterEach` should call `clearStubControl()` unconditionally
- * so one test's overrides never leak into the next.
- * @param {{brShowStatus?: string, brListShape?: 'wrapped'|'bare', bvItemIds?: string[]}} [overrides]
+ * Write this test's stub response overrides. Call once per test (after `writeBeadsStubs(binDir)`,
+ * before invoking the adapter), passing the same `binDir`. No cleanup call is needed: the
+ * control file lives inside `binDir`, which every caller already removes in its own `afterEach`
+ * (`fs.rmSync(dir, {recursive: true, force: true})`).
+ * @param {string} binDir the same directory passed to `writeBeadsStubs`
+ * @param {{brShowStatus?: string, brListShape?: 'wrapped'|'bare', brListLargeIssueCount?: number,
+ *   brErrorEnvelope?: boolean, bvItemIds?: string[]}} [overrides]
  */
-function writeStubControl(overrides = {}) {
-  fs.writeFileSync(controlFilePath(), JSON.stringify(overrides));
-}
-
-/** Remove any control file a test left behind; safe to call even when none exists. */
-function clearStubControl() {
-  fs.rmSync(controlFilePath(), { force: true });
+function writeStubControl(binDir, overrides = {}) {
+  fs.writeFileSync(controlFilePath(binDir), JSON.stringify(overrides));
 }
 
 const BR_STUB_SOURCE = `#!/usr/bin/env node
 'use strict';
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const argv = process.argv.slice(2);
 
 function readControl() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(os.tmpdir(), '${CONTROL_FILE_NAME}'), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(path.dirname(process.argv[1]), 'control.json'), 'utf8'));
   } catch {
     return {};
   }
@@ -76,10 +81,18 @@ function readControl() {
 const control = readControl();
 const status = control.brShowStatus || 'open';
 const listShape = control.brListShape || 'wrapped';
+const listLargeIssueCount = control.brListLargeIssueCount || 0;
+const errorEnvelope = Boolean(control.brErrorEnvelope);
 
 function out(value) {
   process.stdout.write(JSON.stringify(value));
 }
+
+// Matches the real \`br\` shape this adapter's own comments/SKILL.md document for a tool
+// failure reported on a ZERO exit (never a non-zero exit the stub would need argv[0] !==
+// handled branches for): \`comments list\`/\`sync\`/\`label add\`/\`list\` all print
+// \`{"error":{...}}\` to stdout instead of their normal payload (TRD-024 reviewer round 2, P1).
+const ERROR_ENVELOPE = { error: { code: 'CONFLICT', message: 'stale DB guard' } };
 
 if (argv[0] === '--version') {
   process.stdout.write('br 0.6.0-stub\\n');
@@ -88,8 +101,27 @@ if (argv[0] === '--version') {
     { id: argv[1], title: 'Stub title', description: 'Stub description', issue_type: 'task', status, labels: ['a', 'b'] }
   ]);
 } else if (argv[0] === 'list') {
-  const issues = [{ id: 'b-1', title: 'Stub issue', status: 'open', issue_type: 'task', labels: [] }];
-  out(listShape === 'bare' ? issues : { issues, total: issues.length, limit: 0, offset: 0, has_more: false });
+  if (errorEnvelope) {
+    out(ERROR_ENVELOPE);
+  } else {
+    let issues = [{ id: 'b-1', title: 'Stub issue', status: 'open', issue_type: 'task', labels: [] }];
+    if (listLargeIssueCount > 0) {
+      // A ~8KB filler description per issue approximates this repo's own live \`br list
+      // --all --json\` size (~3.4 MB at ~740 real issues, TRD-024 reviewer round 2, P2) without
+      // needing a real tracker: synthetic size is deterministic and caller-controlled via the
+      // issue count.
+      const filler = 'x'.repeat(8000);
+      issues = Array.from({ length: listLargeIssueCount }, (_, i) => ({
+        id: 'b-' + i,
+        title: 'Stub issue ' + i,
+        status: 'open',
+        issue_type: 'task',
+        labels: [],
+        description: filler
+      }));
+    }
+    out(listShape === 'bare' ? issues : { issues, total: issues.length, limit: 0, offset: 0, has_more: false });
+  }
 } else if (argv[0] === 'create') {
   out([{ id: 'br-created-1', title: 'Stub created', status: 'open' }]);
 } else if (argv[0] === 'update') {
@@ -99,15 +131,15 @@ if (argv[0] === '--version') {
 } else if (argv[0] === 'comments' && argv[1] === 'add') {
   out([{ id: argv[2] }]);
 } else if (argv[0] === 'comments' && argv[1] === 'list') {
-  out([{ author: 'stub', text: 'a stub comment' }]);
+  out(errorEnvelope ? ERROR_ENVELOPE : [{ author: 'stub', text: 'a stub comment' }]);
 } else if (argv[0] === 'dep' && argv[1] === 'add') {
   out([{ id: argv[2] }]);
 } else if (argv[0] === 'dep' && argv[1] === 'remove') {
   out([{ id: argv[2] }]);
 } else if (argv[0] === 'label' && argv[1] === 'add') {
-  out({ ids: [argv[2]], labels: ['stub-label'] });
+  out(errorEnvelope ? ERROR_ENVELOPE : { ids: [argv[2]], labels: ['stub-label'] });
 } else if (argv[0] === 'sync') {
-  out({ status: 'flushed' });
+  out(errorEnvelope ? ERROR_ENVELOPE : { status: 'flushed' });
 } else {
   process.stderr.write('stub br: unrecognized argv ' + JSON.stringify(argv) + '\\n');
   process.exit(1);
@@ -117,13 +149,12 @@ if (argv[0] === '--version') {
 const BV_STUB_SOURCE = `#!/usr/bin/env node
 'use strict';
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const argv = process.argv.slice(2);
 
 function readControl() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(os.tmpdir(), '${CONTROL_FILE_NAME}'), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(path.dirname(process.argv[1]), 'control.json'), 'utf8'));
   } catch {
     return {};
   }
@@ -178,4 +209,4 @@ function writeBeadsStubs(binDir) {
   return binDir;
 }
 
-module.exports = { writeBeadsStubs, writeStubControl, clearStubControl };
+module.exports = { writeBeadsStubs, writeStubControl };

@@ -104,6 +104,17 @@
  * actually killed on timeout, and a child process never inherits a credential the resolved
  * adapter did not declare (see "Child environment" below, Threat Model trust boundary 2).
  *
+ * `opts.execFileOptions` MAY still override one thing no caller is blocked from changing:
+ * `maxBuffer`. Node's own `execFile` default (1 MiB) is too small for some capabilities' real
+ * stdout (`tracker.list` against this repo's own live `.beads/` database measured ~3.4 MB --
+ * TRD-024 reviewer round 2, P2) and was observed to hard-fail with a `RangeError` mapped to
+ * `TOOL_FAILED` well before any tool-side error occurred; this module therefore sets
+ * `maxBuffer: DEFAULT_MAX_BUFFER_BYTES` (64 MiB, matching this repo's own sibling `execFile`/
+ * `spawnSync` callers' convention, e.g. `beads-label.js`, `complexity-analyzer.js`) as the
+ * FIRST key in the options object, before `opts.execFileOptions` is spread -- a caller may
+ * still raise or lower it per call, unlike `env`/`timeout`/`killSignal`/`shell` above, since a
+ * wider buffer carries no shell-injection or credential-widening risk.
+ *
  * ## Child environment (TRD trust boundary 2, "credentials from environment variable names
  * the manifest declares, never values")
  *
@@ -231,7 +242,14 @@
  *   `ledger.js`/`preflight.js` use for their own on-disk records) and truncated to
  *   `MAX_TOOL_FAILED_DETAIL_LENGTH` characters before it ever leaves this function -- a failing
  *   tool's stderr is attacker- or misconfiguration-influenced input the CLI prints verbatim, so
- *   it must never carry a credential or grow unbounded (reviewer Finding 4).
+ *   it must never carry a credential or grow unbounded (reviewer Finding 4). Also reached on a
+ *   ZERO exit when stdout parses as a JSON object whose top-level `error` property is itself
+ *   an object -- an "error envelope on a successful exit" shape some tools use (e.g. `br
+ *   sync`/`br comments list`/`br label add` reporting a failure on stdout with exit 0, TRD-024
+ *   reviewer round 2 P1); this check runs for EVERY capability, parse-declaring or not, before
+ *   any `parse` handling, and only matches a top-level JSON OBJECT -- a top-level JSON ARRAY
+ *   (e.g. `br show`'s own `[{...}]` envelope) is unaffected and still reaches `BAD_OUTPUT`/the
+ *   normal mapping path exactly as before.
  * - `BAD_OUTPUT`: only reachable when the resolved capability declares a `parse` block
  *   (TRD-012). Either `mapOutput` threw (malformed stdout relative to `parse`, e.g. unparsable
  *   JSON or a `map` path that does not resolve) or the mapped value failed Ajv validation
@@ -431,6 +449,12 @@ function buildArgv(runTemplate, args = {}, contract = {}) {
 
 const MANIFEST_PLACEHOLDER_PATTERN = /\$\{([^{}]+)\}/g;
 const DEFAULT_TIMEOUT_MS = 60000;
+// See this file's header, "`opts.execFileOptions` MAY still override..." -- 64 MiB, matching
+// this repo's own sibling execFile/spawnSync callers (beads-label.js, complexity-analyzer.js);
+// strictly larger than Node's 1 MiB execFile default, so this can only turn a previously
+// crashing large-stdout capability into a working one, never the reverse (TRD-024 reviewer
+// round 2, P2).
+const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /**
  * Rewrite a manifest `capabilities[].run[]` template's `${name}` placeholders (the syntax
@@ -862,6 +886,7 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
         argv[0],
         argv.slice(1),
         {
+          maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
           ...opts.execFileOptions,
           env: childEnv,
           timeout: timeoutMs,
@@ -924,6 +949,54 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
             });
             return;
           }
+
+          // Zero exit, but stdout is itself an error envelope (some `br` subcommands this
+          // adapter wraps report failure this way, e.g. `sync`/`comments list`/`label add` --
+          // TRD-024 reviewer round 2, P1). Only a top-level JSON OBJECT with an own `error`
+          // property that is itself an object counts: a top-level JSON ARRAY (e.g. `br show`'s
+          // `[{...}]`) is never touched here and still reaches `BAD_OUTPUT`/the normal mapping
+          // path below exactly as before. Runs for EVERY capability, parse-declaring or not --
+          // the four capabilities this adapter deliberately ships with no `parse` block
+          // (`tracker.list`/`comments`/`label`/`sync`) had no other signal that could ever
+          // catch this; a `parse`-declaring capability's mapped output already fails `BAD_OUTPUT`
+          // for an error envelope today (it never has the schema's required `id`), so this
+          // check firing first for it only changes the error CODE (`TOOL_FAILED` instead of
+          // `BAD_OUTPUT`), never `ok:true` into `ok:false` or vice versa.
+          const trimmedStdout = stdout ? String(stdout).trim() : '';
+          if (trimmedStdout) {
+            let parsedStdout;
+            try {
+              parsedStdout = JSON.parse(trimmedStdout);
+            } catch {
+              parsedStdout = undefined;
+            }
+            if (
+              parsedStdout !== null &&
+              typeof parsedStdout === 'object' &&
+              !Array.isArray(parsedStdout) &&
+              Object.prototype.hasOwnProperty.call(parsedStdout, 'error') &&
+              parsedStdout.error !== null &&
+              typeof parsedStdout.error === 'object'
+            ) {
+              const rawDetail = JSON.stringify(parsedStdout.error);
+              const redactedDetail = redactSecrets(rawDetail).text;
+              const boundedDetail =
+                redactedDetail.length > MAX_TOOL_FAILED_DETAIL_LENGTH
+                  ? `${redactedDetail.slice(0, MAX_TOOL_FAILED_DETAIL_LENGTH)}... [truncated]`
+                  : redactedDetail;
+              resolve({
+                ok: false,
+                error: {
+                  code: 'TOOL_FAILED',
+                  message:
+                    `${adapterId}: capability '${capability}' failed: tool reported an error ` +
+                    `envelope on stdout despite a zero exit (${boundedDetail})`
+                }
+              });
+              return;
+            }
+          }
+
           let data = stdout;
           if (cap.parse) {
             let mapped;
