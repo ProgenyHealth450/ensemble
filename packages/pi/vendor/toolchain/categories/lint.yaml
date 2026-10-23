@@ -1,0 +1,10 @@
+category: lint
+version: "1.0"
+
+capabilities:
+  lint.run:
+    description: Run configured lint checks against a set of files.
+    inputs: [files]
+    outputs: [status, findings]
+    required: true
+    sideEffect: false

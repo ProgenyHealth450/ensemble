@@ -1,0 +1,17 @@
+category: worktree
+version: "1.0"
+
+capabilities:
+  worktree.create:
+    description: Create a worktree for a branch.
+    inputs: [branch, path]
+    outputs: [path, branch]
+    required: true
+    sideEffect: true
+
+  worktree.remove:
+    description: Remove a previously created worktree.
+    inputs: [path]
+    outputs: [path]
+    required: false
+    sideEffect: true
