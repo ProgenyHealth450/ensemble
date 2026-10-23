@@ -85,3 +85,4 @@ capabilities:
     outputs: [text, status]
     required: false
     sideEffect: false
+    fallback: full-export-unscoped

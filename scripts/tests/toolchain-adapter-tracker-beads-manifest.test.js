@@ -49,6 +49,7 @@ const EXPECTED_CAPABILITIES = [
   'tracker.dep-remove',
   'tracker.label',
   'tracker.sync',
+  'tracker.stage-export',
   'work-graph.ready',
   'work-graph.plan',
   'work-graph.graph-health'
