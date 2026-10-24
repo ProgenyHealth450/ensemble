@@ -1,0 +1,179 @@
+{
+  "command": "fix-issue",
+  "path": "packages/development/commands/fix-issue.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-039",
+  "sequence": [
+    [
+      "gh",
+      "issue view"
+    ],
+    [
+      "git",
+      "branch"
+    ],
+    [
+      "git",
+      "checkout"
+    ],
+    [
+      "git",
+      "rev-parse"
+    ],
+    [
+      "git",
+      "symbolic-ref"
+    ],
+    [
+      "git",
+      "merge-base"
+    ],
+    [
+      "git",
+      "add"
+    ],
+    [
+      "gh",
+      "pr create"
+    ],
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "pr list"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "git",
+      "switch"
+    ],
+    [
+      "git",
+      "merge-base"
+    ],
+    [
+      "git",
+      "commit"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr create"
+    ],
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "pr list"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "gh",
+          "issue view"
+        ]
+      ],
+      "trd": "TRD-047 lint contract (I1)",
+      "justification": "fix-issue is a named lint source (zero literal tool binaries) and host.yaml has no issue-read capability (only change-request-*), so reading the issue body is stated as intent without a literal `gh issue view`."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "branch"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Reads of repository state (current branch, default branch, repo toplevel, remote URL, branch existence) are reworded to state their intent without a literal git command because no workflow.* capability exposes them; for the backend/remote the TRD-039 resolver detection (`toolchain-cli explain`/`resolve`) is the source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "checkout"
+        ]
+      ],
+      "trd": "I1",
+      "justification": "Plain git operations are workflow.* capabilities of the default `plain-git` workflow adapter (branch creation is `git switch -c` via workflow.branch-create, `git switch` already in the sequence); `git checkout -b` and `git town ...` are the non-default git-town path, not part of the unconfigured sequence."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "rev-parse"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Reads of repository state (current branch, default branch, repo toplevel, remote URL, branch existence) are reworded to state their intent without a literal git command because no workflow.* capability exposes them; for the backend/remote the TRD-039 resolver detection (`toolchain-cli explain`/`resolve`) is the source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "symbolic-ref"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Reads of repository state (current branch, default branch, repo toplevel, remote URL, branch existence) are reworded to state their intent without a literal git command because no workflow.* capability exposes them; for the backend/remote the TRD-039 resolver detection (`toolchain-cli explain`/`resolve`) is the source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "add"
+        ]
+      ],
+      "trd": "TRD-047 lint contract (I1)",
+      "justification": "No workflow.* capability stages files (plain-git workflow.commit is `git commit -m` only), so the source now states the staging intent (\"stage exactly that path\") without a literal `git add`; the agent still stages the same explicit paths before workflow.commit."
+    },
+    {
+      "type": "added",
+      "steps": [
+        [
+          "git",
+          "switch"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Branch creation (`git checkout -b` after a `git branch --list` check) is now workflow.branch-create whose default plain-git template is `git switch -c`."
+    },
+    {
+      "type": "added",
+      "steps": [
+        [
+          "git",
+          "commit"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "The pre-refactor body instructed the commit in prose (`git add` then \"commit\") with no literal `git commit`; the refactor calls workflow.commit, whose default plain-git template is `git commit -m`."
+    },
+    {
+      "type": "added",
+      "steps": [
+        [
+          "git",
+          "push"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "The pre-refactor body pushed with prose/inline `git push -u origin` outside the scanned steps (not recognised as a step); the refactor calls workflow.push (plain-git default `git push`)."
+    }
+  ]
+}

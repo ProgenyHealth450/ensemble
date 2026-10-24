@@ -7,8 +7,10 @@ model: gpt-5.1-codex
 capabilities:
   required:
     - tracker.list
+    - workflow.log
   optional:
     - tracker.create
+    - host.change-request-list
 ---
 
 # Ensemble Command: /ensemble:retro
@@ -29,13 +31,13 @@ Close the feedback loop after a release - compare what was planned with what hap
 **1. Resolve the Range**
    Establish the starting ref and release label
 
-- --release vX.Y.Z: the range is the previous tag (git describe --tags --abbrev=0 vX.Y.Z^) to vX.Y.Z, and the release date is the tag date. --since <ref>: the range is <ref>..HEAD and the label is the ref. With neither, HALT and ask. If the ref does not resolve, HALT and say so
+- --release vX.Y.Z: the range is the previous release tag before vX.Y.Z (the nearest earlier tag in the tag list) to vX.Y.Z, and the release date is the tag date. --since <ref>: the range is <ref>..HEAD and the label is the ref. With neither, HALT and ask. If the ref does not resolve, HALT and say so
 
 **2. Collect What Shipped**
    List merged PRs and closed beads in the range
 
-- git log <range> --merges --oneline plus gh pr list --state merged --search "merged:>=<start-date>" --json number,title,mergedAt,url (skip gh if unavailable)
-- Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list --require tracker.create [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before any tracker call. tracker.create (optional) is only invoked later, after explicit user approval (Propose Follow-ups).
+- Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list --require workflow.log --require tracker.create [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before any tracker call. tracker.create (optional) is only invoked later, after explicit user approval (Propose Follow-ups).
+- Run: node "$TOOLCHAIN_CLI" run workflow.log --arg ref=<range> --arg limit=1000 --json and keep the merge commits (one line each) from its commits list; plus node "$TOOLCHAIN_CLI" run host.change-request-list --arg filter="merged since <start-date>" --json (optional capability; {ok:false} -> no host adapter resolves or none is configured, skip the merged-PR list silently)
 - Run: node "$TOOLCHAIN_CLI" run tracker.list --json > a temp file; closed beads with closed_at inside the range are the shipped beads
 
 **3. Compute Estimate vs Actual**
@@ -53,7 +55,7 @@ Close the feedback loop after a release - compare what was planned with what hap
 **5. Collect Incidents**
    Find problems opened since the release
 
-- gh issue list --state all --search "created:>=<release-date>" --json number,title,state,labels,createdAt,url; flag bug/incident-labelled or regression-looking issues
+- Resolve the host adapter: node "$TOOLCHAIN_CLI" resolve --json and read data.host.adapter. HOST-SPECIFIC EXCEPTION: no host.* capability covers GitHub issue search by date (host.yaml has only change-request-* operations, not a generic issue-search capability), so when data.host.adapter == "github", search all issues created on or after <release-date> through the GitHub host's own issue search (fields: number, title, state, labels, createdAt, url) and flag bug/incident-labelled or regression-looking issues; on any other resolved adapter (or when that search is unavailable), skip this line and note in the report that GitHub issue search was not performed
 - Query an error-tracker MCP tool ONLY if one is configured in this session; otherwise note that none was queried
 
 ### Phase 2: Report

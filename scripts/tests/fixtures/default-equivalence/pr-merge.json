@@ -1,0 +1,59 @@
+{
+  "command": "pr-merge",
+  "path": "packages/git/commands/pr-merge.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-039",
+  "sequence": [
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "pr checks"
+    ],
+    [
+      "gh",
+      "api"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr merge"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "api"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr merge"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "gh",
+          "pr checks"
+        ]
+      ],
+      "trd": "TRD-009",
+      "justification": "Not part of the toolchain refactor: origin/dev's local-CI-gate change (TRD-2026-4dec59b8 TRD-009, 'merge on the local gate verdict') stopped pr-merge from watching hosted checks; the verdict of the local-ci-gate skill replaces `gh pr checks`, and hosted CI is deliberately not waited for."
+    }
+  ]
+}

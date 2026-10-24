@@ -28,19 +28,17 @@ const COMMANDS = {
 };
 const GATES = ['implement-trd-beads.yaml', 'beads-build.yaml', 'beads-build-wave.yaml'];
 const STAGERS = ['implement-trd-beads.yaml', 'beads-build.yaml'];
-const PATHSPEC = "-- . ':(exclude).beads'";
 
 describe('dirty-tree gates ignore br\'s own state under .beads/', () => {
-  test.each(GATES)('%s excludes .beads from `git status --porcelain`', (file) => {
+  test.each(GATES)('%s reads the tree through workflow.status and excludes .beads', (file) => {
     // the status reading: a HALT line in beads-build-wave.yaml, a WORKTREE_STATUS capture in the
     // other two (their clean-tree gate moved after resume detection and decides on that capture)
-    const gate = lines(COMMANDS[file]).find((l) => l.includes('git status --porcelain'));
+    const gate = lines(COMMANDS[file]).find((l) => l.includes('run workflow.status'));
     expect(gate).toBeDefined();
-    // a single-quoted YAML string stores a literal ' as ''
-    expect(gate.replace(/''/g, "'")).toContain(PATHSPEC);
+    expect(gate).toMatch(/\.beads\//);
   });
 
-  test('the documented pathspec behaves: a br export write is ignored, a real change is not', () => {
+  test('the documented filter behaves: a br export write is ignored, a real change is not', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-gate-'));
     const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' });
     try {
@@ -53,11 +51,17 @@ describe('dirty-tree gates ignore br\'s own state under .beads/', () => {
       git('commit', '-q', '-m', 'base');
 
       fs.appendFileSync(path.join(dir, '.beads', 'issues.jsonl'), '{"id":"b"}\n'); // what Scaffold's br writes do
-      expect(git('status', '--porcelain')).not.toBe(''); // the gate as it was: halts on its own output
-      expect(git('status', '--porcelain', '--', '.', ':(exclude).beads')).toBe('');
+      // workflow.status (plain-git: status --porcelain) lists every changed path; the commands drop
+      // the paths under .beads/ from that list
+      const outsideBeads = () =>
+        git('status', '--porcelain')
+          .split('\n')
+          .filter((l) => l && !l.slice(3).startsWith('.beads/'));
+      expect(git('status', '--porcelain')).not.toBe(''); // the unfiltered gate halts on its own output
+      expect(outsideBeads()).toEqual([]);
 
       fs.writeFileSync(path.join(dir, 'real.txt'), 'x'); // a genuine uncommitted change still halts
-      expect(git('status', '--porcelain', '--', '.', ':(exclude).beads')).toContain('real.txt');
+      expect(outsideBeads().join('\n')).toContain('real.txt');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -66,24 +70,24 @@ describe('dirty-tree gates ignore br\'s own state under .beads/', () => {
 
 describe('commits and reminders stage the TRD\'s beads through beads-stage', () => {
   test.each(STAGERS)('%s: the phase checkpoint stages beads before committing', (file) => {
-    const line = lines(COMMANDS[file]).find((l) => /checkpoint \(tests pass/.test(l) && l.includes('git commit'));
+    const line = lines(COMMANDS[file]).find((l) => /checkpoint \(tests pass/.test(l) && l.includes('run workflow.commit'));
     expect(line).toBeDefined();
     expect(line.indexOf('beads-stage')).toBeGreaterThan(-1);
-    expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('git commit'));
+    expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('run workflow.commit'));
   });
 
   test.each(STAGERS)('%s: the checkbox-sync commit stages the TRD file and the beads', (file) => {
-    const line = lines(COMMANDS[file]).find((l) => l.includes('git commit') && l.includes('sync checkboxes'));
+    const line = lines(COMMANDS[file]).find((l) => l.includes('run workflow.commit') && l.includes('sync checkboxes'));
     expect(line).toBeDefined();
-    expect(line).toMatch(/git add [^;]*(TRD_FILE_PATH|TRD_PATH)/);
+    expect(line).toMatch(/[Ss]tage <(TRD_FILE_PATH|TRD_PATH)>/);
     expect(line.indexOf('beads-stage')).toBeGreaterThan(-1);
-    expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('git commit'));
+    expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('run workflow.commit'));
   });
 
   test.each(STAGERS)('%s: the closing reminder uses beads-stage, not git add .beads/', (file) => {
     const line = lines(COMMANDS[file]).find((l) => l.includes('Remind user:') && /br sync --flush-only|run tracker\.sync/.test(l));
     expect(line).toBeDefined();
-    expect(line).toMatch(/beads-stage .*&& git commit -m ["']chore: final beads sync/);
+    expect(line).toMatch(/beads-stage .*&& node \\?"\$TOOLCHAIN_CLI\\?" run workflow\.commit .*chore: final beads sync/);
     expect(line).not.toMatch(/git add \.beads/);
   });
 

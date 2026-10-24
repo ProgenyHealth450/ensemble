@@ -1,0 +1,103 @@
+{
+  "command": "act-local-ci",
+  "path": "packages/git/skills/act-local-ci/SKILL.md",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-045",
+  "sequence": [
+    [
+      "act",
+      "-W"
+    ],
+    [
+      "act",
+      "-j"
+    ],
+    [
+      "act",
+      "-s"
+    ],
+    [
+      "act",
+      "-l"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "act",
+      "-v"
+    ],
+    [
+      "act",
+      "-P"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "act",
+      "-W"
+    ],
+    [
+      "act",
+      "-l"
+    ],
+    [
+      "act",
+      "-j"
+    ],
+    [
+      "act",
+      "-s"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "act",
+      "-v"
+    ],
+    [
+      "act",
+      "-P"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "reordered",
+      "steps": [
+        [
+          "act",
+          "-W"
+        ],
+        [
+          "act",
+          "-l"
+        ],
+        [
+          "act",
+          "-j"
+        ],
+        [
+          "act",
+          "-s"
+        ],
+        [
+          "git",
+          "push"
+        ],
+        [
+          "act",
+          "-v"
+        ],
+        [
+          "act",
+          "-P"
+        ]
+      ],
+      "trd": "TRD-045",
+      "justification": "The skill's act reference sections were re-sequenced so job listing (ci-local.list-jobs, `act -l`) precedes per-job runs and secrets; the documented act flag set (-W, -l, -j, -s, -v, -P) and git push are unchanged, no step added or removed."
+    }
+  ]
+}

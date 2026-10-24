@@ -37,8 +37,7 @@ const GENERATED_FILES = {
   ),
 };
 
-const SKILL_PATH_PATTERN =
-  '"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md"';
+const SKILL_PATH_PATTERN = 'packages/development/skills/pr-review-cycle/SKILL.md (via tool-path-resolution)';
 
 describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
   let sourceYaml;
@@ -56,7 +55,7 @@ describe('implement-trd-beads generated parity (TRD-015-TEST)', () => {
     const qualityGate = sourceYaml.workflow.phases.find((p) => p.name === 'Quality Gate');
     const gate = qualityGate.steps.find((s) => s.title === 'Per-phase gate').actions.join('\n');
     expect(gate).toContain('PR_REVIEW_SKILL');
-    expect(sourceYaml.mission.summary).toContain(`PR_REVIEW_SKILL = \`${SKILL_PATH_PATTERN}\``);
+    expect(sourceYaml.mission.summary).toContain(`PR_REVIEW_SKILL = ${SKILL_PATH_PATTERN}`);
 
     const completion = sourceYaml.workflow.phases.find((p) => p.name === 'Completion');
     expect(completion.steps.map((s) => s.title)).toEqual([

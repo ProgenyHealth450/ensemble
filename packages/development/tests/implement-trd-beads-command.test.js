@@ -88,7 +88,8 @@ describe('implement-trd-beads Preflight contracts', () => {
     expect(step('Preflight', 'Git-town, PR backend and working tree').description).toContain('WORKTREE_STATUS');
     const resume = actions('Preflight', 'Resume detection, staleness gate, strategy');
     expect(resume).toMatch(/fresh run \+ dirty tree HALTs; resume \+ dirty tree notes it and continues/);
-    expect(ref).toContain("git status --porcelain -- . ':(exclude).beads'");
+    expect(ref).toContain('run workflow.status');
+    expect(ref).toMatch(/minus `\.beads\/` paths/);
   });
 
   test('staleness gate is skipped on resume and strategy detection follows it', () => {
@@ -158,12 +159,12 @@ describe('implement-trd-beads --workstream / --generate-only', () => {
 });
 
 describe('implement-trd-beads reference skill contracts', () => {
-  test('plain-git branch creation issues no git town command; git-town uses hack/append', () => {
-    expect(ref).toContain('git checkout -b <b> <base>');
-    expect(ref).toContain('git town hack <b>');
-    expect(ref).toContain('git town append <NEXT_BRANCH>');
-    expect(ref).toContain('git checkout -b <NEXT_BRANCH>');
-    expect(ref).toMatch(/no git-town command is ever issued under plain-git/);
+  test('branch creation goes through workflow.branch-create; the git-town stacked append is a documented gap', () => {
+    expect(ref).toContain('run workflow.branch-create --arg name=<b> --arg baseBranch=<base>');
+    expect(ref).toContain('run workflow.branch-create --arg name=<NEXT_BRANCH>');
+    expect(ref).toMatch(/no workflow capability covers a stacked append/);
+    expect(ref).toMatch(/git-town's native stacked-append for `<NEXT_BRANCH>` \(documented gap\)/);
+    expect(ref).not.toMatch(/git town (hack|append|propose)/);
   });
 
   test('branch intent is resolved before any git mutation, and non-interactive unresolved intent HALTs', () => {
@@ -173,11 +174,12 @@ describe('implement-trd-beads reference skill contracts', () => {
   });
 
   test('PR backends: gh/git-town, gh/plain-git, ado (MCP or manual, never HALT), manual', () => {
-    expect(ref).toContain('git town propose');
-    expect(ref).toContain('gh pr create');
+    expect(ref).toContain('run workflow.propose');
+    expect(ref).toContain('run workflow.push');
+    expect(ref).toContain('run host.change-request-create');
     expect(ref).toContain('repo_create_pull_request');
     expect(ref).toContain('mcp__azure-devops');
-    expect(ref).toContain('az repos pr create');
+    expect(ref).toContain('portal route');
     expect(ref).toMatch(/ado.*do NOT HALT/s);
     expect(ref).toMatch(/manual.*never push or create automatically/s);
   });
@@ -219,7 +221,7 @@ describe('implement-trd-beads Quality Gate and Completion ordering', () => {
 
   test('the stacked phase review excludes parent commits and runs after the pre-PR test gate, before PR creation', () => {
     const gate = actions('Quality Gate', 'Per-phase gate');
-    expect(gate).toContain('PARENT_PHASE_TIP_SHA=$(git merge-base HEAD <GATE_ACTION.parentBranch>)');
+    expect(gate).toContain('run workflow.merge-base --arg refA=HEAD --arg refB=<GATE_ACTION.parentBranch>');
     expect(gate).toContain('BASE_SHA=<PARENT_PHASE_TIP_SHA>');
     expect(gate.indexOf('Pre-PR test gate')).toBeLessThan(gate.indexOf('MODE=\'local\''));
     expect(gate.indexOf('MODE=\'local\'')).toBeLessThan(gate.indexOf('then create the PR and append the next branch'));
@@ -228,7 +230,7 @@ describe('implement-trd-beads Quality Gate and Completion ordering', () => {
   test('single-PR phases close the story, stage only this TRD\'s beads and checkpoint-commit', () => {
     const gate = actions('Quality Gate', 'Per-phase gate');
     expect(gate).toContain('GATE_ACTION.createPr == false');
-    expect(gate).toMatch(/beads-stage --match[^`]*`, `git commit -m 'chore\(<bead_prefix> <N>\): checkpoint/);
+    expect(gate).toMatch(/beads-stage --match[^`]*`, then commit via node "\$TOOLCHAIN_CLI" run workflow\.commit --arg message="chore\(<bead_prefix> <N>\): checkpoint/);
   });
 
   test('phase completion comes from trd-cli phase-status', () => {
@@ -236,8 +238,8 @@ describe('implement-trd-beads Quality Gate and Completion ordering', () => {
   });
 
   test('every pr-review-cycle call site resolves the skill through PR_REVIEW_SKILL, defined by the canonical repo-root path', () => {
-    const pattern = '"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md"';
-    expect(doc.mission.summary).toContain('PR_REVIEW_SKILL = `' + pattern + '`');
+    const pattern = 'packages/development/skills/pr-review-cycle/SKILL.md (via tool-path-resolution)';
+    expect(doc.mission.summary).toContain('PR_REVIEW_SKILL = ' + pattern);
     expect(actions('Quality Gate', 'Per-phase gate')).toContain('PR_REVIEW_SKILL');
     const check = actions('Completion', 'PR review completion check');
     expect(check).toContain("(PR_REVIEW_SKILL) with MODE='local'");
@@ -293,9 +295,9 @@ describe('implement-trd-beads completion', () => {
   test('stages only this TRD beads (no broad git add) and checkbox sync stages the TRD file', () => {
     expect(text).not.toMatch(/git add \.beads/);
     expect(text).not.toMatch(/git commit -a/);
-    const line = text.split('\n').find((l) => l.includes('git commit') && l.includes('sync checkboxes'));
-    expect(line).toMatch(/git add <TRD_FILE_PATH>/);
-    expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('git commit'));
+    const line = text.split('\n').find((l) => l.includes('run workflow.commit') && l.includes('sync checkboxes'));
+    expect(line).toMatch(/stage <TRD_FILE_PATH>/);
+    expect(line.indexOf('beads-stage')).toBeLessThan(line.indexOf('run workflow.commit'));
   });
 
   test('requirement table comes from trd-cli req-status over tracker.list data, with VERIFIED ids restored via tracker.comments (PR 7 item 2: pre-refactor behavior restored, not omitted)', () => {

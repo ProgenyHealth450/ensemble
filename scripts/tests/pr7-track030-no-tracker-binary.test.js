@@ -84,7 +84,7 @@ describe('PR7 Track030: no literal br/bv tracker-binary invocation in beads-buil
       expect(findMatchLines(fs.readFileSync(copyPath, 'utf8'), TRACKER_BINARY_INVOCATION)).toEqual([]);
       expect(findMatchLines(fs.readFileSync(copyPath, 'utf8'), AC1_PATTERN)).toEqual([]);
 
-      const needle = 'node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json';
+      const needle = 'node "$TOOLCHAIN_CLI" run tracker.sync';
       expect(original).toContain(needle);
       const mutated = original.replace(needle, 'br sync --flush-only');
       expect(mutated).not.toBe(original);

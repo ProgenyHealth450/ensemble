@@ -14,4 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tool abstraction layer adapters: `adapter-container-deploy-docker-kubectl`, `adapter-iac-terraform`, `adapter-platform-cloud-aws`, `adapter-host-azure-devops`, `adapter-tracker-azure-boards` and `adapter-tracker-jira`. See `docs/guides/adapter-authoring.md`.
+
 - Plugin extraction and population (in progress)

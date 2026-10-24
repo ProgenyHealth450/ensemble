@@ -1,0 +1,45 @@
+{
+  "command": "list-issue",
+  "path": "packages/development/commands/list-issue.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-028",
+  "sequence": [
+    [
+      "br",
+      "list"
+    ],
+    [
+      "bv",
+      "--robot-triage"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "bv",
+      "--robot-plan"
+    ],
+    [
+      "br",
+      "list"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "replaced",
+      "steps": [
+        [
+          "bv",
+          "--robot-triage"
+        ]
+      ],
+      "replacedBy": [
+        [
+          "bv",
+          "--robot-plan"
+        ]
+      ],
+      "trd": "TRD-028",
+      "justification": "TRD-028 replaces the `bv --robot-triage` step with optional work-graph.plan; the default work-graph adapter (beads) maps work-graph.plan to `bv --robot-plan` (the work-graph contract has ready/plan/graph-health and no triage), so the bv step changes robot flag."
+    }
+  ]
+}

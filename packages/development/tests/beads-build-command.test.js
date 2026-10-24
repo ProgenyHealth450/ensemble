@@ -51,7 +51,8 @@ describe('beads-build clean-tree gate', () => {
 
   test('preflight step 3 captures the status without deciding on it', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toContain('capture the output as WORKTREE_STATUS');
+    expect(text).toContain('run workflow.status');
+    expect(text).toContain('as WORKTREE_STATUS');
     expect(text).not.toContain('git status --porcelain — HALT if output non-empty');
   });
 });
@@ -131,7 +132,7 @@ describe('beads-build has no branch-creation logic of its own (TRD-014)', () => 
   test('states that it never creates or switches branches itself', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toContain('This command never creates or switches branches');
-    expect(text).toContain('it issues no git town command under any BRANCHING_STRATEGY');
+    expect(text).toContain('it issues no branching-tool command under any BRANCHING_STRATEGY');
   });
 
   test('zero real git-town branch-creation invocations anywhere in the file (git town hack/append/propose)', () => {
@@ -169,14 +170,15 @@ describe('beads-build backend-aware completion reminder (TRD-015)', () => {
     expect(stepBlock).toContain('this command never auto-creates a PR regardless of PR_BACKEND');
     expect(stepBlock).toContain("mirroring TRD-010's three backend behaviors, minus the ado MCP-tool-preferred attempt");
 
-    // gh: distinct reminder text
-    expect(stepBlock).toContain("If PR_BACKEND=='gh': remind user: git diff main...<branch>; gh pr create;");
-    // ado: distinct reminder text (az CLI + portal, no MCP attempt)
-    expect(stepBlock).toContain("If PR_BACKEND=='ado': remind user: git push -u origin <branch>; az repos pr create --source-branch <branch> --target-branch main");
-    expect(stepBlock).toContain('or via the portal: Repos > Pull Requests > New Pull Request');
+    // gh: distinct reminder text (workflow.diff, then the host change-request capability)
+    expect(stepBlock).toContain("If PR_BACKEND=='gh': remind user: node \"$TOOLCHAIN_CLI\" run workflow.diff --arg ref=main...<branch>; then node \"$TOOLCHAIN_CLI\" run host.change-request-create");
+    // ado: distinct reminder text (workflow.push + host adapter, portal fallback, no MCP attempt)
+    expect(stepBlock).toContain("If PR_BACKEND=='ado': remind user: node \"$TOOLCHAIN_CLI\" run workflow.push --arg branch=<branch>; then node \"$TOOLCHAIN_CLI\" run host.change-request-create");
+    expect(stepBlock).toContain('resolves through the configured Azure DevOps host adapter');
+    expect(stepBlock).toContain('use the portal instead: Repos > Pull Requests > New Pull Request');
     // manual: distinct reminder text
-    expect(stepBlock).toContain("If PR_BACKEND=='manual': remind user: git push -u origin <branch>; then create the PR yourself via gh pr create --base main");
-    expect(stepBlock).toContain('or the ADO CLI/portal equivalent if the remote is Azure DevOps');
+    expect(stepBlock).toContain("If PR_BACKEND=='manual': remind user: node \"$TOOLCHAIN_CLI\" run workflow.push --arg branch=<branch>; then node \"$TOOLCHAIN_CLI\" run host.change-request-create");
+    expect(stepBlock).toContain('resolves through whichever host adapter is configured');
 
     // Never auto-creates, regardless of which backend was resolved
     expect(stepBlock).toContain('Do NOT auto-create PR — user must create it manually per the PR_BACKEND-specific reminder above');
