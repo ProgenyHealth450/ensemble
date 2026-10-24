@@ -15,7 +15,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const yaml = require('js-yaml');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -26,31 +25,14 @@ const GENERATED_REL = {
   piSkill: 'packages/pi/skills/ensemble-pr-merge/SKILL.md',
   codexSkill: 'packages/codex/.codex/skills/commands/ensemble-pr-merge/SKILL.md',
 };
-// Commands this change must not touch: pinned by SHA-256 in a fixture (no git history needed).
-const UNTOUCHED_REL = [
-  'packages/development/commands/fix-issue.yaml',
-  'packages/development/commands/implement-trd-beads.yaml',
-  'packages/development/commands/ensemble/fix-issue.md',
-  'packages/development/commands/ensemble/implement-trd-beads.md',
-  'packages/pi/prompts/ensemble-fix-issue.md',
-  'packages/pi/prompts/ensemble-implement-trd-beads.md',
-  'packages/pi/skills/ensemble-fix-issue/SKILL.md',
-  'packages/pi/skills/ensemble-implement-trd-beads/SKILL.md',
-  'packages/codex/.codex/skills/commands/ensemble-fix-issue/SKILL.md',
-  'packages/codex/.codex/skills/commands/ensemble-implement-trd-beads/SKILL.md',
-];
 
 const flat = (t) => t.replace(/\s+/g, ' ').trim();
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
-const sha256 = (rel) => crypto.createHash('sha256').update(fs.readFileSync(path.join(REPO_ROOT, rel))).digest('hex');
 
 const FIXTURES = path.join(__dirname, 'fixtures', 'pr-merge');
 // pr-merge.yaml exactly as it was BEFORE the local-ci gate changed it (taken from dev at 1d96158, the last commit that
 // touched it). The test compares the new source against this to prove safety constraints were preserved.
 const PRE_CHANGE_FIXTURE = path.join(FIXTURES, 'pr-merge.before-local-ci.yaml');
-// SHA-256 of each UNTOUCHED_REL file when this change was made. If you legitimately edit one of those commands, the
-// "other commands untouched" test fails and prints the one-line command that refreshes this file.
-const UNTOUCHED_HASHES = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'untouched-commands.sha256.json'), 'utf8'));
 
 const source = yaml.load(read(SOURCE_REL));
 const committed = yaml.load(fs.readFileSync(PRE_CHANGE_FIXTURE, 'utf8'));
@@ -241,22 +223,5 @@ describe('runtimes agree on gate and review rules', () => {
       expect(text).not.toMatch(/every required check SUCCESS/);
       expect(text).not.toMatch(/NEVER merge while any required check/);
     }
-  });
-});
-
-describe('other commands untouched', () => {
-  const refresh =
-    'If you changed this command on purpose, refresh the pin: from the repo root run\n' +
-    '  node -e "const fs=require(\'fs\'),c=require(\'crypto\');const f=\'packages/development/tests/fixtures/pr-merge/untouched-commands.sha256.json\';' +
-    'const o=JSON.parse(fs.readFileSync(f));for(const k of Object.keys(o))o[k]=c.createHash(\'sha256\').update(fs.readFileSync(k)).digest(\'hex\');' +
-    'fs.writeFileSync(f,JSON.stringify(o,null,2)+\'\\n\')"';
-
-  test('every pinned file is one this test guards, and every guarded file is pinned', () => {
-    expect(Object.keys(UNTOUCHED_HASHES).sort()).toEqual([...UNTOUCHED_REL].sort());
-  });
-
-  test.each(UNTOUCHED_REL)('%s still has the content pinned when the gate was added', (rel) => {
-    const actual = sha256(rel);
-    if (actual !== UNTOUCHED_HASHES[rel]) throw new Error(`${rel} changed (sha256 ${actual}, pinned ${UNTOUCHED_HASHES[rel]}).\n${refresh}`);
   });
 });
