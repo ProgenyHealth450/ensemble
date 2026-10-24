@@ -20,7 +20,14 @@
  *   format: 'json' | 'lines' | 'text',
  *   root?: string,                    // dotted path, json format only; default '$'
  *   map?: { <outKey>: <dottedPath> }, // field projection against the (root-projected) value
- *   statusMap?: { <rawValue>: <normalizedValue> }
+ *   statusMap?: { <rawValue>: <normalizedValue> },
+ *   arrayMap?: {                      // TRD-033: per-item array filter + reshape (see below)
+ *     <outKey>: {
+ *       source: <dottedPath>,                      // resolved against the root-projected value
+ *       filter?: { path: <dottedPath>, equals: <scalar> }, // relative to EACH source item
+ *       item: { <itemOutKey>: <dottedPath> }        // relative to EACH (kept) source item
+ *     }
+ *   }
  * }
  * ```
  *
@@ -52,6 +59,58 @@
  * to a present value or `mapOutput` throws a `BAD_OUTPUT`-coded error naming the path and the
  * first segment that could not be found — there is no "resolve to undefined and move on"
  * behavior, matching this module's fail-closed requirement.
+ *
+ * ## `arrayMap` per-item array filter + reshape (TRD-2026-8d825f54 TRD-033)
+ *
+ * This module's base dotted-path grammar deliberately has no filter/projection operator (see
+ * "Deliberately NOT supported" below) -- by design, `map` can only pick ONE value's own
+ * top-level properties, never iterate an array and reshape each item into a differently-keyed
+ * object. `arrayMap` is a narrowly-scoped, separate mechanism added specifically because the
+ * obvious alternative -- letting an adapter's `run[]` template do this reshaping itself via its
+ * own tool's native query language (for example `az`'s `--query`, which is real JMESPath and
+ * DOES support `[?filter].{rename: expr}`-style projections) -- is a dead end for ANY construct
+ * that needs JMESPath's `{...}` multi-select-hash syntax: `packages/development/lib/toolchain/
+ * runner.js#buildArgv`'s placeholder substitution (`PLACEHOLDER_REPLACE_PATTERN =
+ * /\{([^{}]+)\}/g`) scans every `run[]` argv element for BARE `{...}` text and unconditionally
+ * treats ANY match as an unresolved `{name}` placeholder needing substitution via
+ * `resolveArg(name, ...)` -- it does not distinguish "this came from an adapter's own
+ * `${name}` placeholder" from "this is a literal brace the tool's own query syntax needs", so
+ * it throws `INVALID_ARG` naming the JMESPath hash's own text as an unknown argument name,
+ * for EVERY `run[]` element containing literal `{`/`}` characters, whether or not the content
+ * was ever meant as a placeholder (confirmed empirically while building
+ * `adapter-tracker-azure-boards`, TRD-033: even the simplest single-field `--query
+ * "{id: to_string(id)}"` throws `INVALID_ARG: 'id: to_string(id)': no value supplied...`).
+ * Square-bracket JMESPath constructs (multi-select LIST `[...]`, filter expressions `[?...]`,
+ * index access) are unaffected -- only `{`/`}` trips this unrelated, unmodifiable regex -- so
+ * an adapter's `run[]` template MAY still use `--query "[expr1, expr2, ...]"` to pre-flatten
+ * SCALAR fields (including ones with literal-dot REST field names, via JMESPath's own quoted-
+ * identifier syntax, e.g. `fields."System.Title"`) into a plain JSON array `mapOutput`'s
+ * ordinary `map: {outKey: "$[N]"}` entries then trivially index into. It is ONLY an array of
+ * per-item RENAMED objects (Azure Boards relations -> `dependencies[] = [{id, type}, ...]`
+ * being the motivating case) that has nowhere left to be built except here, in `mapOutput`
+ * itself, against the tool's RAW (unrenamed) array value.
+ *
+ * For each `<outKey>: {source, filter?, item}` entry in `arrayMap`:
+ * - `source` (a dotted path, same grammar as `map`) is resolved against the SAME
+ *   root-projected base value `map` paths resolve against; it must resolve to an array, or
+ *   `mapOutput` throws `BAD_OUTPUT` naming the non-array shape found.
+ * - For each item in that array, when `filter` is supplied: `filter.path` is resolved AGAINST
+ *   THAT ITEM (its own `$` refers to the item, not the outer base value); if resolution throws
+ *   (the path does not exist on this particular item -- real Azure relation items legitimately
+ *   vary in shape, e.g. a hyperlink relation has no `attributes.name`) OR the resolved value is
+ *   not strictly `===` `filter.equals`, the item is EXCLUDED, never a thrown error -- a
+ *   missing/non-matching field on one array item is an ordinary "does not match", not a
+ *   manifest defect. When `filter` is omitted, every item is kept.
+ * - For each KEPT item, `item` (an object of `<itemOutKey>: <dottedPath>`, each path resolved
+ *   against that item, `$` again referring to the item) builds one output object; unlike
+ *   `filter`, a path in `item` that fails to resolve DOES throw `BAD_OUTPUT` -- these are the
+ *   fields the declared shape promises will be present on every kept item, matching `map`'s own
+ *   fail-closed "every path must resolve" rule.
+ * - `result[outKey]` is set to the array of built item-objects (possibly empty, never
+ *   undefined/null) -- `mapOutput` requires `map` to already be present (the plain-object
+ *   `result` `arrayMap` entries are added onto) and throws `BAD_OUTPUT` if `arrayMap` is
+ *   supplied without `map` or if the `map`-built result is not a plain object, so an `arrayMap`
+ *   entry can never silently attach itself to an array/primitive base result.
  *
  * ## `statusMap` value translation
  *
@@ -92,12 +151,16 @@
  *   more than two `|`-separated alternatives, but only two are ever exercised by this repo's
  *   fixtures or tests.
  *
- * Deliberately NOT supported (document rather than silently misinterpret): wildcards (`*`),
- * recursive descent (`..`), slice expressions, filter/script expressions (`[?(...)]`),
- * negative array indices, indexing a plain object by a numeric-looking key (only arrays accept
- * `[N]`), and property names that themselves contain `.`, `|`, `[` or `]` (there is no quoting
- * or escaping syntax). This is intentionally a small path language, not a JSONPath
- * implementation (TRD interpretation I6: no new runtime dependency).
+ * Deliberately NOT supported BY THE BASE DOTTED-PATH GRAMMAR (`resolvePath`/`resolveSegment`;
+ * document rather than silently misinterpret): wildcards (`*`), recursive descent (`..`),
+ * slice expressions, filter/script expressions (`[?(...)]`), negative array indices, indexing a
+ * plain object by a numeric-looking key (only arrays accept `[N]`), and property names that
+ * themselves contain `.`, `|`, `[` or `]` (there is no quoting or escaping syntax). This is
+ * intentionally a small path language, not a JSONPath implementation (TRD interpretation I6: no
+ * new runtime dependency). `arrayMap` (above) is a separate, narrowly-scoped mechanism layered
+ * on top of this same base grammar for per-item array filter+reshape -- it does not add a
+ * filter/wildcard operator to `resolvePath` itself; a `source`/`filter.path`/`item.*` path is
+ * still just an ordinary dotted path, resolved once per array item.
  *
  * ## Known limits
  *
@@ -249,10 +312,76 @@ function resolvePath(value, path) {
 }
 
 /**
+ * Apply one `parse.arrayMap` entry: resolve `spec.source` (against `baseValue`) to an array,
+ * optionally filter each item by `spec.filter`, then reshape each kept item via `spec.item`.
+ * See this module's header, "`arrayMap` per-item array filter + reshape", for the full
+ * filter/throw semantics this implements.
+ *
+ * @param {unknown} baseValue the same root-projected base value `map` paths resolve against
+ * @param {string} outKey the `arrayMap` key, used only for error messages
+ * @param {{source: string, filter?: {path: string, equals: unknown}, item: Record<string,string>}} spec
+ * @returns {object[]}
+ */
+function applyArrayMapEntry(baseValue, outKey, spec) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+    throw badOutputError(`mapOutput: parse.arrayMap['${outKey}'] must be an object, got ${describeType(spec)}`);
+  }
+  if (typeof spec.source !== 'string') {
+    throw badOutputError(`mapOutput: parse.arrayMap['${outKey}'].source must be a dotted-path string, got ${describeType(spec.source)}`);
+  }
+  if (!spec.item || typeof spec.item !== 'object' || Array.isArray(spec.item)) {
+    throw badOutputError(`mapOutput: parse.arrayMap['${outKey}'].item must be an object, got ${describeType(spec.item)}`);
+  }
+  if (
+    spec.filter !== undefined &&
+    (typeof spec.filter !== 'object' || spec.filter === null || typeof spec.filter.path !== 'string')
+  ) {
+    throw badOutputError(
+      `mapOutput: parse.arrayMap['${outKey}'].filter must be an object with a string 'path', got ${describeType(spec.filter)}`
+    );
+  }
+
+  const sourceArray = resolvePath(baseValue, spec.source);
+  if (!Array.isArray(sourceArray)) {
+    throw badOutputError(
+      `mapOutput: parse.arrayMap['${outKey}'].source '${spec.source}' must resolve to an array, found ${describeType(sourceArray)}`
+    );
+  }
+
+  const mappedItems = [];
+  for (const item of sourceArray) {
+    if (spec.filter) {
+      let actual;
+      try {
+        actual = resolvePath(item, spec.filter.path);
+      } catch {
+        continue; // This item simply does not have the filtered field -- not a manifest defect.
+      }
+      if (actual !== spec.filter.equals) {
+        continue;
+      }
+    }
+    const mappedItem = {};
+    for (const [itemOutKey, itemPath] of Object.entries(spec.item)) {
+      if (typeof itemPath !== 'string') {
+        throw badOutputError(
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'] must be a dotted-path string, got ${describeType(itemPath)}`
+        );
+      }
+      mappedItem[itemOutKey] = resolvePath(item, itemPath);
+    }
+    mappedItems.push(mappedItem);
+  }
+  return mappedItems;
+}
+
+/**
  * Map one tool invocation's raw stdout into a plain value, per `parse` (see module header).
  *
  * @param {string} stdout raw stdout captured from the executed tool
- * @param {{format: 'json'|'lines'|'text', root?: string, map?: Record<string,string>, statusMap?: Record<string,string>}} parse
+ * @param {{format: 'json'|'lines'|'text', root?: string, map?: Record<string,string>,
+ *   statusMap?: Record<string,string>, arrayMap?: Record<string, {source: string,
+ *   filter?: {path: string, equals: unknown}, item: Record<string,string>}>}} parse
  * @returns {unknown} the mapped value (an object when `map` is supplied, otherwise the
  *   format-appropriate parsed value)
  */
@@ -260,7 +389,7 @@ function mapOutput(stdout, parse) {
   if (!parse || typeof parse !== 'object') {
     throw badOutputError(`mapOutput: 'parse' must be an object, got ${describeType(parse)}`);
   }
-  const { format, root, map, statusMap } = parse;
+  const { format, root, map, statusMap, arrayMap } = parse;
   if (format !== 'json' && format !== 'lines' && format !== 'text') {
     throw badOutputError(`mapOutput: parse.format must be one of 'json'|'lines'|'text', got ${JSON.stringify(format)}`);
   }
@@ -272,6 +401,12 @@ function mapOutput(stdout, parse) {
   }
   if (statusMap !== undefined && (typeof statusMap !== 'object' || statusMap === null || Array.isArray(statusMap))) {
     throw badOutputError(`mapOutput: parse.statusMap must be an object when present, got ${describeType(statusMap)}`);
+  }
+  if (arrayMap !== undefined && (typeof arrayMap !== 'object' || arrayMap === null || Array.isArray(arrayMap))) {
+    throw badOutputError(`mapOutput: parse.arrayMap must be an object when present, got ${describeType(arrayMap)}`);
+  }
+  if (arrayMap !== undefined && !map) {
+    throw badOutputError(`mapOutput: parse.arrayMap requires 'parse.map' to also be declared (arrayMap entries are added onto the map-built result)`);
   }
 
   let baseValue;
@@ -306,6 +441,12 @@ function mapOutput(stdout, parse) {
     result = { ...baseValue };
   } else {
     result = baseValue;
+  }
+
+  if (arrayMap) {
+    for (const [outKey, spec] of Object.entries(arrayMap)) {
+      result[outKey] = applyArrayMapEntry(baseValue, outKey, spec);
+    }
   }
 
   if (statusMap) {

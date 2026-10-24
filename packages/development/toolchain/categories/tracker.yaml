@@ -71,6 +71,14 @@ capabilities:
     outputs: [ids, labels]
     required: false
     sideEffect: true
+    fallback: title-prefix-scoping
+
+  tracker.set-status:
+    description: Set a work item's lifecycle status to one of the normalized values (open, in_progress, closed).
+    inputs: [id, status]
+    outputs: [id, status]
+    required: false
+    sideEffect: true
 
   tracker.sync:
     description: Flush pending local tracker state to durable storage.

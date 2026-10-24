@@ -100,6 +100,98 @@ describe('runCapability: buildArgv errors are converted, never thrown (TRD-011 b
   });
 });
 
+describe('runCapability: a selected variant run template substitutes its own manifest placeholders (PR 8 review item 1 follow-up)', () => {
+  test('a valid variant selector spawns that variant template with ${name} placeholders substituted, not left with a stray "$"', async () => {
+    const adapter = minimalAdapter({
+      allowlist: [{ bin: 'fixture-tool', sub: ['update', 'close'] }],
+      capabilities: {
+        'tracker.show': {
+          run: ['fixture-tool', 'update', '${id}', '--status', '${status}'],
+          variants: {
+            status: {
+              open: ['fixture-tool', 'update', '${id}', '--status', 'open'],
+              closed: ['fixture-tool', 'close', '${id}']
+            }
+          }
+        }
+      }
+    });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, '{}', ''));
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'bd-7', status: 'open' });
+
+    expect(result.ok).toBe(true);
+    const [calledFile, calledArgs] = execFile.mock.calls[0];
+    expect(calledFile).toBe('fixture-tool');
+    // Before the fix this was ['update', '$bd-7', '--status', 'open'] -- a stray leading '$'
+    // on the substituted id, since the variant template's own '${id}' was never translated
+    // from manifest '${name}' syntax to buildArgv's bare '{name}' form before selectTemplate
+    // swapped it in for the (already-translated) base template.
+    expect(calledArgs).toEqual(['update', 'bd-7', '--status', 'open']);
+  });
+
+  test('a different variant selector (closed) spawns ITS OWN template, substituted the same way', async () => {
+    const adapter = minimalAdapter({
+      allowlist: [{ bin: 'fixture-tool', sub: ['update', 'close'] }],
+      capabilities: {
+        'tracker.show': {
+          run: ['fixture-tool', 'update', '${id}', '--status', '${status}'],
+          variants: {
+            status: {
+              open: ['fixture-tool', 'update', '${id}', '--status', 'open'],
+              closed: ['fixture-tool', 'close', '${id}']
+            }
+          }
+        }
+      }
+    });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, '{}', ''));
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'bd-9', status: 'closed' });
+
+    expect(result.ok).toBe(true);
+    const [calledFile, calledArgs] = execFile.mock.calls[0];
+    expect(calledFile).toBe('fixture-tool');
+    expect(calledArgs).toEqual(['close', 'bd-9']);
+  });
+
+  test('MUTATION PROOF: removing variant-template translation reintroduces the stray "$" bug', async () => {
+    const mutantRoot = makeMutantToolchainRoot();
+    try {
+      const needle = 'const translatedVariants = translateManifestVariants(cap.variants);';
+      const replacement = 'const translatedVariants = cap.variants;';
+      const mutatedRunner = mutateAndRequire(mutantRoot.runnerPath, needle, replacement);
+
+      const adapter = minimalAdapter({
+        allowlist: [{ bin: 'fixture-tool', sub: ['update'] }],
+        capabilities: {
+          'tracker.show': {
+            run: ['fixture-tool', 'update', '${id}', '--status', '${status}'],
+            variants: { status: { open: ['fixture-tool', 'update', '${id}', '--status', 'open'] } }
+          }
+        }
+      });
+      execFile.mockImplementation((file, cmdArgs, options, callback) => {
+        setImmediate(() => callback(null, '{}', ''));
+      });
+
+      const result = await mutatedRunner.runCapability(adapter, 'tracker.show', { id: 'bd-7', status: 'open' });
+
+      // With translation bypassed, the untranslated '${id}' leaves a stray '$' prefix on the
+      // substituted value -- exactly what the real (unmutated) tests above disprove.
+      expect(result.ok).toBe(true);
+      const [, calledArgs] = execFile.mock.calls[0];
+      expect(calledArgs).toEqual(['update', '$bd-7', '--status', 'open']);
+    } finally {
+      mutantRoot.cleanup();
+    }
+  });
+});
+
 describe('runCapability: runtime allowlist denial (Implementation AC 1, TRD-011 AC 1)', () => {
   test('a manifest altered after validation to call "rm" returns NOT_ALLOWED and spawns nothing (spawn count 0)', async () => {
     const adapter = minimalAdapter({
@@ -152,6 +244,48 @@ describe('runCapability: runtime allowlist denial (Implementation AC 1, TRD-011 
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('NOT_ALLOWED');
     expect(execFile).not.toHaveBeenCalled();
+  });
+
+  test("TRD-033: a declared binary called with a subcommand that is only a prefix of a multi-word allowlist entry ('boards' vs 'boards work-item show') returns NOT_ALLOWED and spawns nothing (proves word-count is enforced, not a prefix match)", async () => {
+    const adapter = minimalAdapter({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show'] }],
+      capabilities: {
+        'tracker.list': {
+          run: ['az', 'boards', '--output', 'json']
+        }
+      }
+    });
+    const result = await runCapability(adapter, 'tracker.list', {});
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('NOT_ALLOWED');
+    expect(result.error.message).toContain('az boards');
+    expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('runCapability: runtime allowlist permits multi-word subcommand entries (TRD-033)', () => {
+  test("a declared binary called with argv matching a multi-word allowlist entry ('boards work-item show') spawns the resolved argv", async () => {
+    const adapter = minimalAdapter({
+      binaries: ['az'],
+      allowlist: [{ bin: 'az', sub: ['boards work-item show'] }],
+      capabilities: {
+        'tracker.show': {
+          run: ['az', 'boards', 'work-item', 'show', '--id', '${id}', '--output', 'json']
+        }
+      }
+    });
+    execFile.mockImplementation((file, cmdArgs, options, callback) => {
+      setImmediate(() => callback(null, '{}', ''));
+    });
+
+    const result = await runCapability(adapter, 'tracker.show', { id: 'AB-1' });
+
+    expect(result.ok).toBe(true);
+    expect(execFile).toHaveBeenCalledTimes(1);
+    const [calledFile, calledArgs] = execFile.mock.calls[0];
+    expect(calledFile).toBe('az');
+    expect(calledArgs).toEqual(['boards', 'work-item', 'show', '--id', 'AB-1', '--output', 'json']);
   });
 });
 

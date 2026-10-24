@@ -191,7 +191,7 @@ describe('PR7 Track029 scenario 4: command preamble lists exactly its required c
         metadataRequired(fs.readFileSync(copyPath, 'utf8'))
       );
 
-      const needle = '--require tracker.sync --json';
+      const needle = '--require tracker.comment --json';
       expect(original).toContain(needle);
       const mutated = original.replace(needle, '--json');
       expect(mutated).not.toBe(original);

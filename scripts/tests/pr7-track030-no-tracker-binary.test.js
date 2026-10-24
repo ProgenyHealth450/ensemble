@@ -8,12 +8,11 @@
  * plus a broader `\b(br|bv) ` invocation sweep (same convention as the TRD-028/TRD-029 sibling
  * tests), so CI catches a regression, not just a manual grep run at review time.
  *
- * One documented exception: SKILL.md section 5's `--reset-task` recovery step keeps a single
- * literal `br update <id> --status=open` because the tracker category's `tracker.update`
- * capability is declared (packages/development/skills/adapter-tracker-beads/adapter.yaml) to
- * map its one `fields` input to `--notes` only -- it has no status-set operation, so there is no
- * capability id to call instead (and the instructions governing this refactor forbid inventing
- * one). This test asserts that line is the ONLY remaining `br`/`bv` token in SKILL.md.
+ * Previously documented exception, now FIXED (PR 8 independent review item 1): SKILL.md
+ * section 5's `--reset-task` recovery step used to keep a single literal `br update <id>
+ * --status=open` because `tracker.update`'s one `fields` input mapped only to `--notes`, with
+ * no status-set operation to call instead. The new `tracker.set-status` capability (manifest
+ * `variants`, PR 8 finding 1) now covers this, so SKILL.md carries zero `br`/`bv` tokens.
  *
  * It also asserts AC-3 (the `capabilities` block passes the real schema validator --
  * `validateCommandSchema`, the exact function `generate-markdown.js --validate` runs, plus
@@ -49,9 +48,6 @@ const TRACKER_BINARY_INVOCATION = /\b(?:br|bv) /;
 // The literal AC-1 grep pattern (`\bbr\b|\bbv\b|--robot-[a-z]+`), translated to a JS RegExp.
 const AC1_PATTERN = /\bbr\b|\bbv\b|--robot-[a-z]+/;
 
-// The one documented, intentionally-kept literal line in SKILL.md (see file header comment).
-const DOCUMENTED_GAP_NEEDLE = 'br update <id> --status=open';
-
 function findMatchLines(contents, pattern) {
   return contents
     .split('\n')
@@ -70,11 +66,10 @@ describe('PR7 Track030: no literal br/bv tracker-binary invocation in beads-buil
     expect(findMatchLines(contents, AC1_PATTERN)).toEqual([]);
   });
 
-  test('SKILL.md contains no br/bv token other than the one documented tracker.update gap', () => {
+  test('SKILL.md contains zero br/bv tokens (the documented tracker.update gap is FIXED by tracker.set-status, PR 8 independent review item 1)', () => {
     const contents = fs.readFileSync(SKILL_PATH, 'utf8');
     const hits = findMatchLines(contents, AC1_PATTERN);
-    expect(hits.length).toBe(1);
-    expect(hits[0].line).toContain(DOCUMENTED_GAP_NEEDLE);
+    expect(hits).toEqual([]);
   });
 
   test('mutation proof: reintroducing a literal br/bv invocation in a /tmp copy of beads-build.yaml is caught', () => {
@@ -201,7 +196,7 @@ describe('PR7 Track030: no literal br/bv tracker-binary invocation in beads-buil
     const waveLoopStep = executePhase.steps.find((s) => s.title.includes('Wave Loop'));
     expect(waveLoopStep).toBeDefined();
 
-    const confirmIndex = waveLoopStep.actions.findIndex((a) => a.includes('confirm-status tracker.sync'));
+    const confirmIndex = waveLoopStep.actions.findIndex((a) => a.includes('confirm-status tracker.comment'));
     const firstWriteIndex = waveLoopStep.actions.findIndex(
       (a) => a.includes('$TOOLCHAIN_CLI" run tracker.') || a.includes('$TOOLCHAIN_CLI" run work-graph.')
     );

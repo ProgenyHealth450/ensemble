@@ -90,6 +90,63 @@ describe('ensureLabel', () => {
   });
 });
 
+describe('ensureLabel: graceful degradation when tracker.label is unavailable (PR 8 independent review item 5 / finding 3)', () => {
+  /** A fake `br` whose `label add` call throws runBr's unavailable marker, mirroring a
+   * resolved adapter (e.g. jira, azure-boards) that does not implement tracker.label. */
+  function fakeBrUnavailable(listed, { reason = "capability 'tracker.label' is unavailable; using documented fallback 'title-prefix-scoping'" } = {}) {
+    const calls = [];
+    const run = (args) => {
+      calls.push(args);
+      if (args[0] === 'list') return JSON.stringify(listed);
+      const err = new Error(reason);
+      err.code = 'UNAVAILABLE';
+      err.unavailable = true;
+      throw err;
+    };
+    return { run, calls };
+  }
+
+  test('returns {ok:false, unavailable:true, reason, label, matched} instead of throwing when there is work to label', () => {
+    const br = fakeBrUnavailable(ISSUES);
+    const result = ensureLabel({ label: LABEL, match: MATCH }, br.run);
+    expect(result).toEqual({
+      ok: false,
+      unavailable: true,
+      reason: expect.stringContaining('tracker.label'),
+      label: LABEL,
+      matched: 4
+    });
+  });
+
+  test('a real (non-unavailable) failure from the label-add call still throws, never silently degraded', () => {
+    const calls = [];
+    const run = (args) => {
+      calls.push(args);
+      if (args[0] === 'list') return JSON.stringify(ISSUES);
+      const err = new Error('stub tracker.label: TOOL_FAILED (auth expired)');
+      err.code = 'TOOL_FAILED';
+      throw err;
+    };
+    expect(() => ensureLabel({ label: LABEL, match: MATCH }, run)).toThrow(/TOOL_FAILED|auth expired/);
+  });
+
+  test('idempotent case (nothing to label) never calls label-add at all, so unavailability is never even reached', () => {
+    const labelled = ISSUES.map((b) => (b.title.includes(MATCH) ? { ...b, labels: [LABEL] } : b));
+    const br = fakeBrUnavailable(labelled);
+    const result = ensureLabel({ label: LABEL, match: MATCH }, br.run);
+    expect(result).toEqual({ label: LABEL, matched: 4, labeled: 0, already: 4 });
+  });
+
+  test("trd-cli beads-label's own { ok: true, ...ensureLabel(...) } spread correctly surfaces ok:false on degradation", () => {
+    const br = fakeBrUnavailable(ISSUES);
+    // Mirrors trd-cli.js#runBeadsLabel's exact composition, proving the later-spread-wins
+    // behavior the JSDoc documents without needing trd-cli.js's own process-resolution glue.
+    const result = { ok: true, ...ensureLabel({ label: LABEL, match: MATCH }, br.run) };
+    expect(result.ok).toBe(false);
+    expect(result.unavailable).toBe(true);
+  });
+});
+
 describe('trd-cli beads-label', () => {
   test('is a registered subcommand and rejects missing flags with the shared {error} contract', () => {
     expect(typeof runBeadsLabel).toBe('function');

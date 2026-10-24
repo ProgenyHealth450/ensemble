@@ -265,6 +265,7 @@ describe('TRD-023: tracker and work-graph contracts v1', () => {
     const expectedSideEffecting = [
       'tracker.create',
       'tracker.update',
+      'tracker.set-status',
       'tracker.close',
       'tracker.comment',
       'tracker.dep-add',

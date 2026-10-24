@@ -451,7 +451,15 @@ describe('mutation-proof branches', () => {
       })
     );
 
-    const result = resolveCategory('tracker', { projectRoot, env: {}, detect: detectAdapter });
+    // Probe category 'lint', not 'tracker': the real, installed `adapter-tracker-azure-boards`
+    // adapter (TRD-033) also declares 'tracker' with its own `remote_url_matches` signal
+    // (`dev\.azure\.com|visualstudio\.com`), which this repo's fixed library-relative "installed"
+    // skills roots always include regardless of `projectRoot` -- probing 'tracker' here would
+    // make this github.com-origin project hit AMBIGUOUS_PROVIDER for an unrelated reason (a
+    // real signal declared but unmatched), not the category-filter behavior this test exists to
+    // prove. No installed adapter declares 'lint' with a signal, so it isolates the same
+    // category-filter property this test always intended to check.
+    const result = resolveCategory('lint', { projectRoot, env: {}, detect: detectAdapter });
 
     expect(result.source).toBe('default');
   });
@@ -619,6 +627,16 @@ describe('production wiring: main() uses the real detectAdapter via its unmodifi
         detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
       })
     );
+
+    // Pin 'tracker' explicitly via project config: the real, installed
+    // `adapter-tracker-azure-boards` adapter (TRD-033) also declares 'tracker' with its own
+    // `remote_url_matches` signal (`dev\.azure\.com|visualstudio\.com`), which this repo's fixed
+    // library-relative "installed" skills roots always include regardless of `projectRoot` --
+    // left unpinned, this github.com-origin project would hit AMBIGUOUS_PROVIDER for 'tracker'
+    // (a real signal declared but unmatched), unrelated to what this test exists to prove (that
+    // main()'s default ctx reaches the real detectAdapter for the 'host' category below).
+    fs.mkdirSync(path.join(projectRoot, '.ensemble'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, '.ensemble', 'toolchain.yaml'), yaml.dump({ tracker: 'beads' }));
 
     // A fresh, empty XDG config root so this test's result can never depend on whatever
     // toolchain.yaml (if any) happens to exist on the machine actually running the suite.
@@ -1143,7 +1161,13 @@ describe('remote_url_matches: per-process memoization (PR 4 review round 2, Find
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'x'.repeat(40) + '!');
 
-    const categories = ['tracker', 'workflow', 'worktree', 'host', 'lint'];
+    // 'review', not 'tracker': the real, installed `adapter-tracker-azure-boards` adapter
+    // (TRD-033) also declares 'tracker' with its own `remote_url_matches` signal, which this
+    // repo's fixed library-relative "installed" skills roots always include regardless of
+    // `projectRoot` -- its own DISTINCT (adapter, pattern) pair would add a second real cache
+    // miss during the 'tracker' sweep step, breaking this test's "exactly one shared pattern"
+    // premise for a reason unrelated to the memoization behavior under test.
+    const categories = ['review', 'workflow', 'worktree', 'host', 'lint'];
     writeInstalledAdapter(
       projectRoot,
       'fixture-pkg',

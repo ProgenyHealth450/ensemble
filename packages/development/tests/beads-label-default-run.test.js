@@ -222,12 +222,12 @@ describe('mutation-restore proof: the default runBr route actually discriminates
     const originalPath = process.env.PATH;
     try {
       // Reproduces the reviewer's own mutation verbatim: `runBr`'s `list` branch must return
-      // `result.data` (a raw JSON string) unchanged -- wrapping it in an object instead means
+      // a raw JSON string unchanged -- wrapping it in an object instead means
       // `ensureLabel`'s `JSON.parse(run([...]))` receives `String({issues:...})` ===
       // `"[object Object]"`, which is not valid JSON.
       const mutantEnsureLabel = mutateAndRequireFresh(
         mutantRoot.beadsLabelPath,
-        'return result.data;',
+        "return typeof result.data === 'string' ? result.data : JSON.stringify(result.data);",
         'return { issues: result.data };'
       ).ensureLabel;
 
