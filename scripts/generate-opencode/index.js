@@ -33,6 +33,15 @@ const { Command } = require('commander');
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_OUTPUT_DIR = path.join(ROOT, 'dist', 'opencode');
 const PACKAGES_DIR = path.join(ROOT, 'packages');
+// Packages that MIRROR every other package's skills/adapter-* directories (packages/pi's own
+// generator output, packages/full's curated symlink tree -- see
+// packages/pi/src/transformers/skill-copier.ts's own EXCLUDED_PACKAGES for the same rule on
+// the Pi side) must never be treated as a SECOND, independent adapter source: TRD-024 is the
+// first real adapter this monorepo ships, and it exposed a latent gap here -- `packages/pi`'s
+// generated `packages/pi/skills/adapter-tracker-beads/` otherwise collides with the real
+// source at `packages/development/skills/adapter-tracker-beads/` in `SkillCopier`'s own
+// collision check (`packages/opencode/lib/skill-copier.js#execute`).
+const ADAPTER_SOURCE_EXCLUDED_PACKAGES = new Set(['pi', 'full']);
 
 function createProgram() {
   const program = new Command();
@@ -154,13 +163,15 @@ function discoverSkillSourceFiles(packagesDir = PACKAGES_DIR) {
       if (fs.existsSync(skillFile)) files.push(skillFile);
       if (fs.existsSync(refFile)) files.push(refFile);
 
-      for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
-        if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
-        const adapterPath = path.join(skillPath, sub.name);
-        const adapterSkillFile = path.join(adapterPath, 'SKILL.md');
-        const adapterYamlFile = path.join(adapterPath, 'adapter.yaml');
-        if (fs.existsSync(adapterSkillFile)) files.push(adapterSkillFile);
-        if (fs.existsSync(adapterYamlFile)) files.push(adapterYamlFile);
+      if (!ADAPTER_SOURCE_EXCLUDED_PACKAGES.has(entry.name)) {
+        for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
+          if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
+          const adapterPath = path.join(skillPath, sub.name);
+          const adapterSkillFile = path.join(adapterPath, 'SKILL.md');
+          const adapterYamlFile = path.join(adapterPath, 'adapter.yaml');
+          if (fs.existsSync(adapterSkillFile)) files.push(adapterSkillFile);
+          if (fs.existsSync(adapterYamlFile)) files.push(adapterYamlFile);
+        }
       }
     }
   }

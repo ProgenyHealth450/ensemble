@@ -8,6 +8,15 @@
  * read-fresh-every-call behavior for both `adapter.yaml` and `SKILL.md` (PRD REQ-005 AC-005-1,
  * REQ-007 AC-007-1/2/3), symlinked adapter directories, and resilient listing that never throws
  * a raw filesystem error.
+ *
+ * `describe('discoverAdapters: library-relative installed-tier roots ...')` (PR 5 independent
+ * review) covers the "installed" tier's second source of search roots: this library's own
+ * on-disk location (`__dirname`), recognized via a small fixed allow-list of real shipped
+ * layouts (`matchLibraryLocationTail`/`LIBRARY_LOCATION_TAILS`), including mutation proofs
+ * built against `./fixtures/toolchain/library-layout-copy.js` -- a fresh copy of `adapters.js`
+ * (plus its siblings) at the LITERAL relative directory names each layout actually ships at,
+ * since the recognition is tail-based on `__dirname`'s real path, not something a plain
+ * `ctx`-driven unit test of the live, in-repo module can vary.
  */
 
 const fs = require('fs');
@@ -17,6 +26,7 @@ const yaml = require('js-yaml');
 
 const { discoverAdapters, loadAdapter } = require('../../packages/development/lib/toolchain/adapters');
 const { getUserToolchainConfigPath } = require('../../packages/development/lib/toolchain/config-path');
+const { makeLibraryLayoutCopy } = require('./fixtures/toolchain/library-layout-copy');
 
 const tempDirs = [];
 
@@ -30,6 +40,26 @@ function mkTempDir(prefix) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.push(dir);
   return dir;
+}
+
+/**
+ * Keep only `discoverAdapters()` results whose `dir` lives inside one of `roots` (as a real
+ * path-segment prefix, never a bare string prefix that could false-match a sibling tmp dir
+ * name sharing a prefix). PR 5 independent review: `discoverAdapters`/`loadAdapter` now ALSO
+ * discover this library's own real, library-relative installed-tier roots (this repo's own
+ * shipped `packages/*\/skills/adapter-*` directories, since these tests `require()` the real,
+ * unmutated `adapters.js` in-process rather than a copied bundle) -- a test asserting on
+ * "exactly what I seeded under my own tmp roots" must filter those out first, the same way it
+ * would filter out another test's temp dir if jest ever shared process state across them.
+ *
+ * @param {Array<{name: string, origin: string, dir: string}>} result
+ * @param {...string} roots usually `projectRoot` and/or `xdgConfigHome`
+ */
+function withinProjectRoot(result, ...roots) {
+  const prefixes = roots.map((root) => (root.endsWith(path.sep) ? root : root + path.sep));
+  return result.filter((entry) =>
+    roots.some((root, i) => entry.dir === root || entry.dir.startsWith(prefixes[i]))
+  );
 }
 
 const SKILL_MD = ['# Example Adapter', '', '## Vocabulary', '', '- show: read a work item by id', ''].join('\n');
@@ -138,7 +168,7 @@ describe('loadAdapter: duplicate-id tie-break (first by origin priority, then so
 });
 
 describe('loadAdapter: NOT_INSTALLED', () => {
-  test('AC-007-2: a name found in no search location fails with code NOT_INSTALLED naming the adapter, all three search locations, and a marketplace install hint', () => {
+  test('AC-007-2: a name found in no search location fails with code NOT_INSTALLED naming the adapter, every search location (repo-local, user, project packages, and this library\'s own installed-tier roots), and a marketplace install hint', () => {
     const projectRoot = mkTempDir('ensemble-adapters-missing-project-');
     const xdgConfigHome = mkTempDir('ensemble-adapters-missing-xdg-');
     const name = 'totally-unknown-adapter';
@@ -147,7 +177,7 @@ describe('loadAdapter: NOT_INSTALLED', () => {
     const expectedUserDir = userAdapterDir(xdgConfigHome, name);
     const expectedPackagesRoot = path.join(projectRoot, 'packages');
 
-    expect.assertions(6);
+    expect.assertions(7);
     try {
       loadAdapter(name, { projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
     } catch (error) {
@@ -157,6 +187,12 @@ describe('loadAdapter: NOT_INSTALLED', () => {
       expect(error.message).toContain(expectedUserDir);
       expect(error.message).toContain(expectedPackagesRoot);
       expect(error.message.toLowerCase()).toMatch(/marketplace/);
+      // PR 5 independent review: this suite runs the REAL, unmutated adapters.js module
+      // in-process (require()'d directly, not a copied bundle), so its own __dirname matches
+      // the monorepo-source tail and the message also names this library's own real,
+      // library-relative installed-tier roots (this repo's packages/development/skills among
+      // them) -- the exact mechanism this task fixes.
+      expect(error.message).toContain(path.join('packages', 'development', 'skills', name));
     }
   });
 });
@@ -400,13 +436,14 @@ describe('discoverAdapters: resilient listing (never throws a raw fs error)', ()
   test('a missing adapters root is skipped, not thrown', () => {
     const projectRoot = mkTempDir('ensemble-adapters-missing-root-project-');
     const xdgConfigHome = mkTempDir('ensemble-adapters-missing-root-xdg-');
-    // No .ensemble/adapters, no user adapters dir, no packages dir exists at all.
+    // No .ensemble/adapters, no user adapters dir, no project-relative packages dir exists at
+    // all under this test's own projectRoot.
 
     let result;
     expect(() => {
       result = discoverAdapters({ projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
     }).not.toThrow();
-    expect(result).toEqual([]);
+    expect(withinProjectRoot(result, projectRoot)).toEqual([]);
   });
 
   test('a non-directory adapters root (a plain file in its place) is skipped, not thrown', () => {
@@ -421,7 +458,7 @@ describe('discoverAdapters: resilient listing (never throws a raw fs error)', ()
     expect(() => {
       result = discoverAdapters({ projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
     }).not.toThrow();
-    expect(result).toEqual([]);
+    expect(withinProjectRoot(result, projectRoot)).toEqual([]);
   });
 
   test('a stray file inside an adapters root is skipped, not thrown and not treated as an adapter', () => {
@@ -437,7 +474,9 @@ describe('discoverAdapters: resilient listing (never throws a raw fs error)', ()
     expect(() => {
       result = discoverAdapters({ projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
     }).not.toThrow();
-    expect(result).toEqual([{ name: 'real-adapter', origin: 'repo-local', dir: realAdapterDir }]);
+    expect(withinProjectRoot(result, projectRoot)).toEqual([
+      { name: 'real-adapter', origin: 'repo-local', dir: realAdapterDir }
+    ]);
   });
 
   test('a broken symlink inside an adapters root is skipped, not thrown', () => {
@@ -451,7 +490,7 @@ describe('discoverAdapters: resilient listing (never throws a raw fs error)', ()
     expect(() => {
       result = discoverAdapters({ projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
     }).not.toThrow();
-    expect(result).toEqual([]);
+    expect(withinProjectRoot(result, projectRoot)).toEqual([]);
   });
 });
 
@@ -482,13 +521,182 @@ describe('discoverAdapters', () => {
 
     const result = discoverAdapters({ projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
 
-    expect(result).toEqual(
+    // Filtered to this test's own projectRoot/xdgConfigHome: PR 5 independent review added a
+    // second, library-relative source to the "installed" tier (this library's own real,
+    // shipped packages/*/skills, discovered alongside whatever this test seeded under its own
+    // tmp roots, since this suite runs the real adapters.js in-process -- see
+    // `withinProjectRoot`'s own doc). `discoverAdapters: discovers this library's own
+    // library-relative installed roots too` below covers that half of the contract instead.
+    expect(withinProjectRoot(result, projectRoot, xdgConfigHome)).toEqual(
       expect.arrayContaining([
         { name: 'repo-id', origin: 'repo-local', dir: repoLocalDir },
         { name: 'user-id', origin: 'user', dir: userDir },
         { name: 'installed-id', origin: 'installed', dir: installedDir }
       ])
     );
-    expect(result).toHaveLength(3);
+    expect(withinProjectRoot(result, projectRoot, xdgConfigHome)).toHaveLength(3);
+  });
+
+  test('discovers this library\'s own library-relative installed roots too (PR 5 independent review)', () => {
+    const projectRoot = mkTempDir('ensemble-adapters-discover-library-relative-project-');
+    const xdgConfigHome = mkTempDir('ensemble-adapters-discover-library-relative-xdg-');
+    // No .ensemble/adapters, no user adapters dir, no project-relative packages/ dir: every
+    // "installed" result must come from this library's own on-disk location, not projectRoot.
+
+    const result = discoverAdapters({ projectRoot, env: { XDG_CONFIG_HOME: xdgConfigHome } });
+    const beads = result.find((entry) => entry.name === 'beads' && entry.origin === 'installed');
+
+    expect(beads).toBeDefined();
+    expect(beads.dir).toBe(
+      path.resolve(__dirname, '..', '..', 'packages', 'development', 'skills', 'adapter-tracker-beads')
+    );
+  });
+});
+
+describe('discoverAdapters: library-relative installed-tier roots, one real copy per shipped layout (PR 5 independent review)', () => {
+  const { mutateAndRequire } = require('./fixtures/toolchain/mutant-toolchain-copy');
+  const UNRELATED_PROJECT_ROOT = '/tmp/toolchain-adapters-library-relative-unrelated-project';
+
+  test.each([
+    ['source'],
+    ['pi'],
+    ['codex'],
+    ['opencode']
+  ])("layout '%s': a copy of adapters.js at the real shipped relative position finds the adapter-tracker-beads skill copied alongside it, from a projectRoot that has nothing to do with the copy", (layout) => {
+    const copy = makeLibraryLayoutCopy(layout, { includeAdapterSkills: true });
+    try {
+      delete require.cache[require.resolve(copy.adaptersPath)];
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      const { loadAdapter: loadAdapterFromCopy } = require(copy.adaptersPath);
+      const result = loadAdapterFromCopy('beads', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} });
+      expect(result.origin).toBe('installed');
+      expect(fs.realpathSync(result.dir)).toBe(fs.realpathSync(path.join(copy.skillsRoot, 'adapter-tracker-beads')));
+    } finally {
+      copy.cleanup();
+    }
+  });
+
+  describe('mutation-proof: removing the library-relative root derivation', () => {
+    test("the real (unmutated) copy still finds 'beads' from an unrelated projectRoot", () => {
+      const copy = makeLibraryLayoutCopy('source', { includeAdapterSkills: true });
+      try {
+        delete require.cache[require.resolve(copy.adaptersPath)];
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        const { loadAdapter: loadAdapterFromCopy } = require(copy.adaptersPath);
+        expect(() => loadAdapterFromCopy('beads', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} })).not.toThrow();
+      } finally {
+        copy.cleanup();
+      }
+    });
+
+    test("reverting installedSkillsRoots' own '...libraryRelativeSkillsRoots(),' spread to drop it makes 'beads' unreachable from an unrelated projectRoot again (NOT_INSTALLED)", () => {
+      const copy = makeLibraryLayoutCopy('source', { includeAdapterSkills: true });
+      try {
+        const needle = '...libraryRelativeSkillsRoots(),';
+        const replacement = '';
+        const mutated = mutateAndRequire(copy.adaptersPath, needle, replacement);
+
+        expect(() => mutated.loadAdapter('beads', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} })).toThrow(
+          expect.objectContaining({ code: 'NOT_INSTALLED' })
+        );
+      } finally {
+        copy.cleanup();
+      }
+    });
+  });
+
+  describe('mutation-proof: widening the "package-root" shape one level higher than its fixed, correct offset', () => {
+    test('the real (unmutated) copy does NOT find a planted adapter one level above the real skills root', () => {
+      const copy = makeLibraryLayoutCopy('source', { includeAdapterSkills: true });
+      try {
+        // copy.skillsRoot is <copy.root>/pkg/skills; one level too high is <copy.root>/skills.
+        const evilDir = path.join(copy.root, 'skills', 'adapter-evil');
+        writeAdapterDir(evilDir, validAdapterManifest({ adapter: 'evil-widened' }));
+
+        delete require.cache[require.resolve(copy.adaptersPath)];
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        const { loadAdapter: loadAdapterFromCopy } = require(copy.adaptersPath);
+        expect(() =>
+          loadAdapterFromCopy('evil-widened', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} })
+        ).toThrow(expect.objectContaining({ code: 'NOT_INSTALLED' }));
+      } finally {
+        copy.cleanup();
+      }
+    });
+
+    test("reverting libraryRelativeSkillsRoots' own 'path.join(ancestor, 'skills')' push to climb one level higher DOES find that same planted adapter (proving the fixed offset, not a search, is what keeps it out)", () => {
+      const copy = makeLibraryLayoutCopy('source', { includeAdapterSkills: true });
+      try {
+        const evilDir = path.join(copy.root, 'skills', 'adapter-evil');
+        writeAdapterDir(evilDir, validAdapterManifest({ adapter: 'evil-widened' }));
+
+        const needle = "const roots = [path.join(ancestor, 'skills')];";
+        const replacement = "const roots = [path.join(path.dirname(ancestor), 'skills')];";
+        const mutated = mutateAndRequire(copy.adaptersPath, needle, replacement);
+
+        const result = mutated.loadAdapter('evil-widened', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} });
+        expect(result.origin).toBe('installed');
+      } finally {
+        copy.cleanup();
+      }
+    });
+  });
+
+  describe("mutation-proof: dropping the Pi layout's own tail entry", () => {
+    test("the real (unmutated) LIBRARY_LOCATION_TAILS still recognizes a Pi-shaped copy", () => {
+      const copy = makeLibraryLayoutCopy('pi', { includeAdapterSkills: true });
+      try {
+        delete require.cache[require.resolve(copy.adaptersPath)];
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        const { loadAdapter: loadAdapterFromCopy } = require(copy.adaptersPath);
+        expect(() => loadAdapterFromCopy('beads', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} })).not.toThrow();
+      } finally {
+        copy.cleanup();
+      }
+    });
+
+    test("removing the Pi tail entry from LIBRARY_LOCATION_TAILS makes a Pi-shaped copy fail to find its own adapter (NOT_INSTALLED), while leaving the other three layouts' entries untouched", () => {
+      const copy = makeLibraryLayoutCopy('pi', { includeAdapterSkills: true });
+      try {
+        const needle = "{ segments: ['vendor', 'lib', 'toolchain'], shape: 'package-root', npmScopeSiblings: true },";
+        const replacement = '';
+        const mutated = mutateAndRequire(copy.adaptersPath, needle, replacement);
+
+        expect(() => mutated.loadAdapter('beads', { projectRoot: UNRELATED_PROJECT_ROOT, env: {} })).toThrow(
+          expect.objectContaining({ code: 'NOT_INSTALLED' })
+        );
+      } finally {
+        copy.cleanup();
+      }
+    });
+  });
+
+  describe("ctx.installedRoots: explicit extra roots are appended after the derived ones, never replacing them", () => {
+    test('a ctx.installedRoots entry whose own adapter id is absent from every derived root is still discovered', () => {
+      const copy = makeLibraryLayoutCopy('source', { includeAdapterSkills: true });
+      const extraRoot = mkTempDir('ensemble-adapters-installed-roots-override-');
+      try {
+        writeAdapterDir(path.join(extraRoot, 'override-tool'), validAdapterManifest({ adapter: 'override-id' }));
+
+        delete require.cache[require.resolve(copy.adaptersPath)];
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        const { loadAdapter: loadAdapterFromCopy } = require(copy.adaptersPath);
+
+        // The real 'beads' (derived) is STILL found with installedRoots supplied...
+        expect(() =>
+          loadAdapterFromCopy('beads', { projectRoot: UNRELATED_PROJECT_ROOT, env: {}, installedRoots: [extraRoot] })
+        ).not.toThrow();
+        // ...and the override root's own id, unreachable from any derived root, is ALSO found.
+        const overrideResult = loadAdapterFromCopy('override-id', {
+          projectRoot: UNRELATED_PROJECT_ROOT,
+          env: {},
+          installedRoots: [extraRoot]
+        });
+        expect(overrideResult.origin).toBe('installed');
+        expect(fs.realpathSync(overrideResult.dir)).toBe(fs.realpathSync(path.join(extraRoot, 'override-tool')));
+      } finally {
+        copy.cleanup();
+      }
+    });
   });
 });

@@ -10,14 +10,52 @@
  * `stageBeadsExport` builds the TRD-only version and writes it straight into the git INDEX
  * (hash-object + update-index). The working file is br's and is never rewritten, so br is not
  * fought; after a commit it simply still differs from HEAD, which the dirty-tree gates ignore.
+ *
+ * The working text itself (for the DEFAULT export path only) is read through the toolchain's
+ * `tracker.stage-export` capability (TRD-2026-8d825f54 TRD-026), not `fs.readFileSync`
+ * directly -- the same `resolveCategory`/`loadAdapter`/`runCapabilitySync` pipeline
+ * `beads-label.js`/`trd-cli.js` already route every other tracker call through. The default
+ * `adapter-tracker-beads` adapter implements it as a literal `cat .beads/issues.jsonl`; an
+ * adapter that does not declare it resolves `UNAVAILABLE` with the category contract's
+ * documented `fallback: 'full-export-unscoped'` (`toolchain/categories/tracker.yaml`), which
+ * `stageBeadsExport` surfaces as `{staged:false, unavailable:true, fallback:
+ * 'full-export-unscoped'}` without mutating the index or the working file -- "full export,
+ * unscoped" names the degraded behavior a caller must fall back to by hand (reading the whole
+ * tracked file directly, as this function always did before this capability existed).
  */
 
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { titleMatches } = require('./beads-label');
+const { resolveCategory } = require('./toolchain/config');
+const { loadAdapter } = require('./toolchain/adapters');
+const { detectAdapter } = require('./toolchain/detect');
+const { runCapabilitySync } = require('./toolchain/runner');
 
 const DEFAULT_FILE = '.beads/issues.jsonl';
+
+/**
+ * Resolve and load the `tracker` category's adapter (TRD-026), the same `resolveCategory`/
+ * `loadAdapter` pipeline `beads-label.js#resolveTrackerAdapter` uses for its own calls --
+ * except for `root`: `beads-label.js`'s helper hardcodes `process.cwd()`, but
+ * `stageBeadsExport`/`checkStagedExport` take an EXPLICIT, INJECTABLE `cwd` (existing tests
+ * call them against throwaway temp git repos while Jest's own real `process.cwd()` stays the
+ * real monorepo root) -- resolving config/adapter against `process.cwd()` here would silently
+ * break every existing test's isolation by resolving against the real ensemble.dev repo's
+ * `.ensemble/toolchain.yaml` instead of the temp repo's. `root` MUST be the already-git-
+ * resolved repo root `locate(cwd, file).root` computed by this function's caller, never
+ * `process.cwd()` directly.
+ *
+ * @param {string} root the git repo root, from `locate()`
+ * @returns {{manifest: object}}
+ */
+function resolveTrackerAdapter(root) {
+  const env = process.env;
+  const resolved = resolveCategory('tracker', { projectRoot: root, env, detect: detectAdapter });
+  const loaded = loadAdapter(resolved.value, { projectRoot: root, env, interactive: false });
+  return { manifest: loaded.manifest };
+}
 
 // ---------------------------------------------------------------------------
 // Pure scoping
@@ -124,14 +162,31 @@ function locate(cwd, file) {
 /**
  * Stage this TRD's beads from the tracked export into the index; the working file is untouched.
  * @returns {{ok: true, tracked: boolean, skipped?: boolean, file: string, replaced?: number,
- *            added?: number, foreignDropped?: number, unchanged?: boolean}}
+ *            added?: number, foreignDropped?: number, unchanged?: boolean, staged?: boolean,
+ *            unavailable?: boolean, fallback?: string}}
  */
 function stageBeadsExport({ cwd = process.cwd(), file = DEFAULT_FILE, matches = [], labels = [], dryRun = false } = {}) {
   const { root, tracked } = locate(cwd, file);
   if (!tracked) return { ok: true, tracked: false, skipped: true, reason: `${file} is not tracked by git`, file };
 
   const headText = tryGit(root, ['show', `HEAD:${file}`]) || '';
-  const workText = fs.readFileSync(path.join(root, file), 'utf8');
+  let workText;
+  if (file === DEFAULT_FILE) {
+    // `tracker.stage-export`'s `run` template is a literal `.beads/issues.jsonl` argv, not a
+    // `${file}`-templated one -- a caller overriding `file` keeps the direct
+    // `fs.readFileSync` this function always used before this capability existed.
+    const { manifest } = resolveTrackerAdapter(root);
+    const result = runCapabilitySync(manifest, 'tracker.stage-export', {}, { execFileOptions: { cwd: root } });
+    if (!result.ok) {
+      if (result.unavailable) {
+        return { ok: true, tracked: true, staged: false, unavailable: true, fallback: result.fallback, file };
+      }
+      throw new Error(`stageBeadsExport: tracker.stage-export failed: ${result.error.message}`);
+    }
+    workText = result.data;
+  } else {
+    workText = fs.readFileSync(path.join(root, file), 'utf8');
+  }
   const scoped = buildScopedExport(headText, workText, { matches, labels });
 
   if (!dryRun) {

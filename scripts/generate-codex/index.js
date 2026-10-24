@@ -14,6 +14,16 @@ const { vendorToolchainLibrary } = require('../lib/toolchain-vendor');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGES_DIR = path.join(ROOT, 'packages');
+// Packages that MIRROR every other package's skills/adapter-* directories (packages/pi's own
+// generator output, packages/full's curated symlink tree -- see
+// packages/pi/src/transformers/skill-copier.ts's own EXCLUDED_PACKAGES for the same rule on
+// the Pi side) must never be treated as a SECOND, independent adapter source: TRD-024 is the
+// first real adapter this monorepo ships, and it exposed a latent gap here -- `packages/pi`'s
+// generated `packages/pi/skills/adapter-tracker-beads/` otherwise collides with the real
+// source at `packages/development/skills/adapter-tracker-beads/`, a false positive this
+// generator's own collision check (below) would wrongly treat as two different packages
+// shipping the same adapter name.
+const ADAPTER_SOURCE_EXCLUDED_PACKAGES = new Set(['pi', 'full']);
 const CODEX_PACKAGE_DIR = path.join(PACKAGES_DIR, 'codex');
 const OUTPUT_DIR = path.join(CODEX_PACKAGE_DIR, '.codex');
 const AGENTS_OUTPUT = path.join(CODEX_PACKAGE_DIR, 'AGENTS.md');
@@ -293,7 +303,9 @@ function copyFrameworkSkills({ dryRun, verbose }) {
  * manifest format, copied byte-for-byte like lib-bundler.ts copies vendored libs.
  */
 function copyAdapterSkills({ dryRun, verbose, packagesDir = PACKAGES_DIR, outputDir = OUTPUT_DIR }) {
-  const adapterSkillFiles = globSync(toGlobPattern(path.join(packagesDir, '*/skills/adapter-*/SKILL.md'))).sort();
+  const adapterSkillFiles = globSync(toGlobPattern(path.join(packagesDir, '*/skills/adapter-*/SKILL.md')))
+    .filter((file) => !ADAPTER_SOURCE_EXCLUDED_PACKAGES.has(path.basename(path.dirname(path.dirname(path.dirname(file))))))
+    .sort();
 
   // Detect adapter directory-name collisions (TRD-020 P2 fix). Output is keyed purely by the
   // adapter directory's own basename (not the owning package), so two different packages

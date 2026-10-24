@@ -157,13 +157,18 @@ async function runHealthCheck(adapterId, manifest, check) {
  * this file's header for the full contract.
  *
  * @param {{categories?: string[], runId?: string, nonInteractive?: boolean}} [input]
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function,
+ *   installedRoots?: string[]}} [ctx] passed straight through to `resolveCategory`/
+ *   `loadAdapter` for every category -- never narrowed to a hand-picked subset of fields, so a
+ *   field neither of those two call sites explicitly destructures (for example
+ *   `ctx.installedRoots`, PR 5 independent review) still reaches them (PR 4 independent review
+ *   Finding 1's "no per-handler rebuilds that can drop fields" rule, applied here too).
  * @returns {Promise<{ok:true, runId:string, categories:string[], checkedAt:string} |
  *   {ok:false, error:{code:string, message:string}}>}
  */
 async function runPreflight(input = {}, ctx = {}) {
   const { categories, runId, nonInteractive = false, requires = [] } = input;
-  const { projectRoot = process.cwd(), env = process.env, detect } = ctx;
+  const { projectRoot = process.cwd(), env = process.env } = ctx;
 
   if (!isSafeRunId(runId)) {
     return {
@@ -181,7 +186,7 @@ async function runPreflight(input = {}, ctx = {}) {
   for (const category of categoryList) {
     let adapterId;
     try {
-      adapterId = resolveCategory(category, { projectRoot, env, detect }).value;
+      adapterId = resolveCategory(category, ctx).value;
     } catch (error) {
       return {
         ok: false,
@@ -195,6 +200,7 @@ async function runPreflight(input = {}, ctx = {}) {
     let loaded;
     try {
       loaded = loadAdapter(adapterId, {
+        ...ctx,
         projectRoot,
         env,
         interactive: !isNonInteractive({ nonInteractive, env })

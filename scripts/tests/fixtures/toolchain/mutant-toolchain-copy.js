@@ -62,11 +62,20 @@ function copyDirJsFiles(srcDir, destDir, extensions) {
  * entirely under `os.tmpdir()`. Returns absolute paths to the copied files/directories a caller
  * is likely to need.
  *
+ * @param {{includeAdapterSkills?: boolean}} [options] when `includeAdapterSkills` is `true`
+ *   (default `false`, every pre-existing caller is unaffected), also copies the real
+ *   `packages/development/skills/adapter-tracker-beads` directory to
+ *   `<root>/packages/development/skills/adapter-tracker-beads` -- the exact relative position
+ *   `./adapters.js`'s library-relative "monorepo source" layout (PR 5 independent review)
+ *   derives from `<root>/packages/development/lib/toolchain`'s own `__dirname`, so a copy
+ *   built with this option set reproduces the real monorepo's shipped-default-adapter
+ *   reachability, not just its config-resolution logic.
  * @returns {{root: string, libDir: string, toolchainLibDir: string,
  *   runnerPath: string, confirmPath: string, ledgerPath: string, cliPath: string,
  *   mappingPath: string, complexityAnalyzerPath: string, cleanup: () => void}}
  */
-function makeMutantToolchainRoot() {
+function makeMutantToolchainRoot(options = {}) {
+  const { includeAdapterSkills = false } = options;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-mutant-'));
 
   // Symlink FIRST, before anything is required from inside the copy: Node's upward
@@ -95,6 +104,14 @@ function makeMutantToolchainRoot() {
   // than maintaining a hand-picked extension/subdirectory list here.
   fs.cpSync(path.join(REPO_DEV_PKG, 'toolchain'), dataToolchainDir, { recursive: true });
 
+  let adapterSkillsDir;
+  if (includeAdapterSkills) {
+    adapterSkillsDir = path.join(devPkgRoot, 'skills', 'adapter-tracker-beads');
+    fs.cpSync(path.join(REPO_DEV_PKG, 'skills', 'adapter-tracker-beads'), adapterSkillsDir, {
+      recursive: true
+    });
+  }
+
   return {
     root,
     libDir,
@@ -105,6 +122,7 @@ function makeMutantToolchainRoot() {
     cliPath: path.join(libDir, 'toolchain-cli.js'),
     mappingPath: path.join(toolchainLibDir, 'mapping.js'),
     complexityAnalyzerPath: path.join(libDir, 'complexity-analyzer.js'),
+    adapterSkillsDir,
     cleanup: () => {
       // Remove the symlink itself first (plain, non-recursive unlink: this must NEVER follow
       // the link and must NEVER touch, let alone delete, the real node_modules it points at).

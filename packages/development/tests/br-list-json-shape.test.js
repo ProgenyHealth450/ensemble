@@ -34,13 +34,13 @@ describe('trd-cli getBeadCounts (used by list and status)', () => {
   function countsFrom(payload) {
     let counts;
     jest.isolateModules(() => {
-      jest.doMock('child_process', () => ({
-        ...jest.requireActual('child_process'),
-        execSync: () => Buffer.from(JSON.stringify(payload)),
+      jest.doMock('../lib/toolchain/runner', () => ({
+        ...jest.requireActual('../lib/toolchain/runner'),
+        runCapabilitySync: () => ({ ok: true, data: JSON.stringify(payload) }),
       }));
       counts = require('../lib/trd-cli').getBeadCounts('demo');
     });
-    jest.dontMock('child_process');
+    jest.dontMock('../lib/toolchain/runner');
     return counts;
   }
 

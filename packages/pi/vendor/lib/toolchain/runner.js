@@ -104,6 +104,17 @@
  * actually killed on timeout, and a child process never inherits a credential the resolved
  * adapter did not declare (see "Child environment" below, Threat Model trust boundary 2).
  *
+ * `opts.execFileOptions` MAY still override one thing no caller is blocked from changing:
+ * `maxBuffer`. Node's own `execFile` default (1 MiB) is too small for some capabilities' real
+ * stdout (`tracker.list` against this repo's own live `.beads/` database measured ~3.4 MB --
+ * TRD-024 reviewer round 2, P2) and was observed to hard-fail with a `RangeError` mapped to
+ * `TOOL_FAILED` well before any tool-side error occurred; this module therefore sets
+ * `maxBuffer: DEFAULT_MAX_BUFFER_BYTES` (64 MiB, matching this repo's own sibling `execFile`/
+ * `spawnSync` callers' convention, e.g. `beads-label.js`, `complexity-analyzer.js`) as the
+ * FIRST key in the options object, before `opts.execFileOptions` is spread -- a caller may
+ * still raise or lower it per call, unlike `env`/`timeout`/`killSignal`/`shell` above, since a
+ * wider buffer carries no shell-injection or credential-widening risk.
+ *
  * ## Child environment (TRD trust boundary 2, "credentials from environment variable names
  * the manifest declares, never values")
  *
@@ -231,7 +242,14 @@
  *   `ledger.js`/`preflight.js` use for their own on-disk records) and truncated to
  *   `MAX_TOOL_FAILED_DETAIL_LENGTH` characters before it ever leaves this function -- a failing
  *   tool's stderr is attacker- or misconfiguration-influenced input the CLI prints verbatim, so
- *   it must never carry a credential or grow unbounded (reviewer Finding 4).
+ *   it must never carry a credential or grow unbounded (reviewer Finding 4). Also reached on a
+ *   ZERO exit when stdout parses as a JSON object whose top-level `error` property is itself
+ *   an object -- an "error envelope on a successful exit" shape some tools use (e.g. `br
+ *   sync`/`br comments list`/`br label add` reporting a failure on stdout with exit 0, TRD-024
+ *   reviewer round 2 P1); this check runs for EVERY capability, parse-declaring or not, before
+ *   any `parse` handling, and only matches a top-level JSON OBJECT -- a top-level JSON ARRAY
+ *   (e.g. `br show`'s own `[{...}]` envelope) is unaffected and still reaches `BAD_OUTPUT`/the
+ *   normal mapping path exactly as before.
  * - `BAD_OUTPUT`: only reachable when the resolved capability declares a `parse` block
  *   (TRD-012). Either `mapOutput` threw (malformed stdout relative to `parse`, e.g. unparsable
  *   JSON or a `map` path that does not resolve) or the mapped value failed Ajv validation
@@ -273,6 +291,22 @@
  * `USERPROFILE` must declare those names in its own manifest `env[]` like any other variable
  * it needs -- this module does not special-case Windows base variables, since every adapter
  * shipped in this repo targets POSIX tools today.
+ *
+ * ## runCapabilitySync (TRD-025) -- known limit vs. the process-tree containment above
+ *
+ * `runCapabilitySync` (documented in full at its own JSDoc below) shares `runCapability`'s
+ * 64 MiB `DEFAULT_MAX_BUFFER_BYTES` default and its `NOT_ALLOWED`/`INVALID_ARG`/`TIMEOUT`/
+ * `TOOL_FAILED`/`BAD_OUTPUT` taxonomy, but spawns via `child_process.execFileSync`, which
+ * blocks the one JS thread for its whole duration: NONE of the "Timeout containment" process-
+ * tree polling above can run alongside it. On timeout, `runCapabilitySync` relies solely on
+ * `execFileSync`'s own `timeout`/`killSignal` option -- like plain `execFile` with no
+ * containment layered on top, this kills only the DIRECT child, never a detached grandchild it
+ * may have spawned (PR 6 review item 2). This is an accepted, documented reduction, not an
+ * oversight: every real synchronous caller today (`trd-cli.js#getBeadCounts`/
+ * `#runBeadContext`, `beads-label.js#runBr`, `complexity-analyzer.js#loadBead`) invokes a
+ * short-lived, one-shot `br` read/write, which never spawns a detached descendant of its own.
+ * A future synchronous caller whose underlying tool might do so should use `runCapability`
+ * (accepting becoming `async`) instead of `runCapabilitySync`.
  */
 
 const { execFile, execFileSync } = require('child_process');
@@ -431,6 +465,12 @@ function buildArgv(runTemplate, args = {}, contract = {}) {
 
 const MANIFEST_PLACEHOLDER_PATTERN = /\$\{([^{}]+)\}/g;
 const DEFAULT_TIMEOUT_MS = 60000;
+// See this file's header, "`opts.execFileOptions` MAY still override..." -- 64 MiB, matching
+// this repo's own sibling execFile/spawnSync callers (beads-label.js, complexity-analyzer.js);
+// strictly larger than Node's 1 MiB execFile default, so this can only turn a previously
+// crashing large-stdout capability into a working one, never the reverse (TRD-024 reviewer
+// round 2, P2).
+const DEFAULT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /**
  * Rewrite a manifest `capabilities[].run[]` template's `${name}` placeholders (the syntax
@@ -757,10 +797,262 @@ function killVerifiedPidsSafe(identities, listProcessTableFn = listProcessTable)
 }
 
 /**
+ * Shared envelope-building guards between `runCapability` (async) and `runCapabilitySync`
+ * (sync, TRD-025) below: capability lookup/fallback, argv building, the runtime allowlist
+ * re-check, `TOOL_FAILED` detail redaction/truncation, the zero-exit stdout-error-envelope
+ * check, and `mapOutput`/normalized-schema validation. Neither entry point builds any of these
+ * envelopes inline any more -- every failure-mode message/code in this file's own header
+ * ("Envelope contract") above is produced by exactly one of the functions below, called by
+ * both entry points, so the two can never silently diverge on what counts as `NOT_ALLOWED`/
+ * `INVALID_ARG`/`TOOL_FAILED`/`BAD_OUTPUT`/`UNAVAILABLE`. `TIMEOUT` is the one error code NOT
+ * built here: `runCapability`'s own process-tree-verified kill (see this file's header,
+ * "Timeout containment") and `runCapabilitySync`'s direct-child-only kill (see its own header)
+ * reach the same code and the same message TEMPLATE, but by genuinely different mechanisms
+ * that cannot share a single function (one needs the concurrent `setInterval`/`setTimeout`
+ * polling only an async call can run alongside; the other blocks the one JS thread for its
+ * whole duration) -- see `runCapabilitySync`'s own header for why.
+ */
+
+/**
+ * Look up `capability` on `adapter.capabilities`, or build the `UNAVAILABLE`-with-fallback /
+ * `NOT_ALLOWED` envelope `runCapability`'s and `runCapabilitySync`'s own `!cap` branch used to
+ * build inline -- shared so an undeclared capability (with or without a documented category
+ * fallback) resolves to the exact same envelope from either entry point.
+ *
+ * @param {{adapter?: string, capabilities?: Record<string, object>}} adapter
+ * @param {string} adapterId `adapter.adapter`, already defaulted
+ * @param {string} capability
+ * @param {{categoriesDir?: string}} opts
+ * @returns {{cap: object} | {envelope: {ok:false, unavailable?: true, fallback?: string,
+ *   capability?: string, adapter?: string, error:{code:string, message:string}}}}
+ */
+function lookupCapability(adapter, adapterId, capability, opts) {
+  const cap = adapter && adapter.capabilities && adapter.capabilities[capability];
+  if (cap) return { cap };
+
+  const declared = resolve.lookupContractCapability(capability, opts.categoriesDir);
+  if (declared && declared.required === false && declared.fallback) {
+    return {
+      envelope: {
+        ok: false,
+        unavailable: true,
+        fallback: declared.fallback,
+        capability,
+        adapter: adapterId,
+        error: {
+          code: 'UNAVAILABLE',
+          message:
+            `${adapterId}: capability '${capability}' is unavailable; using documented ` +
+            `fallback '${declared.fallback}'`
+        }
+      }
+    };
+  }
+  return {
+    envelope: {
+      ok: false,
+      error: {
+        code: 'NOT_ALLOWED',
+        message: `capability '${capability}' is not declared by adapter '${adapterId}'`
+      }
+    }
+  };
+}
+
+/**
+ * Translate a resolved capability's manifest `run[]` template and substitute `args` into a
+ * flat argv array (`translateManifestTemplate` + `buildArgv` above), wrapped as the same
+ * `{argv}` | `{envelope}` result shape every other shared helper in this section returns --
+ * shared so `runCapability` and `runCapabilitySync` build the exact same argv, or fail with
+ * the exact same `INVALID_ARG`/`NOT_ALLOWED` envelope, from the exact same inputs.
+ *
+ * @param {{run: string[], variants?: object}} cap the resolved capability definition
+ * @param {Record<string, unknown>} args
+ * @returns {{argv: string[]} | {envelope: {ok:false, error:{code:string, message:string}}}}
+ */
+function buildCapabilityArgv(cap, args) {
+  try {
+    const translatedTemplate = translateManifestTemplate(cap.run);
+    const argv = buildArgv(translatedTemplate, args, { inputs: {}, variants: cap.variants });
+    return { argv };
+  } catch (error) {
+    return { envelope: { ok: false, error: { code: error.code || 'INVALID_ARG', message: error.message } } };
+  }
+}
+
+/**
+ * Build the `NOT_ALLOWED` envelope for `denyRuntimeAllowlist`'s runtime allowlist check, or
+ * `null` when the substituted argv is permitted -- shared so `runCapability` and
+ * `runCapabilitySync` apply the exact same binary/subcommand gate to the exact same argv.
+ *
+ * @param {string} adapterId
+ * @param {{binaries?: string[], allowlist?: {bin:string,sub?:string[]}[]}} adapter
+ * @param {string[]} argv the substituted argv about to be spawned
+ * @returns {{ok:false, error:{code:'NOT_ALLOWED', message:string}} | null}
+ */
+function checkRuntimeAllowlistEnvelope(adapterId, adapter, argv) {
+  const binaries = (adapter && Array.isArray(adapter.binaries) && adapter.binaries) || [];
+  const allowlist = (adapter && Array.isArray(adapter.allowlist) && adapter.allowlist) || [];
+  const denialMessage = denyRuntimeAllowlist(adapterId, binaries, allowlist, argv);
+  return denialMessage ? { ok: false, error: { code: 'NOT_ALLOWED', message: denialMessage } } : null;
+}
+
+/**
+ * Redact secrets from, then length-bound, one `TOOL_FAILED` detail string -- the exact
+ * `redactSecrets(...).text` plus `MAX_TOOL_FAILED_DETAIL_LENGTH` truncation both
+ * `runCapability` and `runCapabilitySync` apply to a failing tool's stderr (or stdout error
+ * envelope) before it ever leaves this module (reviewer Finding 4: a failing tool's output is
+ * attacker- or misconfiguration-influenced input the CLI prints verbatim, so it must never
+ * carry a credential or grow unbounded).
+ *
+ * @param {string} rawDetail
+ * @returns {string}
+ */
+function redactAndBound(rawDetail) {
+  const redacted = redactSecrets(rawDetail).text;
+  return redacted.length > MAX_TOOL_FAILED_DETAIL_LENGTH
+    ? `${redacted.slice(0, MAX_TOOL_FAILED_DETAIL_LENGTH)}... [truncated]`
+    : redacted;
+}
+
+/**
+ * Zero exit, but stdout is itself an error envelope (some `br` subcommands this adapter wraps
+ * report failure this way, e.g. `sync`/`comments list`/`label add` -- TRD-024 reviewer round 2,
+ * P1): a top-level JSON OBJECT with its own `error` property that is itself an object. A
+ * top-level JSON ARRAY (e.g. `br show`'s `[{...}]`) is never touched here and still reaches
+ * `BAD_OUTPUT`/the normal mapping path. Runs for EVERY capability, parse-declaring or not,
+ * BEFORE any `parse` handling -- shared between `runCapability` and `runCapabilitySync` so
+ * this fail-closed check can never silently apply to only one of them.
+ *
+ * @param {string} adapterId
+ * @param {string} capability
+ * @param {string} stdout raw child stdout
+ * @returns {{ok:false, error:{code:'TOOL_FAILED', message:string}} | null} the envelope when
+ *   stdout is an error envelope, else `null`
+ */
+function checkZeroExitErrorEnvelope(adapterId, capability, stdout) {
+  const trimmedStdout = stdout ? String(stdout).trim() : '';
+  if (!trimmedStdout) return null;
+
+  let parsedStdout;
+  try {
+    parsedStdout = JSON.parse(trimmedStdout);
+  } catch {
+    return null;
+  }
+
+  if (
+    parsedStdout !== null &&
+    typeof parsedStdout === 'object' &&
+    !Array.isArray(parsedStdout) &&
+    Object.prototype.hasOwnProperty.call(parsedStdout, 'error') &&
+    parsedStdout.error !== null &&
+    typeof parsedStdout.error === 'object'
+  ) {
+    const boundedDetail = redactAndBound(JSON.stringify(parsedStdout.error));
+    return {
+      ok: false,
+      error: {
+        code: 'TOOL_FAILED',
+        message:
+          `${adapterId}: capability '${capability}' failed: tool reported an error ` +
+          `envelope on stdout despite a zero exit (${boundedDetail})`
+      }
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Apply a capability's `parse` block (if any) to raw stdout and, for categories declaring a
+ * normalized schema, Ajv-validate the mapped result -- the `mapOutput`/`BAD_OUTPUT`/schema-
+ * validation portion of the runner envelope contract (TRD-012, PRD REQ-002 AC-002-2, REQ-022
+ * AC-022-2), shared verbatim between `runCapability` and `runCapabilitySync` so the two can
+ * never diverge on what counts as a mapping or schema failure.
+ *
+ * @param {string} adapterId
+ * @param {string} capability
+ * @param {{parse?: object}} cap the resolved capability definition (`adapter.capabilities[capability]`)
+ * @param {string} stdout raw child stdout
+ * @returns {{data: (string|unknown)} | {envelope: {ok:false, error:{code:string, message:string}}}}
+ *   `{data}` is `stdout` unchanged when `cap` declares no `parse` block, else `mapOutput`'s
+ *   mapped value once it has passed normalized-schema validation (when the category has one)
+ */
+function mapAndValidateOutput(adapterId, capability, cap, stdout) {
+  if (!cap.parse) {
+    return { data: stdout };
+  }
+
+  let mapped;
+  try {
+    mapped = mapOutput(stdout, cap.parse);
+  } catch (mapError) {
+    return { envelope: { ok: false, error: { code: mapError.code || 'BAD_OUTPUT', message: mapError.message } } };
+  }
+
+  const schemaFileName = CATEGORY_NORMALIZED_SCHEMA[capability.split('.')[0]];
+  if (!schemaFileName) {
+    return { data: mapped };
+  }
+
+  let validateNormalized;
+  try {
+    validateNormalized = getNormalizedValidator(schemaFileName);
+  } catch (schemaError) {
+    return {
+      envelope: {
+        ok: false,
+        error: {
+          code: 'TOOL_FAILED',
+          message:
+            `${adapterId}: capability '${capability}' could not load its normalized ` +
+            `schema: ${schemaError.message}`
+        }
+      }
+    };
+  }
+
+  if (!validateNormalized(mapped)) {
+    const firstError = validateNormalized.errors && validateNormalized.errors[0];
+    const detail = firstError
+      ? describeNormalizedSchemaError(firstError)
+      : 'does not match the normalized schema';
+    return {
+      envelope: {
+        ok: false,
+        error: {
+          code: 'BAD_OUTPUT',
+          message: `${adapterId}: capability '${capability}' output failed normalized-schema validation (${detail})`
+        }
+      }
+    };
+  }
+
+  return { data: mapped };
+}
+
+/**
+ * Build the `ok:true` runner envelope -- shared so a successful `runCapability`/
+ * `runCapabilitySync` call returns the exact same shape.
+ *
+ * @param {string} capability
+ * @param {string} adapterId
+ * @param {unknown} source `opts.source`, passed through verbatim
+ * @param {string|unknown} data
+ * @returns {{ok:true, capability:string, adapter:string, source:unknown, data:(string|unknown)}}
+ */
+function successEnvelope(capability, adapterId, source, data) {
+  return { ok: true, capability, adapter: adapterId, source: source ?? null, data };
+}
+
+/**
  * Execute one capability of a resolved, already-validated adapter manifest and resolve to the
  * runner envelope (TRD-011, TRD-012, TRD System Architecture; PRD REQ-023, REQ-002, REQ-022).
- * See this file's header, "runCapability" section, for the full envelope/error-code contract.
- * Never throws: every failure mode resolves to `{ok:false, error:{code, message}}` instead.
+ * See this file's header, "runCapability" section, for the full envelope/error-code contract,
+ * and the "Shared envelope-building guards" section above for the helpers this function and
+ * `runCapabilitySync` both call. Never throws: every failure mode resolves to `{ok:false,
+ * error:{code, message}}` instead.
  *
  * @param {{adapter: string, binaries?: string[], allowlist?: {bin:string,sub?:string[]}[],
  *   capabilities?: Record<string, {run: string[], variants?: Record<string, Record<string,
@@ -781,51 +1073,17 @@ function killVerifiedPidsSafe(identities, listProcessTableFn = listProcessTable)
  */
 async function runCapability(adapter, capability, args = {}, opts = {}) {
   const adapterId = (adapter && adapter.adapter) || '(unknown adapter)';
-  const cap = adapter && adapter.capabilities && adapter.capabilities[capability];
 
-  if (!cap) {
-    const declared = resolve.lookupContractCapability(capability, opts.categoriesDir);
-    if (declared && declared.required === false && declared.fallback) {
-      return {
-        ok: false,
-        unavailable: true,
-        fallback: declared.fallback,
-        capability,
-        adapter: adapterId,
-        error: {
-          code: 'UNAVAILABLE',
-          message:
-            `${adapterId}: capability '${capability}' is unavailable; using documented ` +
-            `fallback '${declared.fallback}'`
-        }
-      };
-    }
-    return {
-      ok: false,
-      error: {
-        code: 'NOT_ALLOWED',
-        message: `capability '${capability}' is not declared by adapter '${adapterId}'`
-      }
-    };
-  }
+  const lookup = lookupCapability(adapter, adapterId, capability, opts);
+  if (lookup.envelope) return lookup.envelope;
+  const cap = lookup.cap;
 
-  let argv;
-  try {
-    const translatedTemplate = translateManifestTemplate(cap.run);
-    argv = buildArgv(translatedTemplate, args, { inputs: {}, variants: cap.variants });
-  } catch (error) {
-    return {
-      ok: false,
-      error: { code: error.code || 'INVALID_ARG', message: error.message }
-    };
-  }
+  const built = buildCapabilityArgv(cap, args);
+  if (built.envelope) return built.envelope;
+  const argv = built.argv;
 
-  const binaries = (adapter && Array.isArray(adapter.binaries) && adapter.binaries) || [];
-  const allowlist = (adapter && Array.isArray(adapter.allowlist) && adapter.allowlist) || [];
-  const denialMessage = denyRuntimeAllowlist(adapterId, binaries, allowlist, argv);
-  if (denialMessage) {
-    return { ok: false, error: { code: 'NOT_ALLOWED', message: denialMessage } };
-  }
+  const allowlistEnvelope = checkRuntimeAllowlistEnvelope(adapterId, adapter, argv);
+  if (allowlistEnvelope) return allowlistEnvelope;
 
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
   const childEnv = buildChildEnv(
@@ -862,6 +1120,8 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
         argv[0],
         argv.slice(1),
         {
+          maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
+          encoding: 'utf8',
           ...opts.execFileOptions,
           env: childEnv,
           timeout: timeoutMs,
@@ -910,76 +1170,29 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
               return;
             }
             const rawDetail = (stderr && String(stderr).trim()) || error.message;
-            const redactedDetail = redactSecrets(rawDetail).text;
-            const boundedDetail =
-              redactedDetail.length > MAX_TOOL_FAILED_DETAIL_LENGTH
-                ? `${redactedDetail.slice(0, MAX_TOOL_FAILED_DETAIL_LENGTH)}... [truncated]`
-                : redactedDetail;
             resolve({
               ok: false,
               error: {
                 code: 'TOOL_FAILED',
-                message: `${adapterId}: capability '${capability}' failed: ${boundedDetail}`
+                message: `${adapterId}: capability '${capability}' failed: ${redactAndBound(rawDetail)}`
               }
             });
             return;
           }
-          let data = stdout;
-          if (cap.parse) {
-            let mapped;
-            try {
-              mapped = mapOutput(stdout, cap.parse);
-            } catch (mapError) {
-              resolve({
-                ok: false,
-                error: { code: mapError.code || 'BAD_OUTPUT', message: mapError.message }
-              });
-              return;
-            }
 
-            const schemaFileName = CATEGORY_NORMALIZED_SCHEMA[capability.split('.')[0]];
-            let validateNormalized;
-            if (schemaFileName) {
-              try {
-                validateNormalized = getNormalizedValidator(schemaFileName);
-              } catch (schemaError) {
-                resolve({
-                  ok: false,
-                  error: {
-                    code: 'TOOL_FAILED',
-                    message:
-                      `${adapterId}: capability '${capability}' could not load its normalized ` +
-                      `schema: ${schemaError.message}`
-                  }
-                });
-                return;
-              }
-            }
-            if (validateNormalized && !validateNormalized(mapped)) {
-              const firstError = validateNormalized.errors && validateNormalized.errors[0];
-              const detail = firstError
-                ? describeNormalizedSchemaError(firstError)
-                : 'does not match the normalized schema';
-              resolve({
-                ok: false,
-                error: {
-                  code: 'BAD_OUTPUT',
-                  message: `${adapterId}: capability '${capability}' output failed normalized-schema validation (${detail})`
-                }
-              });
-              return;
-            }
-
-            data = mapped;
+          const errorEnvelope = checkZeroExitErrorEnvelope(adapterId, capability, stdout);
+          if (errorEnvelope) {
+            resolve(errorEnvelope);
+            return;
           }
 
-          resolve({
-            ok: true,
-            capability,
-            adapter: adapterId,
-            source: opts.source ?? null,
-            data
-          });
+          const mapped = mapAndValidateOutput(adapterId, capability, cap, stdout);
+          if (mapped.envelope) {
+            resolve(mapped.envelope);
+            return;
+          }
+
+          resolve(successEnvelope(capability, adapterId, opts.source, mapped.data));
         }
       );
 
@@ -1039,11 +1252,133 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
   });
 }
 
+/**
+ * Synchronous counterpart to `runCapability` above (TRD-025, PRD AC-016-2): the in-process
+ * entry point an existing SYNCHRONOUS caller (`trd-cli.js#getBeadCounts`/`#runBeadContext`,
+ * `beads-label.js#runBr`, `complexity-analyzer.js#loadBead`) routes through instead of calling
+ * `br`/`bv` directly, without itself becoming `async` -- every one of those callers' own
+ * callers (and their existing tests) expect a synchronous return value; TRD-025's own
+ * Implementation AC requires their behavior to stay unchanged. Shares every pure guard with
+ * `runCapability` through the "Shared envelope-building guards" functions above it in this
+ * file (capability lookup/`UNAVAILABLE` fallback, argv building, the runtime allowlist
+ * re-check, child-environment filtering via `buildChildEnv`, `TOOL_FAILED` detail redaction/
+ * truncation, the zero-exit stdout-error-envelope check, `mapOutput` + normalized-schema
+ * validation, and the full `NOT_ALLOWED`/`INVALID_ARG`/`TIMEOUT`/`TOOL_FAILED`/`BAD_OUTPUT`/
+ * `UNAVAILABLE` error taxonomy) so the two entry points cannot silently diverge; see
+ * `tests/toolchain-runner-sync-parity.test.js`, which calls both with the SAME manifest/
+ * capability/args and asserts identical envelopes for each guard. Never throws: every failure
+ * mode resolves to `{ok:false, error:{code, message}}`, exactly like `runCapability`.
+ *
+ * Spawns via `child_process.execFileSync` with `shell` explicitly `false` -- never a shell,
+ * same as `runCapability` -- and, unlike the sync family's own default (`encoding:'buffer'`,
+ * confirmed by direct experiment on this repo's pinned Node: `execFileSync` defaults to a
+ * `Buffer` return where `execFile`'s callback defaults to a `utf8` STRING), sets
+ * `encoding:'utf8'` as part of the same FIRST, caller-overridable options block `maxBuffer`
+ * already occupies, so a capability with no `parse` block returns the identical `data` type
+ * (`string`) from either entry point given the identical child stdout.
+ *
+ * Known limits: `execFileSync` blocks the one JS thread for its whole duration, so no
+ * concurrent `setInterval`/`setTimeout` polling can run alongside it the way `runCapability`'s
+ * process-tree timeout containment does (see this file's header, "Timeout containment") -- on
+ * timeout this function relies solely on `execFileSync`'s own `timeout`/`killSignal` option,
+ * which (like plain `execFile` with no containment layered on top) kills only the DIRECT
+ * child, never a detached grandchild the direct child may have spawned. This is a documented,
+ * deliberate reduction versus `runCapability`'s guarantee, not an oversight: none of this
+ * task's real callers' capabilities (`tracker.show`/`tracker.list`/`tracker.label`, backed by
+ * `br`, a plain one-shot CLI) spawn a detached descendant. A future synchronous caller whose
+ * capability's tool might do so should use `runCapability` (accepting becoming `async`)
+ * instead, not this function.
+ *
+ * @param {Parameters<typeof runCapability>[0]} adapter a parsed, already-validated adapter
+ *   manifest
+ * @param {string} capability the capability id to invoke, e.g. `tracker.show`
+ * @param {Record<string, unknown>} [args] argument values keyed by placeholder name
+ * @param {{timeoutMs?: number, source?: unknown, execFileOptions?: object, categoriesDir?:
+ *   string, parentEnv?: NodeJS.ProcessEnv}} [opts] identical meaning to `runCapability`'s own
+ * @returns {{ok:true, capability:string, adapter:string, source:unknown, data:(string|unknown)}|
+ *   {ok:false, error:{code:string, message:string}}} the same envelope shape `runCapability`
+ *   resolves to, returned synchronously instead of via `Promise`
+ */
+function runCapabilitySync(adapter, capability, args = {}, opts = {}) {
+  const adapterId = (adapter && adapter.adapter) || '(unknown adapter)';
+
+  const lookup = lookupCapability(adapter, adapterId, capability, opts);
+  if (lookup.envelope) return lookup.envelope;
+  const cap = lookup.cap;
+
+  const built = buildCapabilityArgv(cap, args);
+  if (built.envelope) return built.envelope;
+  const argv = built.argv;
+
+  const allowlistEnvelope = checkRuntimeAllowlistEnvelope(adapterId, adapter, argv);
+  if (allowlistEnvelope) return allowlistEnvelope;
+
+  const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const childEnv = buildChildEnv(
+    adapter && adapter.env,
+    opts.parentEnv || process.env,
+    opts.execFileOptions && opts.execFileOptions.env
+  );
+
+  let stdout;
+  try {
+    stdout = execFileSync(argv[0], argv.slice(1), {
+      maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
+      encoding: 'utf8',
+      ...opts.execFileOptions,
+      env: childEnv,
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL',
+      shell: false
+    });
+  } catch (error) {
+    // `execFileSync`'s own maxBuffer-exceeded shape (Node's documented `err.code ===
+    // 'ENOBUFS'` contract for this case) ALSO sets `error.signal` (observed: `'SIGTERM'` --
+    // Node's own internal kill signal for this failure, never this function's own configured
+    // `killSignal:'SIGKILL'`), which would otherwise be misread as a real timeout-triggered
+    // kill by the check below (PR 6 review item 2 follow-up: confirmed by direct experiment
+    // that `runCapability`'s own `execFile` maxBuffer-exceeded error sets NEITHER `killed` nor
+    // `signal`, so it already falls through to the generic `TOOL_FAILED` branch there -- this
+    // `error.code !== 'ENOBUFS'` guard makes this function classify the SAME failure the SAME
+    // way, instead of reporting a buffer-size problem as a misleading "exceeded its timeout").
+    // A genuine sync timeout kill is unaffected: it reports `code: 'ETIMEDOUT'`, never
+    // `'ENOBUFS'`.
+    if (error.code !== 'ENOBUFS' && (error.killed || error.signal)) {
+      return {
+        ok: false,
+        error: {
+          code: 'TIMEOUT',
+          message:
+            `${adapterId}: capability '${capability}' exceeded its timeout of ` +
+            `${timeoutMs}ms and was killed`
+        }
+      };
+    }
+    const rawDetail = (error.stderr && String(error.stderr).trim()) || error.message;
+    return {
+      ok: false,
+      error: {
+        code: 'TOOL_FAILED',
+        message: `${adapterId}: capability '${capability}' failed: ${redactAndBound(rawDetail)}`
+      }
+    };
+  }
+
+  const errorEnvelope = checkZeroExitErrorEnvelope(adapterId, capability, stdout);
+  if (errorEnvelope) return errorEnvelope;
+
+  const mapped = mapAndValidateOutput(adapterId, capability, cap, stdout);
+  if (mapped.envelope) return mapped.envelope;
+
+  return successEnvelope(capability, adapterId, opts.source, mapped.data);
+}
+
 module.exports = {
   buildArgv,
   buildChildEnv,
   listProcessTable,
   collectDescendants,
   killVerifiedPidsSafe,
-  runCapability
+  runCapability,
+  runCapabilitySync
 };

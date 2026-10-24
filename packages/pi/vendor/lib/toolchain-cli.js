@@ -122,13 +122,23 @@
  * data}` / `{ok:false, error:{code, message}}`) are distinct from `trd-cli.js`'s own `{error}`-
  * only shape; do not conflate the two.
  *
- * `resolve(ctx)`/`explain(ctx)` accept the same `{projectRoot, env, detect}` context that
- * `resolveCategory()` accepts and pass it straight through for every category, unmodified.
- * `detect` is the TRD-016 detection-engine injection point (`./toolchain/detect.js#detectAdapter`):
- * `main()`'s default `ctx` (used by every real CLI invocation) wires it in automatically, so
- * `resolve`/`explain`/`run` detect a real adapter from repo signals when config and env-compat
- * decline to resolve a category. A caller that supplies its own `ctx` (including every existing
- * test) gets exactly what it passes -- no detect, or a stub detect -- unaffected by this.
+ * `resolve(ctx)`/`explain(ctx)`/`run(ctx,...)`/`preflight(ctx,...)`/`confirmStatus(ctx,...)`/
+ * `confirmRecord(ctx,...)` all accept the same `{projectRoot, env, detect, installedRoots}`
+ * context `resolveCategory()`/`loadAdapter()` accept and pass it straight through, unmodified,
+ * never rebuilt as a hand-picked subset of fields (PR 4 independent review Finding 1, PR 5
+ * independent review: a per-handler rebuild that names only some fields silently drops
+ * whichever ones it forgot -- `detect` and `installedRoots` have both been bitten by this in
+ * turn -- so every call site either passes `ctx` straight through or spreads it with `{...ctx,
+ * ...overrides}`). `detect` is the TRD-016 detection-engine injection point
+ * (`./toolchain/detect.js#detectAdapter`): `main()`'s default `ctx` (used by every real CLI
+ * invocation) wires it in automatically, so `resolve`/`explain`/`run` detect a real adapter
+ * from repo signals when config and env-compat decline to resolve a category.
+ * `installedRoots` is `./toolchain/adapters.js#discoverAdapters`'s own extra installed-tier
+ * search-root override (PR 5 independent review: the shipped default adapter for a category
+ * was unreachable from any consumer outside this monorepo -- see that module's header doc),
+ * never wired by `main()`'s own default `ctx` (no CLI flag, no environment variable). A caller
+ * that supplies its own `ctx` (including every existing test) gets exactly what it passes --
+ * no detect/installedRoots, or stubbed ones -- unaffected by any of this.
  *
  * `main(argv, ctx)` takes an optional second `ctx` argument purely so callers (tests) can
  * exercise the full argv-parsing/JSON/table-rendering path against an injected
@@ -187,7 +197,7 @@ const CATEGORIES = [
  * onto that array; if any were pushed, `data.<category>.detectionDiagnostics` carries them
  * (omitted entirely when empty, so the common case's JSON shape is unchanged).
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @returns {{ok: true, data: Record<string, {adapter: string, source: string,
  *   detectionDiagnostics?: object[]}>} | {ok: false, error: {code: string, message: string}}}
  */
@@ -212,7 +222,7 @@ function resolveAll(ctx = {}) {
 
 /**
  * `resolve` subcommand handler.
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  */
 function resolve(ctx = {}) {
   return resolveAll(ctx);
@@ -221,7 +231,7 @@ function resolve(ctx = {}) {
 /**
  * `explain` subcommand handler. Same resolution as `resolve`; this task defines no behavioral
  * difference beyond the subcommand name (both show adapter and source for every category).
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  */
 function explain(ctx = {}) {
   return resolveAll(ctx);
@@ -307,7 +317,7 @@ function validate(ctx = {}, positionals = []) {
  *   `recordFailure` wrote to) alongside the unchanged `error`.
  * A non-side-effecting capability never touches the ledger at all, success or failure.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.close`
  * @param {{runId?: string, args?: Record<string, string>, nonInteractive?: boolean}} [parsed]
  *   the `--run-id`/`--arg`/`--non-interactive` values `parseArgs` extracted from argv
@@ -458,14 +468,19 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
  * error:{code:'HEALTH_FAILED'|'INVALID_RUN_ID'|'UNAVAILABLE', message}}`) is returned
  * unchanged.
  *
- * `ctx.detect` (TRD-016's detection hook) is forwarded to `runPreflight`'s own `ctx` explicitly
- * (PR 4 review Finding 1: a prior wave rebuilt this call's `ctx` as only `{projectRoot, env}`,
- * silently dropping `detect` -- a detection-selected adapter resolved fine for `resolve`/
- * `explain`/`run` but `preflight` fell through to the shipped default and tried to health-check
- * THAT instead, which is not what was configured). `runPreflight` itself threads `detect` the
- * rest of the way into its own `resolveCategory` call.
+ * `ctx` is forwarded to `runPreflight`'s own `ctx` in full (`{...ctx, projectRoot, env}`), not
+ * rebuilt field-by-field (PR 4 independent review Finding 1: a prior wave rebuilt this call's
+ * `ctx` as only `{projectRoot, env}`, silently dropping `detect` -- a detection-selected
+ * adapter resolved fine for `resolve`/`explain`/`run` but `preflight` fell through to the
+ * shipped default and tried to health-check THAT instead, which is not what was configured;
+ * PR 5 independent review: the same narrowing would have dropped `ctx.installedRoots` too, so
+ * this handler now spreads the whole object instead of naming a fixed subset of fields, the
+ * same "no per-handler rebuilds that can drop fields" rule applied everywhere else in this
+ * file). `runPreflight` itself threads the full `ctx` the rest of the way into its own
+ * `resolveCategory`/`loadAdapter` calls.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function,
+ *   installedRoots?: string[]}} [ctx]
  * @param {string[]} [positionals] unused by `preflight`; accepted so every handler shares the
  *   same `(ctx, positionals, parsed)` signature
  * @param {{requires?: string[], runId?: string, nonInteractive?: boolean}} [parsed]
@@ -513,11 +528,7 @@ async function preflight(ctx = {}, positionals = [], parsed = {}) {
 
   return runPreflight(
     { categories, runId, nonInteractive: Boolean(parsed.nonInteractive), requires },
-    {
-      projectRoot: ctx.projectRoot || process.cwd(),
-      env: ctx.env || process.env,
-      detect: ctx.detect
-    }
+    { ...ctx, projectRoot: ctx.projectRoot || process.cwd(), env: ctx.env || process.env }
   );
 }
 
@@ -539,7 +550,7 @@ async function preflight(ctx = {}, positionals = [], parsed = {}) {
  * simultaneously treated it as non-interactive (auto-confirming) -- two different answers to
  * the same question, computed from two different rules, inside one call.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
  * @param {{runId?: string, nonInteractive?: boolean}} [parsed]
  * @returns {{ok:true, capability:string, adapter:string, source:string, data:object} |
@@ -612,7 +623,7 @@ function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
  * record (`.code === 'CONFIRM_KEY_REQUIRED'`): both are caught here and returned as the usual
  * `{ok:false, error:{code, message}}` envelope, never an uncaught exception out of `main()`.
  *
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
  * @param {{runId?: string, nonInteractive?: boolean}} [parsed]
  * @returns {{ok:true, capability:string, adapter:string, source:string,
@@ -867,9 +878,13 @@ function printResult(subcommand, json, result) {
  * CLI entry point.
  *
  * @param {string[]} argv `process.argv.slice(2)`
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx] Defaults to
- *   `{projectRoot: process.cwd(), env: process.env, detect: detectAdapter}`; real invocations
- *   never override this.
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function,
+ *   installedRoots?: string[]}} [ctx] Defaults to `{projectRoot: process.cwd(), env:
+ *   process.env, detect: detectAdapter}`; real invocations never override this.
+ *   `ctx.installedRoots` (`./toolchain/adapters.js`) is a programmatic-only escape hatch for
+ *   tests/advanced embedders -- there is no `--installed-root` CLI flag and no environment
+ *   variable for it (an attacker-controlled env var would let any process widen adapter
+ *   discovery, unlike a caller-supplied in-process `ctx`).
  * @returns {number|Promise<number>} process exit code; a `Promise<number>` only for the `run`
  *   and `preflight` subcommands (see this file's header doc).
  */

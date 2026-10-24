@@ -14,6 +14,16 @@
 const fs = require('fs');
 const path = require('path');
 
+// Packages that MIRROR every other package's skills/adapter-* directories (packages/pi's own
+// generator output, packages/full's curated symlink tree -- see
+// packages/pi/src/transformers/skill-copier.ts's own EXCLUDED_PACKAGES for the same rule on
+// the Pi side) must never be treated as a SECOND, independent adapter source: TRD-024 is the
+// first real adapter this monorepo ships, and it exposed a latent gap here -- `packages/pi`'s
+// generated `packages/pi/skills/adapter-tracker-beads/` otherwise collides with the real
+// source at `packages/development/skills/adapter-tracker-beads/`, a false positive the
+// SkillCopier's own collision check (`execute()` above) would wrongly treat as two different
+// packages shipping the same adapter name.
+const ADAPTER_SOURCE_EXCLUDED_PACKAGES = new Set(['pi', 'full']);
 /** Normalize CRLF/CR to LF so frontmatter delimiter checks can assume '\n'. */
 function normalizeLineEndings(text) {
   return String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -332,15 +342,17 @@ class SkillCopier {
           });
         }
 
-        for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
-          if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
-          const adapterPath = path.join(skillPath, sub.name);
-          if (fs.existsSync(path.join(adapterPath, 'SKILL.md'))) {
-            results.push({
-              packageName: sub.name,
-              skillPath: adapterPath,
-              isAdapter: true,
-            });
+        if (!ADAPTER_SOURCE_EXCLUDED_PACKAGES.has(entry.name)) {
+          for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
+            if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
+            const adapterPath = path.join(skillPath, sub.name);
+            if (fs.existsSync(path.join(adapterPath, 'SKILL.md'))) {
+              results.push({
+                packageName: sub.name,
+                skillPath: adapterPath,
+                isAdapter: true,
+              });
+            }
           }
         }
       }

@@ -82,6 +82,10 @@ const {
 const { buildQuickstart } = require('./quickstart-generator');
 const { ensureLabel } = require('./beads-label');
 const { stageBeadsExport, checkStagedExport } = require('./beads-stage');
+const { resolveCategory } = require('./toolchain/config');
+const { loadAdapter } = require('./toolchain/adapters');
+const { detectAdapter } = require('./toolchain/detect');
+const { runCapabilitySync } = require('./toolchain/runner');
 
 // ---------------------------------------------------------------------------
 // Small utilities
@@ -307,6 +311,28 @@ function runScaffoldPlan(argv) {
 }
 
 /**
+ * Resolve and load the adapter manifest for the `tracker` category through the same
+ * `resolveCategory`/`loadAdapter` pipeline `toolchain-cli.js#run` uses for every other
+ * capability call (TRD-2026-8d825f54 TRD-025, PRD AC-016-2) -- never `br`/`bv` directly.
+ * Confirmation/ledger/preflight gating (TRD-014/015/017) governs only the shell-invoked
+ * `toolchain-cli run` surface; this in-process CLI routing intentionally omits it, matching
+ * every capability this file calls (`tracker.show`, `tracker.list`), neither of which
+ * `tracker.yaml` declares `sideEffect:true`.
+ *
+ * @returns {{manifest: object, source: string}}
+ * @throws {Error} whatever `resolveCategory`/`loadAdapter` throws -- never caught here, so a
+ *   caller decides whether an unresolved tracker is fatal (`bead-context`) or swallowed
+ *   (`getBeadCounts`).
+ */
+function resolveTrackerAdapter() {
+  const projectRoot = process.cwd();
+  const env = process.env;
+  const resolved = resolveCategory('tracker', { projectRoot, env, detect: detectAdapter });
+  const loaded = loadAdapter(resolved.value, { projectRoot, env, interactive: false });
+  return { manifest: loaded.manifest, source: resolved.source };
+}
+
+/**
  * `bead-context --bead <id> [--trd <path>] [--issue-json <file>]`
  *
  * Resolves a bead's `## References` block (or, for legacy beads without one, its title
@@ -333,17 +359,25 @@ function runBeadContext(argv) {
   // ---- load the bead -------------------------------------------------------
   let issue = null;
   try {
-    let raw;
     if (flags['issue-json'] && flags['issue-json'] !== true) {
-      raw = fs.readFileSync(String(flags['issue-json']), 'utf8');
+      const raw = fs.readFileSync(String(flags['issue-json']), 'utf8');
+      const data = JSON.parse(raw);
+      issue = Array.isArray(data) ? data[0] : data;
     } else {
-      raw = execFileSync('br', ['show', beadId, '--json'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
+      const { manifest } = resolveTrackerAdapter();
+      // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+      // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here
+      // since `tracker.show` is a short, one-shot `br` read.
+      const result = runCapabilitySync(manifest, 'tracker.show', { id: beadId }, {
+        execFileOptions: { cwd: process.cwd() },
       });
+      if (!result.ok) {
+        const err = new Error(result.error.message);
+        err.code = result.error.code;
+        throw err;
+      }
+      issue = result.data;
     }
-    const data = JSON.parse(raw);
-    issue = Array.isArray(data) ? data[0] : data;
   } catch (err) {
     missing.push(`bead ${beadId} could not be loaded: ${err && err.message ? err.message.split('\n')[0] : err}`);
     return out;
@@ -837,23 +871,44 @@ function inferStatus(frontmatter, slug, beadCounts) {
 }
 
 /**
- * Run `br list --all --json` and return counts for beads whose title
- * contains the given slug prefix.
+ * Run `tracker.list` (via the resolved tracker adapter, TRD-025) and return counts for beads
+ * whose title contains the given slug prefix.
+ *
+ * By contract (TRD-025 AC), EVERY failure -- adapter resolution, the runner call itself
+ * (`TOOL_FAILED`/`TIMEOUT`/any other `runCapabilitySync` error code), a non-JSON or
+ * unexpectedly-shaped `raw` -- is swallowed to the same `{total:0, open:0, in_progress:0,
+ * closed:0}` zero envelope, never thrown or logged; this function intentionally has no way to
+ * tell a caller "zero real matches" apart from "the read itself failed" -- that distinction is
+ * only ever visible by calling `runCapabilitySync` directly (as this function does internally)
+ * and inspecting its own `{ok:false, error:{code, message}}` envelope, never through this
+ * function's return value. Do not change this swallow-to-zeros behavior: callers (CLI status
+ * output, TRD staleness inference) were built around it.
+ *
  * @param {string} slug
  * @returns {Object} {total, open, in_progress, closed}
  */
 function getBeadCounts(slug) {
   try {
-    const { execSync } = require('child_process');
     const needle = `[trd:${slug}:`;
     let raw;
     try {
-      raw = execSync('br list --all --json', { cwd: process.cwd(), timeout: 10000 });
+      const { manifest } = resolveTrackerAdapter();
+      // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+      // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here
+      // since `tracker.list` is a short, one-shot `br` read; its real ~MB-scale output (TRD-024
+      // reviewer round 2, P2) is handled by this same runner's 64 MiB default `maxBuffer`, not
+      // by anything in this function.
+      const result = runCapabilitySync(manifest, 'tracker.list', {}, {
+        timeoutMs: 10000,
+        execFileOptions: { cwd: process.cwd() },
+      });
+      if (!result.ok) return { total: 0, open: 0, in_progress: 0, closed: 0 };
+      raw = result.data;
     } catch {
       return { total: 0, open: 0, in_progress: 0, closed: 0 };
     }
     // br 0.2.x wraps list output as { issues: [...] }; older versions print a bare array.
-    const parsed = JSON.parse(raw.toString('utf8'));
+    const parsed = JSON.parse(raw);
     const beads = Array.isArray(parsed) ? parsed : (parsed && parsed.issues) || [];
     const matches = beads.filter((b) => (b.title || '').includes(needle));
     return {

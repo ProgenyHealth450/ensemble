@@ -1049,11 +1049,7 @@ describe('detection-selected adapter works end to end through preflight/run/conf
         const needle =
           "  return runPreflight(\n" +
           "    { categories, runId, nonInteractive: Boolean(parsed.nonInteractive), requires },\n" +
-          "    {\n" +
-          "      projectRoot: ctx.projectRoot || process.cwd(),\n" +
-          "      env: ctx.env || process.env,\n" +
-          "      detect: ctx.detect\n" +
-          "    }\n" +
+          "    { ...ctx, projectRoot: ctx.projectRoot || process.cwd(), env: ctx.env || process.env }\n" +
           "  );";
         const replacement =
           "  return runPreflight(\n" +
