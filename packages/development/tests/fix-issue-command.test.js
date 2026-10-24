@@ -138,7 +138,7 @@ describe('Fix-Issue Command', () => {
     });
 
     test('both review steps reference the skill by the repo-root path pattern, and that skill exists', () => {
-      const pattern = '$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md';
+      const pattern = 'packages/development/skills/pr-review-cycle/SKILL.md (via tool-path-resolution)';
       expect(descriptionOf('Local Review and Batch Fix')).toContain(pattern);
       expect(descriptionOf('Remote Review Disposition')).toContain(pattern);
       expect(fs.existsSync(path.join(__dirname, '../skills/pr-review-cycle/SKILL.md'))).toBe(true);
@@ -155,12 +155,14 @@ describe('Fix-Issue Command', () => {
     });
 
     test('publishing capabilities appear only in PR Creation', () => {
-      const publishes = /\bworkflow\.(?:commit|push)\b|\bhost\.change-request-create\b/;
+      // Only PR Creation RUNS a publishing capability. Branch Creation merely lists the ids on its
+      // single toolchain preflight line, and Remote Review mentions host.change-request-create only
+      // as the recovery action for a missing PR URL.
+      const publishes = /\brun (?:workflow\.(?:commit|push)|host\.change-request-create)\b/;
       const offenders = steps
         .filter((s) => publishes.test(s.description))
         .map((s) => s.title);
-      // Remote Review mentions host.change-request-create only as the recovery action for a missing PR URL.
-      expect(offenders.sort()).toEqual(['PR Creation', 'Remote Review Disposition']);
+      expect(offenders).toEqual(['PR Creation']);
     });
 
     test('every approval_wait detail the remote step records carries the REVIEW_ prefix the resume gate matches on', () => {
@@ -182,7 +184,7 @@ describe('Fix-Issue Command', () => {
     test('reviewed tree is carried by tree SHAs: local records reviewedTreeSha, remote passes HEAD_TREE_SHA', () => {
       const local = descriptionOf('Local Review and Batch Fix');
       expect(local).toContain('REVIEWED_TREE_SHA');
-      expect(local).toContain('^{tree}');
+      expect(local).toContain('the tree SHA of SNAPSHOT_HEAD');
       const remote = descriptionOf('Remote Review Disposition');
       expect(remote).toContain('HEAD_TREE_SHA');
       expect(remote).toContain('reviewedTreeSha');

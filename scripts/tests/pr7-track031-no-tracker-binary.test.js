@@ -71,7 +71,7 @@ describe('PR7 Track031: no literal br/bv tracker-binary invocation in implement-
       expect(findMatchLines(fs.readFileSync(copyPath, 'utf8'), TRACKER_BINARY_INVOCATION)).toEqual([]);
       expect(findMatchLines(fs.readFileSync(copyPath, 'utf8'), AC1_PATTERN)).toEqual([]);
 
-      const needle = 'node \\"$TOOLCHAIN_CLI\\" run tracker.sync --run-id \\"$RUN_ID\\" $NON_INTERACTIVE_ARGS --json. Print epic id and story/task/dep counts.';
+      const needle = 'node \\"$TOOLCHAIN_CLI\\" run tracker.sync. Print epic id and story/task/dep counts.';
       expect(original).toContain(needle);
       const mutated = original.replace(needle, 'br sync --flush-only. Print epic id and story/task/dep counts.');
       expect(mutated).not.toBe(original);

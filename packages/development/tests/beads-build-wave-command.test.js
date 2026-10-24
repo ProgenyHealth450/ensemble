@@ -28,10 +28,11 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     expect(text).toMatch(/single-bead track/);
   });
 
-  test('stages explicit paths, never git add -A or .beads', () => {
+  test('stages explicit paths, never a blanket stage or .beads', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toMatch(/git add -- <path>/);
-    expect(text).toMatch(/NEVER git add -A/);
+    expect(text).toMatch(/stage exactly the files the wave modified/);
+    expect(text).toMatch(/NEVER a blanket or whole-directory stage, an auto-staging commit, or anything under \.beads\//);
+    expect(text).toMatch(/run workflow\.commit/);
   });
 
   test('workflow is exactly two phases: Preflight + Execute (no Quality Gate, no Completion)', () => {
@@ -99,11 +100,11 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     expect(text).toMatch(/does NOT create or switch branches itself/);
   });
 
-  test('lifecycle_contract has a Commit Gate that blocks br close until git status is clean (self-reported success is not sufficient evidence)', () => {
+  test('lifecycle_contract has a Commit Gate that blocks br close until workflow.status is clean (self-reported success is not sufficient evidence)', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/COMMIT GATE/);
-    expect(text).toMatch(/NEVER call tracker\.close while git status --porcelain is non-empty/);
-    expect(text).toMatch(/self-reported success narrative is NOT sufficient evidence of a commit/);
+    expect(text).toMatch(/NEVER call tracker\.close while workflow\.status lists non-\.beads\/ paths/);
+    expect(text).toMatch(/self-reported success is NOT evidence of a commit/);
   });
 
   test('cross-platform: works with Task() on claude/pi/codex/opencode (mentioned in mission)', () => {

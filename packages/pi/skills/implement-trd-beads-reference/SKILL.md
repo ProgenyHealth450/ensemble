@@ -10,16 +10,16 @@ description: >-
 
 # implement-trd-beads reference
 
-Variable names are the command's.
+Variable names are the command's; every `node "$TOOLCHAIN_CLI" run` below passes `--run-id "$RUN_ID"` and `--json`.
 
 ## 1. Environment resolution (Preflight 3)
 
 1. Resolve `VALIDATE_GIT_TOWN_SH` (`packages/git/skills/git-town/scripts/validate-git-town.sh`) per the tool-path-resolution skill; unresolvable -> HALT. Run it; `GIT_TOWN_EXIT_CODE` 3 (version mismatch) and 4 (not a git repo) HALT. 0/1/2 go to resolve-sdlc.
 2. `INTERACTIVE=false` when `--foreman`, else true iff AskUserQuestion exists (when in doubt, false).
-3. `REMOTE_URL=$(git remote get-url origin 2>/dev/null)` (`none` if empty). Run `node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL"`. An `error` key (not `{ok:false}`) -> print and HALT. `branchingStrategy.action=='halt'` -> print its message and HALT. Set `BRANCHING_STRATEGY=branchingStrategy.strategy`.
+3. `REMOTE_URL` = `data.url` of `node "$TOOLCHAIN_CLI" run workflow.remote-url --arg remote=origin` (`none` if not ok/empty). Run `node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL"`. An `error` key (not `{ok:false}`) -> print and HALT. `branchingStrategy.action=='halt'` -> print its message and HALT. Set `BRANCHING_STRATEGY=branchingStrategy.strategy`.
 4. `prBackend.needsResolution==false` -> `PR_BACKEND=prBackend.backend`. If true: interactive -> AskUserQuestion `id=pr_backend` with options `ado` (azure-devops MCP, manual steps if not connected; `ENSEMBLE_PR_BACKEND=ado`), `manual` (always print manual steps; `ENSEMBLE_PR_BACKEND=manual`), `proceed with gh anyway (not recommended)` (`ENSEMBLE_PR_BACKEND=gh`), `abort` (HALT). Non-interactive -> print the three `ENSEMBLE_PR_BACKEND=<ado|manual|gh>` lines plus a hint to export one in the shell profile, and HALT.
 5. `BRANCHING_STRATEGY` and `PR_BACKEND` are re-resolved on every invocation, including resumes; they are never persisted (choices-read/write persist only `branch_name`, `use_proposed`, `stacked_prs`). Print a non-null `consolidatedMessage`; on a resume add a NOTE that earlier branches/PRs are unaffected.
-6. Capture `WORKTREE_STATUS=$(git status --porcelain -- . ':(exclude).beads')`. `.beads/` is excluded: the tracker rewrites a tracked export on every write (docs/guides/beads-tracked-export.md).
+6. `WORKTREE_STATUS` = `data.files` of `node "$TOOLCHAIN_CLI" run workflow.status` minus `.beads/` paths (tracker-owned export: docs/guides/beads-tracked-export.md).
 
 ## 2. Branch intent and branch creation (Preflight 6)
 
@@ -27,29 +27,29 @@ Inputs: `--branch=<name>` -> `BRANCH_REQUESTED`; `--use-current-branch` -> `USE_
 
 1. `node "$TRD_CLI" choices-read "<TRD_FILE_PATH>"` -> `SAVED_BRANCH_NAME`, `SAVED_USE_PROPOSED`, `SAVED_STACKED_PRS`; `ok:false` -> HALT.
 2. Effective stacked = `ENSEMBLE_USE_STACKED_PRS` (true/false) if set, else `SAVED_STACKED_PRS`, else false. Run `node "$TRD_CLI" pr-plan "<TRD_FILE_PATH>"` (append `--stacked` only when effective stacked). `ok:false`/non-zero -> HALT. `STACKED_PRS=stacked`, `PR_ACTIONS=actions`, proposed branch = `branchFirst`. pr-plan is the only source of `STACKED_PRS`.
-3. `CURRENT_BRANCH_NAME=$(git branch --show-current)` (empty = detached HEAD).
-4. Resolve branch intent, first match wins: (a) `--branch` -> that name; (b) `--use-current-branch` -> current branch, HALT on detached HEAD ("requires a current branch ... use --branch=<name>"); (c) auto-detect, only when neither flag is set: `git for-each-ref --format='%(refname:short)' refs/heads/ | grep -E '(^|/)<TRD_SLUG>$'` (local branches only, slug regex-escaped); exactly one match -> use it (`BRANCH_RESOLVED_BY_AUTO_DETECT=true`); two or more -> warn, list them, do not auto-select; (d) `SAVED_BRANCH_NAME` (if `SAVED_USE_PROPOSED`, use `branchFirst`); (e) interactive -> AskUserQuestion `id=branch_intent` with options Use proposed branch / Specify existing branch (followup `id=branch_name`) / Use current branch (only if one exists) / Abort (HALT, "no git side effects"); non-interactive -> print the unresolved plan and HALT: `ERROR: Branch intent required in non-interactive mode. Pass --branch=<name> or --use-current-branch to specify the target branch, or run interactively.` Resolution (a)-(d) never prompts.
+3. `CURRENT_BRANCH_NAME` = the current branch name (empty = detached HEAD).
+4. Resolve branch intent, first match wins: (a) `--branch` -> that name; (b) `--use-current-branch` -> current branch, HALT on detached HEAD ("requires a current branch ... use --branch=<name>"); (c) auto-detect, only when neither flag is set: local branches whose last path segment equals `<TRD_SLUG>` (literal compare); exactly one match -> use it (`BRANCH_RESOLVED_BY_AUTO_DETECT=true`); two or more -> warn, list them, do not auto-select; (d) `SAVED_BRANCH_NAME` (if `SAVED_USE_PROPOSED`, use `branchFirst`); (e) interactive -> AskUserQuestion `id=branch_intent` with options Use proposed branch / Specify existing branch (followup `id=branch_name`) / Use current branch (only if one exists) / Abort (HALT, "no git side effects"); non-interactive -> print the unresolved plan and HALT: `ERROR: Branch intent required in non-interactive mode. Pass --branch=<name> or --use-current-branch to specify the target branch, or run interactively.` Resolution (a)-(d) never prompts.
 5. Print an EXECUTION PLAN box (TRD, mode, strategy, proposed branch, current branch, PR topology `Stacked (one PR per phase)` / `Single PR (all phases on one branch)`, selected branch) BEFORE the first mutating git command.
 6. Reuse mode (`USE_PROPOSED=false`, i.e. a current/named/saved existing branch): print `Branch intent: reuse mode — single-branch plan.` and rewrite `PR_ACTIONS`: every gate/append entry gets `branch=<branch_name>`, `parentBranch` and `appendNextBranch` cleared, `createPr=false`; the completion entry becomes `{kind:'completion', createPr:true, branch:<branch_name>, proposeTitle:'Implement <TRD_SLUG> (<TRD file basename>)', summaryKind:'single', parentBranch:'', appendNextBranch:''}`. `STACKED_PRS=false`.
-7. Check out the branch. `USE_PROPOSED=true`: `git branch --list <b>`; exists -> `git switch`; else `git-town` -> `git town hack <b>`; `plain-git` -> base = `git symbolic-ref --short refs/remotes/origin/HEAD` minus `origin/` (fallback `main`), then `git checkout -b <b> <base>` (no git-town command is ever issued under plain-git). `USE_PROPOSED=false`: must already exist (`git switch`), else HALT.
+7. Check out the branch. `USE_PROPOSED=true`: `<b>` already exists locally -> switch to it; else base = the remote's default branch minus `origin/` (fallback `main`), then `node "$TOOLCHAIN_CLI" run workflow.branch-create --arg name=<b> --arg baseBranch=<base>` (`ok:false` -> print error, HALT). `USE_PROPOSED=false`: must already exist (switch to it), else HALT.
 8. State: `CURRENT_PHASE_BRANCH=<branch>`, `PHASE_BRANCH_MAP={1:<branch>}`, `PHASE_PR_MAP={}`.
 9. Persist: `node "$TRD_CLI" choices-write "<TRD_FILE_PATH>" --branch-name <branch>` plus `--use-proposed` when USE_PROPOSED and `--stacked-prs` when STACKED_PRS. Failure is a warning, not a HALT.
 
 ## 3. Phase PR boundary actions (Quality Gate)
 
-`GATE_ACTION = PR_ACTIONS[N]` supplies `createPr`, `proposeTitle`, `branch`, `parentBranch`, `appendNextBranch`, `shippableState`; never re-derive them. `git switch GATE_ACTION.branch` if not on it.
+`GATE_ACTION = PR_ACTIONS[N]` supplies `createPr`, `proposeTitle`, `branch`, `parentBranch`, `appendNextBranch`, `shippableState` (never re-derive). Switch to `GATE_ACTION.branch` if not on it.
 
 `PR_BODY`: `PR/Phase <N> of TRD <TRD_SLUG>.`, `**Shippable:** <shippableState or 'See TRD for scope'>`, strategy, task ids, coverage, story bead id.
 
-Create the PR per `PR_BACKEND` (base = `parentBranch` or the default branch):
-- `gh` + `git-town`: `git town propose --title '<proposeTitle>' --body '<PR_BODY>'`.
-- `gh` + `plain-git`: `git push -u origin <branch>` then `gh pr create --title ... --base <base> --body ...`.
-- `ado`: `git push -u origin <branch>`; if a tool named `mcp__azure-devops*` exists call its `repo_create_pull_request` (title, source branch, target branch, description). Otherwise print `Azure DevOps MCP tool not connected — create this PR manually:` with `az repos pr create --source-branch <b> --target-branch <base> --title "<title>"` and the portal route; do NOT HALT.
-- `manual`: print `git push -u origin <branch>` and `gh pr create --title "<title>" --base <base>` (or the ADO equivalent); never push or create automatically; print this at EVERY phase gate where a PR is due.
+Create the PR per `PR_BACKEND` (base = `parentBranch` or the default branch) via toolchain capabilities:
+- GitHub + git-town: `node "$TOOLCHAIN_CLI" run workflow.propose --arg headBranch=<branch> --arg baseBranch=<base> --arg title="<proposeTitle>"` (no body).
+- GitHub + plain-git: `node "$TOOLCHAIN_CLI" run workflow.push --arg branch=<branch>`, then `node "$TOOLCHAIN_CLI" run host.change-request-create --arg baseBranch=<base> --arg headBranch=<branch> --arg title="<proposeTitle>" --arg description="<PR_BODY>"`.
+- `ado`: the same push, then the `mcp__azure-devops*` tool's `repo_create_pull_request` (title, source branch, target branch, description) if one exists, else the same host.change-request-create; `ok:false` -> print "create this PR manually" with the portal route; do NOT HALT.
+- `manual`: print the same two commands for the user; never push or create automatically; print them at EVERY phase gate where a PR is due.
 
 Record the URL in `PHASE_PR_MAP[N]`; unset for ado-without-MCP and manual.
 
-Append (stacked only, `appendNextBranch` set, after PR creation): `git-town` -> `git town append <NEXT_BRANCH>`; `plain-git` -> `git checkout -b <NEXT_BRANCH>`. Set `CURRENT_PHASE_BRANCH` and `PHASE_BRANCH_MAP[N+1]`.
+Append (stacked only, `appendNextBranch` set, after PR creation): plain-git -> `node "$TOOLCHAIN_CLI" run workflow.branch-create --arg name=<NEXT_BRANCH>` (branches off the current HEAD). git-town -> no workflow capability covers a stacked append: use git-town's native stacked-append for `<NEXT_BRANCH>` (documented gap). Set `CURRENT_PHASE_BRANCH` and `PHASE_BRANCH_MAP[N+1]`.
 
 The single completion PR uses the same backend matrix with `COMPLETION_ACTION` fields and base = default branch.
 

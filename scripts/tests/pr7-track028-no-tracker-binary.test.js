@@ -178,14 +178,15 @@ describe('PR7 Track028 AC-3: retro.yaml non-tracker steps are byte-identical to 
   // tracker.list listing bullet (Collect What Shipped) and the tracker.create confirm-status/
   // approval bullet (Propose Follow-ups) -- identified by reading both the pre- and
   // post-refactor retro.yaml side by side (git show 881381c6...:retro.yaml vs. current).
+  // Three further lines were deliberately reworded afterwards by the tool-abstraction PR 11 lint
+  // cleanup (TRD-047/TRD-049: no literal git/gh invocation in a shared command) and are therefore
+  // no longer byte-identical: the --release range line, the git log/gh pr list line (now
+  // workflow.log + host.change-request-list) and the gh issue list line (reworded without the literal command).
   const NON_TRACKER_LINE_PREFIXES = [
-    '            - "--release vX.Y.Z: the range is the previous tag',
-    '            - "git log <range> --merges --oneline plus gh pr list',
     '            - "Resolve ESTIMATE_ACTUAL (RELATIVE_PATH packages/development/lib/estimate-actual.js)',
     '            - "Narrow its beads to the shipped set.',
     '            - "Find the TRD for the release (docs/TRD/, from bead labels or titles).',
     '            - "Extract the PRD\'s success metrics.',
-    '            - "gh issue list --state all --search',
     '            - "Query an error-tracker MCP tool ONLY if one is configured',
     '            - "Sections: What Shipped (PRs, beads), Estimate Accuracy',
     '            - "List proposed beads (title, rationale, source:'

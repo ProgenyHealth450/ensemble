@@ -47,4 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tool abstraction layer: `adapter-package-runner-npm`, the default `package-runner` adapter. See `docs/guides/adapter-authoring.md`.
+
 - Plugin extraction and population (in progress)

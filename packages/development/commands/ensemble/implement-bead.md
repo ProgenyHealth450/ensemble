@@ -5,7 +5,7 @@ version: "2.3.0"
 category: "implementation"
 last-updated: "2026-10-23"
 allowed-tools: "Read, Write, Edit, Bash, Grep, Glob, Task"
-capabilities-required: "tracker.show, tracker.set-status, tracker.close, tracker.comment, host.change-request-create, workflow.branch-create, workflow.push"
+capabilities-required: "tracker.show, tracker.set-status, tracker.close, tracker.comment, host.change-request-create, workflow.branch-create, workflow.status, workflow.commit, workflow.push"
 capabilities-optional: "tracker.sync"
 argument-hint: "<bead-id> [--foreman]"
 model: "sonnet"
@@ -24,8 +24,8 @@ than beads-build's own resolve-sdlc branching/PR_BACKEND policy. Use
 
 Rules shared with the other engines: all bead reads/writes go through the tracker.*
 toolchain capabilities (resolved via toolchain-cli; never a direct tracker-binary
-invocation); never run `git add -A`, `git add .`, `git add .beads/` or `git commit -a`;
-stage explicit paths only; `.beads/` is the tracker adapter's own state
+invocation); never stage broadly (no blanket, whole-directory or `.beads/` stage, no
+commit that auto-stages tracked files); stage explicit paths only; `.beads/` is the tracker adapter's own state
 (docs/guides/beads-tracked-export.md); the bead is closed only after its work is
 committed.
 
@@ -37,15 +37,15 @@ committed.
 
 - BEAD_ID = first token of $ARGUMENTS (a bare integer is fine; the tracker adapter accepts it). If absent, ask the user for it.
 - Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) and TRD_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If either does not resolve, HALT with an error naming it.
-- Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.set-status --require tracker.close --require tracker.comment --require host.change-request-create --require workflow.branch-create --require workflow.push --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". tracker.sync is optional and not preflighted here (PR 8 independent review item 2 / finding 2: a server-side tracker, e.g. jira, azure-boards, has no local durable-flush step); its one call site (Commit Gate and Close) is skipped silently on {ok:false}, never HALTing.
-- Run: node "$TOOLCHAIN_CLI" explain --json and parse as EXPLAIN_RESULT (ok:false -> skip this line silently, never HALT: explain is informational only). Print "Detected workflow: <EXPLAIN_RESULT.data.workflow.adapter> (<EXPLAIN_RESULT.data.workflow.source>); host: <EXPLAIN_RESULT.data.host.adapter> (<EXPLAIN_RESULT.data.host.source>)" -- the consolidated detected-backend message this command printed before the TRD-039 host.*/workflow.* migration (previously built via `trd-cli resolve-sdlc` shell-probing a `git-town` exit code and the raw `origin` remote URL), now sourced from the toolchain resolver's own detection instead of a second, parallel probe.
+- Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.set-status --require tracker.close --require tracker.comment --require host.change-request-create --require workflow.branch-create --require workflow.status --require workflow.commit --require workflow.push --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". tracker.sync is optional and not preflighted here (PR 8 independent review item 2 / finding 2: a server-side tracker, e.g. jira, azure-boards, has no local durable-flush step); its one call site (Commit Gate and Close) is skipped silently on {ok:false}, never HALTing.
+- Run: node "$TOOLCHAIN_CLI" explain --json and parse as EXPLAIN_RESULT (ok:false -> skip this line silently, never HALT: explain is informational only). Print "Detected workflow: <EXPLAIN_RESULT.data.workflow.adapter> (<EXPLAIN_RESULT.data.workflow.source>); host: <EXPLAIN_RESULT.data.host.adapter> (<EXPLAIN_RESULT.data.host.source>)" -- the consolidated detected-backend message this command printed before the TRD-039 host.*/workflow.* migration (previously built via `trd-cli resolve-sdlc` shell-probing the branching tool and the raw `origin` remote URL), now sourced from the toolchain resolver's own detection instead of a second, parallel probe.
 - Run: node "$TOOLCHAIN_CLI" run tracker.show --run-id "$RUN_ID" --arg id=<BEAD_ID> --json. Non-ok -> print "ERROR: Bead <BEAD_ID> not found." and HALT. data.status == closed -> print "Bead <BEAD_ID> is already closed." and HALT. Store BEAD_TITLE, BEAD_DESCRIPTION, BEAD_TYPE and the bead labels from data.
 
 **2. Branch and Working Tree**
 
-- Run: git status --porcelain -- . ':(exclude).beads'. Non-empty -> print the paths and HALT (commit, stash or revert first).
-- CURRENT_BRANCH=`git symbolic-ref --short HEAD` (detached -> HALT). DEFAULT_BRANCH = `git symbolic-ref --short refs/remotes/origin/HEAD` without the origin/ prefix, else main.
-- If CURRENT_BRANCH == DEFAULT_BRANCH: BRANCH_NAME = bead/<BEAD_ID>-<kebab-case BEAD_TITLE, non-alphanumerics to hyphens>. If it already exists run git switch <BRANCH_NAME>. Otherwise run: node "$TOOLCHAIN_CLI" run workflow.branch-create --run-id "$RUN_ID" --arg name=<BRANCH_NAME> --arg baseBranch=<DEFAULT_BRANCH> --json [add --non-interactive when --foreman is present] (resolves to the configured workflow adapter -- git-town hack or a plain git checkout -b -- internally; ok:false -> print the error and HALT). Otherwise stay on CURRENT_BRANCH.
+- Run: node "$TOOLCHAIN_CLI" run workflow.status --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present]; data.files lists the changed paths. Ignore every path under .beads/ (tracker-owned state). Any remaining path -> print the paths and HALT (commit, stash or revert first).
+- CURRENT_BRANCH = the current branch name (detached HEAD -> HALT). DEFAULT_BRANCH = the remote's default branch (origin HEAD) without the origin/ prefix, else main.
+- If CURRENT_BRANCH == DEFAULT_BRANCH: BRANCH_NAME = bead/<BEAD_ID>-<kebab-case BEAD_TITLE, non-alphanumerics to hyphens>. If it already exists, switch to it. Otherwise run: node "$TOOLCHAIN_CLI" run workflow.branch-create --run-id "$RUN_ID" --arg name=<BRANCH_NAME> --arg baseBranch=<DEFAULT_BRANCH> --json [add --non-interactive when --foreman is present] (resolves to the configured workflow adapter, plain-git or git-town, internally; ok:false -> print the error and HALT). Otherwise stay on CURRENT_BRANCH.
 
 ### Phase 2: Execute
 
@@ -58,7 +58,7 @@ committed.
 
 **2. Commit Gate and Close**
 
-- Run: git status --porcelain -- . ':(exclude).beads'. For each listed path run `git add -- <path>` (never -A, ., or .beads/) and commit with a conventional message ending in [bead:<BEAD_ID>] (feat: for features, fix: for bugs).
+- Run: node "$TOOLCHAIN_CLI" run workflow.status --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present]; ignore every path under .beads/. For each remaining listed path stage exactly that path (never everything, never a directory, never .beads/), then commit via node "$TOOLCHAIN_CLI" run workflow.commit --run-id "$RUN_ID" --arg message="<conventional message ending in [bead:<BEAD_ID>] (feat: for features, fix: for bugs)>" --json [add --non-interactive when --foreman is present].
 - Only after the tree is clean: run node "$TOOLCHAIN_CLI" run tracker.close --run-id "$RUN_ID" --arg id=<BEAD_ID> --json [add --non-interactive when --foreman is present]; then node "$TOOLCHAIN_CLI" run tracker.comment --run-id "$RUN_ID" --arg id=<BEAD_ID> --arg text="status:closed agent:implement-bead" --json [add --non-interactive when --foreman is present]; then node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] (optional capability; {ok:false} -> skip silently, never HALT -- a server-side tracker has no local flush step). If the bead has a label and the repo tracks the export, stage only that label's beads: node "$TRD_CLI" beads-stage --label <label>, then commit "chore: beads sync"; otherwise leave .beads/ unstaged.
 
 ### Phase 3: Pull Request

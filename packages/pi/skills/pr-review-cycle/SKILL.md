@@ -49,12 +49,12 @@ When spent, stop, derive status with the CLI (never `REVIEW_COMPLETE` from
 prose) and report what was not reviewed.
 
 **Isolation:** reviewers are READ-ONLY and run against a frozen snapshot
-(`git archive <sha> | tar -x -C "$(mktemp -d)"`) or a throwaway `git worktree`,
-scratch repos under `mktemp`, never the shared working tree; they never run git
-checkout/switch/branch/reset/stash/commit/add/rebase/push or any generator.
-Fixers run in an isolated worktree (task `isolated: true` or `git worktree
-add`). The parent checks `git branch --show-current` and `git status` before
-every commit and push, and gates every push on a passing check -- no
+(an export of the reviewed commit to a temporary directory) or a throwaway
+worktree (`worktree.create`), never the shared working tree; they never run
+state-changing VCS operations (checkout, switch, branch, reset, stash, commit,
+add, rebase, push) or any generator. Fixers run in an isolated worktree (task
+`isolated: true` or `worktree.create`). The parent verifies branch and
+working-tree state (`workflow.status`) before every commit and push, and gates every push on a passing check -- no
 `;`-chained command that ignores a failing step.
 
 ---
@@ -65,8 +65,8 @@ every commit and push, and gates every push on a passing check -- no
 |---|---|---|
 | `MODE` | `'local'` \| `'remote'` | `local`: run the pre-publication steps (1-6) only. `remote`: the PR already exists; run the post-publication steps (7-9) using the local-phase facts recorded by the prior `local` invocation. |
 | `BASE_SHA` / `HEAD_SHA` | string | Already-resolved commit SHAs for the diff under review (never a bare ref). |
-| `REVIEWED_TREE_SHA` | string (optional) | `MODE=local`: the tree of the head this review validates -- `git rev-parse <post-fix head>^{tree}`, a full object id -- re-resolved after the batch fix exactly as the head is (Step 6). Passed as `reviewedTreeSha` and recorded in the state report, so a later `MODE=remote` run can tell the PR-creation commit holds the reviewed content. Leave it out when not computed. |
-| `HEAD_TREE_SHA` | string (optional) | `MODE=remote`: the tree of `HEAD_SHA` -- `git rev-parse <HEAD_SHA>^{tree}`. Passed as `headTreeSha` to `status` and as `treeSha` to `state-read`. Leave it out when not computed. |
+| `REVIEWED_TREE_SHA` | string (optional) | `MODE=local`: the tree of the head this review validates -- the post-fix head's tree id -- re-resolved after the batch fix exactly as the head is (Step 6). Passed as `reviewedTreeSha` and recorded in the state report, so a later `MODE=remote` run can tell the PR-creation commit holds the reviewed content. Leave it out when not computed. |
+| `HEAD_TREE_SHA` | string (optional) | `MODE=remote`: the tree of `HEAD_SHA` -- its tree id. Passed as `headTreeSha` to `status` and as `treeSha` to `state-read`. Leave it out when not computed. |
 | `MERGE_BASE_SHA`, `PR_BASE_SHA`, `PARENT_PHASE_TIP_SHA` | string (optional) | Passed through to CLI `scope`; Step 1 says which of them (and `BASE_SHA`) becomes the base. |
 | `PR_ID` | string | Stable per-PR key (e.g. `<repo-slug>-pr-<number>` or `<repo-slug>-<branch>`) used to address the review-state report. |
 | `PR_URL` | string (optional) | Known only once the PR is published; required for `MODE=remote`. |
@@ -178,14 +178,14 @@ new. This closes the local phase.
 
 The batch fix changes the tree, so re-resolve after it lands: the re-review
 diff (same base), `headSha`, `reviewedHeadSha` (Step 8) and `reviewedTreeSha`
-(`git rev-parse <post-fix head>^{tree}`, `REVIEWED_TREE_SHA`) all come from the
+(its tree id, `REVIEWED_TREE_SHA`) all come from the
 post-fix head, never the pre-fix one (a review bound to it is stale and cannot
 complete). `reviewedTreeSha` goes in the state report (Step 9).
 
 **Optional security gate** (prose only: the CLI/ledger have no gate record, and
 the outcome never changes CLI status). Before `MODE=local` returns, run native
 `/security-review` on the post-fix diff, plus whichever are installed:
-`gitleaks detect`, `osv-scanner`, else `npm audit --omit=dev`. Triage hits as
+`gitleaks`, `osv-scanner`, else a production-dependency audit. Triage hits as
 Step 2 findings (fix real ones via Step 5); report each tool as `clean`,
 `N findings` or `not installed`.
 
@@ -253,8 +253,7 @@ naming the missing facts. The result is exactly one of
 **and** `REMOTE_REVIEW_COMPLETE` -- never return it from prose judgment.
 
 **Fresh review.** The review is fresh for `headSha` when `reviewedHeadSha`
-equals it, or when `reviewedTreeSha` and `headTreeSha` -- `git rev-parse
-<sha>^{tree}` of those two commits -- are both given and are the identical full
+equals it, or when `reviewedTreeSha` and `headTreeSha` -- the tree ids of those two commits -- are both given and are the identical full
 object id: the local review is bound to a snapshot commit and PR creation then
 makes the one real commit, which when it holds exactly the reviewed content is
 what was reviewed. Both tree facts are optional -- leave the key out (never an
@@ -296,7 +295,7 @@ untouched): report its `reason`, and never treat the state as recorded. The repo
 `.gitignore`, and is deliberately never committed: committing it would change
 the head SHA and invalidate the very review it records. On resume, run
 `state-read` with `{ prId, headSha, treeSha }` for the head being resumed
-(`headSha` is required; `treeSha` is `git rev-parse <headSha>^{tree}` -- leave
+(`headSha` is required; `treeSha` is that head's tree id -- leave
 the key out when not computed) to recover dispositioned findings and the
 recorded local-phase facts instead of re-triaging them. A report is kept when
 its own head is `headSha`, or when `treeSha` is the `reviewedTreeSha` it

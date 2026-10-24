@@ -89,7 +89,8 @@ describe('implement-bead shares the engine policy', () => {
   });
 
   test('its dirty-tree gate ignores br state under .beads/', () => {
-    expect(text).toMatch(/git status --porcelain -- \. '':\(exclude\)\.beads''/);
+    expect(text).toMatch(/run workflow\.status/);
+    expect(text).toMatch(/Ignore every path under \.beads\//);
   });
 });
 
@@ -123,7 +124,7 @@ describe('bead context contract is mandatory before any dispatch', () => {
     const claim = acts.findIndex((a) => a.includes('tracker.set-status') && a.includes('status=in_progress'));
     const ctx = acts.findIndex((a) => a.includes(CMD));
     const dispatch = acts.findIndex((a) => a.startsWith('Dispatch Task('));
-    const gate = acts.findIndex((a, i) => i > dispatch && a.includes('git status --porcelain'));
+    const gate = acts.findIndex((a, i) => i > dispatch && a.includes('run workflow.status'));
     expect(claim).toBeGreaterThan(-1);
     expect(ctx).toBeGreaterThan(claim);
     expect(dispatch).toBeGreaterThan(ctx);
