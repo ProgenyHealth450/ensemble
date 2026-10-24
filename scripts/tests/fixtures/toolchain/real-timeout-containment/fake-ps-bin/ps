@@ -1,0 +1,12 @@
+#!/bin/sh
+# Real-process fixture for scripts/tests/toolchain-runner-timeout-containment.test.js
+# (TRD-2026-8d825f54 TRD-011, reviewer round 3, P2). Named exactly `ps` (this directory, not
+# the file alone, must be prepended to `PATH`) so `runner.js#listProcessTable`'s
+# `execFileSync('ps', ...)` resolves to THIS script instead of the real one. Simulates a `ps`
+# that does not support the combined `-A -o pid=,ppid=,lstart=` invocation
+# `listProcessTable` relies on (e.g. busybox, some older/non-GNU `ps` builds): instead of
+# erroring, it silently degrades and prints only the columns it DOES understand (`pid`,
+# `ppid`), omitting `lstart` entirely rather than failing outright. Prepend this directory to
+# `PATH` for the duration of a test only (never installed system-wide); restore `PATH` in a
+# `finally` block afterward.
+exec /bin/ps -A -o pid=,ppid=
