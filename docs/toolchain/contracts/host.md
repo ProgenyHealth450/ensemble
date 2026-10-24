@@ -4,7 +4,7 @@
 
 Contract version: `1.0`
 
-The `host` category defines 8 capabilities: 6 required and 2 optional. An adapter implementing this category must provide every required capability; a command that needs an optional capability the resolved adapter lacks uses the capability's fallback when one is named.
+The `host` category defines 9 capabilities: 6 required and 3 optional. An adapter implementing this category must provide every required capability; a command that needs an optional capability the resolved adapter lacks uses the capability's fallback when one is named.
 
 ## Capabilities
 
@@ -16,6 +16,7 @@ The `host` category defines 8 capabilities: 6 required and 2 optional. An adapte
 | `host.change-request-list` | required | no | `filter` | `items` | - | - | List change requests, optionally filtered (for example by state or branch). |
 | `host.change-request-checks` | required | no | `id` | `id`, `checks` | - | - | Read the status checks attached to a change request. |
 | `host.change-request-threads` | optional | no | `id` | `id`, `threads` | - | - | List review comment threads on a change request. Optional, not required: not every shipped host adapter has a PR-comment-thread CLI surface (for example Azure DevOps' `az repos pr` allowlist, TRD-040, has none), and there is no generic cross-tool fallback for review threads, so this carries no `fallback` field. |
+| `host.change-request-reviews` | optional | no | `id` | `id`, `reviewDecision`, `mergeable`, `mergeStateStatus`, `reviews`, `threads` | - | - | Read the review state of a change request: the host's review decision, mergeability, the LATEST decisive review per reviewer with the reviewer's host-reported account type (`authorType`: `Bot` or `User`, never inferred from a name), and the UNRESOLVED review threads (`{path, body}`). Optional, not required: not every host adapter has a review-state CLI surface (Azure DevOps' `az repos pr` allowlist has none), and there is no generic cross-tool fallback, so this carries no `fallback` field. A caller that gates on review state (`/ensemble:pr-merge`) MUST fail closed when this resolves `UNAVAILABLE` or returns `ok:false`, never treat it as "no reviews". |
 | `host.change-request-merge` | required | yes | `id`, `method` | `id`, `state` | - | - | Merge a change request once its checks pass. `method` (optional, TRD-2026-8d825f54 PR 9 fix round, item 2) selects the normalized merge strategy (squash\|merge\|rebase); omitted defaults to `squash`, preserving behavior from before this input existed. Not every adapter supports every method -- an adapter without a given method declared in its own `variants.method` fails the call closed with `NOT_ALLOWED`, never silently falling back to a different strategy or passing the caller's value through unvalidated. Adding this as an optional input to an EXISTING capability (not a new capability) needs no contract version bump: `checkCompat`/`checkAdditiveOnly` (`contracts.js`) gate capability-level `required`/removal/addition only, never a capability's own `inputs` list. |
 | `host.change-request-link-work-item` | optional | yes | `id`, `workItemId` | `id`, `workItemId` | - | - | Link a change request to a tracker work item. Optional: GitHub has no native work-item-linking capability (only Azure DevOps' `az repos pr work-item add` does, TRD-040/TRD-041), and there is no generic cross-tool fallback, so this carries no `fallback` field. |
 
@@ -79,6 +80,16 @@ List review comment threads on a change request. Optional, not required: not eve
 - Side effect: no
 - Inputs: `id`
 - Outputs: `id`, `threads`
+- Fallback: none
+
+### host.change-request-reviews
+
+Read the review state of a change request: the host's review decision, mergeability, the LATEST decisive review per reviewer with the reviewer's host-reported account type (`authorType`: `Bot` or `User`, never inferred from a name), and the UNRESOLVED review threads (`{path, body}`). Optional, not required: not every host adapter has a review-state CLI surface (Azure DevOps' `az repos pr` allowlist has none), and there is no generic cross-tool fallback, so this carries no `fallback` field. A caller that gates on review state (`/ensemble:pr-merge`) MUST fail closed when this resolves `UNAVAILABLE` or returns `ok:false`, never treat it as "no reviews".
+
+- Status: optional
+- Side effect: no
+- Inputs: `id`
+- Outputs: `id`, `reviewDecision`, `mergeable`, `mergeStateStatus`, `reviews`, `threads`
 - Fallback: none
 
 ### host.change-request-merge

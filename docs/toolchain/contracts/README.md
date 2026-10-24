@@ -9,7 +9,7 @@ Each tool category has a versioned capability contract. Commands and agents call
 | [ci-local](ci-local.md) | `1.0` | 2 | 1 | 1 |
 | [container-deploy](container-deploy.md) | `1.0` | 2 | 1 | 1 |
 | [e2e-quality](e2e-quality.md) | `1.0` | 3 | 1 | 2 |
-| [host](host.md) | `1.0` | 8 | 6 | 2 |
+| [host](host.md) | `1.0` | 9 | 6 | 3 |
 | [iac](iac.md) | `1.0` | 3 | 1 | 2 |
 | [lint](lint.md) | `1.0` | 1 | 1 | 0 |
 | [package-runner](package-runner.md) | `1.0` | 2 | 1 | 1 |

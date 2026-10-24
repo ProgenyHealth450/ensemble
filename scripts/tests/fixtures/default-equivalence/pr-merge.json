@@ -32,7 +32,7 @@
     ],
     [
       "gh",
-      "pr checks"
+      "api"
     ],
     [
       "git",
@@ -49,11 +49,11 @@
       "steps": [
         [
           "gh",
-          "api"
+          "pr checks"
         ]
       ],
-      "trd": "TRD-039",
-      "justification": "Unresolved review threads were fetched with `gh api graphql`; TRD-039 replaces that with optional host.change-request-threads, whose default github template is `gh pr view <id> --json number,comments` (adapter-host-github declares no GraphQL access; thread fetch via GraphQL is recorded there as a future capability)."
+      "trd": "TRD-009",
+      "justification": "Not part of the toolchain refactor: origin/dev's local-CI-gate change (TRD-2026-4dec59b8 TRD-009, 'merge on the local gate verdict') stopped pr-merge from watching hosted checks; the verdict of the local-ci-gate skill replaces `gh pr checks`, and hosted CI is deliberately not waited for."
     }
   ]
 }
