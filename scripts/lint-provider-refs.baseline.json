@@ -1,0 +1,881 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "packages/assessment/skills/ai-readiness-diagnostic-report/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "python3",
+      "count": 2
+    },
+    {
+      "file": "packages/assessment/skills/architecture-overview-report/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 1
+    },
+    {
+      "file": "packages/assessment/skills/assess-config/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "az",
+      "count": 1
+    },
+    {
+      "file": "packages/assessment/skills/assess-config/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 1
+    },
+    {
+      "file": "packages/assessment/skills/assess-config/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 3
+    },
+    {
+      "file": "packages/assessment/skills/assess-config/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "jira",
+      "count": 4
+    },
+    {
+      "file": "packages/assessment/skills/assess-config/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "linearis",
+      "count": 2
+    },
+    {
+      "file": "packages/assessment/skills/assess-config/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 1
+    },
+    {
+      "file": "packages/assessment/skills/assess-purpose/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 1
+    },
+    {
+      "file": "packages/assessment/skills/assess-team-dimension/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "az",
+      "count": 3
+    },
+    {
+      "file": "packages/assessment/skills/assess-team-dimension/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 3
+    },
+    {
+      "file": "packages/assessment/skills/assess-team-dimension/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 7
+    },
+    {
+      "file": "packages/assessment/skills/assess-team/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "az",
+      "count": 2
+    },
+    {
+      "file": "packages/assessment/skills/assess-team/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 3
+    },
+    {
+      "file": "packages/assessment/skills/assessment-report-suite/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 1
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "aws",
+      "count": 1
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "az",
+      "count": 1
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 3
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "dotnet",
+      "count": 2
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "jest",
+      "count": 1
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 10
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 3
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "python",
+      "count": 3
+    },
+    {
+      "file": "packages/core/skills/detect-stack/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "terraform",
+      "count": 3
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "aws",
+      "count": 8
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "az",
+      "count": 4
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 2
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "dotnet",
+      "count": 2
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "helm",
+      "count": 9
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "jest",
+      "count": 5
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "kubectl",
+      "count": 5
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 19
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 2
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "pytest",
+      "count": 4
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "python",
+      "count": 2
+    },
+    {
+      "file": "packages/core/skills/detect-stack/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "terraform",
+      "count": 4
+    },
+    {
+      "file": "packages/development/agents/beads-scaffold-specialist.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "br",
+      "count": 2
+    },
+    {
+      "file": "packages/development/agents/beads-scaffold-specialist.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "bv",
+      "count": 2
+    },
+    {
+      "file": "packages/development/agents/beads-scaffold-specialist.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "br",
+      "count": 3
+    },
+    {
+      "file": "packages/development/agents/beads-scaffold-specialist.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "bv",
+      "count": 4
+    },
+    {
+      "file": "packages/development/agents/tech-lead-orchestrator.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "br",
+      "count": 3
+    },
+    {
+      "file": "packages/development/agents/tech-lead-orchestrator.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "bv",
+      "count": 1
+    },
+    {
+      "file": "packages/development/agents/tech-lead-orchestrator.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "br",
+      "count": 3
+    },
+    {
+      "file": "packages/development/agents/tech-lead-orchestrator.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "bv",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/completion-verification/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "br",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/completion-verification/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/completion-verification/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/completion-verification/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/safe-migration/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "br",
+      "count": 2
+    },
+    {
+      "file": "packages/development/skills/staleness-gate/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "br",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/staleness-gate/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 4
+    },
+    {
+      "file": "packages/development/skills/staleness-gate/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/tool-path-resolution/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/tool-path-resolution/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 1
+    },
+    {
+      "file": "packages/e2e-testing/agents/playwright-tester.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "dotnet",
+      "count": 1
+    },
+    {
+      "file": "packages/e2e-testing/agents/playwright-tester.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "dotnet",
+      "count": 1
+    },
+    {
+      "file": "packages/e2e-testing/skills/a11y-perf-checks/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 1
+    },
+    {
+      "file": "packages/e2e-testing/skills/smoke-test-runner/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 6
+    },
+    {
+      "file": "packages/e2e-testing/skills/writing-playwright-tests/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 9
+    },
+    {
+      "file": "packages/e2e-testing/skills/writing-playwright-tests/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 7
+    },
+    {
+      "file": "packages/exunit/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "elixir",
+      "count": 3
+    },
+    {
+      "file": "packages/exunit/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "mix",
+      "count": 1
+    },
+    {
+      "file": "packages/git/agents/git-workflow.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "gh",
+      "count": 1
+    },
+    {
+      "file": "packages/git/agents/git-workflow.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "gh",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "act",
+      "count": 59
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "brew",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 5
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker-compose",
+      "count": 2
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "nix-env",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 2
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "scoop",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "yay",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "act",
+      "count": 19
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "brew",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 1
+    },
+    {
+      "file": "packages/git/skills/act-local-ci/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-developer.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "aws",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-developer.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "helm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-developer.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "node",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-developer.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "terraform",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-developer.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "node",
+      "count": 4
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-specialist.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "helm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-specialist.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "node",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-specialist.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "helm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/agents/infrastructure-specialist.yaml",
+      "class": "BINARY_IN_AGENT",
+      "binary": "node",
+      "count": 4
+    },
+    {
+      "file": "packages/infrastructure/skills/aws/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "aws",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/aws/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "terraform",
+      "count": 4
+    },
+    {
+      "file": "packages/infrastructure/skills/helm/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "helm",
+      "count": 6
+    },
+    {
+      "file": "packages/infrastructure/skills/helm/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "kubectl",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/jira/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "jira",
+      "count": 29
+    },
+    {
+      "file": "packages/infrastructure/skills/jira/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/kubernetes/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "kubectl",
+      "count": 7
+    },
+    {
+      "file": "packages/infrastructure/skills/linear/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "linearis",
+      "count": 28
+    },
+    {
+      "file": "packages/infrastructure/skills/linear/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/README.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "railway",
+      "count": 20
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "bundle",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "pip",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "railway",
+      "count": 177
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "brew",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/railway/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "railway",
+      "count": 82
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/README.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "supabase",
+      "count": 8
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "brew",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 4
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "scoop",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "supabase",
+      "count": 156
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "brew",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "scoop",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/supabase/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "supabase",
+      "count": 80
+    },
+    {
+      "file": "packages/infrastructure/skills/vercel/README.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "vercel",
+      "count": 15
+    },
+    {
+      "file": "packages/infrastructure/skills/vercel/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "docker",
+      "count": 1
+    },
+    {
+      "file": "packages/infrastructure/skills/vercel/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "vercel",
+      "count": 135
+    },
+    {
+      "file": "packages/infrastructure/skills/vercel/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 2
+    },
+    {
+      "file": "packages/infrastructure/skills/vercel/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "vercel",
+      "count": 84
+    },
+    {
+      "file": "packages/jest/skills/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "jest",
+      "count": 7
+    },
+    {
+      "file": "packages/jest/skills/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 1
+    },
+    {
+      "file": "packages/jest/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 3
+    },
+    {
+      "file": "packages/jest/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 2
+    },
+    {
+      "file": "packages/nestjs/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 2
+    },
+    {
+      "file": "packages/phoenix/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "mix",
+      "count": 2
+    },
+    {
+      "file": "packages/product/commands/create-prd.yaml",
+      "class": "BINARY_IN_COMMAND",
+      "binary": "node",
+      "count": 1
+    },
+    {
+      "file": "packages/product/commands/ensemble/create-prd.md",
+      "class": "BINARY_IN_COMMAND",
+      "binary": "node",
+      "count": 1
+    },
+    {
+      "file": "packages/pytest/skills/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "pip",
+      "count": 2
+    },
+    {
+      "file": "packages/pytest/skills/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "pytest",
+      "count": 20
+    },
+    {
+      "file": "packages/pytest/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "python",
+      "count": 2
+    },
+    {
+      "file": "packages/quality/agents/test-runner.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "git",
+      "count": 2
+    },
+    {
+      "file": "packages/quality/agents/test-runner.md",
+      "class": "BINARY_IN_AGENT",
+      "binary": "npm",
+      "count": 8
+    },
+    {
+      "file": "packages/quality/skills/incident-triage/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "br",
+      "count": 2
+    },
+    {
+      "file": "packages/quality/skills/incident-triage/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 2
+    },
+    {
+      "file": "packages/quality/skills/incident-triage/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 2
+    },
+    {
+      "file": "packages/quality/skills/pr-review-remediation/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 3
+    },
+    {
+      "file": "packages/rails/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "bundle",
+      "count": 1
+    },
+    {
+      "file": "packages/reqnroll/skills/reqnroll/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "dotnet",
+      "count": 2
+    },
+    {
+      "file": "packages/rspec/skills/REFERENCE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "bundle",
+      "count": 2
+    },
+    {
+      "file": "packages/rspec/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "bundle",
+      "count": 20
+    },
+    {
+      "file": "packages/rspec/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "ruby",
+      "count": 3
+    },
+    {
+      "file": "packages/xunit/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "dotnet",
+      "count": 19
+    },
+    {
+      "file": "packages/xunit/skills/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 1
+    }
+  ]
+}

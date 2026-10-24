@@ -1,0 +1,16 @@
+metadata:
+  name: ensemble:bad
+  description: Deliberate tool-binary hardcode violation fixture for TRD-047's lint
+  category: implementation
+  allowed_tools:
+    - Read
+    - Bash
+
+mission:
+  summary: |
+    This fixture deliberately hardcodes a tool-binary invocation instead of routing
+    through toolchain-cli, so scripts/lint-provider-refs.js has something real to flag.
+
+    ```bash
+    gh pr create --title "Deliberate violation" --body "fixture"
+    ```
