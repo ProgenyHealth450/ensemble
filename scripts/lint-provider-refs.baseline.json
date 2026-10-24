@@ -290,6 +290,90 @@
       "count": 1
     },
     {
+      "file": "packages/development/skills/local-ci-gate/BASELINE.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 3
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/MEASUREMENT.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/MEASUREMENT.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/MEASUREMENT.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/MEASUREMENT.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/PROOF.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "br",
+      "count": 1
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/PROOF.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 9
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/PROOF.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 6
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/PROOF.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "node",
+      "count": 2
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/PROOF.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npm",
+      "count": 5
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/PROOF.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "npx",
+      "count": 2
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/RUNBOOK.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 4
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "gh",
+      "count": 6
+    },
+    {
+      "file": "packages/development/skills/local-ci-gate/SKILL.md",
+      "class": "BINARY_IN_SKILL",
+      "binary": "git",
+      "count": 3
+    },
+    {
       "file": "packages/development/skills/safe-migration/SKILL.md",
       "class": "BINARY_IN_SKILL",
       "binary": "br",
