@@ -5,11 +5,15 @@
  * TRD-014, PRD REQ-013, AC-013-1/2/3).
  *
  * `runPreflight({categories, runId, nonInteractive}, ctx)` resolves each category's adapter
- * (via `resolveCategory`/`loadAdapter`, the same `ctx = {projectRoot, env}` convention those
- * modules already use), then runs every one of those adapters' declared `health` checks
- * concurrently (`Promise.all`, never sequentially) through `runCapability` (TRD-011) -- this
- * module never spawns a process directly. Only when every check across every category passes
- * does it write a preflight record to
+ * (via `resolveCategory`/`loadAdapter`, the same `ctx = {projectRoot, env, detect}` convention
+ * those modules already use -- `ctx.detect` is threaded all the way through from
+ * `toolchain-cli.js`'s `preflight` handler, PR 4 review Finding 1: a prior wave's `ctx` here
+ * only carried `{projectRoot, env}`, so a detection-selected adapter (`source: 'detection'` via
+ * `resolve`/`explain`/`run`) silently fell through to the shipped default here instead and
+ * `preflight` health-checked THAT, never the adapter actually configured), then runs every one
+ * of those adapters' declared `health` checks concurrently (`Promise.all`, never sequentially)
+ * through `runCapability` (TRD-011) -- this module never spawns a process directly. Only when
+ * every check across every category passes does it write a preflight record to
  * `<projectRoot>/.ensemble/state/toolchain/preflight-<runId>.json`. On the first failing check
  * it resolves to `{ok:false, error:{code:'HEALTH_FAILED', message}}` naming the adapter and
  * check id (and containing the literal text "timed out" when the failure was a timeout) and
@@ -22,6 +26,12 @@
  * caller: before invoking any `sideEffect:true` capability it calls
  * `hasPassingPreflightRecord` and refuses to proceed (`PREFLIGHT_REQUIRED`) whenever it
  * returns `false`.
+ *
+ * `loadAdapter`'s `interactive` flag is derived via `./confirm.js#isNonInteractive` applied to
+ * `{nonInteractive, env}` (PR 4 review Finding 2), the SAME explicit-signal precedence
+ * `toolchain-cli.js`'s `run`/`confirm-status`/`confirm-record` handlers use -- never the bare
+ * `!nonInteractive` a prior wave used here, which ignored `ENSEMBLE_NON_INTERACTIVE=1`/
+ * `FOREMAN_TASK_TITLE`/`CI=true` entirely when `input.nonInteractive` itself was `false`.
  *
  * Run-id charset guard (shared, see `./run-id.js`): a `runId` failing the shared charset
  * (`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`) is never used to build a filesystem path.
@@ -60,6 +70,7 @@ const { loadAdapter } = require('./adapters');
 const { runCapability } = require('./runner');
 const { redactSecrets } = require('../complexity-analyzer');
 const { isValidRunId, invalidRunIdMessage } = require('./run-id');
+const { isNonInteractive } = require('./confirm');
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 10000;
 
@@ -145,13 +156,13 @@ async function runHealthCheck(adapterId, manifest, check) {
  * this file's header for the full contract.
  *
  * @param {{categories?: string[], runId?: string, nonInteractive?: boolean}} [input]
- * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv}} [ctx]
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx]
  * @returns {Promise<{ok:true, runId:string, categories:string[], checkedAt:string} |
  *   {ok:false, error:{code:string, message:string}}>}
  */
 async function runPreflight(input = {}, ctx = {}) {
   const { categories, runId, nonInteractive = false } = input;
-  const { projectRoot = process.cwd(), env = process.env } = ctx;
+  const { projectRoot = process.cwd(), env = process.env, detect } = ctx;
 
   if (!isSafeRunId(runId)) {
     return {
@@ -169,7 +180,7 @@ async function runPreflight(input = {}, ctx = {}) {
   for (const category of categoryList) {
     let adapterId;
     try {
-      adapterId = resolveCategory(category, { projectRoot, env }).value;
+      adapterId = resolveCategory(category, { projectRoot, env, detect }).value;
     } catch (error) {
       return {
         ok: false,
@@ -182,7 +193,11 @@ async function runPreflight(input = {}, ctx = {}) {
 
     let loaded;
     try {
-      loaded = loadAdapter(adapterId, { projectRoot, env, interactive: !nonInteractive });
+      loaded = loadAdapter(adapterId, {
+        projectRoot,
+        env,
+        interactive: !isNonInteractive({ nonInteractive, env })
+      });
     } catch (error) {
       return {
         ok: false,
