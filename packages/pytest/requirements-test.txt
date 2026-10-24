@@ -1,0 +1,13 @@
+# Test-only Python dependencies for packages/pytest/skills/run-test.py's own regression test
+# (packages/pytest/tests/run-test.test.js, TRD-2026-8d825f54 TRD-043).
+#
+# This repo has no other Python dependency manifest (it is a Node/JS monorepo; `pytest` is one
+# of several language-specific test runners `run-test.py` wraps, not a dependency of the
+# monorepo's own build). `pytest-json-report` is required to make run-test.py's own
+# pre-existing `--json-report` flag produce the structured report it parses -- install with:
+#
+#   python3 -m pip install -r packages/pytest/requirements-test.txt
+#
+# (On a PEP 668 "externally managed" Python install, add --user or use a virtualenv.)
+pytest
+pytest-json-report

@@ -397,6 +397,51 @@ describe('runPreflight: real process spawning, not a scripted mock (TRD-014-TEST
  * TRD-014-TEST AC-013-1 (fifth bullet): the `toolchain-cli run` subcommand refuses a
  * side-effecting capability with no passing preflight record, spawning nothing.
  */
+/**
+ * PR 10 fix round, item 1: `toolchain-cli.js`'s `run()` used to check
+ * `hasPassingPreflightRecord` BEFORE resolving/guarding the category's adapter, so a
+ * side-effecting capability configured to an UNSHIPPED adapter (a restricted, non-tracker/
+ * host category) reported `PREFLIGHT_REQUIRED` instead of the real `UNKNOWN_ADAPTER`
+ * misconfiguration. The resolve+guard+load prelude now runs first (see `run()`'s own header),
+ * so this misconfiguration is named correctly regardless of `--run-id`/preflight state.
+ */
+describe('toolchain-cli run: item 1 fix -- UNKNOWN_ADAPTER wins over PREFLIGHT_REQUIRED', () => {
+  test("a side-effecting capability ('iac.apply') configured to an unshipped adapter fails UNKNOWN_ADAPTER, not PREFLIGHT_REQUIRED, with no --run-id and no preflight record at all", async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { iac: 'pulumi' });
+    const ctx = { projectRoot, env: {} };
+
+    const { returned: code, stdout } = await captureStdoutAsync(() =>
+      main(['run', 'iac.apply', '--json'], ctx)
+    );
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe('UNKNOWN_ADAPTER');
+    expect(parsed.error.code).not.toBe('PREFLIGHT_REQUIRED');
+    expect(parsed.error.message).toContain('iac');
+    expect(parsed.error.message).toContain('terraform');
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  test('regression: the same capability with a correctly-configured (shipped) adapter and no preflight record still reports PREFLIGHT_REQUIRED unchanged', async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { iac: 'terraform' });
+    const ctx = { projectRoot, env: {} };
+
+    const { returned: code, stdout } = await captureStdoutAsync(() =>
+      main(['run', 'iac.apply', '--json'], ctx)
+    );
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe('PREFLIGHT_REQUIRED');
+    expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
 describe('toolchain-cli run: PREFLIGHT_REQUIRED (Implementation AC bullet 5)', () => {
   test('a side-effecting capability with no preflight record for --run-id R exits non-zero with PREFLIGHT_REQUIRED and spawns nothing', async () => {
     const projectRoot = mkProjectRoot();
@@ -554,6 +599,81 @@ describe('runPreflight: adapter resolution failures', () => {
 });
 
 /**
+ * TRD-046 `UNKNOWN_ADAPTER` guard, wired into `runPreflight`'s non-`work-graph` branch (PR 10
+ * fix round, item 2a): `assertKnownAdapter` now runs BEFORE `loadAdapter` for every restricted
+ * category (not `tracker`/`host`), so an explicit project-config selection naming an adapter id
+ * that does not actually ship for that category fails `UNKNOWN_ADAPTER` naming the category,
+ * the bogus id and every real shipped adapter id -- instead of the generic `NOT_INSTALLED`
+ * (mapped to `HEALTH_FAILED` here) `loadAdapter` would otherwise throw for the exact same
+ * misconfiguration.
+ */
+describe('runPreflight: UNKNOWN_ADAPTER guard (PR 10 fix round, item 2a)', () => {
+  test("an explicit project config naming an unshipped 'iac' adapter fails UNKNOWN_ADAPTER naming iac and terraform, before loadAdapter/spawn", async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { iac: 'pulumi' });
+    const ctx = { projectRoot, env: {} };
+
+    const result = await runPreflight({ categories: ['iac'], runId: 'unknown-adapter-pf' }, ctx);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('UNKNOWN_ADAPTER');
+    expect(result.error.message).toContain('iac');
+    expect(result.error.message).toContain('terraform');
+    expect(execFile).not.toHaveBeenCalled();
+    expect(fs.existsSync(preflightRecordPath(projectRoot, 'unknown-adapter-pf'))).toBe(false);
+  });
+
+  test('regression: tracker stays excluded -- an unshipped explicit tracker id is NOT caught by this guard (falls through to the pre-existing NOT_INSTALLED/HEALTH_FAILED path)', async () => {
+    const projectRoot = mkProjectRoot();
+    mkProjectConfig(projectRoot, { tracker: 'nonexistent-tracker' });
+    const ctx = { projectRoot, env: {} };
+
+    const result = await runPreflight({ categories: ['tracker'], runId: 'tracker-excluded-pf' }, ctx);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('HEALTH_FAILED');
+    expect(result.error.message).toContain('nonexistent-tracker');
+  });
+
+  describe('mutation proof (makeMutantToolchainRoot, never the real repo source)', () => {
+    test('removing the assertKnownAdapter call from a mutant copy of runPreflight masks UNKNOWN_ADAPTER back to a generic HEALTH_FAILED', async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          '      try {\n' +
+          '        assertKnownAdapter(category, resolvedCategory, ctx);\n' +
+          '      } catch (error) {\n' +
+          '        return {\n' +
+          "          ok: false,\n" +
+          "          error: { code: error.code || 'UNKNOWN_ADAPTER', message: error.message }\n" +
+          '        };\n' +
+          '      }\n' +
+          '      adapterId = resolvedCategory.value;\n';
+        const replacement = '      adapterId = resolvedCategory.value;\n';
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/preflight.js', needle, replacement);
+
+        const projectRoot = mkProjectRoot();
+        mkProjectConfig(projectRoot, { iac: 'pulumi' });
+
+        const result = await mutated.runPreflight(
+          { categories: ['iac'], runId: 'unknown-adapter-mutant-pf' },
+          { projectRoot, env: {} }
+        );
+
+        // The guard call was deleted: the exact same misconfigured project that fails
+        // UNKNOWN_ADAPTER above now falls through to loadAdapter's own NOT_INSTALLED (mapped
+        // to the generic HEALTH_FAILED here), masking the real misconfiguration again.
+        expect(result.ok).toBe(false);
+        expect(result.error.code).toBe('HEALTH_FAILED');
+        expect(result.error.code).not.toBe('UNKNOWN_ADAPTER');
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+});
+
+/**
  * Branch coverage: `toolchain-cli run`'s other branches -- missing capability argument, a
  * non-side-effecting capability proceeding without any preflight record, and a side-effecting
  * capability proceeding once a passing preflight record exists.
@@ -677,8 +797,8 @@ describe("runPreflight: ctx.detect threading to resolveCategory (PR 4 review Fin
     test("reverting runPreflight's own 'resolveCategory(category, ctx)' call to narrow ctx (dropping 'detect') falls through to the shipped default (not installed here) and fails", async () => {
       const mutantRoot = makeMutantToolchainRoot();
       try {
-        const needle = 'adapterId = resolveCategory(category, ctx).value;';
-        const replacement = 'adapterId = resolveCategory(category, { projectRoot, env }).value;';
+        const needle = 'resolvedCategory = resolveCategory(category, ctx);';
+        const replacement = 'resolvedCategory = resolveCategory(category, { projectRoot, env });';
         const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/preflight.js', needle, replacement);
 
         const projectRoot = mkProjectRoot();

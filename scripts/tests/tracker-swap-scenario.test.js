@@ -1061,10 +1061,12 @@ function mutateFile(filePath, needle, replacement) {
 
 const RUN_RESOLVE_NEEDLE = [
   '      const resolvedCategory = resolveCategory(category, ctx);',
+  '      assertKnownAdapter(category, resolvedCategory, ctx);',
   '      adapterId = resolvedCategory.value;',
 ].join('\n');
 const RUN_RESOLVE_MUTANT = [
   '      const resolvedCategory = resolveCategory(category, ctx);',
+  '      assertKnownAdapter(category, resolvedCategory, ctx);',
   "      adapterId = 'beads';",
 ].join('\n');
 

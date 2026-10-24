@@ -50,8 +50,8 @@
  * `<projectRoot>/packages/*\/skills`, so every real consumer (every one of these four shipped
  * bundles, run from an unrelated project) silently could never load it. Scenario 3 proves the
  * fix end-to-end: each bundle correctly built with its adapter skill directory at the real
- * relative position it actually ships at (`copyRuntimeBundle`'s `adapterSkillSrc`/
- * `adapterSkillDest` below -- note this requires each copy's directory NAMES to match the real
+ * relative position it actually ships at (`copyRuntimeBundle`'s `adapterSkills` entries
+ * below -- note this requires each copy's directory NAMES to match the real
  * tree exactly, e.g. a directory literally named `vendor`, not merely containing the same
  * files, since `./toolchain/adapters.js#matchLibraryLocationTail` matches on literal path
  * segment names), run with `--require tracker.show` against a project with no `.ensemble/
@@ -83,6 +83,31 @@ const FIXTURE_PROJECT_ROOT = path.join(
  */
 const ISOLATED_ENV = { PATH: process.env.PATH };
 
+/**
+ * The 10 restricted-category default adapters TRD-042/043/044 shipped, plus `workflow`'s
+ * default (`plain-git`) -- every non-`tracker`/`host` category the fixture's `toolchain.yaml`
+ * configures with an explicit `project`-source value, so TRD-046's `assertKnownAdapter`
+ * (wired into `resolveAll`, which `resolve --json` calls) now requires each one's adapter
+ * directory to actually be discoverable in every runtime bundle below -- `tracker`/`host` are
+ * excluded from that guard (`resolve-guard.js#EXCLUDED_CATEGORIES`) and need no entry here;
+ * `work-graph` resolves through a separate code path and also needs none. Each dev-package
+ * source directory name matches the adapter directory name 1:1 across every runtime (pi/codex
+ * mirror these 1:1 via `npm run generate:pi`/`generate:codex`'s `SkillCopier`).
+ */
+const RESTRICTED_CATEGORY_ADAPTER_DIRS = [
+  { pkg: 'git', name: 'adapter-workflow-plain-git' },
+  { pkg: 'git', name: 'adapter-worktree-plain-git' },
+  { pkg: 'git', name: 'adapter-ci-local-act' },
+  { pkg: 'quality', name: 'adapter-review-coderabbit' },
+  { pkg: 'development', name: 'adapter-lint-reviewdog' },
+  { pkg: 'development', name: 'adapter-test-runner-default' },
+  { pkg: 'e2e-testing', name: 'adapter-e2e-quality-playwright' },
+  { pkg: 'infrastructure', name: 'adapter-container-deploy-docker-kubectl' },
+  { pkg: 'infrastructure', name: 'adapter-iac-terraform' },
+  { pkg: 'infrastructure', name: 'adapter-platform-cloud-aws' },
+  { pkg: 'core', name: 'adapter-package-runner-npm' }
+];
+
 function copyFileSync(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(src, dest);
@@ -99,17 +124,19 @@ function copyFileSync(src, dest) {
  *   library-relative discovery to recognize it -- unlike every earlier scenario here, which
  *   only cared about `destRoot`'s CONTENTS, never its own directory name.
  * @param {{cliSrc: string, toolchainLibSrc: string, toolchainDataSrc: string,
- *   complexitySrc: string, adapterSkillSrc?: string, adapterSkillDest?: string}} sources when
- *   both `adapterSkillSrc`/`adapterSkillDest` are supplied, also copies that adapter skill
- *   directory (`adapter.yaml` + `SKILL.md`) to the given absolute destination -- the caller
- *   computes `adapterSkillDest` since its correct relative position differs per layout (a
+ *   complexitySrc: string, adapterSkills?: Array<{src: string, dest: string}>}} sources
+ *   `adapterSkills` (TRD-046 follow-up: `assertKnownAdapter` now requires every category the
+ *   fixture's `toolchain.yaml` names explicitly, other than `tracker`/`host`, to actually
+ *   resolve to a discoverable adapter directory too -- not just `tracker`'s `beads`) copies
+ *   each `{src, dest}` adapter skill directory (`adapter.yaml` + `SKILL.md`) verbatim -- the
+ *   caller computes each `dest` since the correct relative position differs per layout (a
  *   sibling of `destRoot` for Codex/OpenCode's `skills`/`skill` shape, a sibling of `destRoot`
  *   ONE level up inside an extra `skills/` dir for Pi's `<pkg>/vendor` shape).
  * @returns {{cliPath: string, toolchainLibDir: string}}
  */
 function copyRuntimeBundle(
   destRoot,
-  { cliSrc, toolchainLibSrc, toolchainDataSrc, complexitySrc, adapterSkillSrc, adapterSkillDest }
+  { cliSrc, toolchainLibSrc, toolchainDataSrc, complexitySrc, adapterSkills = [] }
 ) {
   const libDest = path.join(destRoot, 'lib');
   const toolchainLibDest = path.join(libDest, 'toolchain');
@@ -120,8 +147,8 @@ function copyRuntimeBundle(
   fs.cpSync(toolchainLibSrc, toolchainLibDest, { recursive: true });
   fs.cpSync(toolchainDataSrc, toolchainDataDest, { recursive: true });
 
-  if (adapterSkillSrc && adapterSkillDest) {
-    fs.cpSync(adapterSkillSrc, adapterSkillDest, { recursive: true });
+  for (const { src, dest } of adapterSkills) {
+    fs.cpSync(src, dest, { recursive: true });
   }
 
   return { cliPath: path.join(libDest, 'toolchain-cli.js'), toolchainLibDir: toolchainLibDest };
@@ -158,9 +185,40 @@ describe('toolchain-runtime-parity', () => {
     // true})`).
     claude = makeMutantToolchainRoot({ includeAdapterSkills: true });
 
+    // TRD-046 follow-up: copy every RESTRICTED_CATEGORY_ADAPTER_DIRS entry alongside the
+    // tracker-beads skill above, at the same real monorepo relative position
+    // (<claude.root>/packages/<pkg>/skills/<name>) `./toolchain/adapters.js
+    // #projectPackagesSkillsRoots` already scans -- without these, `assertKnownAdapter` finds
+    // zero shipped adapters for every one of the fixture's other 11 explicitly-configured
+    // categories and `resolve --json` fails `UNKNOWN_ADAPTER` for the first one it checks.
+    for (const { pkg, name } of RESTRICTED_CATEGORY_ADAPTER_DIRS) {
+      fs.cpSync(
+        path.join(REPO_ROOT, 'packages', pkg, 'skills', name),
+        path.join(claude.root, 'packages', pkg, 'skills', name),
+        { recursive: true }
+      );
+    }
+
     // --- pi + codex: one shared os.tmpdir() root (one node_modules symlink for both). ---
     const sharedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-runtime-parity-'));
     fs.symlinkSync(REPO_NODE_MODULES, path.join(sharedRoot, 'node_modules'), 'dir');
+
+    // pi/codex mirror every adapter 1:1 under their own skills dir (generated by `npm run
+    // generate:pi`/`generate:codex`'s SkillCopier), so the same RESTRICTED_CATEGORY_ADAPTER_DIRS
+    // `name`s apply regardless of which dev package originally shipped each one.
+    const piAdapterSkills = [{ name: 'adapter-tracker-beads' }, ...RESTRICTED_CATEGORY_ADAPTER_DIRS].map(
+      ({ name }) => ({
+        src: path.join(REPO_ROOT, 'packages', 'pi', 'skills', name),
+        dest: path.join(sharedRoot, 'pi', 'skills', name)
+      })
+    );
+    const codexAdapterSkills = [
+      { name: 'adapter-tracker-beads' },
+      ...RESTRICTED_CATEGORY_ADAPTER_DIRS
+    ].map(({ name }) => ({
+      src: path.join(REPO_ROOT, 'packages', 'codex', '.codex', 'skills', name),
+      dest: path.join(sharedRoot, 'codex', 'skills', name)
+    }));
 
     const pi = copyRuntimeBundle(path.join(sharedRoot, 'pi'), {
       cliSrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'toolchain-cli.js'),
@@ -171,9 +229,8 @@ describe('toolchain-runtime-parity', () => {
       // #libraryRelativeSkillsRoots`'s generic 'lib/toolchain' package-root tail derives
       // `<destRoot>/skills` regardless of destRoot's own literal name (only Scenario 3 below
       // needs the stricter 'vendor'-named tail, to prove that MORE specific production
-      // layout), so `<sharedRoot>/pi/skills/adapter-tracker-beads` is sufficient here.
-      adapterSkillSrc: path.join(REPO_ROOT, 'packages', 'pi', 'skills', 'adapter-tracker-beads'),
-      adapterSkillDest: path.join(sharedRoot, 'pi', 'skills', 'adapter-tracker-beads')
+      // layout), so `<sharedRoot>/pi/skills/<name>` is sufficient here.
+      adapterSkills: piAdapterSkills
     });
 
     const codexVendorRoot = path.join(
@@ -189,15 +246,7 @@ describe('toolchain-runtime-parity', () => {
       toolchainLibSrc: path.join(codexVendorRoot, 'lib', 'toolchain'),
       toolchainDataSrc: path.join(codexVendorRoot, 'toolchain'),
       complexitySrc: path.join(codexVendorRoot, 'lib', 'complexity-analyzer.js'),
-      adapterSkillSrc: path.join(
-        REPO_ROOT,
-        'packages',
-        'codex',
-        '.codex',
-        'skills',
-        'adapter-tracker-beads'
-      ),
-      adapterSkillDest: path.join(sharedRoot, 'codex', 'skills', 'adapter-tracker-beads')
+      adapterSkills: codexAdapterSkills
     });
 
     // A second, independent codex copy dedicated to the Scenario 2 (missing-mechanism)
@@ -370,8 +419,12 @@ describe('toolchain-runtime-parity', () => {
         toolchainLibSrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'toolchain'),
         toolchainDataSrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'toolchain'),
         complexitySrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'complexity-analyzer.js'),
-        adapterSkillSrc: path.join(REPO_ROOT, 'packages', 'pi', 'skills', 'adapter-tracker-beads'),
-        adapterSkillDest: path.join(piPkgDir, 'skills', 'adapter-tracker-beads')
+        adapterSkills: [
+          {
+            src: path.join(REPO_ROOT, 'packages', 'pi', 'skills', 'adapter-tracker-beads'),
+            dest: path.join(piPkgDir, 'skills', 'adapter-tracker-beads')
+          }
+        ]
       });
 
       // codex: destRoot literally named `skills/vendor`, adapters as a direct sibling of
@@ -384,8 +437,9 @@ describe('toolchain-runtime-parity', () => {
         toolchainLibSrc: path.join(codexVendorRoot, 'lib', 'toolchain'),
         toolchainDataSrc: path.join(codexVendorRoot, 'toolchain'),
         complexitySrc: path.join(codexVendorRoot, 'lib', 'complexity-analyzer.js'),
-        adapterSkillSrc: codexAdapterSrc,
-        adapterSkillDest: path.join(codexSkillsDir, 'adapter-tracker-beads')
+        adapterSkills: [
+          { src: codexAdapterSrc, dest: path.join(codexSkillsDir, 'adapter-tracker-beads') }
+        ]
       });
 
       // A second, independent codex copy dedicated to Scenario 4 (negative: skills dir
@@ -398,8 +452,9 @@ describe('toolchain-runtime-parity', () => {
         toolchainLibSrc: path.join(codexVendorRoot, 'lib', 'toolchain'),
         toolchainDataSrc: path.join(codexVendorRoot, 'toolchain'),
         complexitySrc: path.join(codexVendorRoot, 'lib', 'complexity-analyzer.js'),
-        adapterSkillSrc: codexAdapterSrc,
-        adapterSkillDest: path.join(codexMissingSkillsDir, 'adapter-tracker-beads')
+        adapterSkills: [
+          { src: codexAdapterSrc, dest: path.join(codexMissingSkillsDir, 'adapter-tracker-beads') }
+        ]
       });
       codexMissingSkills = { cliPath: codexMissingSkillsBundle.cliPath, skillsRoot: codexMissingSkillsDir };
     }, 60000);
