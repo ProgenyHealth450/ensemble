@@ -14,4 +14,6 @@ paths = [
   '''^packages/development/tests/local-ci-status\.test\.js$''',
   # Documentation example tokens.
   '''^docs/guides/refinement-review-collab\.md$''',
+  # Fake ghp_ token exercising the TRD-009 toolchain scanCredentials fixture.
+  '''^scripts/tests/fixtures/toolchain/broken-adapter/SKILL\.md$''',
 ]

@@ -3,7 +3,7 @@
 
 /**
  * toolchain-cli.js — CLI over the toolchain configuration resolver library
- * (TRD-2026-8d825f54 TRD-004, PRD REQ-012).
+ * (TRD-2026-8d825f54 TRD-004/TRD-007, PRD REQ-012, REQ-008, REQ-003).
  *
  * Subcommands:
  *   resolve [--json]   Resolve every one of the 14 tool categories to its selected adapter
@@ -12,18 +12,27 @@
  *                      `./toolchain/config.js`.
  *   explain [--json]   Identical resolution to `resolve`; the distinct subcommand name exists
  *                      for callers that want the "why was this adapter chosen" framing.
+ *   validate <adapter-dir> [--json]
+ *                      Run the composed static validation gate `validateAdapterDir` (TRD-009,
+ *                      PRD REQ-008/REQ-022/REQ-023) over `<adapter-dir>`: `validateManifest`,
+ *                      `validateAllowlist`, `validateConformance` and `scanCredentials`, in
+ *                      `./toolchain/validate.js`, returning the union of their errors. This is
+ *                      the only entry point; do not re-wire a subset of the four checks here.
  *
  * Output:
  *   - Default (no `--json`): a human-readable table with columns `category`, `adapter`,
- *     `source`, one row per category, printed to stdout.
+ *     `source`, one row per category, printed to stdout for `resolve`/`explain`; for
+ *     `validate`, `ok` on success or one error per line (to stderr) on failure.
  *   - `--json`: `{ok:true, data:{<category>:{adapter, source}, ...}}` on success, or
- *     `{ok:false, error:{code, message}}` on failure, printed to stdout.
+ *     `{ok:false, error:{code, message}}` on failure, printed to stdout for `resolve`/`explain`;
+ *     for `validate`, `{ok:true, errors:[]}` or `{ok:false, errors:[...]}` (matching
+ *     `validateConformance`'s own return shape) printed to stdout either way.
  *   - Unknown or missing subcommand: with `--json`, `{ok:false, error:{code:'UNKNOWN_SUBCOMMAND',
  *     message}}` to stdout; without `--json`, a human error line to stderr. Either way the
  *     process exits non-zero.
  *
- * The module is both importable (`resolve`, `explain`, `main` are exported for in-process
- * callers such as other `packages/development` CLIs) and executable
+ * The module is both importable (`resolve`, `explain`, `validate`, `main` are exported for
+ * in-process callers such as other `packages/development` CLIs) and executable
  * (`if (require.main === module) { process.exit(main(process.argv.slice(2))); }`), mirroring
  * `trd-cli.js`'s convention. Note the JSON envelope and error shape here
  * (`{ok, data}` / `{ok:false, error:{code, message}}`) are distinct from `trd-cli.js`'s own
@@ -43,13 +52,13 @@
  * `{projectRoot: process.cwd(), env: process.env}`, matching this command's documented
  * behavior exactly.
  *
- * Non-goals (out of scope for TRD-004, left to later tasks): no real detection engine
- * (TRD-016), no adapter manifest loading or discovery (TRD-006), no health checks (future
- * task), no `run`/`validate`/`preflight`/`confirm-status`/`confirm-record` subcommands
- * (TRD-007, TRD-011, TRD-014, TRD-017, TRD-018).
+ * Non-goals (out of scope for this task, left to later tasks): no real detection engine
+ * (TRD-016), no `run`/`preflight`/`confirm-status`/`confirm-record` subcommands (TRD-011,
+ * TRD-014, TRD-017, TRD-018).
  */
 
 const { resolveCategory } = require('./toolchain/config');
+const { validateAdapterDir } = require('./toolchain/validate');
 
 const CATEGORIES = [
   'host',
@@ -107,7 +116,30 @@ function explain(ctx = {}) {
   return resolveAll(ctx);
 }
 
-const HANDLERS = { resolve, explain };
+/**
+ * `validate <adapter-dir>` subcommand handler: runs the composed static validation gate
+ * `validateAdapterDir` (`./toolchain/validate.js`, TRD-009, PRD REQ-008/REQ-022/REQ-023,
+ * AC-008-1..3, AC-022-1, AC-023-1, AC-023-3) over `<adapter-dir>` and returns its result
+ * unchanged. Do not call `validateManifest`/`validateAllowlist`/`validateConformance`/
+ * `scanCredentials` directly here — `validateAdapterDir` is the single production caller that
+ * composes all four (TRD-009 review finding: a validator with no production caller enforces
+ * nothing).
+ *
+ * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function}} [ctx] unused by
+ *   `validate`; accepted so every handler shares the same `(ctx, positionals)` signature
+ * @param {string[]} [positionals] `positionals[0]` is the adapter directory
+ * @returns {{ok: true, errors: []} | {ok: false, errors: string[]}}
+ */
+function validate(ctx = {}, positionals = []) {
+  const adapterDir = positionals[0];
+  if (!adapterDir) {
+    return { ok: false, errors: ['validate: missing required <adapter-dir> argument'] };
+  }
+
+  return validateAdapterDir(adapterDir);
+}
+
+const HANDLERS = { resolve, explain, validate };
 
 /**
  * Render a resolved category map as a human-readable table.
@@ -129,13 +161,17 @@ function renderTable(data) {
 }
 
 /**
- * Parse CLI argv into a subcommand name and the `--json` flag.
+ * Parse CLI argv into a subcommand name, the `--json` flag, and positional arguments.
  * @param {string[]} argv
- * @returns {{subcommand: string|undefined, json: boolean}}
+ * @returns {{subcommand: string|undefined, json: boolean, positionals: string[]}}
  */
 function parseArgs(argv) {
   const list = Array.isArray(argv) ? argv : [];
-  return { subcommand: list[0], json: list.includes('--json') };
+  return {
+    subcommand: list[0],
+    json: list.includes('--json'),
+    positionals: list.slice(1).filter((arg) => arg !== '--json')
+  };
 }
 
 /**
@@ -147,13 +183,13 @@ function parseArgs(argv) {
  * @returns {number} process exit code
  */
 function main(argv, ctx = { projectRoot: process.cwd(), env: process.env }) {
-  const { subcommand, json } = parseArgs(argv);
+  const { subcommand, json, positionals } = parseArgs(argv);
   const handler = subcommand && HANDLERS[subcommand];
 
   if (!handler) {
     const message = subcommand
-      ? `Unknown subcommand '${subcommand}'. Usage: toolchain-cli <resolve|explain> [--json]`
-      : 'Missing subcommand. Usage: toolchain-cli <resolve|explain> [--json]';
+      ? `Unknown subcommand '${subcommand}'. Usage: toolchain-cli <resolve|explain|validate> [--json]`
+      : 'Missing subcommand. Usage: toolchain-cli <resolve|explain|validate> [--json]';
     if (json) {
       process.stdout.write(
         JSON.stringify({ ok: false, error: { code: 'UNKNOWN_SUBCOMMAND', message } }) + '\n'
@@ -164,10 +200,16 @@ function main(argv, ctx = { projectRoot: process.cwd(), env: process.env }) {
     return 1;
   }
 
-  const result = handler(ctx);
+  const result = handler(ctx, positionals);
 
   if (json) {
     process.stdout.write(JSON.stringify(result) + '\n');
+  } else if (subcommand === 'validate') {
+    if (result.ok) {
+      process.stdout.write('ok\n');
+    } else {
+      process.stderr.write(result.errors.join('\n') + '\n');
+    }
   } else if (result.ok) {
     process.stdout.write(renderTable(result.data) + '\n');
   } else {
@@ -177,7 +219,7 @@ function main(argv, ctx = { projectRoot: process.cwd(), env: process.env }) {
   return result.ok ? 0 : 1;
 }
 
-module.exports = { resolve, explain, main };
+module.exports = { resolve, explain, validate, main };
 
 if (require.main === module) {
   process.exit(main(process.argv.slice(2)));
