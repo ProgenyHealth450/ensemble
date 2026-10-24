@@ -66,7 +66,7 @@ every commit and push, and gates every push on a passing check -- no
 | `TEST_COMMAND` | string | The fastest relevant test command discovered from the repository. |
 | `SKIP_TESTS` | boolean | `--skip-tests` passthrough. When true the broad test gate is not run: record `tests.skipped = true` plus the command that would have run; status is then never `REVIEW_COMPLETE`, but `REVIEW_PENDING` with reason `tests skipped`. |
 | `FOREMAN` | boolean | When true, the interactive wait (Step 7) is never entered; see Foreman-mode rules below. |
-| `BOT_LOGINS` | string[] | Configured review-bot usernames (e.g. CodeRabbit) passed through to CLI `remote`. |
+| `BOT_LOGINS` | string[] | Configured review-bot usernames passed through to CLI `remote`. |
 
 ---
 
@@ -110,10 +110,11 @@ substitute a guessed base. Otherwise the reviewable diff is exactly
 
 ### Step 2 -- Independent local review (full diff)
 
-Review the **entire** `range` diff independently, as a CodeRabbit-equivalent
-local pass. If no local-review-equivalent tool is available, state that
-limitation plainly in the report and still perform the independent review
-by reading the diff directly -- never skip the local review because the
+Review the **entire** `range` diff independently, as an
+independent-reviewer-equivalent local pass.
+If no local-review-equivalent tool is available, state that limitation
+plainly in the report and still perform the independent review by
+reading the diff directly -- never skip the local review because the
 tool is unavailable.
 
 Record every finding (yours and any tool-reported ones) as ledger entries:
