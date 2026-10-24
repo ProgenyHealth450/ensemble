@@ -198,10 +198,20 @@ describe('TRD-042-TEST: Scenario -- `toolchain-cli explain --json` names "plain-
   });
 
   test('real `node toolchain-cli.js explain --json` subprocess resolves worktree to adapter "plain-git"', () => {
-    const proc = spawnSync(process.execPath, [CLI_PATH, 'explain', '--json'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8'
-    });
+    // Run from an empty temp project with no git remote, so resolution depends on neither how the
+    // checkout was made nor its origin: a local-path clone, as the local CI gate makes, has an
+    // origin that matches no host adapter and makes `host` ambiguous. With no signal source every
+    // category falls to its shipped default, which is what this scenario asserts.
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-explain-'));
+    let proc;
+    try {
+      proc = spawnSync(process.execPath, [CLI_PATH, 'explain', '--json'], {
+        cwd: projectDir,
+        encoding: 'utf8'
+      });
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
     expect(proc.status).toBe(0);
     const result = JSON.parse(proc.stdout.trim());
     expect(result.ok).toBe(true);

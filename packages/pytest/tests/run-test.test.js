@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 /**
  * Regression test for packages/pytest/skills/run-test.py's pytest-json-report integration
@@ -14,16 +14,27 @@ const { execFileSync } = require('child_process');
  *
  * Requires `pytest` and `pytest-json-report` to be installed and `pytest` resolvable on PATH
  * for whatever `python3` this test's `execFileSync('python3', ...)` call resolves to --
- * see packages/pytest/requirements-test.txt for the install command. If `pytest` is not on
- * PATH, this test fails (by design: run-test.py's own `cmd = ["pytest", ...]` has the exact
- * same requirement in production, so a passing test here is only meaningful when that
- * requirement is actually met).
+ * see packages/pytest/requirements-test.txt for the install command. Neither the hosted CI
+ * workflow nor the local CI gate's clean clone installs them, so when either is missing this
+ * test is SKIPPED with a warning (the same precedent as the lifecycle bundle test when `bun`
+ * is absent), never reported as a pass. run-test.py itself does not hide a missing pytest: it
+ * reports `Could not run pytest` and exits non-zero.
  */
 
 const RUN_TEST_SCRIPT = path.join(__dirname, '..', 'skills', 'run-test.py');
 
+const PYTEST_AVAILABLE =
+  spawnSync('pytest', ['--version'], { encoding: 'utf8' }).status === 0 &&
+  spawnSync('python3', ['-c', 'import pytest_jsonreport'], { encoding: 'utf8' }).status === 0;
+if (!PYTEST_AVAILABLE) {
+  console.warn(
+    'run-test.test.js: SKIPPED, not passed: `pytest` and `pytest-json-report` are not both available ' +
+      '(see packages/pytest/requirements-test.txt), so run-test.py was not exercised.'
+  );
+}
+
 describe('run-test.py pytest-json-report integration', () => {
-  test('reports truthful passed/failed/total/success for a 2-pass/1-fail fixture', () => {
+  (PYTEST_AVAILABLE ? test : test.skip)('reports truthful passed/failed/total/success for a 2-pass/1-fail fixture', () => {
     const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pytest-run-test-fixture-'));
     const fixtureFile = path.join(fixtureDir, 'test_sample.py');
     fs.writeFileSync(
