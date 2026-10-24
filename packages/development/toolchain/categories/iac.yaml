@@ -15,3 +15,10 @@ capabilities:
     outputs: [status]
     required: false
     sideEffect: true
+
+  iac.destroy:
+    description: Tear down previously applied infrastructure in a workspace.
+    inputs: [workspace]
+    outputs: [status]
+    required: false
+    sideEffect: true
