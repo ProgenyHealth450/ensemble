@@ -2,9 +2,16 @@ category: platform-cloud
 version: "1.0"
 
 capabilities:
-  platform-cloud.status:
-    description: Read the status of a resource hosted on the platform/cloud provider.
+  platform-cloud.get-resource:
+    description: Read the status/details of a resource hosted on the platform/cloud provider.
     inputs: [resource]
     outputs: [status]
     required: true
     sideEffect: false
+
+  platform-cloud.deploy-service:
+    description: Deploy or update a service on the platform/cloud provider.
+    inputs: [service, image]
+    outputs: [status]
+    required: false
+    sideEffect: true

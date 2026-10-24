@@ -10,7 +10,12 @@
  *   resolve [--json]   Resolve every one of the 14 tool categories to its selected adapter
  *                      and the precedence tier (`project`|`user`|`env-compat`|`detection`|
  *                      `default`) that selected it, via `resolveCategory()` in
- *                      `./toolchain/config.js`.
+ *                      `./toolchain/config.js`. A `project`/`user`-tier selection naming an
+ *                      adapter id that does not actually ship for its category fails the whole
+ *                      call with `{ok:false, error:{code:'UNKNOWN_ADAPTER', message}}`
+ *                      (`./toolchain/resolve-guard.js#assertKnownAdapter`, TRD-046; excludes
+ *                      `tracker`/`host` and never fires for `default`/`detection`/`env-compat`
+ *                      -- see that module's own doc).
  *   explain [--json]   Identical resolution to `resolve`; the distinct subcommand name exists
  *                      for callers that want the "why was this adapter chosen" framing.
  *   validate <adapter-dir> [--json]
@@ -171,6 +176,7 @@ const {
 } = require('./toolchain/confirm');
 const { resolveWorkGraphAdapter } = require('./toolchain/work-graph-resolve');
 const { runWorkGraphCapability } = require('./toolchain/builtin/work-graph-links-fallback');
+const { assertKnownAdapter } = require('./toolchain/resolve-guard');
 
 const CATEGORIES = [
   'host',
@@ -206,6 +212,14 @@ const CATEGORIES = [
  * also carries `autoVia: 'tracker-capabilities'|'builtin-fallback'` naming which branch was
  * taken.
  *
+ * Every non-`work-graph` category's resolution is also checked by
+ * `./toolchain/resolve-guard.js#assertKnownAdapter` (TRD-046): a project- or user-level config
+ * selecting an adapter id that does not actually ship for that category (any category other
+ * than `tracker`/`host`, which are out of this guard's scope -- see that module's own doc)
+ * throws `.code === 'UNKNOWN_ADAPTER'`, caught by this function's own outer `try`/`catch`
+ * below and reported with that code unchanged, naming the category, the bogus id, and every
+ * real adapter id shipped for it.
+ *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @returns {{ok: true, data: Record<string, {adapter: string, source: string,
  *   autoVia?: string, detectionDiagnostics?: object[]}>} | {ok: false, error: {code: string, message: string}}}
@@ -229,6 +243,7 @@ function resolveAll(ctx = {}) {
         continue;
       }
       const { value, source } = resolveCategory(category, { ...ctx, diagnostics });
+      assertKnownAdapter(category, { value, source }, ctx);
       data[category] = { adapter: value, source };
       if (diagnostics.length > 0) {
         data[category].detectionDiagnostics = diagnostics;
@@ -308,6 +323,12 @@ function validate(ctx = {}, positionals = []) {
  * `resolveCategory(category, ctx)` is called with `ctx` passed straight through, unmodified --
  * including `ctx.detect` (TRD-016's detection hook) -- so a detection-selected adapter (PR 4
  * review Finding 1) resolves here exactly as it does for `resolve`/`explain`/`preflight`.
+ *
+ * `resolveCategory(category, ctx)`'s result is also checked by
+ * `./toolchain/resolve-guard.js#assertKnownAdapter` (TRD-046) before `adapterId`/`source` are
+ * used: an explicit project-/user-config selection naming an adapter id that does not actually
+ * ship for this category throws `.code === 'UNKNOWN_ADAPTER'`, caught by this branch's own
+ * `catch` below and returned with that code unchanged.
  *
  * `interactive` (PR 4 review Finding 2) is derived ONCE, via `./toolchain/confirm.js
  * #isNonInteractive` -- the SAME explicit-signal precedence (`--non-interactive`,
@@ -405,10 +426,11 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
   } else {
     try {
       const resolvedCategory = resolveCategory(category, ctx);
+      assertKnownAdapter(category, resolvedCategory, ctx);
       adapterId = resolvedCategory.value;
       source = resolvedCategory.source;
     } catch (error) {
-      return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+      return { ok: false, error: { code: error.code || 'RESOLVE_FAILED', message: error.message } };
     }
     try {
       loaded = loadAdapter(adapterId, { ...ctx, interactive });
@@ -592,6 +614,10 @@ async function preflight(ctx = {}, positionals = [], parsed = {}) {
  * simultaneously treated it as non-interactive (auto-confirming) -- two different answers to
  * the same question, computed from two different rules, inside one call.
  *
+ * `resolveCategory(category, ctx)`'s result is also checked by
+ * `./toolchain/resolve-guard.js#assertKnownAdapter` (TRD-046), the same way `run()` checks it;
+ * see that function's own doc.
+ *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
  * @param {{runId?: string, nonInteractive?: boolean}} [parsed]
@@ -638,10 +664,11 @@ function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
   } else {
     try {
       const resolvedCategory = resolveCategory(category, ctx);
+      assertKnownAdapter(category, resolvedCategory, ctx);
       adapterId = resolvedCategory.value;
       source = resolvedCategory.source;
     } catch (error) {
-      return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+      return { ok: false, error: { code: error.code || 'RESOLVE_FAILED', message: error.message } };
     }
     try {
       loaded = loadAdapter(adapterId, { ...ctx, interactive });
@@ -675,6 +702,10 @@ function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
  * (`.code === 'ADAPTER_SOURCE_REQUIRED'`) or no session id/run id is available to key the
  * record (`.code === 'CONFIRM_KEY_REQUIRED'`): both are caught here and returned as the usual
  * `{ok:false, error:{code, message}}` envelope, never an uncaught exception out of `main()`.
+ *
+ * `resolveCategory(category, ctx)`'s result is also checked by
+ * `./toolchain/resolve-guard.js#assertKnownAdapter` (TRD-046), the same way `run()` checks it;
+ * see that function's own doc.
  *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @param {string[]} [positionals] `positionals[0]` is the capability id, e.g. `tracker.create`
@@ -714,10 +745,11 @@ function confirmRecord(ctx = {}, positionals = [], parsed = {}) {
   } else {
     try {
       const resolvedCategory = resolveCategory(category, ctx);
+      assertKnownAdapter(category, resolvedCategory, ctx);
       adapterId = resolvedCategory.value;
       source = resolvedCategory.source;
     } catch (error) {
-      return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+      return { ok: false, error: { code: error.code || 'RESOLVE_FAILED', message: error.message } };
     }
     try {
       loadAdapter(adapterId, { ...ctx, interactive });
