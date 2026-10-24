@@ -390,3 +390,147 @@ describe('OC-S3-TEST-011: Integration test - full pipeline', () => {
     expect(result.stdout).toMatch(/validat/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// OC-S3-TEST-012: Adapter directories and toolchain vendor (TRD-020, PRD REQ-021)
+// ---------------------------------------------------------------------------
+describe('OC-S3-TEST-012: Adapter directories and toolchain vendor (TRD-020, PRD REQ-021)', () => {
+  const FIXTURE_SOURCE_DIR = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'toolchain', 'good-adapter');
+
+  let tmpRoot;
+  let tmpPackagesDir;
+  let fixtureAdapterDir;
+  let tmpDir;
+  let outDir;
+  let result;
+
+  function writeFixture() {
+    fs.mkdirSync(fixtureAdapterDir, { recursive: true });
+    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'SKILL.md'), path.join(fixtureAdapterDir, 'SKILL.md'));
+    fs.copyFileSync(path.join(FIXTURE_SOURCE_DIR, 'adapter.yaml'), path.join(fixtureAdapterDir, 'adapter.yaml'));
+  }
+
+  function removeFixture() {
+    fs.rmSync(path.join(tmpPackagesDir, 'opencode-adapter-fixture'), { recursive: true, force: true });
+  }
+
+  beforeAll(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-cli-adapter-'));
+    tmpPackagesDir = path.join(tmpRoot, 'packages');
+    // Isolated, read-only COPY of the real packages/ tree (TRD-020 test-isolation fix): the
+    // throwaway fixture adapter package below is added only to this copy via the CLI's
+    // --packages-dir override, never to the live repo tree, while every other real package
+    // (react, nestjs, commands, agents, ...) is still present so the "byte-identical for
+    // unrelated output" and "vendors the real toolchain" assertions below keep their original
+    // meaning.
+    fs.cpSync(PACKAGES_DIR, tmpPackagesDir, { recursive: true });
+
+    fixtureAdapterDir = path.join(tmpPackagesDir, 'opencode-adapter-fixture', 'skills', 'adapter-fixture-tracker');
+    writeFixture();
+
+    tmpDir = createTempDir('cli-adapter-');
+    outDir = path.join(tmpDir, 'out');
+    result = runCli(['--output-dir', outDir, '--packages-dir', tmpPackagesDir]);
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('completes successfully with the fixture adapter present', () => {
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('copies the adapter SKILL.md and byte-identical adapter.yaml into .opencode/skill/<adapter-dir-name>/', () => {
+    const adapterOutDir = path.join(outDir, '.opencode', 'skill', 'adapter-fixture-tracker');
+    expect(fs.existsSync(path.join(adapterOutDir, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(adapterOutDir, 'adapter.yaml'))).toBe(true);
+
+    const sourceYaml = fs.readFileSync(path.join(FIXTURE_SOURCE_DIR, 'adapter.yaml'));
+    const destYaml = fs.readFileSync(path.join(adapterOutDir, 'adapter.yaml'));
+    expect(destYaml.equals(sourceYaml)).toBe(true);
+  });
+
+  it('vendors toolchain-cli.js under .opencode/skill/vendor/ and includes that directory in opencode.json skills.paths', () => {
+    const vendorRoot = path.join(outDir, '.opencode', 'skill', 'vendor');
+    expect(fs.existsSync(path.join(vendorRoot, 'lib', 'toolchain-cli.js'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'package.json'))).toBe(true);
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(outDir, 'opencode.json'), 'utf-8'));
+    expect(manifest.skills.paths).toContain(vendorRoot);
+  });
+
+  it('the vendored bundle is self-contained: toolchain-cli.js, every toolchain/*.js submodule, complexity-analyzer.js and the data dir all land under vendor/, with package.json declaring ajv/js-yaml', () => {
+    // A real `npm install` + `node .../toolchain-cli.js resolve --json` run against a copy of
+    // this exact vendor tree placed outside the repo checkout (under /tmp) was performed
+    // manually and exited 0 -- not repeated here as an automated assertion because it needs a
+    // real `npm install`, which the "no reliance on real network" determinism requirement for
+    // this test suite rules out. See this track's report for the exact commands and output.
+    const vendorRoot = path.join(outDir, '.opencode', 'skill', 'vendor');
+    expect(fs.existsSync(path.join(vendorRoot, 'lib', 'toolchain-cli.js'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'lib', 'complexity-analyzer.js'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'lib', 'toolchain', 'config.js'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'lib', 'toolchain', 'runner.js'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'toolchain', 'toolchain.default.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'toolchain', 'categories', 'tracker.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(vendorRoot, 'toolchain', 'schemas', 'adapter-manifest-schema.json'))).toBe(true);
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(vendorRoot, 'package.json'), 'utf-8'));
+    expect(pkg.dependencies).toEqual({ ajv: '^8.12.0', 'js-yaml': '^4.1.0' });
+  });
+
+  it('is byte-identical for a skill with no adapter.yaml, compared against a run without the fixture (actual diff, no regression)', () => {
+    removeFixture();
+    const baselineDir = createTempDir('cli-adapter-baseline-');
+    const baselineOut = path.join(baselineDir, 'out');
+    const baselineResult = runCli(['--output-dir', baselineOut, '--packages-dir', tmpPackagesDir]);
+    expect(baselineResult.exitCode).toBe(0);
+
+    const withFixture = fs.readFileSync(path.join(outDir, '.opencode', 'skill', 'react', 'SKILL.md'));
+    const withoutFixture = fs.readFileSync(path.join(baselineOut, '.opencode', 'skill', 'react', 'SKILL.md'));
+    expect(withFixture.equals(withoutFixture)).toBe(true);
+
+    fs.rmSync(baselineDir, { recursive: true, force: true });
+    writeFixture();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OC-S3-TEST-013: discoverSkillSourceFiles includes adapter.yaml (TRD-020 staleness-cache fix)
+// ---------------------------------------------------------------------------
+describe('OC-S3-TEST-013: discoverSkillSourceFiles — adapter.yaml staleness-cache coverage', () => {
+  const { discoverSkillSourceFiles } = require(CLI_PATH);
+  let tmpPackagesDir;
+  let FIXTURE_ADAPTER_DIR;
+
+  beforeEach(() => {
+    tmpPackagesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-discover-fixture-'));
+    FIXTURE_ADAPTER_DIR = path.join(tmpPackagesDir, 'discover-fixture', 'skills', 'adapter-discover-fixture');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpPackagesDir, { recursive: true, force: true });
+  });
+
+  it('includes both the adapter SKILL.md and adapter.yaml for a packages/*/skills/adapter-*/ directory', () => {
+    fs.mkdirSync(FIXTURE_ADAPTER_DIR, { recursive: true });
+    fs.writeFileSync(path.join(FIXTURE_ADAPTER_DIR, 'SKILL.md'), '# Fixture\n');
+    fs.writeFileSync(path.join(FIXTURE_ADAPTER_DIR, 'adapter.yaml'), 'adapter: fixture\n');
+
+    const files = discoverSkillSourceFiles(tmpPackagesDir);
+    expect(files).toContain(path.join(FIXTURE_ADAPTER_DIR, 'SKILL.md'));
+    // Mutation-proof target: dropping the adapter.yaml push in discoverSkillSourceFiles makes
+    // this assertion fail while the SKILL.md assertion above still passes.
+    expect(files).toContain(path.join(FIXTURE_ADAPTER_DIR, 'adapter.yaml'));
+  });
+
+  it('does not include adapter.yaml for an adapter directory that lacks one', () => {
+    fs.mkdirSync(FIXTURE_ADAPTER_DIR, { recursive: true });
+    fs.writeFileSync(path.join(FIXTURE_ADAPTER_DIR, 'SKILL.md'), '# Fixture\n');
+
+    const files = discoverSkillSourceFiles(tmpPackagesDir);
+    expect(files).toContain(path.join(FIXTURE_ADAPTER_DIR, 'SKILL.md'));
+    expect(files).not.toContain(path.join(FIXTURE_ADAPTER_DIR, 'adapter.yaml'));
+  });
+});

@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { vendorToolchainLibrary } = require('../lib/toolchain-vendor');
 
 // ---------------------------------------------------------------------------
 // CLI-001: Argument parsing (using commander, available in devDependencies)
@@ -42,6 +43,7 @@ function createProgram() {
     .option('--verbose', 'Detailed logging of each translation step', false)
     .option('--validate', 'Validate generated opencode.json after generation', false)
     .option('--output-dir <dir>', `Output directory (default: dist/opencode/)`, DEFAULT_OUTPUT_DIR)
+    .option('--packages-dir <dir>', `Source packages directory (default: packages/)`, PACKAGES_DIR)
     .option('--force', 'Bypass incremental cache, regenerate everything', false)
     .helpOption('-h, --help', 'Display help for command');
 
@@ -134,38 +136,50 @@ class StepTimer {
 // ---------------------------------------------------------------------------
 
 /**
- * Discover source files for a given category to compute hashes.
+ * Discover source files for a given category to compute hashes. Includes every
+ * `skills/adapter-NAME/{SKILL.md,adapter.yaml}` pair (TRD-020, PRD REQ-021) alongside the
+ * flat `skills/SKILL.md`/`skills/REFERENCE.md` sources, so an adapter.yaml-only edit still
+ * invalidates the incremental hash cache instead of being silently skipped as "unchanged".
  */
-function discoverSkillSourceFiles() {
+function discoverSkillSourceFiles(packagesDir = PACKAGES_DIR) {
   const files = [];
-  if (!fs.existsSync(PACKAGES_DIR)) return files;
-  const entries = fs.readdirSync(PACKAGES_DIR, { withFileTypes: true });
+  if (!fs.existsSync(packagesDir)) return files;
+  const entries = fs.readdirSync(packagesDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const skillPath = path.join(PACKAGES_DIR, entry.name, 'skills');
+    const skillPath = path.join(packagesDir, entry.name, 'skills');
     if (fs.existsSync(skillPath)) {
       const skillFile = path.join(skillPath, 'SKILL.md');
       const refFile = path.join(skillPath, 'REFERENCE.md');
       if (fs.existsSync(skillFile)) files.push(skillFile);
       if (fs.existsSync(refFile)) files.push(refFile);
+
+      for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
+        if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
+        const adapterPath = path.join(skillPath, sub.name);
+        const adapterSkillFile = path.join(adapterPath, 'SKILL.md');
+        const adapterYamlFile = path.join(adapterPath, 'adapter.yaml');
+        if (fs.existsSync(adapterSkillFile)) files.push(adapterSkillFile);
+        if (fs.existsSync(adapterYamlFile)) files.push(adapterYamlFile);
+      }
     }
   }
   return files;
 }
 
-function discoverCommandSourceFiles() {
+function discoverCommandSourceFiles(packagesDir = PACKAGES_DIR) {
   const files = [];
-  if (!fs.existsSync(PACKAGES_DIR)) return files;
+  if (!fs.existsSync(packagesDir)) return files;
   try {
     const glob = require('glob');
-    const pattern = path.join(PACKAGES_DIR, '*/commands/*.yaml');
+    const pattern = path.join(packagesDir, '*/commands/*.yaml');
     return glob.sync(pattern).sort();
   } catch {
     // Fallback if glob not available
-    const entries = fs.readdirSync(PACKAGES_DIR, { withFileTypes: true });
+    const entries = fs.readdirSync(packagesDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const cmdDir = path.join(PACKAGES_DIR, entry.name, 'commands');
+      const cmdDir = path.join(packagesDir, entry.name, 'commands');
       if (fs.existsSync(cmdDir)) {
         const yamls = fs.readdirSync(cmdDir).filter((f) => f.endsWith('.yaml'));
         for (const y of yamls) {
@@ -184,6 +198,7 @@ async function runPipeline(opts) {
     validate,
     outputDir,
     force,
+    packagesDir = PACKAGES_DIR,
   } = opts;
 
   const totalStart = Date.now();
@@ -214,7 +229,7 @@ async function runPipeline(opts) {
       const skillOutputDir = path.join(outputDir, '.opencode', 'skill');
 
       // Hash check for skills
-      const skillSourceFiles = discoverSkillSourceFiles();
+      const skillSourceFiles = discoverSkillSourceFiles(packagesDir);
       const skillHashes = hashFiles(skillSourceFiles);
 
       // Build a combined category key
@@ -233,7 +248,7 @@ async function runPipeline(opts) {
         }
       } else {
         const copier = new SkillCopier({
-          packagesDir: PACKAGES_DIR,
+          packagesDir,
           outputDir: skillOutputDir,
           injectFrontmatter: true,
           dryRun,
@@ -261,6 +276,33 @@ async function runPipeline(opts) {
     }
   }
 
+  // --- Step 1b: ToolchainVendor (TRD-020, PRD REQ-021) ---
+  // Vendors toolchain-cli.js + its toolchain/*.js submodules + the toolchain/ data
+  // directory under the skill output dir, so a standalone copy of this OpenCode bundle (no
+  // monorepo checkout) can run its own `toolchain-cli.js resolve --json` after `npm install`.
+  // Unconditional (no hash-cache gate): the vendored tree is small and bounded, and only
+  // changes alongside packages/development/lib/toolchain, which already isn't on the
+  // skill-copier staleness watch list.
+  {
+    const timer = new StepTimer('ToolchainVendor', verbose);
+    try {
+      const vendorRoot = path.join(outputDir, '.opencode', 'skill', 'vendor');
+      const toolchainVendorResult = vendorToolchainLibrary({
+        sourceRoot: ROOT,
+        vendorRoot,
+        packageName: '@sunstone-partners/ensemble-opencode-toolchain-vendor',
+        dryRun,
+        verbose,
+      });
+      const info = timer.end(`${toolchainVendorResult.files.length} file(s) vendored`);
+      stepResults.push(info);
+    } catch (err) {
+      errors.push({ step: 'ToolchainVendor', message: err.message });
+      const info = timer.end(`ERROR: ${err.message}`);
+      stepResults.push(info);
+    }
+  }
+
   // --- Step 2: CommandTranslator ---
   let cmdResult = { commands: [], configBlock: {}, errors: [] };
   {
@@ -270,7 +312,7 @@ async function runPipeline(opts) {
       const cmdOutputDir = path.join(outputDir, '.opencode', 'commands', 'ensemble');
 
       // Hash check for commands
-      const cmdSourceFiles = discoverCommandSourceFiles();
+      const cmdSourceFiles = discoverCommandSourceFiles(packagesDir);
       const cmdHashes = hashFiles(cmdSourceFiles);
       const cmdHashStr = JSON.stringify(cmdHashes);
       const cmdHash = crypto.createHash('sha256').update(cmdHashStr).digest('hex');
@@ -286,7 +328,7 @@ async function runPipeline(opts) {
         }
       } else {
         const translator = new CommandTranslator({
-          packagesDir: PACKAGES_DIR,
+          packagesDir,
           outputDir: cmdOutputDir,
           dryRun,
           verbose,
@@ -320,7 +362,7 @@ async function runPipeline(opts) {
     try {
       const { AgentTranslator } = require('./src/agent-translator');
       const translator = new AgentTranslator({
-        packagesDir: path.join(ROOT, 'packages'),
+        packagesDir,
         outputDir: path.join(outputDir, '.opencode', 'agents'),
         dryRun,
         verbose,
@@ -365,7 +407,9 @@ async function runPipeline(opts) {
         $schema: 'https://opencode.ai/schema/opencode.json',
         command: cmdResult.configBlock || {},
         skills: {
-          paths: skillResult.paths || [path.join(outputDir, '.opencode', 'skill')],
+          paths: (skillResult.paths || [path.join(outputDir, '.opencode', 'skill')]).concat([
+            path.join(outputDir, '.opencode', 'skill', 'vendor'),
+          ]),
         },
         agent: agentResult.configBlock || {},
         plugin: [],
@@ -499,7 +543,7 @@ async function main() {
   console.log('generate-opencode: Starting pipeline...');
   if (opts.verbose) {
     console.log(`  Output directory: ${opts.outputDir}`);
-    console.log(`  Packages directory: ${PACKAGES_DIR}`);
+    console.log(`  Packages directory: ${opts.packagesDir}`);
     console.log(`  Flags: dry-run=${opts.dryRun}, verbose=${opts.verbose}, validate=${opts.validate}, force=${opts.force}`);
   }
 
@@ -511,7 +555,7 @@ async function main() {
 }
 
 // Export for testing
-module.exports = { createProgram, runPipeline, loadHashCache, saveHashCache, hashFile, formatDuration };
+module.exports = { createProgram, runPipeline, loadHashCache, saveHashCache, hashFile, formatDuration, discoverSkillSourceFiles };
 
 if (require.main === module) {
   main().catch((err) => {

@@ -1,0 +1,10 @@
+category: ci-local
+version: "1.0"
+
+capabilities:
+  ci-local.run:
+    description: Run a repository's CI workflow(s) locally.
+    inputs: [workflow]
+    outputs: [status, logs]
+    required: true
+    sideEffect: false

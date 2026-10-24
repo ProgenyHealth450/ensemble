@@ -231,6 +231,20 @@ class CommandTranslator {
       lines.push('');
     }
 
+    // --- Capabilities (optional) ---
+    const capabilities = parsed.metadata.capabilities;
+    if (capabilities && ((capabilities.required && capabilities.required.length > 0) || (capabilities.optional && capabilities.optional.length > 0))) {
+      lines.push('## Capabilities');
+      lines.push('');
+      if (capabilities.required && capabilities.required.length > 0) {
+        lines.push(`**Required:** ${capabilities.required.join(', ')}`);
+      }
+      if (capabilities.optional && capabilities.optional.length > 0) {
+        lines.push(`**Optional:** ${capabilities.optional.join(', ')}`);
+      }
+      lines.push('');
+    }
+
     // --- Arguments ---
     if (parsed.parameters && Array.isArray(parsed.parameters) && parsed.parameters.length > 0) {
       lines.push(...renderArguments(parsed.parameters).split('\n'));

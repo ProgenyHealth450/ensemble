@@ -1,0 +1,31 @@
+category: tracker
+version: "1.0"
+
+capabilities:
+  tracker.show:
+    description: Read a single work item by id.
+    inputs: [id]
+    outputs: [id, title, description, type, status, priority, labels]
+    required: true
+    sideEffect: false
+
+  tracker.create:
+    description: Create a new work item.
+    inputs: [title, description, type]
+    outputs: [id]
+    required: true
+    sideEffect: true
+
+  tracker.update:
+    description: Update fields on an existing work item.
+    inputs: [id, fields]
+    outputs: [id]
+    required: true
+    sideEffect: true
+
+  tracker.close:
+    description: Close a work item.
+    inputs: [id]
+    outputs: [id, status]
+    required: true
+    sideEffect: true

@@ -102,6 +102,35 @@ describe('transformCommand', () => {
     });
   });
 
+  describe('capabilities HTML comment (TRD-022)', () => {
+    it('emits a Capabilities comment line when metadata.capabilities has required/optional ids', () => {
+      const cmd: CommandYaml = {
+        ...MINIMAL_COMMAND,
+        metadata: {
+          ...MINIMAL_COMMAND.metadata,
+          capabilities: { required: ['tracker.show'], optional: ['work-graph.ready'] },
+        },
+      };
+      const output = transformCommand(cmd, SOURCE_PATH, {});
+      expect(output).toContain('<!-- Capabilities: required=[tracker.show], optional=[work-graph.ready] -->');
+    });
+
+    it('does NOT emit a Capabilities comment line when metadata.capabilities is absent', () => {
+      const output = transformCommand(MINIMAL_COMMAND, SOURCE_PATH, {});
+      expect(output).not.toContain('Capabilities:');
+    });
+
+    it('a command without metadata.capabilities generates byte-identical output to before', () => {
+      const withoutField = transformCommand(MINIMAL_COMMAND, SOURCE_PATH, {});
+      const explicitEmpty: CommandYaml = {
+        ...MINIMAL_COMMAND,
+        metadata: { ...MINIMAL_COMMAND.metadata, capabilities: { required: [], optional: [] } },
+      };
+      const withEmptyField = transformCommand(explicitEmpty, SOURCE_PATH, {});
+      expect(withEmptyField).toBe(withoutField);
+    });
+  });
+
   describe('H1 title', () => {
     it('renders the metadata name as an H1 heading', () => {
       const output = transformCommand(MINIMAL_COMMAND, SOURCE_PATH, {});

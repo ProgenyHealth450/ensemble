@@ -195,13 +195,46 @@ class SkillCopier {
       console.log(`Discovered ${packageDirs.length} packages with skills`);
     }
 
+    // Step 1b: Detect adapter directory-name collisions (TRD-020 P2 fix). Output for an
+    // adapter is keyed purely by the adapter directory's own basename (not the owning
+    // package), so two different packages shipping e.g. `skills/adapter-cc/` would otherwise
+    // silently last-writer-wins into the same `<outputDir>/adapter-cc/` with no warning --
+    // directly contradicting the PRD's "fail explicitly rather than falling back/silently
+    // losing data" posture. Fail loudly instead, naming every colliding source path, and
+    // skip writing any of the colliding adapters (rather than picking one arbitrarily).
+    const adapterSourcesByName = new Map();
+    for (const entry of packageDirs) {
+      if (!entry.isAdapter) continue;
+      const sources = adapterSourcesByName.get(entry.packageName) || [];
+      sources.push(entry.skillPath);
+      adapterSourcesByName.set(entry.packageName, sources);
+    }
+    const collidingAdapterNames = new Set();
+    for (const [adapterName, sources] of adapterSourcesByName) {
+      if (sources.length <= 1) continue;
+      collidingAdapterNames.add(adapterName);
+      errors.push({
+        file: adapterName,
+        error:
+          `Adapter directory name collision: "${adapterName}" is shipped by multiple packages ` +
+          `(${sources.join(', ')}); each adapter directory name must be unique across the ` +
+          'monorepo because OpenCode output is keyed by the adapter directory\'s own name.',
+      });
+    }
+    const processablePackageDirs = packageDirs.filter(
+      (entry) => !(entry.isAdapter && collidingAdapterNames.has(entry.packageName))
+    );
+
     // Step 2: Process SKILL.md files
-    for (const { packageName, skillPath } of packageDirs) {
+    for (const { packageName, skillPath, isAdapter } of processablePackageDirs) {
       const skillFile = path.join(skillPath, 'SKILL.md');
       if (fs.existsSync(skillFile)) {
         try {
           this._processSkillFile(packageName, skillFile);
           skillsCopied++;
+          if (isAdapter) {
+            this._copyAdapterManifest(packageName, skillPath);
+          }
         } catch (err) {
           errors.push({
             file: skillFile,
@@ -211,8 +244,33 @@ class SkillCopier {
       }
     }
 
+    // Step 2b: Prune stale adapter-* output directories (TRD-020 P2 fix). SkillCopier has no
+    // "wipe everything first" step (unlike the Codex generator's resetOutput()), so without
+    // this an adapter whose source directory is removed or renamed leaves its last-generated
+    // output fully resolver-visible forever, undermining REQ-021 (identical, correct
+    // resolution across runtimes). Scoped to `adapter-*` output directories only -- this
+    // bead's own new surface -- not the general, pre-existing staleness gap affecting
+    // ordinary package skill output (confirmed separately: that gap pre-dates this feature
+    // and is out of scope for this fix). Colliding adapter names are left untouched rather
+    // than pruned, since Step 1b already refused to write them this run.
+    const prunedAdapters = [];
+    if (!this.dryRun && fs.existsSync(this.outputDir)) {
+      const validAdapterNames = new Set(
+        processablePackageDirs.filter((entry) => entry.isAdapter).map((entry) => entry.packageName)
+      );
+      for (const entry of fs.readdirSync(this.outputDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith('adapter-')) continue;
+        if (validAdapterNames.has(entry.name) || collidingAdapterNames.has(entry.name)) continue;
+        fs.rmSync(path.join(this.outputDir, entry.name), { recursive: true, force: true });
+        prunedAdapters.push(entry.name);
+        if (this.verbose) {
+          console.log(`  [ADAPTER] removed stale ${entry.name}/ (source no longer present)`);
+        }
+      }
+    }
+
     // Step 3: Process REFERENCE.md files
-    for (const { packageName, skillPath } of packageDirs) {
+    for (const { packageName, skillPath } of processablePackageDirs) {
       const refFile = path.join(skillPath, 'REFERENCE.md');
       if (fs.existsSync(refFile)) {
         try {
@@ -235,12 +293,19 @@ class SkillCopier {
       referencesConverted,
       paths,
       errors,
+      prunedAdapters,
     };
   }
 
   /**
-   * Discover all packages that have a skills/ directory.
-   * @returns {Array<{packageName: string, skillPath: string}>}
+   * Discover all packages that have a skills/ directory, plus every
+   * `skills/adapter-NAME` subdirectory (TRD-020, PRD REQ-021): an adapter directory ships a
+   * SKILL.md describing it plus an adapter.yaml manifest the toolchain resolver reads, and is
+   * keyed by its OWN directory name (not the owning package name) so two adapters shipped
+   * from the same package never collide. Two DIFFERENT packages shipping an adapter directory
+   * with the same basename is detected and reported as a hard error by execute() (see the
+   * adapter-name collision check there), not a silent last-writer-wins overwrite.
+   * @returns {Array<{packageName: string, skillPath: string, isAdapter?: boolean}>}
    */
   _discoverPackages() {
     const results = [];
@@ -265,6 +330,18 @@ class SkillCopier {
             packageName: entry.name,
             skillPath,
           });
+        }
+
+        for (const sub of fs.readdirSync(skillPath, { withFileTypes: true })) {
+          if (!sub.isDirectory() || !sub.name.startsWith('adapter-')) continue;
+          const adapterPath = path.join(skillPath, sub.name);
+          if (fs.existsSync(path.join(adapterPath, 'SKILL.md'))) {
+            results.push({
+              packageName: sub.name,
+              skillPath: adapterPath,
+              isAdapter: true,
+            });
+          }
         }
       }
     }
@@ -294,6 +371,26 @@ class SkillCopier {
 
     if (this.verbose) {
       console.log(`  [SKILL] ${packageName}/SKILL.md -> ${packageName}/SKILL.md`);
+    }
+  }
+
+  /**
+   * Copy an adapter directory's adapter.yaml manifest (TRD-020, PRD REQ-021) byte-for-byte
+   * alongside its already-copied SKILL.md. NEVER rewritten: adapter.yaml is the toolchain
+   * resolver's own manifest format, not a skill frontmatter document.
+   */
+  _copyAdapterManifest(packageName, skillPath) {
+    const adapterYamlSource = path.join(skillPath, 'adapter.yaml');
+    if (!fs.existsSync(adapterYamlSource)) return;
+
+    if (!this.dryRun) {
+      const outDir = path.join(this.outputDir, packageName);
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.copyFileSync(adapterYamlSource, path.join(outDir, 'adapter.yaml'));
+    }
+
+    if (this.verbose) {
+      console.log(`  [ADAPTER] ${packageName}/adapter.yaml -> ${packageName}/adapter.yaml`);
     }
   }
 

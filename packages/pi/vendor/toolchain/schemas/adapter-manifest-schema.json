@@ -1,0 +1,188 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sunstonepartners.com/schemas/adapter-manifest-schema.json",
+  "title": "Ensemble Adapter Manifest Schema",
+  "description": "Schema for an adapter's `adapter.yaml` (TRD-2026-8d825f54 TRD-005, PRD REQ-005). An adapter is a provider skill directory (`SKILL.md` plus `adapter.yaml`) that implements one or more of the 14 toolchain categories. `adapter.yaml` declares the targeted contract version per category, the binaries and subcommand allowlist the runner may execute, the environment variable names it needs (never literal values, PRD REQ-022), health checks, detection signals, and the run-template plus output-mapping for each capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["adapter", "version", "categories", "contract", "binaries", "allowlist", "env", "health", "detect", "capabilities"],
+  "properties": {
+    "adapter": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique adapter id, for example 'github' or 'plain-git'."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The adapter's own release version (independent of the per-category contract versions it targets)."
+    },
+    "categories": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "host",
+          "workflow",
+          "worktree",
+          "tracker",
+          "work-graph",
+          "ci-local",
+          "review",
+          "lint",
+          "test-runner",
+          "e2e-quality",
+          "container-deploy",
+          "iac",
+          "platform-cloud",
+          "package-runner"
+        ]
+      },
+      "description": "The toolchain categories this adapter implements; one manifest may implement several (TRD interpretation I7)."
+    },
+    "contract": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9]+\\.[0-9]+$"
+      },
+      "description": "The 'major.minor' contract version this adapter targets, keyed by category; every entry in 'categories' must have a matching key here (PRD REQ-003)."
+    },
+    "binaries": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Binary names this adapter invokes; every argv built from a capability's 'run' template must start with one of these."
+    },
+    "allowlist": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bin", "sub"],
+        "properties": {
+          "bin": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A binary from 'binaries' this allowlist entry governs."
+          },
+          "sub": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Subcommands of 'bin' the runner may execute (TRD-008 validateAllowlist)."
+          }
+        }
+      },
+      "description": "Per-binary subcommand allowlist; the runner rejects any argv whose binary-plus-subcommand pair is not listed here."
+    },
+    "env": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "description": "Required environment variable NAMES only, never literal values (PRD REQ-022, REQ-023); may be empty for adapters needing no credentials."
+    },
+    "health": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "run", "timeoutMs"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "run": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "description": "Health checks preflight runs before any side-effecting capability (10s default elsewhere, per-adapter override here)."
+    },
+    "detect": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["signal"],
+        "additionalProperties": true,
+        "properties": {
+          "signal": {
+            "type": "string",
+            "enum": ["remote_url_matches", "file_exists", "dir_exists", "git_config_set"]
+          }
+        }
+      },
+      "description": "Detection signals used to auto-select this adapter when configuration does not name one; may be empty for adapters with no detectable signal (TRD interpretation I2)."
+    },
+    "capabilities": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run"],
+        "properties": {
+          "run": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Argv template; '${name}' placeholders are substituted with validated capability arguments (TRD-009), never interpreted by a shell."
+          },
+          "parse": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "format": { "type": "string" },
+              "root": { "type": "string" },
+              "map": { "type": "object" },
+              "statusMap": { "type": "object" }
+            },
+            "description": "Output-mapping block: how the capability's stdout is parsed and projected to the category's normalized output shape."
+          },
+          "variants": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Optional per-capability variant run templates keyed by '<selectorArg>: {<value>: run[]}'; the selector arg must be declared as an input of this capability in its category contract (TRD-005 AC)."
+          }
+        }
+      },
+      "description": "Capabilities this adapter implements, keyed by '<category>.<capability>' (matching the category contract's capability ids, for example 'tracker.show')."
+    }
+  }
+}

@@ -87,6 +87,16 @@ function generateCommandFrontmatter(data) {
     lines.push(`allowed-tools: ${yamlScalar(meta.allowed_tools.join(', '))}`);
   }
 
+  // Capabilities (optional). Comma-joined STRINGS, mirroring allowed-tools
+  // above, each emitted only when the corresponding array is non-empty so a
+  // command without the field produces byte-identical frontmatter to before.
+  if (meta.capabilities && meta.capabilities.required && meta.capabilities.required.length > 0) {
+    lines.push(`capabilities-required: ${yamlScalar(meta.capabilities.required.join(', '))}`);
+  }
+  if (meta.capabilities && meta.capabilities.optional && meta.capabilities.optional.length > 0) {
+    lines.push(`capabilities-optional: ${yamlScalar(meta.capabilities.optional.join(', '))}`);
+  }
+
   // Argument hint (optional)
   if (meta.argument_hint) {
     lines.push(`argument-hint: ${yamlScalar(meta.argument_hint)}`);

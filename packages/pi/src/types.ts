@@ -60,6 +60,11 @@ export interface CommandYaml {
     version: string;
     /** 'hidden' routes the prompt to prompts/_hidden/ (not registered, no wrapper skill). */
     visibility?: 'visible' | 'hidden';
+    /** Toolchain capability ids this command relies on; required/optional parallel the command YAML schema. */
+    capabilities?: {
+      required?: string[];
+      optional?: string[];
+    };
   };
   workflow: {
     phases: Phase[];

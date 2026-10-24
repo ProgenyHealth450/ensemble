@@ -1,0 +1,10 @@
+category: e2e-quality
+version: "1.0"
+
+capabilities:
+  e2e-quality.run:
+    description: Run end-to-end and quality checks (for example browser or accessibility tests).
+    inputs: [target]
+    outputs: [status, report]
+    required: true
+    sideEffect: false
