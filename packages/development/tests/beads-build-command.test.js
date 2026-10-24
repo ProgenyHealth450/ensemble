@@ -28,9 +28,11 @@ describe('beads-build clean-tree gate', () => {
     // --all and --limit 0 both decide whether CLOSED_COUNT can be non-zero.
     // `br list --help`: -a/--all is "Include closed issues (default excludes
     // closed)" and --limit is "Maximum number of results (0 = unlimited,
-    // default: 50)". Drop either and the count reads 0 on a real database,
-    // which HALTs the resume this change exists to let through.
-    expect(text).toContain('br list --all --status=closed --limit 0 --json');
+    // default: 50)". The tracker.list capability's default-adapter mapping
+    // (packages/development/skills/adapter-tracker-beads/adapter.yaml) runs
+    // exactly `br list --all --limit 0 --json`, preserving that guarantee.
+    expect(text).toContain('run tracker.list');
+    expect(text).toContain('filter to status=="closed"');
     expect(text).not.toContain('If IN_PROGRESS_COUNT == 0 — this is a fresh run');
     expect(text).not.toContain('If IN_PROGRESS_COUNT > 0 and WORKTREE_STATUS is non-empty');
   });
@@ -201,7 +203,7 @@ describe('beads-build team-roles delegation contract', () => {
   test('Argument Parsing accepts --team-roles and keeps deprecated --builder fallback', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     const stepStart = text.indexOf('title: Argument Parsing');
-    const stepEnd = text.indexOf('title: Tool Availability Check');
+    const stepEnd = text.indexOf('title: Tool Capability Preflight');
     expect(stepStart).toBeGreaterThan(-1);
     expect(stepEnd).toBeGreaterThan(stepStart);
     const stepBlock = text.slice(stepStart, stepEnd);

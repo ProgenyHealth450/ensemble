@@ -202,6 +202,15 @@ capabilities:
   # actionable item across every track should run `bv --robot-plan --format json` directly
   # and flatten `plan.tracks[].items[]` itself (bv's own `usage_hints` documents the
   # equivalent jq filter).
+  #
+  # The category contract's `scope` input (work-graph.yaml) is NOT substituted into this run
+  # template: it has no `${scope}` placeholder, so a caller-supplied `scope` value is simply
+  # never passed to `bv`. Confirmed live: `bv --robot-plan --scope <value>` errors "unknown
+  # flag: --scope" (bv has no scope/label filtering flag at all, on any subcommand this
+  # template uses) -- there is no bv invocation this run template could substitute a scope
+  # value into that bv would actually honor. Label-scoping for callers that need it (e.g.
+  # beads-build-wave.yaml Step 3b) is therefore implemented independently, by filtering a
+  # separate `tracker.list` result client-side, never by this capability.
 
   # cat .beads/issues.jsonl: TRD-026's `tracker.stage-export` is a read-only textual mirror of
   # the literal file `beads-stage.js` used to read directly via `fs.readFileSync` before this

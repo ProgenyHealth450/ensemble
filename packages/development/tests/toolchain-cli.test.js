@@ -25,6 +25,11 @@ const {
   makeMutantToolchainRoot,
   mutateAndRequire
 } = require('../../../scripts/tests/fixtures/toolchain/mutant-toolchain-copy');
+const { writeBeadsStubs } = require('../../../scripts/tests/fixtures/toolchain/adapter-tracker-beads-stub');
+const {
+  writeNoWorkGraphTrackerStub,
+  writeStubControl: writeWorkGraphTrackerControl
+} = require('../../../scripts/tests/fixtures/toolchain/work-graph-fallback-tracker-stub');
 
 const CLI = path.join(__dirname, '..', 'lib', 'toolchain-cli.js');
 
@@ -60,6 +65,15 @@ function loadShippedDefaults() {
  *   - tracker   -> injected detect  ('jira-detected', source: 'detection')
  * Every other category (including workflow, which also has an env-compat slot that is
  * deliberately left unset here) is expected to resolve to the real shipped default.
+ *
+ * `work-graph` is a further special case (TRD-027): its shipped default is the sentinel
+ * `auto`, which `./toolchain/work-graph-resolve.js#resolveWorkGraphAdapter` expands into the
+ * resolved tracker's own work-graph capabilities or the built-in fallback -- never the literal
+ * string `'auto'`. `buildFullPrecedenceCtx` installs `jira-detected` (the detection-resolved
+ * tracker id above) as a real, loadable `categories: ['tracker']`-only fixture (no
+ * `work-graph`), so `auto` here always expands to the built-in `work-graph-links-fallback`
+ * adapter, `source` still `'default'` (the `work-graph` category's OWN resolution tier --
+ * nothing overrides it here, only `tracker`'s tier differs), plus `autoVia`.
  */
 function buildExpectedData(defaults) {
   const data = {};
@@ -70,6 +84,11 @@ function buildExpectedData(defaults) {
   data['ci-local'] = { adapter: 'custom-ci', source: 'user' };
   data.host = { adapter: 'gitlab', source: 'env-compat' };
   data.tracker = { adapter: 'jira-detected', source: 'detection' };
+  data['work-graph'] = {
+    adapter: 'work-graph-links-fallback',
+    source: 'default',
+    autoVia: 'builtin-fallback'
+  };
   return data;
 }
 
@@ -82,6 +101,13 @@ function buildExpectedData(defaults) {
  *   3. env-compat:      host      -> 'gitlab' (ENSEMBLE_PR_BACKEND)
  *   4. injected detect: tracker   -> 'jira-detected' (source: 'detection')
  *   5. shipped default: every remaining category
+ *
+ * Also installs `jira-detected` as a real, loadable, installed-tier `categories:
+ * ['tracker']`-only fixture adapter (TRD-027: `work-graph`'s `auto` resolution loads the
+ * resolved tracker adapter to check whether its manifest provides `work-graph` -- a detection
+ * value with no backing adapter directory, harmless before that, would now fail `NOT_INSTALLED`
+ * purely because of the unrelated `work-graph` category also resolving in the same
+ * `explain`/`resolve` call).
  */
 function buildFullPrecedenceCtx() {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-project-'));
@@ -90,6 +116,24 @@ function buildFullPrecedenceCtx() {
     path.join(projectRoot, '.ensemble', 'toolchain.yaml'),
     'worktree: jj\n'
   );
+  const jiraDetectedSkillDir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', 'jira-detected');
+  fs.mkdirSync(jiraDetectedSkillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jiraDetectedSkillDir, 'adapter.yaml'),
+    yaml.dump({
+      adapter: 'jira-detected',
+      version: '1.0.0',
+      categories: ['tracker'],
+      contract: { tracker: '1.0' },
+      binaries: ['fixture-tool'],
+      allowlist: [{ bin: 'fixture-tool', sub: ['show'] }],
+      env: [],
+      health: [],
+      detect: [],
+      capabilities: { 'tracker.show': { run: ['fixture-tool', 'show', '--id', '${id}'] } }
+    })
+  );
+  fs.writeFileSync(path.join(jiraDetectedSkillDir, 'SKILL.md'), '# jira-detected\n## Vocabulary\nstub\n');
 
   const xdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-xdg-'));
   fs.mkdirSync(path.join(xdgConfigHome, 'ensemble'), { recursive: true });
@@ -1084,14 +1128,14 @@ describe('detection-selected adapter works end to end through preflight/run/conf
       const mutantRoot = makeMutantToolchainRoot();
       try {
         const needle =
-          "  const result = await runCapability(loaded.manifest, capability, args, {\n" +
-          "    source,\n" +
-          "    execFileOptions: { cwd: projectRoot }\n" +
-          "  });";
+          "    : await runCapability(loaded.manifest, capability, args, {\n" +
+          "        source,\n" +
+          "        execFileOptions: { cwd: projectRoot }\n" +
+          "      });";
         const replacement =
-          "  const result = await runCapability(loaded.manifest, capability, args, {\n" +
-          "    execFileOptions: { cwd: projectRoot }\n" +
-          "  });";
+          "    : await runCapability(loaded.manifest, capability, args, {\n" +
+          "        execFileOptions: { cwd: projectRoot }\n" +
+          "      });";
         const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
 
         const projectRoot = mkDetectionProject('fixture-detect-nosource-tracker');
@@ -1247,6 +1291,317 @@ describe('run(): interactive repo-local adapter reaches confirmation; non-intera
         } finally {
           fs.rmSync(projectRoot, { recursive: true, force: true });
           fs.rmSync(markerPath, { force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+});
+
+/**
+ * TRD-027 (br-jo8y): `work-graph` category auto resolution reachable from the shipped CLI for
+ * every entry point that resolves it (`resolve`/`explain`, `run`, `preflight`), proven live
+ * through the real, unmodified `toolchain-cli.js` binary (`spawnSync`, never mocked) against
+ * BOTH branches of TRD interpretation I7: (a) a tracker adapter that provides work-graph
+ * capabilities is used as-is, (b) a tracker adapter lacking them falls back to the built-in
+ * `work-graph-links-fallback` adapter, with the CLI's own JSON output naming which ordering
+ * source was used.
+ */
+describe('work-graph auto resolution: real CLI subprocess, both branches (TRD-027, br-jo8y)', () => {
+  /** Install a fixture tracker adapter (categories: ['tracker'] only, no work-graph) backed
+   * by the real stub binary written by `writeNoWorkGraphTrackerStub`. */
+  function mkNoWorkGraphTrackerAdapter(projectRoot, adapterId, binPath, { declareDependencies }) {
+    const skillDir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', adapterId);
+    fs.mkdirSync(skillDir, { recursive: true });
+    const map = declareDependencies
+      ? { id: '$.id', status: '$.status', dependencies: '$.dependencies' }
+      : { id: '$.id', status: '$.status' };
+    const manifest = {
+      adapter: adapterId,
+      version: '1.0.0',
+      categories: ['tracker'],
+      contract: { tracker: '1.0' },
+      binaries: [binPath],
+      allowlist: [{ bin: binPath, sub: ['list', 'show'] }],
+      env: [],
+      health: [],
+      detect: [],
+      capabilities: {
+        'tracker.list': { run: [binPath, 'list'] },
+        'tracker.show': {
+          run: [binPath, 'show', '${id}'],
+          parse: {
+            format: 'json',
+            root: '$',
+            map,
+            statusMap: { open: 'open', in_progress: 'in_progress', closed: 'closed' }
+          }
+        }
+      }
+    };
+    fs.writeFileSync(path.join(skillDir, 'adapter.yaml'), yaml.dump(manifest));
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `# ${adapterId}\n## Vocabulary\nstub\n`);
+  }
+
+  test("branch (a): tracker adapter providing work-graph (shipped 'beads') is used as-is -- run work-graph.ready dispatches through the real declarative beads/bv path, never the fallback", () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-tracker-provides-'));
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-tracker-provides-bin-'));
+    try {
+      writeBeadsStubs(binDir);
+      // Deliberately no .ensemble/toolchain.yaml: both 'tracker' and 'work-graph' fall through
+      // to the shipped defaults ('beads' / 'auto'); 'beads' already declares its own
+      // work-graph capabilities (adapter-tracker-beads/adapter.yaml: categories: [tracker,
+      // work-graph]), so I7 selects it over the built-in fallback.
+      const env = { PATH: `${binDir}:${process.env.PATH}` };
+
+      const runRes = spawnSync('node', [CLI, 'run', 'work-graph.ready', '--json'], {
+        cwd: projectRoot,
+        env,
+        encoding: 'utf8'
+      });
+      expect(runRes.status).toBe(0);
+      const runParsed = JSON.parse(runRes.stdout);
+      expect(runParsed.ok).toBe(true);
+      expect(runParsed.adapter).toBe('beads');
+      expect(Array.isArray(runParsed.data.items)).toBe(true);
+      expect(runParsed.data.items.length).toBeGreaterThan(0);
+      // The beads adapter's own declarative work-graph.ready (bv --robot-plan) never maps
+      // orderingSource -- confirming this really is the tracker's OWN capability executing
+      // unchanged, not the fallback's computed envelope (which always sets it).
+      expect(runParsed.data.orderingSource).toBeUndefined();
+
+      const explainRes = spawnSync('node', [CLI, 'explain', '--json'], {
+        cwd: projectRoot,
+        env,
+        encoding: 'utf8'
+      });
+      expect(explainRes.status).toBe(0);
+      expect(JSON.parse(explainRes.stdout).data['work-graph']).toEqual({
+        adapter: 'beads',
+        source: 'default',
+        autoVia: 'tracker-capabilities'
+      });
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test('branch (b): tracker adapter lacking work-graph falls back to the built-in adapter -- CLI output states ordering came from issue links (tracker-links) and reports the fallback adapter id', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-fallback-'));
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-fallback-bin-'));
+    try {
+      const binPath = writeNoWorkGraphTrackerStub(binDir);
+      writeWorkGraphTrackerControl(binDir, [
+        { id: 'wg-1', status: 'open', dependencies: [{ id: 'wg-2' }] },
+        { id: 'wg-2', status: 'open', dependencies: [] },
+        { id: 'wg-3', status: 'closed', dependencies: [] }
+      ]);
+      mkProjectConfig(projectRoot, { tracker: 'fixture-wg-fallback-tracker' });
+      mkNoWorkGraphTrackerAdapter(projectRoot, 'fixture-wg-fallback-tracker', binPath, {
+        declareDependencies: true
+      });
+      const env = cleanSpawnEnv();
+
+      const runRes = spawnSync('node', [CLI, 'run', 'work-graph.ready', '--json'], {
+        cwd: projectRoot,
+        env,
+        encoding: 'utf8'
+      });
+      expect(runRes.status).toBe(0);
+      const runParsed = JSON.parse(runRes.stdout);
+      expect(runParsed.ok).toBe(true);
+      expect(runParsed.adapter).toBe('work-graph-links-fallback');
+      expect(runParsed.data.orderingSource).toBe('tracker-links');
+      expect(runParsed.data.dependencyAware).toBe(true);
+      expect(runParsed.data.items.map((item) => item.id)).toEqual(['wg-2']);
+
+      const explainRes = spawnSync('node', [CLI, 'explain', '--json'], {
+        cwd: projectRoot,
+        env,
+        encoding: 'utf8'
+      });
+      expect(explainRes.status).toBe(0);
+      expect(JSON.parse(explainRes.stdout).data['work-graph']).toEqual({
+        adapter: 'work-graph-links-fallback',
+        source: 'default',
+        autoVia: 'builtin-fallback'
+      });
+
+      const preflightRes = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'work-graph.ready', '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
+      expect(preflightRes.status).toBe(0);
+      expect(JSON.parse(preflightRes.stdout).ok).toBe(true);
+
+      const confirmStatusRes = spawnSync(
+        'node',
+        [CLI, 'confirm-status', 'work-graph.ready', '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
+      expect(confirmStatusRes.status).toBe(0);
+      const confirmParsed = JSON.parse(confirmStatusRes.stdout);
+      expect(confirmParsed.ok).toBe(true);
+      expect(confirmParsed.adapter).toBe('work-graph-links-fallback');
+      // work-graph.ready is sideEffect:false, so confirmation is never required for it --
+      // proving this call site's 'auto' resolution never crashes with NOT_INSTALLED either.
+      expect(confirmParsed.data).toEqual({ required: false });
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test('branch (b), plan-order: tracker.show never exposes dependencies -> work-graph.plan reports plan-order/dependencyAware:false through the real CLI', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-fallback-planorder-'));
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-fallback-planorder-bin-'));
+    try {
+      const binPath = writeNoWorkGraphTrackerStub(binDir);
+      writeWorkGraphTrackerControl(binDir, [
+        { id: 'wg-a', status: 'open' },
+        { id: 'wg-b', status: 'open' },
+        { id: 'wg-c', status: 'closed' }
+      ]);
+      mkProjectConfig(projectRoot, { tracker: 'fixture-wg-planorder-tracker' });
+      mkNoWorkGraphTrackerAdapter(projectRoot, 'fixture-wg-planorder-tracker', binPath, {
+        declareDependencies: false
+      });
+      const env = cleanSpawnEnv();
+
+      const res = spawnSync('node', [CLI, 'run', 'work-graph.plan', '--json'], {
+        cwd: projectRoot,
+        env,
+        encoding: 'utf8'
+      });
+      expect(res.status).toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.adapter).toBe('work-graph-links-fallback');
+      expect(parsed.data.orderingSource).toBe('plan-order');
+      expect(parsed.data.dependencyAware).toBe(false);
+      expect(parsed.data.items.map((item) => item.id)).toEqual(['wg-a', 'wg-b', 'wg-c']);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test("branch (b), required-and-absent halt: work-graph.graph-health required by preflight, tracker lacks work-graph and the built-in fallback does not implement graph-health either -> UNAVAILABLE naming the fallback adapter, exit non-zero, no preflight record written, before any health check spawns", () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-'));
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-bin-'));
+    try {
+      const binPath = writeNoWorkGraphTrackerStub(binDir);
+      writeWorkGraphTrackerControl(binDir, [{ id: 'wg-x', status: 'open' }]);
+      mkProjectConfig(projectRoot, { tracker: 'fixture-wg-halt-tracker' });
+      mkNoWorkGraphTrackerAdapter(projectRoot, 'fixture-wg-halt-tracker', binPath, {
+        declareDependencies: false
+      });
+      // 'work-graph' is deliberately left unset -> shipped default 'auto', which (per the
+      // branch (b) test above) expands to the built-in 'work-graph-links-fallback' adapter --
+      // whose own scope is only work-graph.ready/work-graph.plan, so work-graph.graph-health
+      // is genuinely unavailable through BOTH the tracker and the resolved fallback.
+      const env = cleanSpawnEnv();
+      const runId = 'wg-halt-run';
+
+      const res = spawnSync(
+        'node',
+        [CLI, 'preflight', '--require', 'work-graph.graph-health', '--run-id', runId, '--json'],
+        { cwd: projectRoot, env, encoding: 'utf8' }
+      );
+
+      expect(res.status).not.toBe(0);
+      const parsed = JSON.parse(res.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.code).toBe('UNAVAILABLE');
+      expect(parsed.error.message).toContain('work-graph.graph-health');
+      expect(parsed.error.message).toContain('work-graph-links-fallback');
+
+      const recordPath = path.join(projectRoot, '.ensemble', 'state', 'toolchain', `preflight-${runId}.json`);
+      expect(fs.existsSync(recordPath)).toBe(false);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  describe('mutation-proof: the "auto" resolver\'s tracker-vs-fallback branch selection actually matters for which adapter a required-and-absent halt names', () => {
+    test("forcing resolveWorkGraphAdapter's 'auto' expansion to always treat the tracker as providing work-graph (skipping the real trackerProvidesWorkGraph check) makes the required-and-absent halt above wrongly name the TRACKER adapter instead of 'work-graph-links-fallback'", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const resolverPath = path.join(mutantRoot.toolchainLibDir, 'work-graph-resolve.js');
+        const needle = '  if (trackerProvidesWorkGraph) {';
+        const replacement = '  if (true) {';
+        mutateAndRequire(resolverPath, needle, replacement);
+        const mutatedCli = require(mutantRoot.cliPath);
+
+        const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-mutant-'));
+        const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-halt-mutant-bin-'));
+        try {
+          const binPath = writeNoWorkGraphTrackerStub(binDir);
+          writeWorkGraphTrackerControl(binDir, [{ id: 'wg-x', status: 'open' }]);
+          mkProjectConfig(projectRoot, { tracker: 'fixture-wg-halt-mutant-tracker' });
+          mkNoWorkGraphTrackerAdapter(projectRoot, 'fixture-wg-halt-mutant-tracker', binPath, {
+            declareDependencies: false
+          });
+
+          const { returned: code, stdout } = await captureStdoutAsync(() =>
+            mutatedCli.main(
+              ['preflight', '--require', 'work-graph.graph-health', '--run-id', 'wg-halt-mutant-run', '--json'],
+              { projectRoot, env: { PATH: process.env.PATH } }
+            )
+          );
+          expect(code).toBe(1);
+          const parsed = JSON.parse(stdout.trim());
+          expect(parsed.ok).toBe(false);
+          expect(parsed.error.code).toBe('UNAVAILABLE');
+          // The mutated resolver now (wrongly) treats the tracker-only adapter as if it
+          // provided work-graph itself, so the halt names the TRACKER adapter, never the
+          // built-in fallback -- exactly what the real (unmutated) test above disproves.
+          expect(parsed.error.message).toContain('fixture-wg-halt-mutant-tracker');
+          expect(parsed.error.message).not.toContain('work-graph-links-fallback');
+        } finally {
+          fs.rmSync(projectRoot, { recursive: true, force: true });
+          fs.rmSync(binDir, { recursive: true, force: true });
+        }
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+
+  describe('mutation-proof: the work-graph "auto" special case in run() actually matters', () => {
+    test("removing run()'s work-graph auto branch falls through to a bare loadAdapter('auto', ...) call, which crashes NOT_INSTALLED instead of resolving the fallback", async () => {
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle =
+          "  let workGraphTrackerManifest = null;\n" + "  if (category === 'work-graph') {";
+        const replacement =
+          "  let workGraphTrackerManifest = null;\n" + "  if (false && category === 'work-graph') {";
+        const mutatedCli = mutateAndRequire(mutantRoot.cliPath, needle, replacement);
+
+        const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-wg-mutant-'));
+        try {
+          const { returned: code, stdout } = await captureStdoutAsync(() =>
+            mutatedCli.main(['run', 'work-graph.ready', '--json'], {
+              projectRoot,
+              env: { PATH: process.env.PATH }
+            })
+          );
+          // With the special case disabled, 'work-graph' falls through to the generic
+          // resolveCategory+loadAdapter path exactly like every other category, resolving to
+          // the literal sentinel value 'auto' and then trying (and failing) to load a skill
+          // directory literally named 'auto' -- exactly what the real (unmutated) branch (a)/
+          // (b) tests above disprove.
+          expect(code).toBe(1);
+          const parsed = JSON.parse(stdout.trim());
+          expect(parsed.ok).toBe(false);
+          expect(parsed.error.code).toBe('NOT_INSTALLED');
+          expect(parsed.error.message).toContain("'auto'");
+        } finally {
+          fs.rmSync(projectRoot, { recursive: true, force: true });
         }
       } finally {
         mutantRoot.cleanup();

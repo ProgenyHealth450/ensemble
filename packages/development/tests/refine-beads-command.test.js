@@ -19,23 +19,23 @@ describe('refine-beads command', () => {
   test('forbids implementation execution', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toContain('never executes implementation work');
-    expect(text).toContain('No br update, br dep add, br dep remove, br close, branch, test, builder, reviewer, or implementation command may run in this phase.');
+    expect(text).toContain('No tracker.update, tracker.dep-add, tracker.dep-remove, tracker.close, branch, test, builder, reviewer, or implementation capability call may run in this phase.');
   });
 
-  test('uses only bv robot flags', () => {
+  test('uses the work-graph.graph-health capability, not bv robot flags', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toContain('bv --robot-insights');
-    expect(text).toContain('bv --robot-plan');
-    expect(text).toContain('Do not run bare bv');
-    expect(text).not.toMatch(/run bv(?! --robot|-)/i);
+    expect(text).toContain('work-graph.graph-health');
+    expect(text).not.toMatch(/\bbv (--robot|\s)/);
+    expect(text).not.toMatch(/\bbv\b(?!-json)/);
   });
 
   test('generates repair plan before approval prompt', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toContain('"$BEADS_REFINE_CLI" plan');
     expect(text).toContain('capture REPAIR_PLAN');
-    expect(text).toContain('proposed br command(s) from REPAIR_PLAN');
+    expect(text).toContain('proposed tracker capability call(s) from REPAIR_PLAN');
   });
+
 
   test('resolves the bundled CLI rather than hardcoding a monorepo path', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');

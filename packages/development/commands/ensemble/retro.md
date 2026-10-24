@@ -1,9 +1,11 @@
 ---
 name: "ensemble:retro"
 description: "Post-release retrospective - estimate accuracy, PRD success-metric status, incidents, and proposed follow-ups"
-version: "1.0.0"
+version: "2.0.0"
 category: "planning"
-last-updated: "2026-10-20"
+last-updated: "2026-10-23"
+capabilities-required: "tracker.list"
+capabilities-optional: "tracker.create"
 argument-hint: "--release vX.Y.Z | --since <ref>"
 model: "sonnet"
 ---
@@ -26,7 +28,8 @@ Close the feedback loop after a release - compare what was planned with what hap
    List merged PRs and closed beads in the range
 
 - git log <range> --merges --oneline plus gh pr list --state merged --search "merged:>=<start-date>" --json number,title,mergedAt,url (skip gh if unavailable)
-- br list --all --json > a temp file; closed beads with closed_at inside the range are the shipped beads
+- Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). Run: node "$TOOLCHAIN_CLI" preflight --require tracker.list --require tracker.create [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; on a non-ok result print the error and HALT before any tracker call. tracker.create (optional) is only invoked later, after explicit user approval (Propose Follow-ups).
+- Run: node "$TOOLCHAIN_CLI" run tracker.list --json > a temp file; closed beads with closed_at inside the range are the shipped beads
 
 **3. Compute Estimate vs Actual**
    Run the estimate-actual library over the beads export
@@ -57,7 +60,7 @@ Close the feedback loop after a release - compare what was planned with what hap
    Propose, do not create
 
 - List proposed beads (title, rationale, source: missed metric, incident, or estimate outlier) and proposed PRD/TRD refinements (what to change and why)
-- Ask for approval. Only for approved items run br create, or hand the PRD changes to /ensemble:refine-prd. Print the retro path and what was created
+- Ask for approval. Before the first approved tracker.create call run: node "$TOOLCHAIN_CLI" confirm-status tracker.create [add --non-interactive when FOREMAN_TASK_TITLE is set] --json; if data.required is true and data.confirmed is false and the session is interactive, ask via AskUserQuestion "Create <N> follow-up bead(s) via the tracker adapter? [yes/no]" and on yes run node "$TOOLCHAIN_CLI" confirm-record tracker.create --json before proceeding (under --non-interactive/--foreman, never prompt; proceed only if confirm-status already reports confirmed:true or required:false). For each approved item run: node "$TOOLCHAIN_CLI" run tracker.create --arg title="<title>" --arg type=task --arg description="<rationale>" --json, or hand the PRD changes to /ensemble:refine-prd. Print the retro path and what was created
 
 ## Expected Output
 

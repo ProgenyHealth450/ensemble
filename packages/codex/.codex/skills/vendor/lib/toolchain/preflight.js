@@ -72,6 +72,7 @@ const { redactSecrets } = require('../complexity-analyzer');
 const { isValidRunId, invalidRunIdMessage } = require('./run-id');
 const { isNonInteractive } = require('./confirm');
 const { requireCapabilities } = require('./resolve');
+const { resolveWorkGraphAdapter } = require('./work-graph-resolve');
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 10000;
 
@@ -185,34 +186,60 @@ async function runPreflight(input = {}, ctx = {}) {
 
   for (const category of categoryList) {
     let adapterId;
-    try {
-      adapterId = resolveCategory(category, ctx).value;
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: 'HEALTH_FAILED',
-          message: `${category}: could not resolve an adapter for preflight (${error.message})`
-        }
-      };
-    }
-
     let loaded;
-    try {
-      loaded = loadAdapter(adapterId, {
-        ...ctx,
-        projectRoot,
-        env,
-        interactive: !isNonInteractive({ nonInteractive, env })
-      });
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          code: 'HEALTH_FAILED',
-          message: `${adapterId}: could not load the adapter for category '${category}' (${error.message})`
-        }
-      };
+
+    if (category === 'work-graph') {
+      // TRD-027: expand the shipped default sentinel `auto` into the real, selected adapter
+      // (tracker's own work-graph capabilities, else the built-in `work-graph-links-fallback`)
+      // via the same resolver every other `work-graph`-resolving entry point uses.
+      let resolved;
+      try {
+        resolved = resolveWorkGraphAdapter({
+          ...ctx,
+          projectRoot,
+          env,
+          interactive: !isNonInteractive({ nonInteractive, env })
+        });
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code: 'HEALTH_FAILED',
+            message: `${category}: could not resolve an adapter for preflight (${error.message})`
+          }
+        };
+      }
+      adapterId = resolved.value;
+      loaded = { origin: resolved.origin, dir: resolved.dir, manifest: resolved.manifest };
+    } else {
+      try {
+        adapterId = resolveCategory(category, ctx).value;
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code: 'HEALTH_FAILED',
+            message: `${category}: could not resolve an adapter for preflight (${error.message})`
+          }
+        };
+      }
+
+      try {
+        loaded = loadAdapter(adapterId, {
+          ...ctx,
+          projectRoot,
+          env,
+          interactive: !isNonInteractive({ nonInteractive, env })
+        });
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code: 'HEALTH_FAILED',
+            message: `${adapterId}: could not load the adapter for category '${category}' (${error.message})`
+          }
+        };
+      }
     }
 
     const requiredForCategory = requires.filter((capability) => capability.split('.')[0] === category);

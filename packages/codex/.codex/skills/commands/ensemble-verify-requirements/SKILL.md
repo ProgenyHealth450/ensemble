@@ -4,6 +4,10 @@ description: Post-implementation REQ->AC->code traceability verifier - chains PR
 user-invocable: true
 argument-hint: '--trd <trd-path> [--prd <prd-path>] [--mode auto|beads|checkbox|both] [--report-path <path>] [--no-write-report] [--run-tests]'
 model: gpt-5.1-codex
+capabilities:
+  optional:
+    - tracker.list
+    - tracker.comments
 ---
 
 # Ensemble Command: /ensemble:verify-requirements
@@ -22,14 +26,13 @@ Chain REQ-NNN -> AC -> impl task -> -TEST task -> files -> commits -> test resul
 ### Phase 1: Verify
 
 **1. Preflight**
-   Require `--trd <path>`; node and git are required. Resolve TRD_CLI per the tool-path-resolution skill.
+   Require `--trd <path>`; node and git are required. Resolve TRD_CLI and TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js and packages/development/lib/toolchain-cli.js) per the tool-path-resolution skill.
 Default report: `docs/req-traceability/<trd-slug>-<YYYY-MM-DD>.md` under the git toplevel; `--no-write-report` suppresses it.
 
 
 **2. Beads evidence (optional)**
-   Only if `br` exists and `--mode` is not `checkbox`: for beads titled `[trd:<slug>:task:TRD-NNN]` (`br list --json`; a list or an object with `.issues`),
-read `br comment list <id>` and write FILE mapping task id -> `{status, verdict, req_satisfied, acs_proven, qa_agent, commit_sha}`
-from `status:closed qa:<agent> verdict:passed req-satisfied:<REQ> ac-proven:<ACs>` tokens. Warn and continue on failure.
+   Only if `--mode` is not `checkbox`: run `node "$TOOLCHAIN_CLI" run tracker.list --json`. `{ok:false}` (including UNAVAILABLE) -> print a warning and skip this step entirely (checkbox parsing only, no beads evidence) -- tracker.list/tracker.comments are both optional with exactly this fallback, so neither is preflighted with `--require`. `{ok:true}` -> for beads titled `[trd:<slug>:task:TRD-NNN]` (the issue list is `data` parsed as JSON if an array, else its `.issues`), per matching bead run `node "$TOOLCHAIN_CLI" run tracker.comments --arg id=<id> --json` and write FILE mapping task id -> `{status, verdict, req_satisfied, acs_proven, qa_agent, commit_sha}`
+from `status:closed qa:<agent> verdict:passed req-satisfied:<REQ> ac-proven:<ACs>` tokens. A single bead's tracker.comments call failing warns and excludes only that task id from FILE; it does not abort the step.
 
 
 **3. Run and report**

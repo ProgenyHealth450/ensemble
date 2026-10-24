@@ -7,8 +7,13 @@
  * plan that starved, or mixed in, another TRD's beads.
  *
  * Contract pinned here: beads are created with the TRD slug as a label; beads-build and
- * the wave runner accept --label, pass it to `bv --robot-plan`, verify the plan stays inside
- * the label (bv silently ignores an unknown label), and backfill labels on older TRDs.
+ * the wave runner accept --label and pass it through (scope/LABEL/ROOT_EPIC_ID fields in the
+ * track payload), but do NOT pass it as `--arg scope=` to the work-graph.plan/work-graph.ready
+ * capability calls: no shipped adapter path (the real beads adapter's run template, nor
+ * TRD-027's builtin link-based fallback) honors a scope input, so passing it would be a pure
+ * no-op dead argument (PR 7 independent review item 3). Instead, when --label is set, the wave
+ * runner verifies the plan stayed inside the label itself (Step 3b, via tracker.list), HALTing
+ * rather than trusting an unscoped or unknown-label scheduling result.
  */
 
 const fs = require('fs');
@@ -21,8 +26,9 @@ const wave = read('commands/beads-build-wave.yaml');
 const waveAgent = read('agents/beads-build-wave.yaml');
 
 describe('implement-trd-beads labels the beads it scaffolds', () => {
-  test('br create passes --labels from the plan entry for every bead kind', () => {
-    expect(itb).toMatch(/br create --title='<title>' --type=<type> --priority=<priority> --labels=<labels comma-joined>/);
+  test('tracker.create has no labels arg; every bead kind gets labeled via the beads-label backfill instead', () => {
+    expect(itb).toMatch(/run tracker\.create --arg title=\\?"<title>\\?" --arg type=<type> --arg description=\\?"<description>\\?"/);
+    expect(itb).toMatch(/no priority\/labels\/externalRef arg[^)]*labels backfilled later/);
     expect(itb).toMatch(/plan\.epic`, `plan\.stories\[\]`, `plan\.tasks\[\]`, `plan\.synthesizedTests\[\]/);
   });
 
@@ -54,12 +60,12 @@ describe('beads-build', () => {
   });
 
   test('refuses to continue when no bead carries the label', () => {
-    expect(build).toMatch(/br list --all --label <LABEL> --json/);
+    expect(build).toMatch(/run tracker\.list.*LABEL_IDS = \.id of entries/);
     expect(build).toMatch(/no bead carries label <LABEL>/);
   });
 
   test('counts scoped work by label when one is set', () => {
-    expect(build).toMatch(/br list --status=open --label <LABEL> --json/);
+    expect(build).toMatch(/REMAINING_SCOPED_COUNT = count of status=="open" entries filtered by LABEL when set/);
   });
 
   test('passes LABEL in the wave payload', () => {
@@ -68,21 +74,21 @@ describe('beads-build', () => {
 });
 
 describe('beads-build-wave', () => {
-  test('scopes the plan with bv --label when LABEL is set', () => {
-    expect(wave).toMatch(/bv --robot-plan --label <LABEL> --format toon/);
+  test('does not pass --arg scope= to work-graph.plan: no adapter path honors it, so it would be a dead no-op argument (PR 7 item 3)', () => {
+    expect(wave).not.toMatch(/run work-graph\.plan --run-id "\$RUN_ID" --arg scope=/);
   });
 
-  test('verifies the plan stays inside the label instead of trusting bv', () => {
-    expect(wave).toMatch(/bv returned beads outside label <LABEL>/);
-    expect(wave).toMatch(/bv ignores an unknown label/);
+  test('verifies the plan stays inside the label instead of trusting the scheduling source', () => {
+    expect(wave).toMatch(/the scheduling source returned beads outside label <LABEL>/);
+    expect(wave).toMatch(/an unrecognized label can return the unscoped plan/);
   });
 
   test('carries LABEL in each track scope', () => {
     expect(wave).toMatch(/scope: \{ ROOT_EPIC_ID, EPIC_SLUG, LABEL \(or null\),/);
   });
 
-  test('br-only scheduling is label-scoped too', () => {
-    expect(wave).toMatch(/br ready --json` \(add `--label <LABEL>` when LABEL is set/);
+  test('does not pass --arg scope= to work-graph.ready either, for the same reason', () => {
+    expect(wave).not.toMatch(/run work-graph\.ready --run-id "\$RUN_ID" --arg scope=/);
   });
 
   test('the runner agent maps the payload LABEL to --label', () => {

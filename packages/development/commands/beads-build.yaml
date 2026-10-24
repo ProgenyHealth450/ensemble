@@ -1,12 +1,23 @@
 metadata:
   name: ensemble:beads-build
   description: Drive an existing bead hierarchy to completion through the full builder, code-review, and close pipeline
-  version: 1.3.0
-  lastUpdated: "2026-10-21"
+  version: 1.4.0
+  lastUpdated: "2026-10-23"
   category: implementation
   output_path: ensemble/beads-build.md
   source: sunstone
   model: medium
+  capabilities:
+    required:
+      - tracker.show
+      - tracker.list
+      - tracker.sync
+      - tracker.comment
+      - tracker.close
+      - work-graph.ready
+    optional:
+      - work-graph.plan
+      - tracker.comments
   argument_hint: "[epic-id|slug-pattern | --epic <id>] [--max-parallel N | max parallel N] [--trd trd-path] [--strategy tdd|characterization|bug-fix|refactor|test-after|flexible] [--label <label>] [--defer-completion] [--plan]"
   allowed_tools:
     - Read
@@ -23,27 +34,31 @@ mission:
     the full builder -> code-review -> close pipeline. This is the canonical build
     engine — works for raw beads with no TRD required. implement-trd-beads and
     implement-bead delegate to it; --plan prints the analysis without executing.
-    Loop: the parent (this command) checks bead-graph state and dispatches a fresh
-    Task(subagent_type=beads-build-wave, prompt=...) per wave. The wave-runner agent
-    runs ONE wave (plan + concurrent Task() track dispatch + barrier) and emits a JSON
-    summary line; the parent decides on remaining_scoped_count whether to dispatch
-    another. No recursion (Codex max_depth=1): wave-runners are depth-1 subagents.
+    Loop: the parent (this command) checks bead-graph state via the tracker/work-graph
+    capabilities (through toolchain-cli; see metadata.capabilities) and dispatches a
+    fresh Task(subagent_type=beads-build-wave, prompt=...) per wave. The wave-runner
+    agent runs ONE wave (plan + concurrent Task() track dispatch + barrier) and emits
+    a JSON summary line; the parent decides on remaining_scoped_count whether to
+    dispatch another. No recursion (Codex max_depth=1): wave-runners are depth-1
+    subagents.
 
-    Scheduler: bv --robot-plan when bv is installed, else br ready. Each wave partitions the ready set
-    into parallel tracks (up to --max-parallel; default 3) and dispatches each track
+    Scheduler: work-graph.ready (graph-aware parallel tracks when the resolved
+    tracker adapter exposes dependency links — data.orderingSource=="tracker-links" —
+    else one single-bead track per ready bead in plan order,
+    data.orderingSource=="plan-order"). Each wave partitions the ready set into
+    parallel tracks (up to --max-parallel; default 3) and dispatches each
     concurrently to a tech-lead-orchestrator Bead-Track subagent. A barrier sits
-    between waves: every track must complete before the next bv call. Records all
-    state transitions in beads for cross-session resumability. When --trd is
-    provided, enables TRD augmentations: traceability tokens, TRD checkbox sync,
-    and requirement satisfaction report.
+    between waves: every track completes before the next work-graph.ready call.
+    Records all state transitions in beads for cross-session resumability. When
+    --trd is provided, enables TRD augmentations: traceability tokens, TRD checkbox
+    sync, and requirement satisfaction report.
 
     Key behaviors:
     - Each wave is a barrier: dispatch all tracks, wait for every track, then re-plan.
     - The parent loop body is mechanical: read count, dispatch wave-runner, read
       JSON summary, repeat. No narrative reasoning happens between iterations.
-    - Quality gates: phase completion triggers test delegation; results recorded as br comments
-    - Sync: br sync --flush-only before every bv call
-    - bv is OPTIONAL. With bv, the wave-runner schedules from bv --robot-plan (graph-aware parallel tracks); without it, from br ready (one single-bead track per ready bead, up to --max-parallel). Never read .beads/*.jsonl to schedule.
+    - Quality gates: phase completion triggers test delegation; results recorded via tracker.comment
+    - Sync: tracker.sync before every work-graph.ready call. Never read .beads/*.jsonl to schedule.
     - TRD mode: optional --trd flag enables traceability tokens, checkbox sync, requirement report
 
 workflow:
@@ -55,23 +70,24 @@ workflow:
           title: Argument Parsing
           description: Parse epic-id or slug pattern (positional or --epic), --max-parallel (or free-text max parallel N), --trd path, --strategy, --team-roles, deprecated --builder, and --defer-completion
           actions:
-            - 'Parse $ARGUMENTS: if --epic <value> is present, RAW_INPUT=<value>; otherwise take the first token as RAW_INPUT (no epic argument if it is absent or starts with "--"). Run br show <RAW_INPUT> --json: exit code 0 means it is an existing bead of ANY id prefix (beads-12, cribs-l4pd, ...), so treat it as the direct epic bead ID (EPIC_ID_MODE=true); a non-zero exit means it is not a bead id, so treat it as a slug pattern (EPIC_ID_MODE=false). Never infer this from how the token is spelled.'
+            - 'Parse $ARGUMENTS: if --epic <value> is present, RAW_INPUT=<value>; otherwise take the first token as RAW_INPUT (no epic argument if it is absent or starts with "--"). EPIC_ID_MODE (direct bead id vs. slug pattern) is determined in Preflight step 2 via tracker.show, once TOOLCHAIN_CLI and RUN_ID are available. Never infer this from how the token is spelled.'
             - 'Parse --trd <path> from $ARGUMENTS (optional); if present set TRD_MODE=true and TRD_PATH=<path>; if absent set TRD_MODE=false'
             - 'Parse --strategy <value> from $ARGUMENTS (optional); valid values: tdd, characterization, bug-fix, refactor, test-after, flexible'
-            - 'Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes bv plans and scoped bead counts to one TRD; Epic Discovery resolves and verifies it.'
+            - 'Parse --label <L> from $ARGUMENTS (optional); if present set LABEL=<L>. LABEL scopes work-graph plans and scoped bead counts to one TRD; Epic Discovery resolves and verifies it.'
             - 'Parse --team-roles <json> from $ARGUMENTS (optional); if present parse as TEAM_ROLES object. If absent, parse deprecated --builder <agent> and synthesize compatibility TEAM_ROLES={lead:{agents:[\"tech-lead-orchestrator\"],owns:[\"planning\",\"escalation\"]},builder:{agents:[<builder>],owns:[\"implementation\"]},architect:{agents:[\"architect\"],owns:[\"task-design\"]},documentation:{agents:[\"documentation-specialist\"],owns:[\"pr-boundary-doc-maintenance\"]}}. If neither flag is present, set TEAM_ROLES={} and continue — standalone beads-build may still run without team metadata.'
             - 'Parse --max-parallel <N> from $ARGUMENTS; if absent, also accept the free-text form "max parallel N" (e.g., "max parallel 3"). Set MAX_PARALLEL=N; default MAX_PARALLEL=3 if neither is present'
             - 'Parse --defer-completion from $ARGUMENTS (optional flag, no value): if present set DEFER_COMPLETION=true, else DEFER_COMPLETION=false. A caller that owns completion verification and epic closure (implement-trd-beads) passes it; standalone invocations leave it unset.'
-            - 'Parse --plan from $ARGUMENTS (optional flag, no value): if present set PLAN_ONLY=true, else PLAN_ONLY=false. Plan mode prints bv/br analysis for the epic and never mutates beads, git or files.'
+            - 'Parse --plan from $ARGUMENTS (optional flag, no value): if present set PLAN_ONLY=true, else PLAN_ONLY=false. Plan mode prints the tracker/work-graph analysis for the epic and never mutates beads, git or files.'
 
         - order: 2
-          title: Tool Availability Check
-          description: Verify br is installed and detect bv availability
+          title: Tool Capability Preflight
+          description: Resolve toolchain-cli, preflight the command's required capabilities, and detect epic-id vs slug-pattern mode via tracker.show
           actions:
-            - '"which br || { echo ''ERROR: br (beads_rust) not installed. Install from https://github.com/Dicklesworthstone/beads_rust''; exit 1; }"'
-            - '"br list --status=open > /dev/null 2>&1 || { echo ''ERROR: br not functional''; exit 1; }"'
-            - '"which bv && BV_AVAILABLE=true || { echo ''WARNING: bv (beads_viewer) not installed. Graph-aware triage will be unavailable. Install from https://github.com/Dicklesworthstone/beads_viewer''; BV_AVAILABLE=false; }"'
-            - 'If PLAN_ONLY=true: skip the wave-runner check below and Preflight steps 3-7, skip the Execute, Quality Gate and Completion phases, run only the Plan Mode phase and exit (bv is still optional there).'
+            - 'Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.'
+            - 'Detect AskUserQuestion availability: INTERACTIVE=true if available, else false (covers --foreman callers too). Set NON_INTERACTIVE_ARGS=--non-interactive when INTERACTIVE=false, else empty; append it to every toolchain-cli call below; never prompt when it is set.'
+            - 'Run: node "$TOOLCHAIN_CLI" preflight --require tracker.show --require tracker.list --require tracker.sync --require tracker.comment --require tracker.close --require work-graph.ready $NON_INTERACTIVE_ARGS --json; parse PREFLIGHT_RESULT. {ok:false} -> print error.message and HALT before any bead is read or changed. {ok:true} -> RUN_ID=PREFLIGHT_RESULT.runId; pass --run-id "$RUN_ID" on every later toolchain-cli call.'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.show --arg id=<RAW_INPUT> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; store TRACKER_SHOW_RESULT. {ok:true} -> RAW_INPUT is a direct bead ID of any prefix (EPIC_ID_MODE=true); {ok:false} -> treat it as a slug pattern (EPIC_ID_MODE=false).'
+            - 'If PLAN_ONLY=true: skip the wave-runner check below and Preflight steps 3-7, skip the Execute, Quality Gate and Completion phases, run only the Plan Mode phase and exit.'
             - 'Verify the wave-runner agent is registered in this session (skip when PLAN_ONLY=true). The Execute phase dispatches Task(subagent_type=beads-build-wave), so beads-build-wave (listed as ensemble-development:beads-build-wave) must be among the subagent types the Task tool currently accepts. An agent file on disk, or an entry in AGENT_ALIAS_MAP, does not prove the plugin registered it. If it is not available: print "ERROR: agent beads-build-wave is not registered in this session, so the wave loop cannot dispatch. The installed ensemble-development plugin is out of date or was loaded before this agent shipped. Run /ensemble:reinstall-plugins, start a new Claude Code session, and re-run." and HALT before any bead is read or changed.'
 
         - order: 3
@@ -80,7 +96,7 @@ workflow:
           actions:
             - 'Resolve VALIDATE_GIT_TOWN_SH (RELATIVE_PATH packages/git/skills/git-town/scripts/validate-git-town.sh) and TRD_CLI (RELATIVE_PATH packages/development/lib/trd-cli.js) with the tool-path-resolution skill (skills/tool-path-resolution/SKILL.md). If a path does not resolve print "ERROR: could not locate <tool>" and HALT.'
             - 'Run: bash "$VALIDATE_GIT_TOWN_SH"; capture its exit code as GIT_TOWN_EXIT_CODE (0-4). Exit codes 3 (version mismatch) and 4 (not a git repo) are unaffected by this feature — HALT on those exactly as before. Exit codes 0 (ok), 1 (not installed), and 2 (not configured) no longer HALT here — they are passed to resolve-sdlc below.'
-            - 'Detect AskUserQuestion availability: INTERACTIVE=true if available, else false.'
+            - 'INTERACTIVE was already detected in Preflight step 2; reuse it here (no re-detection).'
             - 'Run: REMOTE_URL=$(git remote get-url origin 2>/dev/null); if REMOTE_URL is empty (no origin configured), set REMOTE_URL to the literal string ''none'' — resolve-sdlc requires a non-empty --remote-url, and any non-URL string is treated as ''no unsupported host detected''.'
             - 'Run: node "$TRD_CLI" resolve-sdlc --git-town-exit-code "$GIT_TOWN_EXIT_CODE" --remote-url "$REMOTE_URL"; parse the single JSON object from stdout as RESOLVE_SDLC_RESULT.'
             - 'If RESOLVE_SDLC_RESULT has an ''error'' key (trd-cli.js''s shared failure contract — a thrown Error caught by main(), printed as {"error":"<msg>"} with exit 1; NOT {ok:false,error:...}): print the error and HALT. This should not normally happen since GIT_TOWN_EXIT_CODE and REMOTE_URL are always well-formed here, but never swallow it.'
@@ -90,25 +106,25 @@ workflow:
             - 'Set BRANCHING_STRATEGY=RESOLVE_SDLC_RESULT.branchingStrategy.strategy. Both BRANCHING_STRATEGY and PR_BACKEND are re-resolved fresh on every invocation, including resumed epics, and are read by later Preflight/Execute/Quality-Gate/Completion steps in this file — never cached across sessions.'
             - 'If RESOLVE_SDLC_RESULT.consolidatedMessage is non-null: print it. If it is null (the pure-default case — git-town configured and remote is GitHub): print nothing new at all, matching today''s exact output for existing git-town+GitHub users.'
             - 'This command never creates or switches branches (the caller or user owns that), so it issues no git town command under any BRANCHING_STRATEGY.'
-            - 'Run: git status --porcelain -- . '':(exclude).beads'' and capture the output as WORKTREE_STATUS. Do NOT decide on it here: the clean-tree gate runs in Epic Discovery (Preflight step 4), because a dirty tree is only a fault on a fresh run, not a resume. .beads/ is br''s own state (see docs/guides/beads-tracked-export.md).'
+            - 'Run: git status --porcelain -- . '':(exclude).beads'' and capture the output as WORKTREE_STATUS. Do NOT decide on it here: the clean-tree gate runs in Epic Discovery (Preflight step 4), because a dirty tree is only a fault on a fresh run, not a resume. .beads/ is tracker-owned state (see docs/guides/beads-tracked-export.md).'
 
         - order: 4
           title: Epic Discovery
           description: Locate the root epic bead using the provided ID or slug pattern, detect cross-session resume
           actions:
-            - 'If EPIC_ID_MODE=true: run br show <RAW_INPUT> to confirm epic exists; if exit code != 0 print "ERROR: Bead <RAW_INPUT> not found." and HALT; store ROOT_EPIC_ID=RAW_INPUT; derive EPIC_SLUG from bead title'
-            - 'If EPIC_ID_MODE=false: run br list --status=open --json; the issue list is the parsed JSON if it is an array, otherwise its `.issues` array (br 0.2.x wraps list output as {issues:[...]}); scan .title fields for entries containing RAW_INPUT as substring (case-insensitive); collect matches'
+            - 'If EPIC_ID_MODE=true: Preflight step 2''s TRACKER_SHOW_RESULT already confirmed the epic exists (ok:true); store ROOT_EPIC_ID=RAW_INPUT; derive EPIC_SLUG from TRACKER_SHOW_RESULT.data.title'
+            - 'If EPIC_ID_MODE=false: run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json. tracker.list note (referenced below): issue list = `data` parsed as JSON, array or its `.issues`; the adapter returns every bead unfiltered, so filtering is always client-side. Filter to status=="open"; scan .title for RAW_INPUT substring (case-insensitive); collect matches'
             - 'If zero matches found: print "ERROR: No open epic found matching slug pattern ''<RAW_INPUT>''." and HALT'
             - 'If multiple matches found: print "ERROR: Multiple epics match ''<RAW_INPUT>'':" followed by each matching title; HALT'
             - 'If exactly one match: store ROOT_EPIC_ID from .id field; derive EPIC_SLUG (lowercase, replace non-alphanumeric with hyphens, strip leading/trailing hyphens)'
-            - 'Check for existing in-progress tasks: run br list --status=in_progress --json; take its issue list (the parsed JSON if it is an array, otherwise its `.issues` array); filter by EPIC_SLUG prefix; count IN_PROGRESS_COUNT'
+            - 'Check for existing in-progress tasks: run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; take its issue list (same parsing as above); filter to status=="in_progress" AND EPIC_SLUG prefix; count IN_PROGRESS_COUNT'
             - 'If IN_PROGRESS_COUNT > 0: print "Resume detected: <IN_PROGRESS_COUNT> tasks already in_progress. Resuming from current state." and print bead IDs with their titles'
-            - 'Count work already done under this epic: run br list --all --status=closed --limit 0 --json; filter by EPIC_SLUG prefix; count CLOSED_COUNT. Both flags are load-bearing and `br list --help` states why: -a/--all is "Include closed issues (default excludes closed)", so without it a closed-status query reads against a set closed issues were already removed from; and --limit is "Maximum number of results (0 = unlimited, default: 50)", so without --limit 0 this epic''s closed tasks fall outside the first 50 rows of any long-lived beads database and the client-side EPIC_SLUG filter sees none of them. Omitting either makes CLOSED_COUNT read 0, so the gate below HALTs a legitimate resume. Set STARTED_COUNT = IN_PROGRESS_COUNT + CLOSED_COUNT. IN_PROGRESS_COUNT alone is not the resume signal: between two waves every task of the finished wave is closed and none is in_progress yet, which is a resume that IN_PROGRESS_COUNT reads as a fresh run. The epic itself cannot carry the signal here the way ROOT_EPIC_ID does in implement-trd-beads, because this command HALTs above when the epic is absent, so by this line it always exists.'
+            - 'Count work already done under this epic: run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; take its issue list (tracker.list note); filter to status=="closed" AND EPIC_SLUG prefix; count CLOSED_COUNT. Set STARTED_COUNT = IN_PROGRESS_COUNT + CLOSED_COUNT (a resume may have CLOSED_COUNT>0 with IN_PROGRESS_COUNT==0).'
             - 'Clean-tree gate (moved here from Preflight step 3). If STARTED_COUNT == 0 — nothing under this epic has been started or finished, so this is a fresh run — and WORKTREE_STATUS is non-empty: print "ERROR: working directory is dirty. Commit, stash or revert before starting a new build." followed by WORKTREE_STATUS, and HALT. A fresh run gets exactly the behaviour it had before. The gate sits before the LABEL backfill below (the first write in Preflight), so it still precedes every side effect.'
             - 'If STARTED_COUNT > 0 and WORKTREE_STATUS is non-empty: print "NOTE: resuming with a dirty working directory. These paths are carried into the resumed build and nothing here commits, stashes or reverts them:" followed by WORKTREE_STATUS, then continue. A resumed build is re-entering work that was already modifying the tree, so a dirty tree is the expected state rather than a fault. Never stash, commit, checkout or clean these paths to satisfy a gate.'
-            - 'Resolve LABEL: if LABEL is unset, run br show <ROOT_EPIC_ID> --json (it prints a one-element array; use the element) and, if its .labels has exactly one entry, set LABEL to it. Otherwise leave LABEL unset: scoping then falls back to the EPIC_SLUG title match, as before.'
+            - 'Resolve LABEL: if LABEL is unset, run node "$TOOLCHAIN_CLI" run tracker.show --arg id=<ROOT_EPIC_ID> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json and, if its .data.labels has exactly one entry, set LABEL to it. Otherwise leave LABEL unset: scoping then falls back to the EPIC_SLUG title match, as before.'
             - 'If LABEL is set and the root epic title starts with [trd:<slug>] (a TRD-generated epic): backfill with node "$TRD_CLI" beads-label --label "<LABEL>" --match "[trd:<slug>" (TRD_CLI is resolved in Preflight step 3). If it fails, print the error and HALT. This labels beads scaffolded before labels existed and is a no-op otherwise.'
-            - 'If LABEL is set: LABEL_IDS = the .id of every entry in the issue list of br list --all --label <LABEL> --json. If LABEL_IDS is empty: print "ERROR: no bead carries label <LABEL>. bv ignores an unknown label and would schedule every bead in the repo, so beads-build will not continue." and HALT.'
+            - 'If LABEL is set: run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; LABEL_IDS = .id of entries (tracker.list note) whose .labels contains LABEL. Empty LABEL_IDS -> print "ERROR: no bead carries label <LABEL>; the scheduler would otherwise schedule the whole repo." and HALT.'
             - 'Resolve STAGE_SCOPE (what to stage from a tracked .beads/issues.jsonl; see docs/guides/beads-tracked-export.md): if the root epic title starts with [trd:<slug>], STAGE_SCOPE=--match "[trd:<slug>"; otherwise, if LABEL is set, STAGE_SCOPE=--label <LABEL>; otherwise leave it unset and skip the beads-stage step wherever it appears below.'
 
         - order: 5
@@ -158,23 +174,25 @@ workflow:
             Two-tier non-recursive dispatch loop (v1.2.0). Each iteration dispatches
             ONE wave-runner subagent via Task() and reads back a JSON summary. The
             loop body is mechanical: count + dispatch + read summary + decide.
-            The wave-runner runs bv --robot-plan and concurrent Task() track dispatch;
-            this parent does NOT call bv or Task(tech-lead-orchestrator) directly.
+            The wave-runner runs work-graph.ready/work-graph.plan and concurrent
+            Task() track dispatch; this parent does NOT call those capabilities for
+            scheduling or Task(tech-lead-orchestrator) directly.
             Cross-platform: every runtime exposes Task(subagent_type, prompt). The
             depth-1 subagent respects Codex's max_depth=1 constraint.
           actions:
-            - 'Run: br sync --flush-only (ensure JSONL is current before the loop reads state).'
-            - 'Step 1 (initial state read; in every br list --json result below the issue list is the parsed JSON if it is an array, otherwise its `.issues` array): REMAINING_SCOPED_COUNT = count from br list --status=open --label <LABEL> --json when LABEL is set (exact), otherwise from br list --status=open --json filtered by EPIC_SLUG (entries whose .title contains EPIC_SLUG). IN_PROGRESS_SCOPED_COUNT = the same with --status=in_progress. If REMAINING_SCOPED_COUNT == 0 AND IN_PROGRESS_SCOPED_COUNT == 0: print "=== Execution completed: no remaining scoped work ===" and proceed to Quality Gate.'
+            - 'Call node "$TOOLCHAIN_CLI" confirm-status tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json before this phase''s first write outside the local working tree. If data.confirmed==false, data.required==true and INTERACTIVE=true: ask via AskUserQuestion (id=tracker_confirm, options=Yes/Abort); Abort HALTs; Yes calls node "$TOOLCHAIN_CLI" confirm-record tracker.sync --run-id "$RUN_ID" --json. Under NON_INTERACTIVE_ARGS never prompt.'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (ensure tracker state is current before the loop reads state).'
+            - 'Step 1 (initial state read): run node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (issue list per Preflight step 4''s tracker.list note). REMAINING_SCOPED_COUNT = count of status=="open" entries filtered by LABEL when set, else by EPIC_SLUG in .title. IN_PROGRESS_SCOPED_COUNT = same with status=="in_progress". If both are 0: print "=== Execution completed: no remaining scoped work ===" and proceed to Quality Gate.'
             - 'Step 2 (loop body, single tool turn): in a single tool turn, dispatch Task(subagent_type=<resolved-from-AGENT_ALIAS_MAP-beads-build-wave>, prompt=<wave_payload>) where wave_payload = { ROOT_EPIC_ID, EPIC_SLUG, LABEL, MAX_PARALLEL, TRD_MODE, TRD_PATH, STRATEGY, TEAM_ROLES, wave_number }. Resolve the namespaced identifier through AGENT_ALIAS_MAP (built by implement-trd-beads.yaml Preflight step 12, or for standalone invocations by scanning packages/*/agents/*.yaml plus ~/.omp/plugins/node_modules/@*/*/agents/*.md). Never pass a bare "beads-build-wave" string.'
             - 'Step 3 (read summary): the subagent emits ONE JSON summary line at the end of stdout. Parse SUMMARY_JSON = { wave_number, tracks_dispatched, tracks_succeeded, tracks_failed, beads_closed_this_wave, remaining_scoped_count, in_progress_scoped_count, terminal_state, elapsed_seconds, next_action_hint }.'
             - 'Step 4 (decide, then continue or exit):'
             - '  - If SUMMARY_JSON.terminal_state == "complete": print "=== Execution completed: <beads_closed_this_wave> beads closed in final wave ===". Break the loop and proceed to Quality Gate.'
-            - '  - If SUMMARY_JSON.terminal_state == "blocked": print "=== Execution blocked: <remaining_scoped_count> open scoped beads with no actionable tracks. ===" (when BV_AVAILABLE also run bv --robot-insights for graph details). HALT with "EXECUTION BLOCKED - manual intervention required".'
+            - '  - If SUMMARY_JSON.terminal_state == "blocked": print "=== Execution blocked: <remaining_scoped_count> open scoped beads with no actionable tracks. ===". HALT with "EXECUTION BLOCKED - manual intervention required".'
             - '  - If SUMMARY_JSON.terminal_state == "in_progress" AND SUMMARY_JSON.remaining_scoped_count > 0 AND SUMMARY_JSON.next_action_hint == "dispatch_another_wave": immediately return to Step 2 with wave_number = SUMMARY_JSON.wave_number + 1. Do NOT print progress, do NOT summarize, do NOT pause between iterations - the JSON summary is the only output between iterations.'
             - '  - If SUMMARY_JSON.terminal_state == "in_progress" AND SUMMARY_JSON.remaining_scoped_count == 0 AND SUMMARY_JSON.in_progress_scoped_count == 0: print "=== Execution completed: state drain reached zero ===". Break the loop and proceed to Quality Gate.'
-            - 'Step 5 (no re-plan or re-partition at this layer): this command does NOT call bv --robot-plan. The wave-runner does. The next wave is a fresh Task() invocation - no state from a prior wave is reused.'
+            - 'Step 5 (no re-plan or re-partition at this layer): this command does NOT call work-graph.ready/work-graph.plan for scheduling. The wave-runner does. The next wave is a fresh Task() invocation - no state from a prior wave is reused.'
             - 'Step 6 (context budget monitoring, informational only): after every 5 waves, print "Context checkpoint: <N> waves completed this session. If quality is degrading, consider: (1) /compact to compress conversation context, (2) start a new session with /ensemble:beads-build <ROOT_EPIC_ID> (beads preserve all state)." Do not halt or pause execution based on this signal.'
-            - 'After the loop exits: run br sync --flush-only. Print "=== Execution completed: <WAVE_COUNT> waves processed ===". Continue to Quality Gate.'
+            - 'After the loop exits: run node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json. Print "=== Execution completed: <WAVE_COUNT> waves processed ===". Continue to Quality Gate.'
         - order: 2
           title: Debug Loop (TRD-019)
           description: Attempt automated fix on track failure via deep-debugger (max 2 retries). Sibling-track failures are isolated; only this track's beads are re-attempted.
@@ -182,14 +200,14 @@ workflow:
             - 'When a track fails with an actual error (crash/exception) and beads in that track remain unclosed:'
             - '  1. Delegate to @deep-debugger with error details, changed files, strategy, bead IDs in the failing track'
             - '  2. If fix applied: re-launch the track with the same payload (the fix propagates via the surviving bead graph); continue to next wave'
-            - '  3. After 2 retries: br comment add <each_unclosed_bead> "Debug loop exhausted after 2 retries. Root cause: <error_analysis>. Attempted fixes: <fix_attempts>. Manual intervention required."; br sync --flush-only; PAUSE for user decision'
+            - '  3. After 2 retries: for each unclosed bead run node "$TOOLCHAIN_CLI" run tracker.comment --arg id=<bead_id> --arg text="Debug loop exhausted after 2 retries. Root cause: <error_analysis>. Attempted fixes: <fix_attempts>. Manual intervention required." --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; then node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; PAUSE for user decision'
         - order: 3
           title: Error Handling
-          description: Handle br command failures during execution
+          description: Handle toolchain-cli capability-call failures during execution
           actions:
-            - 'After any br command: if exit code != 0 AND prior br commands in session succeeded -> possible br failure'
-            - 'Print error message with br command that failed and its exit code'
-            - 'Print: check br status and .beads/ directory integrity'
+            - 'After any toolchain-cli run call: if the envelope is {ok:false} AND prior toolchain-cli calls in this session succeeded -> possible adapter failure'
+            - 'Print error message with the capability that failed and its error.code/error.message (and the failure-<runId>.json path the runner writes on failure after side effects)'
+            - 'Print: check the resolved tracker adapter''s health (node "$TOOLCHAIN_CLI" preflight --require tracker.show --json) and .beads/ directory integrity'
             - 'PAUSE for user decision (resume with /ensemble:beads-build <ROOT_EPIC_ID> after issue resolved)'
 
     - name: Quality Gate
@@ -212,11 +230,11 @@ workflow:
             - 'Exception: strategy=characterization or flexible -> gate_passed = true (informational only)'
         - order: 3
           title: Gate Result Recording
-          description: Record quality gate outcome as br comment and close story on pass
+          description: Record quality gate outcome as a tracker comment and close story on pass
           actions:
-            - 'Run: br comment add <STORY_BEAD_ID> "Quality gate result: <PASS|FAIL> | unit: <X%> | integration: <Y%> | strategy: <strategy>"'
-            - 'Run: br sync --flush-only'
-            - 'If gate_passed: br close <STORY_BEAD_ID> --reason=''Phase complete - quality gate passed''; br sync --flush-only; node "$TRD_CLI" beads-stage <STAGE_SCOPE> (stages only this epic''s beads from a tracked export; skip when STAGE_SCOPE is unset; never stage the whole .beads/ directory and never commit with -a); git commit -m "chore(phase <N>): checkpoint (tests pass; unit <X%>, int <Y%>)"'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.comment --arg id=<STORY_BEAD_ID> --arg text="Quality gate result: <PASS|FAIL> | unit: <X%> | integration: <Y%> | strategy: <strategy>" --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json'
+            - 'If gate_passed: node "$TOOLCHAIN_CLI" run tracker.close --arg id=<STORY_BEAD_ID> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; node "$TRD_CLI" beads-stage <STAGE_SCOPE> (stages only this epic''s beads from a tracked export; skip when STAGE_SCOPE is unset; never stage the whole .beads/ directory and never commit with -a); git commit -m "chore(phase <N>): checkpoint (tests pass; unit <X%>, int <Y%>)"'
             - 'If NOT gate_passed AND blocking strategy (tdd/refactor/bug-fix): print gate failure details; PAUSE for user: fix/skip/abort'
 
     - name: Completion
@@ -227,9 +245,9 @@ workflow:
           description: Close the root epic when all children are done (skipped when DEFER_COMPLETION=true)
           actions:
             - 'If DEFER_COMPLETION=true: print "Epic closure: deferred to caller (--defer-completion)" and skip this step entirely; the caller closes the epic only after its own completion verification and PR gate.'
-            - 'Verify: br list --status=open --label <LABEL> --json when LABEL is set, otherwise br list --status=open --json filtered by EPIC_SLUG (issue list = the parsed JSON if it is an array, otherwise its `.issues` array), returns no open tasks'
-            - 'Run: br close <ROOT_EPIC_ID> --reason=''Epic implementation complete'''
-            - 'Run: br sync --flush-only'
+            - 'Verify: node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (issue list per Preflight step 4''s tracker.list note), filtered to status=="open" AND (LABEL when set, else EPIC_SLUG), returns no open tasks'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.close --arg id=<ROOT_EPIC_ID> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json'
 
         - order: 2
           title: TRD Checkbox Sync
@@ -246,8 +264,8 @@ workflow:
           actions:
             - 'Print completion report: EPIC_SLUG, branch, strategy, ROOT_EPIC_ID, task counts, coverage summary'
             - 'If TRD_MODE=true: print Requirement Satisfaction Table:'
-            - '  Scan ROOT_EPIC_ID comments for req-verified: tokens: run br comment list <ROOT_EPIC_ID>'
-            - '  If br comment list fails: print "WARNING: Could not read root epic comments — req-verified data unavailable." Continue with empty VERIFIED_REQS.'
+            - '  Scan ROOT_EPIC_ID comments for req-verified: tokens: run node "$TOOLCHAIN_CLI" run tracker.comments --arg id=<ROOT_EPIC_ID> --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (data is the raw comment array; tracker.comments is in metadata.capabilities.optional)'
+            - '  If the tracker.comments call fails: print "WARNING: Could not read root epic comments — req-verified data unavailable." Continue with empty VERIFIED_REQS.'
             - '  Parse each comment for tokens: req-verified:REQ-NNN, by:TRD-NNN-TEST, qa:<agent>, reviewer:<agent>, ac-proven:AC-NNN-M,...'
             - '  Build VERIFIED_REQS map keyed by REQ-NNN, capturing the verifier and proven ACs from each comment'
             - '  Print table:'
@@ -257,13 +275,12 @@ workflow:
             - '    TOTAL: <N> satisfied / <M> total requirements'
             - '    ========================================'
             - 'If TRD_MODE=false: print "Requirement Satisfaction: N/A (no TRD — run with --trd <path> to enable traceability tracking)"'
-            - 'Run: br sync --flush-only'
-            - 'If BV_AVAILABLE: run bv --robot-triage --format toon for final progress summary'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json'
             - 'PR reminder (TRD-015): this command never auto-creates a PR regardless of PR_BACKEND — it only ever prints a reminder naming the resolved backend''s manual steps (mirroring TRD-010''s three backend behaviors, minus the ado MCP-tool-preferred attempt, since this file''s whole design is remind-not-automate).'
             - 'If PR_BACKEND==''gh'': remind user: git diff main...<branch>; gh pr create; after merge: move any TRD file to docs/TRD/completed/'
             - 'If PR_BACKEND==''ado'': remind user: git push -u origin <branch>; az repos pr create --source-branch <branch> --target-branch main --title "<title>"; or via the portal: Repos > Pull Requests > New Pull Request, source=<branch>, target=main; after merge: move any TRD file to docs/TRD/completed/'
             - 'If PR_BACKEND==''manual'': remind user: git push -u origin <branch>; then create the PR yourself via gh pr create --base main (or the ADO CLI/portal equivalent if the remote is Azure DevOps); after merge: move any TRD file to docs/TRD/completed/'
-            - 'Remind user: br sync --flush-only && node "$TRD_CLI" beads-stage <STAGE_SCOPE> && git commit -m "chore: final beads sync" (do not stage the whole .beads/ directory: in a repo that tracks the export the shared beads database can add beads of other TRDs to this commit; see docs/guides/beads-tracked-export.md)'
+            - 'Remind user: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json && node "$TRD_CLI" beads-stage <STAGE_SCOPE> && git commit -m "chore: final beads sync" (never stage the whole .beads/ directory; see docs/guides/beads-tracked-export.md)'
             - 'TIP: /ensemble:implement-trd-beads <trd-path> drives this same engine with full scaffold, traceability validation, and the Design Readiness gate; /ensemble:beads-build <epic> --plan prints the plan without executing.'
             - 'Do NOT auto-create PR — user must create it manually per the PR_BACKEND-specific reminder above'
 
@@ -274,9 +291,9 @@ workflow:
           title: Read-only Plan (only when PLAN_ONLY=true)
           description: Print the scope summary and the next wave plan, then exit. Creates, closes, labels, commits and stages nothing.
           actions:
-            - 'Resolve ROOT_EPIC_ID and EPIC_SLUG exactly as Epic Discovery does (br show for an id, else slug match over br list --status=open --json; zero or multiple matches -> print the error and HALT). Do not run the resume, clean-tree or label-backfill actions.'
-            - 'Run: br sync --flush-only. Count open, in_progress and closed beads under the epic (br list --status=<s> --json for each, issue list is the parsed JSON if an array, otherwise its `.issues` array; closed uses --all --limit 0; filter by LABEL when set, else by EPIC_SLUG in .title) and print: "=== EPIC SCOPE: <EPIC_SLUG> (bead: <ROOT_EPIC_ID>) === Open: <n> | In-progress: <n> | Closed: <n>".'
-            - 'If BV_AVAILABLE: run bv --robot-plan --format toon (add --label <LABEL> when set) and bv --robot-triage --format toon; print the parallel tracks, recommendations, quick wins and blockers. On a bv failure print a warning and use the br-only view. If BV_AVAILABLE=false: print "bv unavailable - showing br ready output" followed by br ready --json filtered to the scope.'
+            - 'Resolve ROOT_EPIC_ID and EPIC_SLUG exactly as Epic Discovery does (tracker.show for an id, else slug match over tracker.list filtered to status=="open"; zero or multiple matches -> print the error and HALT). Do not run the resume, clean-tree or label-backfill actions.'
+            - 'Run: node "$TOOLCHAIN_CLI" run tracker.sync --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json. Then node "$TOOLCHAIN_CLI" run tracker.list --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json (issue list per Preflight step 4''s tracker.list note; filter client-side by LABEL when set, else EPIC_SLUG). Count open, in_progress and closed beads from that filtered set and print: "=== EPIC SCOPE: <EPIC_SLUG> (bead: <ROOT_EPIC_ID>) === Open: <n> | In-progress: <n> | Closed: <n>".'
+            - 'Run: node "$TOOLCHAIN_CLI" run work-graph.ready --run-id "$RUN_ID" $NON_INTERACTIVE_ARGS --json; parse WORK_GRAPH_RESULT. {ok:false, unavailable:true} -> print "work-graph.ready unavailable - showing the scope above only" and skip the track breakdown. {ok:true} -> READY_ITEMS=data.items, ORDERING_SOURCE=data.orderingSource (print "unknown" when unset), DEPENDENCY_AWARE=data.dependencyAware. Also run work-graph.plan (optional) the same way for the track breakdown when available; skip silently on {unavailable:true}. Print: "=== PLAN: ordering source: <ORDERING_SOURCE> (dependency-aware: <DEPENDENCY_AWARE>) ===" then the ready items/tracks, recommendations, quick wins and blockers.'
             - 'Print: "Run /ensemble:beads-build <ROOT_EPIC_ID> to execute. For TRD-driven work run /ensemble:implement-trd-beads <trd-path>." Then exit.'
 
 expectedInput:
@@ -294,7 +311,7 @@ expectedOutput:
   format: Implemented features with quality gates and beads tracking
   structure:
     - name: Closed Beads
-      description: All task and story beads closed with quality gate comments recorded via br comment add
+      description: All task and story beads closed with quality gate comments recorded via tracker.comment
 
     - name: Feature Branch
       description: Git feature branch with implementation commits and phase checkpoint commits

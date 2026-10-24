@@ -9,7 +9,7 @@ const { execSync } = require('child_process');
 const { checkFrontmatter } = require('./lib/frontmatter-check');
 const promptBudget = require('./lib/prompt-budget');
 const { checkStepKeys } = require('./lib/step-keys-check');
-const { loadValidCapabilityIds, checkCapabilityIds } = require('./lib/capability-ids-check');
+const { loadValidCapabilityIds, checkCapabilityIds, checkCapabilityInvocationDrift } = require('./lib/capability-ids-check');
 const yamlLib = require('js-yaml');
 
 const PACKAGES_DIR = path.join(__dirname, '..', 'packages');
@@ -315,6 +315,34 @@ function validateCapabilityIds() {
   return failures;
 }
 
+/**
+ * Every command YAML's body prose (`run <id>`, `preflight --require <id>`, `confirm-status
+ * <id>`) must only reference capability ids that file's own `metadata.capabilities.{required,
+ * optional}` declares (PR 7 independent review item 7). Source packages only: pi/codex/
+ * opencode are generated output and would only reflect the same drift their source already
+ * has.
+ *
+ * @returns {string[]} One message per invoked-but-undeclared capability id
+ */
+function validateCapabilityInvocationDrift() {
+  const failures = [];
+  let checked = 0;
+  for (const pkg of fs.readdirSync(PACKAGES_DIR)) {
+    if (pkg === 'pi' || pkg === 'codex' || pkg === 'opencode') continue;
+    const dir = path.join(PACKAGES_DIR, pkg, 'commands');
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.yaml'))) {
+      const rel = path.join('packages', pkg, 'commands', file);
+      const rawText = fs.readFileSync(path.join(dir, file), 'utf8');
+      const commandData = yamlLib.load(rawText);
+      failures.push(...checkCapabilityInvocationDrift(commandData, rel, rawText));
+      checked++;
+    }
+  }
+  console.log(`  ✓ ${checked} command YAML file(s) checked for capability declaration/invocation drift`);
+  return failures;
+}
+
 function safeLstatExists(p) {
   try {
     fs.lstatSync(p);
@@ -517,6 +545,12 @@ function main() {
     errors++;
   });
 
+  console.log('\nValidating command capability declaration/invocation drift...');
+  validateCapabilityInvocationDrift().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
   // Prompt word-budget ratchet (see scripts/lib/prompt-budget.js)
   console.log('\nValidating prompt word budgets...');
   const sizes = promptBudget.collectSizes(PACKAGES_DIR);
@@ -558,4 +592,5 @@ module.exports = {
   validateFullLibMirror,
   validateStepKeys,
   validateCapabilityIds,
+  validateCapabilityInvocationDrift,
 };

@@ -44,10 +44,12 @@ describe('beads engine sources', () => {
     expect(text).not.toMatch(/never a fallback dispatcher/);
   });
 
-  test('the wave command and beads-build both define the br-only scheduling fallback', () => {
-    expect(read('commands/beads-build-wave.yaml')).toMatch(/br-only: `br ready --json`/);
-    expect(read('commands/beads-build.yaml')).toMatch(/bv is OPTIONAL/);
-    expect(read('commands/implement-trd-beads.yaml')).toMatch(/bv is OPTIONAL/);
+  test('the wave command and beads-build both define the work-graph.plan/work-graph.ready scheduling fallback', () => {
+    expect(read('commands/beads-build-wave.yaml')).toMatch(/work-graph\.ready capability when plan is unavailable/);
+    const build = yaml.load(read('commands/beads-build.yaml'));
+    expect(build.metadata.capabilities.required).toContain('work-graph.ready');
+    expect(build.metadata.capabilities.optional).toContain('work-graph.plan');
+    expect(read('commands/implement-trd-beads.yaml')).toMatch(/work-graph\.ready \(graph-aware parallel tracks[^)]*\) or plan order when that is unavailable/);
   });
 });
 
@@ -64,7 +66,7 @@ describe('beads-build --plan mode (replaces beads-plan)', () => {
     expect(plan).toBeDefined();
     const text = JSON.stringify(plan);
     expect(text).not.toMatch(/br (close|update|create|comment add)|git (commit|add|push)|beads-label|beads-stage/);
-    expect(text).toMatch(/br sync --flush-only/);
+    expect(text).toMatch(/run tracker\.sync/);
   });
 });
 
@@ -107,7 +109,7 @@ describe('bead context contract is mandatory before any dispatch', () => {
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     expect(context).toContain(CMD + ' --trd <TRD_PATH>');
     expect(context).toContain('blocked:missing-references');
-    expect(context).toContain('br update <BEAD_ID> --status=open');
+    expect(context).toContain('tracker.update --run-id <RUN_ID> --arg id=<BEAD_ID> --arg fields={"status":"open"}');
     expect(context).toContain('context-read: trd=<references.trd> task=<references.trdTask> prd=<references.prd> reqs=<ids>');
     expect(context).toMatch(/ENTIRE bead_context JSON/);
     expect(context).toMatch(/read the referenced files yourself before editing/);
@@ -116,7 +118,7 @@ describe('bead context contract is mandatory before any dispatch', () => {
 
   test('implement-bead reads context after claim and before dispatching the orchestrator, and passes bead_context', () => {
     const acts = actionsOf('commands/implement-bead.yaml');
-    const claim = acts.findIndex((a) => a.includes('--status=in_progress'));
+    const claim = acts.findIndex((a) => a.includes('"status":"in_progress"'));
     const ctx = acts.findIndex((a) => a.includes(CMD));
     const dispatch = acts.findIndex((a) => a.startsWith('Dispatch Task('));
     const gate = acts.findIndex((a, i) => i > dispatch && a.includes('git status --porcelain'));

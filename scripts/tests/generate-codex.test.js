@@ -501,6 +501,17 @@ describe('vendorCodexToolchain — toolchain-cli.js runtime vendoring (TRD-020, 
     // nothing under the real repo tree is read-write except the normal require() reads of the
     // real lib source files this generator ships in production.
     const count = vendorCodexToolchain({ dryRun: false, verbose: false, outputDir: tmp.outputDir });
+    // TRD-027 follow-up: `work-graph`'s shipped default `auto` now LOADS the resolved tracker
+    // adapter to check its declared categories (`packages/development/lib/toolchain/
+    // work-graph-resolve.js#resolveWorkGraphAdapter`), reachable from a plain `resolve --json`
+    // with no config at all (shipped defaults: tracker 'beads', work-graph 'auto') -- so the
+    // vendored `beads` skill must actually be present under this temp root's own
+    // `skills-root`-shaped layout (`<outputDir>/skills/adapter-tracker-beads`, matching
+    // `./toolchain/adapters.js#LIBRARY_LOCATION_TAILS`'s `skills/vendor/lib/toolchain` tail)
+    // for the second test below to succeed, exactly as a real Codex install ships it
+    // (`copyAdapterSkills` is this generator's own production step for that, not test-only
+    // scaffolding).
+    copyAdapterSkills({ dryRun: false, verbose: false, outputDir: tmp.outputDir });
     // 35 files as of this change (cli + complexity-analyzer + 13 toolchain/*.js + package.json
     // + the toolchain/ data tree); asserted loosely so an unrelated data-file addition upstream
     // doesn't make this brittle.

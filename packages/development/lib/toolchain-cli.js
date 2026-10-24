@@ -169,6 +169,8 @@ const {
   recordConfirmation,
   isNonInteractive
 } = require('./toolchain/confirm');
+const { resolveWorkGraphAdapter } = require('./toolchain/work-graph-resolve');
+const { runWorkGraphCapability } = require('./toolchain/builtin/work-graph-links-fallback');
 
 const CATEGORIES = [
   'host',
@@ -197,15 +199,35 @@ const CATEGORIES = [
  * onto that array; if any were pushed, `data.<category>.detectionDiagnostics` carries them
  * (omitted entirely when empty, so the common case's JSON shape is unchanged).
  *
+ * `work-graph` is special-cased (TRD-027): its value is resolved via
+ * `./toolchain/work-graph-resolve.js#resolveWorkGraphAdapter`, which expands the shipped
+ * default sentinel `auto` into the real, selected adapter id (TRD interpretation I7) instead
+ * of reporting the literal string `'auto'`; when expansion happened, `data['work-graph']`
+ * also carries `autoVia: 'tracker-capabilities'|'builtin-fallback'` naming which branch was
+ * taken.
+ *
  * @param {{projectRoot?: string, env?: NodeJS.ProcessEnv, detect?: Function, installedRoots?: string[]}} [ctx]
  * @returns {{ok: true, data: Record<string, {adapter: string, source: string,
- *   detectionDiagnostics?: object[]}>} | {ok: false, error: {code: string, message: string}}}
+ *   autoVia?: string, detectionDiagnostics?: object[]}>} | {ok: false, error: {code: string, message: string}}}
  */
 function resolveAll(ctx = {}) {
   const data = {};
   try {
     for (const category of CATEGORIES) {
       const diagnostics = [];
+      if (category === 'work-graph') {
+        const env = ctx.env || process.env;
+        const interactive = !isNonInteractive({ nonInteractive: false, env });
+        const resolved = resolveWorkGraphAdapter({ ...ctx, diagnostics, interactive });
+        data[category] = { adapter: resolved.value, source: resolved.source };
+        if (resolved.autoVia) {
+          data[category].autoVia = resolved.autoVia;
+        }
+        if (diagnostics.length > 0) {
+          data[category].detectionDiagnostics = diagnostics;
+        }
+        continue;
+      }
       const { value, source } = resolveCategory(category, { ...ctx, diagnostics });
       data[category] = { adapter: value, source };
       if (diagnostics.length > 0) {
@@ -360,24 +382,39 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
     };
   }
 
-  let adapterId;
-  let source;
-  try {
-    const resolved = resolveCategory(category, ctx);
-    adapterId = resolved.value;
-    source = resolved.source;
-  } catch (error) {
-    return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
-  }
-
   const env = ctx.env || process.env;
   const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
 
+  let adapterId;
+  let source;
   let loaded;
-  try {
-    loaded = loadAdapter(adapterId, { ...ctx, interactive });
-  } catch (error) {
-    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+  let workGraphTrackerManifest = null;
+  if (category === 'work-graph') {
+    let resolved;
+    try {
+      resolved = resolveWorkGraphAdapter({ ...ctx, interactive });
+    } catch (error) {
+      return { ok: false, error: { code: error.code || 'RESOLVE_FAILED', message: error.message } };
+    }
+    adapterId = resolved.value;
+    source = resolved.source;
+    loaded = { origin: resolved.origin, dir: resolved.dir, manifest: resolved.manifest };
+    if (resolved.autoVia === 'builtin-fallback') {
+      workGraphTrackerManifest = resolved.trackerManifest;
+    }
+  } else {
+    try {
+      const resolvedCategory = resolveCategory(category, ctx);
+      adapterId = resolvedCategory.value;
+      source = resolvedCategory.source;
+    } catch (error) {
+      return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+    }
+    try {
+      loaded = loadAdapter(adapterId, { ...ctx, interactive });
+    } catch (error) {
+      return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+    }
   }
 
   if (sideEffect) {
@@ -408,10 +445,15 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
   }
 
   const projectRoot = ctx.projectRoot || process.cwd();
-  const result = await runCapability(loaded.manifest, capability, args, {
-    source,
-    execFileOptions: { cwd: projectRoot }
-  });
+  const result = workGraphTrackerManifest
+    ? await runWorkGraphCapability(capability, workGraphTrackerManifest, args, {
+        source,
+        execOpts: { execFileOptions: { cwd: projectRoot } }
+      })
+    : await runCapability(loaded.manifest, capability, args, {
+        source,
+        execFileOptions: { cwd: projectRoot }
+      });
 
   if (!sideEffect) {
     return result;
@@ -577,24 +619,35 @@ function confirmStatus(ctx = {}, positionals = [], parsed = {}) {
     contractFile && contractFile.capabilities && contractFile.capabilities[capability];
   const sideEffect = Boolean(capabilityDef && capabilityDef.sideEffect);
 
-  let adapterId;
-  let source;
-  try {
-    const resolved = resolveCategory(category, ctx);
-    adapterId = resolved.value;
-    source = resolved.source;
-  } catch (error) {
-    return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
-  }
-
   const env = ctx.env || process.env;
   const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
 
+  let adapterId;
+  let source;
   let loaded;
-  try {
-    loaded = loadAdapter(adapterId, { ...ctx, interactive });
-  } catch (error) {
-    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+  if (category === 'work-graph') {
+    let resolved;
+    try {
+      resolved = resolveWorkGraphAdapter({ ...ctx, interactive });
+    } catch (error) {
+      return { ok: false, error: { code: error.code || 'RESOLVE_FAILED', message: error.message } };
+    }
+    adapterId = resolved.value;
+    source = resolved.source;
+    loaded = { origin: resolved.origin, dir: resolved.dir, manifest: resolved.manifest };
+  } else {
+    try {
+      const resolvedCategory = resolveCategory(category, ctx);
+      adapterId = resolvedCategory.value;
+      source = resolvedCategory.source;
+    } catch (error) {
+      return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+    }
+    try {
+      loaded = loadAdapter(adapterId, { ...ctx, interactive });
+    } catch (error) {
+      return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+    }
   }
 
   const data = confirmAdapterStatus(category, {
@@ -644,23 +697,33 @@ function confirmRecord(ctx = {}, positionals = [], parsed = {}) {
 
   const category = capability.split('.')[0];
 
-  let adapterId;
-  let source;
-  try {
-    const resolved = resolveCategory(category, ctx);
-    adapterId = resolved.value;
-    source = resolved.source;
-  } catch (error) {
-    return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
-  }
-
   const env = ctx.env || process.env;
   const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
 
-  try {
-    loadAdapter(adapterId, { ...ctx, interactive });
-  } catch (error) {
-    return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+  let adapterId;
+  let source;
+  if (category === 'work-graph') {
+    let resolved;
+    try {
+      resolved = resolveWorkGraphAdapter({ ...ctx, interactive });
+    } catch (error) {
+      return { ok: false, error: { code: error.code || 'RESOLVE_FAILED', message: error.message } };
+    }
+    adapterId = resolved.value;
+    source = resolved.source;
+  } else {
+    try {
+      const resolvedCategory = resolveCategory(category, ctx);
+      adapterId = resolvedCategory.value;
+      source = resolvedCategory.source;
+    } catch (error) {
+      return { ok: false, error: { code: 'RESOLVE_FAILED', message: error.message } };
+    }
+    try {
+      loadAdapter(adapterId, { ...ctx, interactive });
+    } catch (error) {
+      return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
+    }
   }
 
   try {

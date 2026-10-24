@@ -87,6 +87,17 @@ function makeMutantToolchainRoot(options = {}) {
   const libDir = path.join(devPkgRoot, 'lib');
   const toolchainLibDir = path.join(libDir, 'toolchain');
   copyDirJsFiles(path.join(REPO_DEV_PKG, 'lib', 'toolchain'), toolchainLibDir, ['.js']);
+  // `work-graph-resolve.js` (TRD-027) requires `./builtin/work-graph-links-fallback`, a
+  // subdirectory `copyDirJsFiles` above never reaches (it lists `toolchainLibDir`'s own
+  // immediate entries only, filtered by extension -- a directory name never ends in `.js`).
+  // `builtin/` holds a single flat `work-graph-links-fallback.js` (its `adapter.yaml` lives
+  // under the `dataToolchainDir` copy below instead); recursive copy regardless, same
+  // convention as that copy.
+  fs.cpSync(
+    path.join(REPO_DEV_PKG, 'lib', 'toolchain', 'builtin'),
+    path.join(toolchainLibDir, 'builtin'),
+    { recursive: true }
+  );
   copyFileSync(
     path.join(REPO_DEV_PKG, 'lib', 'complexity-analyzer.js'),
     path.join(libDir, 'complexity-analyzer.js')

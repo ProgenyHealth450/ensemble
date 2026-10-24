@@ -147,7 +147,16 @@ describe('toolchain-runtime-parity', () => {
 
   beforeAll(() => {
     // --- claude/source: reuse the existing, already-established helper verbatim. ---
-    claude = makeMutantToolchainRoot();
+    // includeAdapterSkills:true (TRD-027 follow-up): the fixture project config sets
+    // `tracker: beads` and `work-graph: auto`; `./toolchain/work-graph-resolve.js
+    // #resolveWorkGraphAdapter`'s `auto` expansion now actually LOADS the resolved tracker
+    // adapter (to inspect whether its manifest declares the `work-graph` category) wherever
+    // `work-graph` resolves, including a plain `resolve`/`explain` call -- without this, the
+    // real `beads` skill is absent from this copy and `resolve --json` fails NOT_INSTALLED,
+    // exactly as Scenario 3 below already discovered for its own, separate shipped-default
+    // scenario (independent review: `source: makeMutantToolchainRoot({includeAdapterSkills:
+    // true})`).
+    claude = makeMutantToolchainRoot({ includeAdapterSkills: true });
 
     // --- pi + codex: one shared os.tmpdir() root (one node_modules symlink for both). ---
     const sharedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-runtime-parity-'));
@@ -157,7 +166,14 @@ describe('toolchain-runtime-parity', () => {
       cliSrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'toolchain-cli.js'),
       toolchainLibSrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'toolchain'),
       toolchainDataSrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'toolchain'),
-      complexitySrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'complexity-analyzer.js')
+      complexitySrc: path.join(REPO_ROOT, 'packages', 'pi', 'vendor', 'lib', 'complexity-analyzer.js'),
+      // Same TRD-027 follow-up as claude/source above -- `./toolchain/adapters.js
+      // #libraryRelativeSkillsRoots`'s generic 'lib/toolchain' package-root tail derives
+      // `<destRoot>/skills` regardless of destRoot's own literal name (only Scenario 3 below
+      // needs the stricter 'vendor'-named tail, to prove that MORE specific production
+      // layout), so `<sharedRoot>/pi/skills/adapter-tracker-beads` is sufficient here.
+      adapterSkillSrc: path.join(REPO_ROOT, 'packages', 'pi', 'skills', 'adapter-tracker-beads'),
+      adapterSkillDest: path.join(sharedRoot, 'pi', 'skills', 'adapter-tracker-beads')
     });
 
     const codexVendorRoot = path.join(
@@ -172,7 +188,16 @@ describe('toolchain-runtime-parity', () => {
       cliSrc: path.join(codexVendorRoot, 'lib', 'toolchain-cli.js'),
       toolchainLibSrc: path.join(codexVendorRoot, 'lib', 'toolchain'),
       toolchainDataSrc: path.join(codexVendorRoot, 'toolchain'),
-      complexitySrc: path.join(codexVendorRoot, 'lib', 'complexity-analyzer.js')
+      complexitySrc: path.join(codexVendorRoot, 'lib', 'complexity-analyzer.js'),
+      adapterSkillSrc: path.join(
+        REPO_ROOT,
+        'packages',
+        'codex',
+        '.codex',
+        'skills',
+        'adapter-tracker-beads'
+      ),
+      adapterSkillDest: path.join(sharedRoot, 'codex', 'skills', 'adapter-tracker-beads')
     });
 
     // A second, independent codex copy dedicated to the Scenario 2 (missing-mechanism)
