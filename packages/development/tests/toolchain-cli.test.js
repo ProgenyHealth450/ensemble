@@ -107,7 +107,12 @@ function buildExpectedData(defaults) {
  * resolved tracker adapter to check whether its manifest provides `work-graph` -- a detection
  * value with no backing adapter directory, harmless before that, would now fail `NOT_INSTALLED`
  * purely because of the unrelated `work-graph` category also resolving in the same
- * `explain`/`resolve` call).
+ * `explain`/`resolve` call), plus `jj` (`categories: ['worktree']`) and `custom-ci`
+ * (`categories: ['ci-local']`) fixture adapters the same way (TRD-046: `assertKnownAdapter`
+ * now requires a project/user-tier selection for any category other than `tracker`/`host` to
+ * actually be discoverable, so these two arbitrary precedence-chain demo values need a real,
+ * if synthetic, backing adapter directory too, or `resolve`/`explain` would fail
+ * `UNKNOWN_ADAPTER` before this test's own assertions ever ran).
  */
 function buildFullPrecedenceCtx() {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-project-'));
@@ -134,6 +139,44 @@ function buildFullPrecedenceCtx() {
     })
   );
   fs.writeFileSync(path.join(jiraDetectedSkillDir, 'SKILL.md'), '# jira-detected\n## Vocabulary\nstub\n');
+
+  const jjSkillDir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', 'jj');
+  fs.mkdirSync(jjSkillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(jjSkillDir, 'adapter.yaml'),
+    yaml.dump({
+      adapter: 'jj',
+      version: '1.0.0',
+      categories: ['worktree'],
+      contract: { worktree: '1.0' },
+      binaries: ['fixture-tool'],
+      allowlist: [{ bin: 'fixture-tool', sub: ['worktree'] }],
+      env: [],
+      health: [],
+      detect: [],
+      capabilities: { 'worktree.create': { run: ['fixture-tool', 'worktree', 'create', '${path}'] } }
+    })
+  );
+  fs.writeFileSync(path.join(jjSkillDir, 'SKILL.md'), '# jj\n## Vocabulary\nstub\n');
+
+  const customCiSkillDir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', 'custom-ci');
+  fs.mkdirSync(customCiSkillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(customCiSkillDir, 'adapter.yaml'),
+    yaml.dump({
+      adapter: 'custom-ci',
+      version: '1.0.0',
+      categories: ['ci-local'],
+      contract: { 'ci-local': '1.0' },
+      binaries: ['fixture-tool'],
+      allowlist: [{ bin: 'fixture-tool', sub: ['run'] }],
+      env: [],
+      health: [],
+      detect: [],
+      capabilities: { 'ci-local.run-workflow': { run: ['fixture-tool', 'run', '${workflow}'] } }
+    })
+  );
+  fs.writeFileSync(path.join(customCiSkillDir, 'SKILL.md'), '# custom-ci\n## Vocabulary\nstub\n');
 
   const xdgConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'toolchain-cli-xdg-'));
   fs.mkdirSync(path.join(xdgConfigHome, 'ensemble'), { recursive: true });
