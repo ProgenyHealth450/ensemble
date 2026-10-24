@@ -185,13 +185,20 @@ capabilities:
         deferred: open
         in_review: in_progress
 
+  # `br comments add <id> <text> --json` returns a bare comment object (confirmed live, `br`
+  # 0.6.0: `{"id":454,"issue_id":"...","author":"...","text":"...","created_at":"..."}`) whose
+  # `id` is the new COMMENT's own numeric id, not the issue id -- it is not a work-item shape
+  # at all. `root: "$[0]"` previously indexed into that bare object and failed every call with
+  # `BAD_OUTPUT: mapOutput: path '$[0]' indexes '[0]' into a non-array value`; fixing the root
+  # to `"$"` then failed `CATEGORY_NORMALIZED_SCHEMA`'s `work-item.json` validation instead
+  # (`id: must be string`, since `br` reports the comment id as a JSON number and this
+  # category has no dedicated `tracker.comment` entry in `runner.js#CAPABILITY_NORMALIZED_SCHEMA`
+  # to validate against something other than `work-item.json`). Same class of mismatch as
+  # `tracker.list`/`tracker.comments` below; same remedy: no `parse` block, so `runCapability`
+  # leaves `data` as raw, Ajv-unvalidated stdout text instead of forcing it through a schema
+  # shaped for a different kind of entity.
   tracker.comment:
     run: ["br", "comments", "add", "${id}", "${text}", "--json"]
-    parse:
-      format: json
-      root: "$[0]"
-      map:
-        id: "$.id"
 
   # br comments list <id> --json: `br schema commands` documents this as shape="array",
   # items_at="." (a bare array of comment objects, empty when there are none). No `parse`

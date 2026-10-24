@@ -307,6 +307,36 @@ describe('runResolveSdlc', () => {
     expect(out.consolidatedMessage).toContain('PR backend resolution needed');
   });
 
+  test('TRD-037 AC-1: ENSEMBLE_PR_BACKEND=ado with no toolchain config -> host azure-devops via env-compat, legacy prBackend unchanged', () => {
+    const out = runResolveSdlc(
+      ['--git-town-exit-code', '0', '--remote-url', githubUrl],
+      { ENSEMBLE_PR_BACKEND: 'ado' }
+    );
+    expect(out.ok).toBe(true);
+    expect(out.host).toEqual({ adapter: 'azure-devops', source: 'env-compat' });
+    expect(out.prBackend).toEqual({ backend: 'ado', source: 'env', needsResolution: false });
+  });
+
+  test('TRD-037 AC-2: no env, no project toolchain config -> host resolves to the shipped default/detected github, workflow to git-town or plain-git, legacy fields untouched', () => {
+    const out = runResolveSdlc(
+      ['--git-town-exit-code', '0', '--remote-url', githubUrl],
+      {}
+    );
+    expect(out.ok).toBe(true);
+    expect(out.host.adapter).toBe('github');
+    expect(['detection', 'default']).toContain(out.host.source);
+    expect(['git-town', 'plain-git']).toContain(out.workflow.adapter);
+    expect(['detection', 'default']).toContain(out.workflow.source);
+    // Legacy fields unaffected by the new toolchain delegation (AC-037-2/3).
+    expect(out.branchingStrategy).toEqual({
+      strategy: 'git-town',
+      source: 'auto-detect',
+      action: 'proceed',
+      message: null,
+    });
+    expect(out.prBackend).toEqual({ backend: 'gh', source: 'auto-detect', needsResolution: false });
+  });
+
   test('missing --git-town-exit-code throws', () => {
     expect(() => runResolveSdlc(['--remote-url', githubUrl], {})).toThrow(
       /Missing required --git-town-exit-code/

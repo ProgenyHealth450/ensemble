@@ -154,12 +154,12 @@ describe('Fix-Issue Command', () => {
       expect(pr).toContain('loadRun');
     });
 
-    test('publishing commands appear only in PR Creation', () => {
-      const publishes = /\bgit\s+(?:commit|push)(?![\w-])|\bgh\s+pr\s+create\b/;
+    test('publishing capabilities appear only in PR Creation', () => {
+      const publishes = /\bworkflow\.(?:commit|push)\b|\bhost\.change-request-create\b/;
       const offenders = steps
-        .filter((s) => publishes.test(s.description.replace(/`git commit-tree[^`]*`/g, '')))
+        .filter((s) => publishes.test(s.description))
         .map((s) => s.title);
-      // Remote Review mentions `gh pr create` only as the recovery action for a missing PR URL.
+      // Remote Review mentions host.change-request-create only as the recovery action for a missing PR URL.
       expect(offenders.sort()).toEqual(['PR Creation', 'Remote Review Disposition']);
     });
 

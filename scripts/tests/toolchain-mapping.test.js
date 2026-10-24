@@ -130,6 +130,134 @@ describe('mapOutput: statusMap value translation (Implementation AC 2)', () => {
   });
 });
 
+describe('mapOutput: statusMap state-field translation (TRD-2026-8d825f54 TRD-040)', () => {
+  test('a mapped state string translates through the same statusMap to the normalized value', () => {
+    const stdout = JSON.stringify({ state: 'active' });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { state: '$.state' },
+      statusMap: { active: 'open', completed: 'closed', abandoned: 'closed' }
+    });
+    expect(result.state).toBe('open');
+  });
+
+  test('an unmapped state value throws BAD_OUTPUT naming the value, same as an unmapped status value does', () => {
+    const stdout = JSON.stringify({ state: 'weird' });
+    expect(() =>
+      mapOutput(stdout, {
+        format: 'json',
+        map: { state: '$.state' },
+        statusMap: { active: 'open' }
+      })
+    ).toThrow(/weird/);
+
+    try {
+      mapOutput(stdout, {
+        format: 'json',
+        map: { state: '$.state' },
+        statusMap: { active: 'open' }
+      });
+      throw new Error('expected mapOutput to throw');
+    } catch (err) {
+      expect(err.code).toBe('BAD_OUTPUT');
+      expect(err.message).toMatch(/weird/);
+      expect(err.message).toMatch(/state value/);
+    }
+  });
+
+  test('statusMap is simply unused when the mapped result has neither status nor state, matching the existing no-status behavior', () => {
+    const stdout = JSON.stringify({ id: 'PR-1' });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { id: '$.id' },
+      statusMap: { active: 'open' }
+    });
+    expect(result).toEqual({ id: 'PR-1' });
+  });
+
+  test('status wins when a result has both an own status and an own state property; state is left untouched', () => {
+    const stdout = JSON.stringify({ status: 'In Progress', state: 'active' });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { status: '$.status', state: '$.state' },
+      statusMap: { 'In Progress': 'in_progress', active: 'open' }
+    });
+    expect(result.status).toBe('in_progress');
+    expect(result.state).toBe('active');
+  });
+});
+
+describe('mapOutput: parse.trimPrefix literal prefix stripping (TRD-2026-8d825f54 TRD-040)', () => {
+  test('a declared prefix present on the mapped field is stripped', () => {
+    const stdout = JSON.stringify({ sourceRefName: 'refs/heads/feature/x' });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { headBranch: '$.sourceRefName' },
+      trimPrefix: { headBranch: 'refs/heads/' }
+    });
+    expect(result.headBranch).toBe('feature/x');
+  });
+
+  test('a declared prefix absent from the mapped field value is a safe no-op', () => {
+    const stdout = JSON.stringify({ headBranch: 'feature/x' });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { headBranch: '$.headBranch' },
+      trimPrefix: { headBranch: 'refs/heads/' }
+    });
+    expect(result.headBranch).toBe('feature/x');
+  });
+
+  test('a trimPrefix key naming a field missing from the mapped result is a safe no-op', () => {
+    const stdout = JSON.stringify({ id: 'PR-1' });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { id: '$.id' },
+      trimPrefix: { headBranch: 'refs/heads/' }
+    });
+    expect(result).toEqual({ id: 'PR-1' });
+  });
+
+  test('a non-string mapped field with a declared trimPrefix is a safe no-op', () => {
+    const stdout = JSON.stringify({ count: 3 });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { count: '$.count' },
+      trimPrefix: { count: 'refs/heads/' }
+    });
+    expect(result.count).toBe(3);
+  });
+
+  test('two trimPrefix entries each strip their own field independently', () => {
+    const stdout = JSON.stringify({
+      sourceRefName: 'refs/heads/feature/x',
+      targetRefName: 'refs/heads/main'
+    });
+    const result = mapOutput(stdout, {
+      format: 'json',
+      map: { headBranch: '$.sourceRefName', baseBranch: '$.targetRefName' },
+      trimPrefix: { headBranch: 'refs/heads/', baseBranch: 'refs/heads/' }
+    });
+    expect(result).toEqual({ headBranch: 'feature/x', baseBranch: 'main' });
+  });
+
+  test('a non-object parse.trimPrefix throws BAD_OUTPUT', () => {
+    expect(() =>
+      mapOutput(JSON.stringify({ a: 1 }), { format: 'json', map: { a: '$.a' }, trimPrefix: 'nope' })
+    ).toThrow(/parse\.trimPrefix must be an object/);
+  });
+
+  test('a non-string trimPrefix entry value throws BAD_OUTPUT naming the key', () => {
+    expect(() =>
+      mapOutput(JSON.stringify({ headBranch: 'refs/heads/x' }), {
+        format: 'json',
+        map: { headBranch: '$.headBranch' },
+        trimPrefix: { headBranch: 5 }
+      })
+    ).toThrow(/parse\.trimPrefix\['headBranch'\] must be a string/);
+  });
+});
+
 describe('mapOutput: two adapters, same capability, both validate against the normalized schema (Implementation AC 4)', () => {
   test('a Jira-shaped adapter and a flat-tracker-shaped adapter both map to a schema-valid work item', () => {
     const validate = compileWorkItemValidator();
@@ -775,6 +903,40 @@ describe('mutation-restore proof', () => {
       statusMap: { 'In Progress': 'in_progress' }
     });
     expect(result).toEqual(['In Progress', 'Open']);
+  });
+
+  test('the state-branch unmapped-value-throws guard actually discriminates (TRD-040): inverting it makes the unmapped-state test fail', () => {
+    const needle = '      if (!Object.prototype.hasOwnProperty.call(statusMap, rawState)) {';
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(needle, '      if (false) {');
+    expect(mutated).not.toBe(originalSource);
+
+    const mutatedMapping = loadMutant('statusmap-state-unmapped-throws', mutated);
+    expect(() =>
+      mutatedMapping.mapOutput(JSON.stringify({ state: 'weird' }), {
+        format: 'json',
+        map: { state: '$.state' },
+        statusMap: { active: 'open' }
+      })
+    ).not.toThrow(); // confirms the mutated branch is dead: the real test above would now fail
+  });
+
+  test('the trimPrefix startsWith check actually discriminates (TRD-040): disabling it silently strips every declared field regardless of its content', () => {
+    const needle = '        result[outKey].startsWith(prefix)';
+    expect(originalSource).toContain(needle);
+    const mutated = originalSource.replace(needle, '        false');
+    expect(mutated).not.toBe(originalSource);
+
+    const mutatedMapping = loadMutant('trimprefix-startswith-guard', mutated);
+    // With the startsWith check disabled (forced to `false`), the whole guard condition is
+    // always false, so the prefix is NEVER stripped even when present -- the real (unmutated)
+    // "a declared prefix present on the mapped field is stripped" test above would now fail.
+    const result = mutatedMapping.mapOutput(JSON.stringify({ sourceRefName: 'refs/heads/feature/x' }), {
+      format: 'json',
+      map: { headBranch: '$.sourceRefName' },
+      trimPrefix: { headBranch: 'refs/heads/' }
+    });
+    expect(result.headBranch).toBe('refs/heads/feature/x');
   });
 });
 

@@ -244,6 +244,22 @@ describe('buildArgv: literal template elements (Implementation AC 6)', () => {
   });
 });
 
+describe('buildArgv: literal braces (host.change-request-reviews GraphQL argv)', () => {
+  test('a backslash-escaped brace is literal and a brace group containing whitespace is literal text', () => {
+    const argv = buildArgv(
+      ['gh', 'api', 'graphql', '-F', 'owner=\\{owner\\}', '-f', 'query=q($n: Int!) { pr(number: $n) { a b } } {id}'],
+      { id: '7' },
+      { inputs: {} }
+    );
+    expect(argv[4]).toBe('owner={owner}');
+    expect(argv[6]).toBe('query=q($n: Int!) { pr(number: $n) { a b } } 7');
+  });
+
+  test('a whitespace-free brace group is still a placeholder and still fails closed when unresolved', () => {
+    expect(() => buildArgv(['x', '{nope}'], {}, { inputs: {} })).toThrow(expect.objectContaining({ code: 'INVALID_ARG' }));
+  });
+});
+
 describe('buildArgv: explicit null values are treated as "no value supplied" (fail-closed presence check)', () => {
   test('an explicit null value with no contract default throws INVALID_ARG naming the arg', () => {
     expect.assertions(2);

@@ -20,7 +20,8 @@
  *   format: 'json' | 'lines' | 'text',
  *   root?: string,                    // dotted path, json format only; default '$'
  *   map?: { <outKey>: <dottedPath> }, // field projection against the (root-projected) value
- *   statusMap?: { <rawValue>: <normalizedValue> },
+ *   trimPrefix?: { <outKey>: <prefix> }, // TRD-040: strip a literal prefix off a map-built field
+ *   statusMap?: { <rawValue>: <normalizedValue> }, // translates result.status, else result.state
  *   arrayMap?: {                      // TRD-033: per-item array filter + reshape (see below)
  *     <outKey>: {
  *       source: <dottedPath>,                      // resolved against the root-projected value
@@ -101,35 +102,74 @@
  *   not strictly `===` `filter.equals`, the item is EXCLUDED, never a thrown error -- a
  *   missing/non-matching field on one array item is an ordinary "does not match", not a
  *   manifest defect. When `filter` is omitted, every item is kept.
- * - For each KEPT item, `item` (an object of `<itemOutKey>: <dottedPath>`, each path resolved
- *   against that item, `$` again referring to the item) builds one output object; unlike
- *   `filter`, a path in `item` that fails to resolve DOES throw `BAD_OUTPUT` -- these are the
- *   fields the declared shape promises will be present on every kept item, matching `map`'s own
- *   fail-closed "every path must resolve" rule.
+ * - For each KEPT item, `item` (an object of `<itemOutKey>: <spec>`) builds one output object;
+ *   each `<spec>` is either a plain dotted-path string (resolved against the item, `$` again
+ *   referring to the item, matching `map`'s own "every path must resolve" fail-closed rule --
+ *   a path that fails to resolve DOES throw `BAD_OUTPUT`, unlike `filter` above), or an object
+ *   `{path, statusMap}` (TRD-2026-8d825f54 PR 9 fix round, item 1: per-item value translation,
+ *   the same mechanism as the top-level `statusMap` below but reachable INSIDE an `arrayMap`-
+ *   built array, for example normalizing each Azure DevOps PR reviewer's raw numeric `vote`
+ *   into a named review state): `path` is resolved against the item exactly like the plain-
+ *   string form, then the resolved raw value is looked up in `statusMap` (the same
+ *   `Object.prototype.hasOwnProperty` lookup the top-level `statusMap` uses, so a raw number
+ *   like Azure's `vote` works via JS's own numeric-key-to-string object-property coercion) and
+ *   replaced with the mapped value; an unmapped raw value throws `BAD_OUTPUT` naming the value,
+ *   the unmapped `itemOutKey`, and the `arrayMap` key -- the same fail-closed guarantee the
+ *   top-level `statusMap` documents below, never a silent passthrough of an unrecognized raw
+ *   value.
  * - `result[outKey]` is set to the array of built item-objects (possibly empty, never
  *   undefined/null) -- `mapOutput` requires `map` to already be present (the plain-object
  *   `result` `arrayMap` entries are added onto) and throws `BAD_OUTPUT` if `arrayMap` is
  *   supplied without `map` or if the `map`-built result is not a plain object, so an `arrayMap`
  *   entry can never silently attach itself to an array/primitive base result.
  *
+ * ## `trimPrefix` literal prefix stripping (TRD-2026-8d825f54 TRD-040)
+ *
+ * Some tools report a field using the raw tool's own prefixed vocabulary where the normalized
+ * schema wants the bare suffix -- the motivating case is Azure DevOps's `az repos pr show`,
+ * whose `sourceRefName`/`targetRefName` are full ref paths like `refs/heads/feature/x`, while
+ * the normalized change-request schema's `headBranch`/`baseBranch` are meant to be bare branch
+ * names with no `refs/heads/` prefix. Azure's own `--query` (JMESPath) has no substring/
+ * prefix-removal function, and the base dotted-path grammar below has no string-transform
+ * operator either, so this is a second small, narrowly-scoped mechanism (like `arrayMap`)
+ * layered on top of the `map`-built `result`, not a new path-grammar operator.
+ *
+ * For each `<outKey>: <prefix>` entry in `trimPrefix` (applied AFTER `map`/`arrayMap` build
+ * `result`, BEFORE `statusMap` runs -- the two never target the same field in practice, so the
+ * relative order of `trimPrefix` and `statusMap` does not matter, but `trimPrefix` always runs
+ * first): when `result[outKey]` is a string that starts with the declared `prefix`, it is
+ * replaced with the suffix after that prefix. Every other case is a SAFE NO-OP, never an
+ * error -- `result[outKey]` is missing, is not a string, or is a string that does not start
+ * with `prefix` -- so the same generic `trimPrefix` declaration can be reused across adapters
+ * whose raw tool output sometimes does and sometimes does not carry the prefix (for example, a
+ * GitHub adapter's branch names never carry `refs/heads/`, so declaring `trimPrefix` there,
+ * were it ever needed, would simply never fire).
+ *
  * ## `statusMap` value translation
  *
- * After `map` (or the bare parsed value, when `map` is omitted) produces a plain object result
- * with its own `status` property, and `statusMap` is supplied, the raw value at `result.status`
- * is looked up in `statusMap`: if present, `result.status` is replaced with the mapped value;
- * if absent, `mapOutput` throws a `BAD_OUTPUT`-coded error naming the unmapped raw value (TRD-012
- * Implementation AC 2: "an unmapped value yields BAD_OUTPUT naming the value"). When the result
- * has no `status` property at all, `statusMap` (if supplied) is simply unused — this is not an
- * error, since not every capability's normalized shape has a status.
+ * After `map`/`arrayMap` (or the bare parsed value, when `map` is omitted) produce a plain
+ * object `result`, and `statusMap` is supplied: if `result` has an own `status` property, the
+ * raw value at `result.status` is looked up in `statusMap` and `result.status` is replaced with
+ * the mapped value (TRD-012's original "tracker"/"work item" behavior, unchanged); ELSE IF
+ * `result` has an own `state` property instead (TRD-2026-8d825f54 TRD-040: the normalized
+ * "host"/"change request" schema names its lifecycle field `state`, not `status`), the raw
+ * value at `result.state` is looked up in the SAME `statusMap` and `result.state` is replaced
+ * the same way. A result is never checked against both fields -- `status` wins when both happen
+ * to be present, matching every real normalized schema, which declares exactly one of the two.
+ * Either way, an unmapped raw value throws a `BAD_OUTPUT`-coded error naming the unmapped value
+ * and which of the two fields it came from (TRD-012 Implementation AC 2: "an unmapped value
+ * yields BAD_OUTPUT naming the value"). When the result has NEITHER a `status` NOR a `state`
+ * property, `statusMap` (if supplied) is simply unused -- this is not an error, since not every
+ * capability's normalized shape has a lifecycle field at all.
  *
  * When `statusMap` is supplied but the result is an ARRAY (e.g. `format:'lines'` with no `map`,
- * or a `root`/`map` that resolves to an array), there is no top-level `status` field for
- * `statusMap` to ever examine — the manifest author's own declared `statusMap` could never be
+ * or a `root`/`map` that resolves to an array), there is no top-level `status`/`state` field for
+ * `statusMap` to ever examine -- the manifest author's own declared `statusMap` could never be
  * satisfied by this shape. This is fail-closed, not silently unused (TRD review Finding 7,
  * TRD-012 AC 2 intent): `mapOutput` throws `BAD_OUTPUT` naming the array shape, rather than
  * quietly returning the raw array as if the declared `statusMap` had been honored. A manifest
  * that needs status translation against a `'lines'`/array-shaped tool output must supply a
- * `map` that projects a `status` field first.
+ * `map` that projects a `status` or `state` field first.
  *
  * ## Dotted-path grammar (`resolvePath`)
  *
@@ -166,17 +206,20 @@
  *
  * `mapOutput` never mutates its `stdout` argument; for `'json'` with `map` it always builds a
  * fresh `result` object, and for the no-`map` case it returns a shallow clone of a plain-object
- * parsed value (so a subsequent `statusMap` translation never mutates data the caller might
- * still hold a reference to) but returns arrays and primitive values (from `'lines'`/`'text'`,
- * or a `'json'` value whose root/map resolves to a non-object) as-is, since there is nothing to
- * safely clone-and-translate for those shapes and no documented `status` translation applies
- * to them.
+ * parsed value (so a subsequent `statusMap`/`trimPrefix` translation never mutates data the
+ * caller might still hold a reference to) but returns arrays and primitive values (from
+ * `'lines'`/`'text'`, or a `'json'` value whose root/map resolves to a non-object) as-is, since
+ * there is nothing to safely clone-and-translate for those shapes and no documented
+ * `status`/`state`/`trimPrefix` translation applies to them.
  *
  * `statusMap` lookup is a plain `Object.prototype.hasOwnProperty` check on the raw string value
- * found at `result.status`; it does not coerce types (a numeric or boolean raw status is looked
- * up by its own type, not stringified first) and does not fall back to a default when the key
- * is merely absent from `statusMap` — that is always `BAD_OUTPUT`, per the TRD's explicit
- * "an unmapped value yields BAD_OUTPUT" requirement.
+ * found at `result.status` (or, when `status` is absent, `result.state`); it does not coerce
+ * types (a numeric or boolean raw value is looked up by its own type, not stringified first)
+ * and does not fall back to a default when the key is merely absent from `statusMap` — that is
+ * always `BAD_OUTPUT`, per the TRD's explicit "an unmapped value yields BAD_OUTPUT" requirement.
+ * `trimPrefix`, in contrast, is always a safe no-op when its declared field is missing, not a
+ * string, or does not start with the declared prefix — it never throws, by design (TRD-040: it
+ * must serve adapters whose raw output sometimes carries the prefix and sometimes does not).
  */
 
 const SEGMENT_PATTERN = /^([^[\]|]+)((?:\[\d+\])*)$/;
@@ -319,7 +362,8 @@ function resolvePath(value, path) {
  *
  * @param {unknown} baseValue the same root-projected base value `map` paths resolve against
  * @param {string} outKey the `arrayMap` key, used only for error messages
- * @param {{source: string, filter?: {path: string, equals: unknown}, item: Record<string,string>}} spec
+ * @param {{source: string, filter?: {path: string, equals: unknown},
+ *   item: Record<string, string|{path: string, statusMap?: Record<string, unknown>}>}} spec
  * @returns {object[]}
  */
 function applyArrayMapEntry(baseValue, outKey, spec) {
@@ -362,13 +406,44 @@ function applyArrayMapEntry(baseValue, outKey, spec) {
       }
     }
     const mappedItem = {};
-    for (const [itemOutKey, itemPath] of Object.entries(spec.item)) {
-      if (typeof itemPath !== 'string') {
+    for (const [itemOutKey, itemSpec] of Object.entries(spec.item)) {
+      if (typeof itemSpec === 'string') {
+        mappedItem[itemOutKey] = resolvePath(item, itemSpec);
+        continue;
+      }
+      if (
+        !itemSpec ||
+        typeof itemSpec !== 'object' ||
+        Array.isArray(itemSpec) ||
+        typeof itemSpec.path !== 'string'
+      ) {
         throw badOutputError(
-          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'] must be a dotted-path string, got ${describeType(itemPath)}`
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'] must be a dotted-path ` +
+            `string or an object with a string 'path', got ${describeType(itemSpec)}`
         );
       }
-      mappedItem[itemOutKey] = resolvePath(item, itemPath);
+      const rawValue = resolvePath(item, itemSpec.path);
+      if (itemSpec.statusMap === undefined) {
+        mappedItem[itemOutKey] = rawValue;
+        continue;
+      }
+      if (
+        typeof itemSpec.statusMap !== 'object' ||
+        itemSpec.statusMap === null ||
+        Array.isArray(itemSpec.statusMap)
+      ) {
+        throw badOutputError(
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}'].statusMap must be an ` +
+            `object when present, got ${describeType(itemSpec.statusMap)}`
+        );
+      }
+      if (!Object.prototype.hasOwnProperty.call(itemSpec.statusMap, rawValue)) {
+        throw badOutputError(
+          `mapOutput: parse.arrayMap['${outKey}'].item['${itemOutKey}']: value ` +
+            `${JSON.stringify(rawValue)} has no entry in its statusMap`
+        );
+      }
+      mappedItem[itemOutKey] = itemSpec.statusMap[rawValue];
     }
     mappedItems.push(mappedItem);
   }
@@ -380,8 +455,9 @@ function applyArrayMapEntry(baseValue, outKey, spec) {
  *
  * @param {string} stdout raw stdout captured from the executed tool
  * @param {{format: 'json'|'lines'|'text', root?: string, map?: Record<string,string>,
- *   statusMap?: Record<string,string>, arrayMap?: Record<string, {source: string,
- *   filter?: {path: string, equals: unknown}, item: Record<string,string>}>}} parse
+ *   trimPrefix?: Record<string,string>, statusMap?: Record<string,string>,
+ *   arrayMap?: Record<string, {source: string, filter?: {path: string, equals: unknown},
+ *   item: Record<string,string>}>}} parse
  * @returns {unknown} the mapped value (an object when `map` is supplied, otherwise the
  *   format-appropriate parsed value)
  */
@@ -389,7 +465,7 @@ function mapOutput(stdout, parse) {
   if (!parse || typeof parse !== 'object') {
     throw badOutputError(`mapOutput: 'parse' must be an object, got ${describeType(parse)}`);
   }
-  const { format, root, map, statusMap, arrayMap } = parse;
+  const { format, root, map, statusMap, arrayMap, trimPrefix } = parse;
   if (format !== 'json' && format !== 'lines' && format !== 'text') {
     throw badOutputError(`mapOutput: parse.format must be one of 'json'|'lines'|'text', got ${JSON.stringify(format)}`);
   }
@@ -404,6 +480,9 @@ function mapOutput(stdout, parse) {
   }
   if (arrayMap !== undefined && (typeof arrayMap !== 'object' || arrayMap === null || Array.isArray(arrayMap))) {
     throw badOutputError(`mapOutput: parse.arrayMap must be an object when present, got ${describeType(arrayMap)}`);
+  }
+  if (trimPrefix !== undefined && (typeof trimPrefix !== 'object' || trimPrefix === null || Array.isArray(trimPrefix))) {
+    throw badOutputError(`mapOutput: parse.trimPrefix must be an object when present, got ${describeType(trimPrefix)}`);
   }
   if (arrayMap !== undefined && !map) {
     throw badOutputError(`mapOutput: parse.arrayMap requires 'parse.map' to also be declared (arrayMap entries are added onto the map-built result)`);
@@ -449,12 +528,30 @@ function mapOutput(stdout, parse) {
     }
   }
 
+  if (trimPrefix) {
+    for (const [outKey, prefix] of Object.entries(trimPrefix)) {
+      if (typeof prefix !== 'string') {
+        throw badOutputError(`mapOutput: parse.trimPrefix['${outKey}'] must be a string, got ${describeType(prefix)}`);
+      }
+      if (
+        result !== null &&
+        typeof result === 'object' &&
+        !Array.isArray(result) &&
+        Object.prototype.hasOwnProperty.call(result, outKey) &&
+        typeof result[outKey] === 'string' &&
+        result[outKey].startsWith(prefix)
+      ) {
+        result[outKey] = result[outKey].slice(prefix.length);
+      }
+    }
+  }
+
   if (statusMap) {
     if (Array.isArray(result)) {
       throw badOutputError(
         `mapOutput: parse.statusMap is declared but the mapped result is an array of length ` +
-          `${result.length} (no top-level 'status' field to translate); supply 'map' to ` +
-          `project a 'status' field, or drop 'statusMap'`
+          `${result.length} (no top-level 'status' or 'state' field to translate); supply 'map' ` +
+          `to project a 'status' or 'state' field, or drop 'statusMap'`
       );
     }
     if (
@@ -467,6 +564,16 @@ function mapOutput(stdout, parse) {
         throw badOutputError(`mapOutput: status value ${JSON.stringify(rawStatus)} has no entry in parse.statusMap`);
       }
       result.status = statusMap[rawStatus];
+    } else if (
+      result !== null &&
+      typeof result === 'object' &&
+      Object.prototype.hasOwnProperty.call(result, 'state')
+    ) {
+      const rawState = result.state;
+      if (!Object.prototype.hasOwnProperty.call(statusMap, rawState)) {
+        throw badOutputError(`mapOutput: state value ${JSON.stringify(rawState)} has no entry in parse.statusMap`);
+      }
+      result.state = statusMap[rawState];
     }
   }
 

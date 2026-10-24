@@ -924,7 +924,11 @@ describe('Item D: shipped command YAMLs -- derived preflight lists pass for ever
       installBinary(project.binDir, 'bv', bvStubSource());
       const PATH = buildPath(project.binDir);
 
-      const required = requiredCapsOf(rel);
+      // Scope to the tracker-category subset of this command's required list: this
+      // describe block validates tracker-adapter swapping specifically (never touching
+      // br/bv), and implement-bead.yaml's required list also spans host/workflow
+      // capabilities this fixture never provisions (no gh/git-town stub on PATH).
+      const required = requiredCapsOf(rel).filter((c) => c.startsWith('tracker.'));
       expect(required.length).toBeGreaterThan(0);
       const args = ['preflight', ...required.flatMap((c) => ['--require', c]), '--json', '--non-interactive'];
       const result = runNode(TOOLCHAIN_CLI, args, project.dir, { PATH });

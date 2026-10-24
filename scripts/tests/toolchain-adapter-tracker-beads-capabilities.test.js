@@ -269,7 +269,6 @@ describe('TRD-024-TEST: side-effecting tracker capabilities, real runCapability(
     { capability: 'tracker.create', args: { title: 't', description: 'd', type: 'task' } },
     { capability: 'tracker.update', args: { id: 'br-x', fields: 'new notes' } },
     { capability: 'tracker.close', args: { id: 'br-x' } },
-    { capability: 'tracker.comment', args: { id: 'br-x', text: 'a comment' } },
     { capability: 'tracker.dep-add', args: { id: 'br-x', dependsOnId: 'br-y', type: 'blocks' } },
     { capability: 'tracker.dep-remove', args: { id: 'br-x', dependsOnId: 'br-y' } }
   ];
@@ -293,6 +292,23 @@ describe('TRD-024-TEST: side-effecting tracker capabilities, real runCapability(
     });
     expect(result.ok).toBe(true);
     expect(result.data).toEqual({ id: 'br-x', status: 'closed' });
+  });
+
+  test('tracker.comment: declares no parse block (real `br comments add` returns a bare, numeric-id comment object -- not an array-wrapped, string-id work item), data is raw stdout (TRD-2026-8d825f54 PR 9 review)', async () => {
+    const binDir = mkStubBinDir();
+    const result = await runCapability(REAL_MANIFEST, 'tracker.comment', { id: 'br-x', text: 'a comment' }, {
+      parentEnv: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      timeoutMs: 10000
+    });
+    expect(result.ok).toBe(true);
+    expect(typeof result.data).toBe('string');
+    expect(JSON.parse(result.data)).toEqual({
+      id: 1,
+      issue_id: 'br-x',
+      author: 'stub',
+      text: 'a comment',
+      created_at: '2024-01-01T00:00:00Z'
+    });
   });
 
   test('tracker.label: declares no parse block (ids/labels output has no "id"), data is raw stdout', async () => {

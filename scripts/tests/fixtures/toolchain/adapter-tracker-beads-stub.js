@@ -129,7 +129,13 @@ if (argv[0] === '--version') {
 } else if (argv[0] === 'close') {
   out([{ id: argv[1], status: 'closed' }]);
 } else if (argv[0] === 'comments' && argv[1] === 'add') {
-  out([{ id: argv[2] }]);
+  // Matches the REAL \`br comments add <id> <text> --json\` shape (confirmed live, \`br\`
+  // 0.6.0): a BARE object (never array-wrapped like \`show\`/\`update\`/\`close\`) whose \`id\` is
+  // the new comment's own numeric id, not the issue id (TRD-2026-8d825f54 PR 9 review: the
+  // prior stub's \`[{id: argv[2]}]\` fabricated an array-wrapped, issue-id-keyed shape that
+  // never matched the real tool and let \`adapter-tracker-beads/adapter.yaml\`'s
+  // \`tracker.comment\` parse block ship with two real bugs undetected).
+  out({ id: 1, issue_id: argv[2], author: 'stub', text: argv[3], created_at: '2024-01-01T00:00:00Z' });
 } else if (argv[0] === 'comments' && argv[1] === 'list') {
   out(errorEnvelope ? ERROR_ENVELOPE : [{ author: 'stub', text: 'a stub comment' }]);
 } else if (argv[0] === 'dep' && argv[1] === 'add') {

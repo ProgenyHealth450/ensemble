@@ -32,18 +32,23 @@
  *     repo's config (any value, including empty string, counts as "set"; an absent key does
  *     not).
  *
- * I2 result shape:
+ * I2 result shape (refined, PR 9 independent fix -- see "I2 refinement" below `detectAdapter`
+ * for the full rationale and old-vs-new wording):
  *   - zero candidates match AND no positively-identified signal source exists (no `.git`
  *     directory at all, or a `.git` directory with no `origin` remote configured) -> returns
  *     `null`, so `resolveCategory` falls through to the shipped default (`source:'default'`,
  *     no error).
  *   - exactly one candidate matches -> `{value: <adapter name>, source: 'detection'}`.
- *   - two or more candidates match, OR a positively-identified signal source exists (an
- *     `origin` remote URL is present and at least one candidate declaring `category` also
- *     declares a `remote_url_matches` signal) but matches none of them -> throws an `Error`
- *     with `.code === 'AMBIGUOUS_PROVIDER'` naming `category`, every matched adapter name (for
- *     the two-or-more case), and `.ensemble/toolchain.yaml` as the file to set the category in
- *     explicitly.
+ *   - two or more candidates match -> throws an `Error` with `.code === 'AMBIGUOUS_PROVIDER'`
+ *     naming `category`, every matched adapter name, and `.ensemble/toolchain.yaml`.
+ *   - zero candidates match, but a positively-identified signal source exists (an `origin`
+ *     remote URL is present) AND the category's OWN shipped default adapter
+ *     (`toolchain.default.yaml`, e.g. `host: github`) is itself selected by a declared
+ *     `remote_url_matches` signal -> throws the same `AMBIGUOUS_PROVIDER` shape (a remote that
+ *     matches nothing suggests the default is likely wrong). When the default declares NO
+ *     remote signal (e.g. `tracker: beads`, `detect: []`), an unrelated installed adapter's
+ *     own unmatched signal is NOT evidence against the default -> falls through to it exactly
+ *     like "no signal source" (returns `null`, `source:'default'`, no error).
  *
  * fs-only git inspection: this module never spawns a process, matching `./adapters.js`'s own
  * fs-only style. It resolves the repo's real git directory itself, including the worktree
@@ -343,6 +348,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { discoverAdapters, loadAdapter } = require('./adapters');
+const { loadDefaultToolchainConfig } = require('./config');
 
 /**
  * Resolve `<projectRoot>/.git` to the real git directory that holds `config`, handling the
@@ -609,8 +615,11 @@ function detectAdapter(category, ctx = {}) {
 
   const candidateNames = new Set(discoverAdapters(ctx).map((entry) => entry.name));
 
+  const defaults = loadDefaultToolchainConfig();
+  const defaultAdapterName = defaults && defaults[category] != null ? defaults[category] : null;
+
   const matched = [];
-  let candidateDeclaresRemoteSignal = false;
+  let defaultAdapterDeclaresRemoteSignal = false;
 
   for (const name of candidateNames) {
     let loaded;
@@ -619,7 +628,10 @@ function detectAdapter(category, ctx = {}) {
     } catch {
       // Not installed anymore (discovery/load race), untrusted repo-local adapter, or an
       // invalid user toolchain.yaml encountered during the trust lookup: exclude this
-      // candidate from detection rather than aborting the whole sweep.
+      // candidate from detection rather than aborting the whole sweep. When this candidate IS
+      // the category's shipped default, it also can never be confirmed remote-detected below
+      // -- fails safe to "not ambiguous, use the default" (same as the default not being
+      // installed at all).
       continue;
     }
 
@@ -629,8 +641,11 @@ function detectAdapter(category, ctx = {}) {
     }
 
     const detectSignals = Array.isArray(manifest.detect) ? manifest.detect : [];
-    if (detectSignals.some((signal) => signal && signal.signal === 'remote_url_matches')) {
-      candidateDeclaresRemoteSignal = true;
+    if (
+      name === defaultAdapterName &&
+      detectSignals.some((signal) => signal && signal.signal === 'remote_url_matches')
+    ) {
+      defaultAdapterDeclaresRemoteSignal = true;
     }
 
     let candidateMatched;
@@ -667,11 +682,24 @@ function detectAdapter(category, ctx = {}) {
     throw error;
   }
 
-  if (originUrl && candidateDeclaresRemoteSignal) {
+  // I2 refinement (PR 9 independent fix): a remote URL is evidence of the HOST provider, not
+  // of every category a repo happens to have an adapter installed for. An unmatched remote
+  // only means "the default is probably wrong" when the category's OWN shipped default
+  // adapter (`toolchain.default.yaml`) is itself selected by a remote signal -- i.e. the
+  // default is a remote-detected adapter like `host: github` (declares `remote_url_matches`),
+  // so a non-github remote really does suggest github is the wrong default. When the default
+  // declares no remote signal at all (`tracker: beads`, `detect: []`), an unrelated installed
+  // adapter's own unmatched signal (e.g. `adapter-tracker-azure-boards`'s `dev\.azure\.com`
+  // pattern against a github.com remote) is not evidence against the default -- it falls
+  // through to the shipped default exactly as "no signal source" would. A MATCHING remote
+  // still selects the matching adapter regardless of which adapter is the default (the
+  // `matched.length === 1` branch above, unchanged); two or more matching adapters is still
+  // ambiguous (the `matched.length >= 2` branch above, unchanged).
+  if (originUrl && defaultAdapterDeclaresRemoteSignal) {
     const error = new Error(
       `detection for category '${category}' found a remote 'origin' URL ('${originUrl}') that ` +
-        `matches no installed adapter's signal; set '${category}' explicitly in ` +
-        `.ensemble/toolchain.yaml`
+        `matches no installed adapter's signal (the shipped default adapter '${defaultAdapterName}' ` +
+        `is itself remote-detected); set '${category}' explicitly in .ensemble/toolchain.yaml`
     );
     error.code = 'AMBIGUOUS_PROVIDER';
     throw error;

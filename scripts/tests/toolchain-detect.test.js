@@ -40,6 +40,8 @@ const {
   makeMutantToolchainRoot,
   mutateAndRequire
 } = require('./fixtures/toolchain/mutant-toolchain-copy');
+const { writeBeadsStubs } = require('./fixtures/toolchain/adapter-tracker-beads-stub');
+const { writeAzureBoardsStub } = require('./fixtures/toolchain/adapter-tracker-azure-boards-stub');
 
 const CLI = path.join(__dirname, '..', '..', 'packages', 'development', 'lib', 'toolchain-cli.js');
 
@@ -119,11 +121,22 @@ function captureStdout(fn) {
   return chunks.join('');
 }
 
+/**
+ * A restricted `PATH` containing ONLY the caller's stub bin dir, node's own dir (so `node
+ * <cli>` itself still resolves) and `/usr/bin:/bin` (core POSIX utilities `git` needs) -- NEVER
+ * the real inherited `process.env.PATH` -- mirroring `tracker-swap-scenario.test.js#buildPath`,
+ * so no real `br`/`bv`/`az` anywhere on the host's actual PATH can be reached by these
+ * subprocesses, only the stub.
+ */
+function buildStubPath(binDir) {
+  return [binDir, path.dirname(process.execPath), '/usr/bin', '/bin'].join(path.delimiter);
+}
+
 describe('AC-010-1/AC1: remote matches an installed adapter signal', () => {
   test('resolveCategory returns the matching adapter with source detection', () => {
     const projectRoot = mkTempDir('toolchain-detect-ac1-');
     initGitRepo(projectRoot);
-    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+    setGitRemote(projectRoot, 'https://git.fixture-forge.example/example/repo.git');
 
     writeInstalledAdapter(
       projectRoot,
@@ -132,7 +145,7 @@ describe('AC-010-1/AC1: remote matches an installed adapter signal', () => {
       fixtureManifest({
         adapter: 'github-fixture',
         categories: ['host'],
-        detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
+        detect: [{ signal: 'remote_url_matches', pattern: 'fixture-forge\\.example' }]
       })
     );
 
@@ -148,12 +161,17 @@ describe('AC-010-2/AC2: remote matches no installed adapter signal', () => {
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'https://example.invalid/x.git');
 
+    // Named literally 'github' -- the I2 refinement (PR 9 independent fix) only treats an
+    // unmatched remote as ambiguous when the category's SHIPPED DEFAULT adapter
+    // (toolchain.default.yaml's `host: github`) is itself remote-detected; a fixture named
+    // anything else would no longer trigger ambiguity here, it would silently fall through to
+    // the (unloadable, in this fixture project) default instead.
     writeInstalledAdapter(
       projectRoot,
       'fixture-pkg',
-      'github-fixture',
+      'github',
       fixtureManifest({
-        adapter: 'github-fixture',
+        adapter: 'github',
         categories: ['host'],
         detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
       })
@@ -320,10 +338,10 @@ describe('detect signal types', () => {
     expect(result).toEqual({ value: 'iac-fixture', source: 'detection' });
   });
 
-  test('git_config_set signal detects a configured git-town main-branch key', () => {
+  test("git_config_set signal detects a configured custom key (non-colliding with the shipped git-town adapter's own key)", () => {
     const projectRoot = mkTempDir('toolchain-detect-git-config-');
     initGitRepo(projectRoot);
-    setGitConfig(projectRoot, 'git-town.main-branch', 'main');
+    setGitConfig(projectRoot, 'fixture.workflow-marker', 'on');
 
     writeInstalledAdapter(
       projectRoot,
@@ -332,7 +350,7 @@ describe('detect signal types', () => {
       fixtureManifest({
         adapter: 'git-town-fixture',
         categories: ['workflow'],
-        detect: [{ signal: 'git_config_set', key: 'git-town.main-branch' }]
+        detect: [{ signal: 'git_config_set', key: 'fixture.workflow-marker' }]
       })
     );
 
@@ -365,7 +383,7 @@ describe('detect signal types', () => {
     const mainGitDir = mkTempDir('toolchain-detect-worktree-main-git-');
     fs.writeFileSync(
       path.join(mainGitDir, 'config'),
-      '[remote "origin"]\n\turl = https://github.com/example/repo.git\n'
+      '[remote "origin"]\n\turl = https://git.fixture-forge.example/example/repo.git\n'
     );
 
     const worktreeGitDir = mkTempDir('toolchain-detect-worktree-git-');
@@ -381,7 +399,7 @@ describe('detect signal types', () => {
       fixtureManifest({
         adapter: 'github-fixture',
         categories: ['host'],
-        detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
+        detect: [{ signal: 'remote_url_matches', pattern: 'fixture-forge\\.example' }]
       })
     );
 
@@ -395,7 +413,7 @@ describe('mutation-proof branches', () => {
   test('OR semantics: a candidate matches when ANY declared signal matches, not only the first', () => {
     const projectRoot = mkTempDir('toolchain-detect-or-semantics-');
     initGitRepo(projectRoot);
-    setGitConfig(projectRoot, 'git-town.main-branch', 'main');
+    setGitConfig(projectRoot, 'fixture.workflow-marker', 'on');
 
     writeInstalledAdapter(
       projectRoot,
@@ -406,7 +424,7 @@ describe('mutation-proof branches', () => {
         categories: ['workflow'],
         detect: [
           { signal: 'dir_exists', path: 'does-not-exist' },
-          { signal: 'git_config_set', key: 'git-town.main-branch' }
+          { signal: 'git_config_set', key: 'fixture.workflow-marker' }
         ]
       })
     );
@@ -451,14 +469,13 @@ describe('mutation-proof branches', () => {
       })
     );
 
-    // Probe category 'lint', not 'tracker': the real, installed `adapter-tracker-azure-boards`
-    // adapter (TRD-033) also declares 'tracker' with its own `remote_url_matches` signal
-    // (`dev\.azure\.com|visualstudio\.com`), which this repo's fixed library-relative "installed"
-    // skills roots always include regardless of `projectRoot` -- probing 'tracker' here would
-    // make this github.com-origin project hit AMBIGUOUS_PROVIDER for an unrelated reason (a
-    // real signal declared but unmatched), not the category-filter behavior this test exists to
-    // prove. No installed adapter declares 'lint' with a signal, so it isolates the same
-    // category-filter property this test always intended to check.
+    // Probe category 'lint': no installed adapter declares 'lint' with a signal, so it
+    // isolates the category-filter property this test exists to check. (Probing 'tracker'
+    // would ALSO now work after the I2 refinement -- PR 9 independent fix -- since 'tracker's
+    // shipped default `beads` declares no remote signal, so a github.com origin no longer
+    // makes 'tracker' ambiguous merely because the real, installed `adapter-tracker-azure-
+    // boards` adapter declares its own unrelated, unmatched `remote_url_matches` signal; 'lint'
+    // is kept here regardless as the simpler, dependency-free probe.)
     const result = resolveCategory('lint', { projectRoot, env: {}, detect: detectAdapter });
 
     expect(result.source).toBe('default');
@@ -515,13 +532,19 @@ describe('mutation-proof branches', () => {
     expect(result).toBeFalsy();
   });
 
-  test('AMBIGUOUS_PROVIDER fires from the remote-signal-declared-but-unmatched gate even when no candidate directly matches by any signal (candidateDeclaresRemoteSignal)', () => {
-    // Neither candidate below ever lands in `matched`: the marker adapter's `dir_exists`
-    // target is never created, and the remote adapter's `remote_url_matches` pattern does not
-    // match the configured origin. The only way this still throws `AMBIGUOUS_PROVIDER` (instead
-    // of falling through to the shipped default) is the `candidateDeclaresRemoteSignal` flag at
-    // detect.js:355 feeding the `originUrl && candidateDeclaresRemoteSignal` gate at line 376 --
-    // proving that gate is reachable and load-bearing even when `matched.length === 0`.
+  test('AMBIGUOUS_PROVIDER fires from the default-adapter-remote-signal-declared-but-unmatched gate even when no candidate directly matches by any signal (defaultAdapterDeclaresRemoteSignal)', () => {
+    // Moved from category 'workflow' to 'host' (PR 9 independent fix, I2 refinement): the
+    // ambiguous-on-unmatched-remote gate now only fires when the CATEGORY'S SHIPPED DEFAULT
+    // adapter (toolchain.default.yaml's `host: github`) itself declares a `remote_url_matches`
+    // signal, so the remote-declaring fixture below must be named literally 'github' -- a
+    // same-shaped fixture named anything else (as this test's old 'workflow'-category
+    // 'remote-fixture' was) no longer triggers this gate at all. Neither candidate below ever
+    // lands in `matched`: the marker adapter's `dir_exists` target is never created, and
+    // 'github's `remote_url_matches` pattern does not match the configured origin. The only
+    // way this still throws `AMBIGUOUS_PROVIDER` (instead of falling through to the shipped
+    // default) is the `defaultAdapterDeclaresRemoteSignal` flag feeding the
+    // `originUrl && defaultAdapterDeclaresRemoteSignal` gate -- proving that gate is reachable
+    // and load-bearing even when `matched.length === 0`.
     const projectRoot = mkTempDir('toolchain-detect-remote-gate-');
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'https://gitlab.com/example/repo.git');
@@ -532,37 +555,36 @@ describe('mutation-proof branches', () => {
       'marker-fixture',
       fixtureManifest({
         adapter: 'marker-fixture',
-        categories: ['workflow'],
+        categories: ['host'],
         detect: [{ signal: 'dir_exists', path: 'never-created-marker-dir' }]
       })
     );
     writeInstalledAdapter(
       projectRoot,
       'fixture-pkg-remote',
-      'remote-fixture',
+      'github',
       fixtureManifest({
-        adapter: 'remote-fixture',
-        categories: ['workflow'],
+        adapter: 'github',
+        categories: ['host'],
         detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
       })
     );
 
     let thrown;
     try {
-      detectAdapter('workflow', { projectRoot, env: {} });
+      detectAdapter('host', { projectRoot, env: {} });
     } catch (error) {
       thrown = error;
     }
 
     expect(thrown).toBeDefined();
     expect(thrown.code).toBe('AMBIGUOUS_PROVIDER');
-    expect(thrown.message).toContain('workflow');
+    expect(thrown.message).toContain('host');
   });
 
   test('an unrecognized signal type is treated as no-match, never a crash or a silent match (signalMatches default arm)', () => {
     const projectRoot = mkTempDir('toolchain-detect-unknown-signal-');
     initGitRepo(projectRoot);
-    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
 
     writeInstalledAdapter(
       projectRoot,
@@ -615,7 +637,7 @@ describe('production wiring: main() uses the real detectAdapter via its unmodifi
   test("toolchain-cli resolve --json detects a real adapter through main()'s omitted-ctx default (TRD-016 production reachability)", () => {
     const projectRoot = mkTempDir('toolchain-detect-main-wiring-');
     initGitRepo(projectRoot);
-    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+    setGitRemote(projectRoot, 'https://git.fixture-forge.example/example/repo.git');
 
     writeInstalledAdapter(
       projectRoot,
@@ -624,19 +646,16 @@ describe('production wiring: main() uses the real detectAdapter via its unmodifi
       fixtureManifest({
         adapter: 'github-fixture',
         categories: ['host'],
-        detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
+        detect: [{ signal: 'remote_url_matches', pattern: 'fixture-forge\\.example' }]
       })
     );
 
-    // Pin 'tracker' explicitly via project config: the real, installed
-    // `adapter-tracker-azure-boards` adapter (TRD-033) also declares 'tracker' with its own
-    // `remote_url_matches` signal (`dev\.azure\.com|visualstudio\.com`), which this repo's fixed
-    // library-relative "installed" skills roots always include regardless of `projectRoot` --
-    // left unpinned, this github.com-origin project would hit AMBIGUOUS_PROVIDER for 'tracker'
-    // (a real signal declared but unmatched), unrelated to what this test exists to prove (that
-    // main()'s default ctx reaches the real detectAdapter for the 'host' category below).
-    fs.mkdirSync(path.join(projectRoot, '.ensemble'), { recursive: true });
-    fs.writeFileSync(path.join(projectRoot, '.ensemble', 'toolchain.yaml'), yaml.dump({ tracker: 'beads' }));
+    // The I2 refinement (PR 9 independent fix) means 'tracker' no longer needs an explicit
+    // pin here: this repo's real, installed `adapter-tracker-azure-boards` adapter (TRD-033)
+    // declares its own `remote_url_matches` signal (`dev\.azure\.com|visualstudio\.com`), but
+    // 'tracker's shipped default (`beads`, `detect: []`) does not declare a remote signal at
+    // all, so this project's fixture-forge.example origin matches neither azure-boards nor
+    // jira, falling through to the default silently -- this test exercises that directly.
 
     // A fresh, empty XDG config root so this test's result can never depend on whatever
     // toolchain.yaml (if any) happens to exist on the machine actually running the suite.
@@ -667,12 +686,15 @@ describe('production wiring: main() uses the real detectAdapter via its unmodifi
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'https://example.invalid/x.git');
 
+    // Named literally 'github' -- the I2 refinement (PR 9 independent fix) only treats an
+    // unmatched remote as ambiguous when the category's SHIPPED DEFAULT adapter
+    // (toolchain.default.yaml's `host: github`) is itself remote-detected.
     writeInstalledAdapter(
       projectRoot,
       'fixture-pkg',
-      'github-fixture',
+      'github',
       fixtureManifest({
-        adapter: 'github-fixture',
+        adapter: 'github',
         categories: ['host'],
         detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
       })
@@ -771,13 +793,20 @@ describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)',
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'a'.repeat(40) + '!');
 
+    // Named literally 'github' and category 'host' (PR 9 independent fix, I2 refinement): the
+    // ambiguous-on-unmatched-remote gate now only fires when the category's SHIPPED DEFAULT
+    // adapter is itself remote-detected, so this fixture must be the recognized default
+    // (toolchain.default.yaml's `host: github`) for its DETECTION_SIGNAL_ERROR exclusion to
+    // still reach AMBIGUOUS_PROVIDER below -- the static `remote_url_matches` signal
+    // DECLARATION (checked before any regex ever runs) still counts even though the regex
+    // itself later fails its deadline and gets excluded from `matched`.
     writeInstalledAdapter(
       projectRoot,
       'fixture-pkg',
-      'fixture-evil-cli',
+      'github',
       fixtureManifest({
-        adapter: 'fixture-evil-cli',
-        categories: ['tracker'],
+        adapter: 'github',
+        categories: ['host'],
         detect: [{ signal: 'remote_url_matches', pattern: '^(a+)+$' }]
       })
     );
@@ -795,16 +824,17 @@ describe('remote_url_matches: bounded regex evaluation (PR 4 review Finding 4)',
     expect(result.signal).toBeNull();
     expect(result.status).toBe(1);
     const parsed = JSON.parse(result.stdout);
-    // 'fixture-evil-cli' is EXCLUDED (PR 4 review round 2, Finding 1), not propagated as
-    // DETECTION_SIGNAL_ERROR: this fixture is the adapter's only candidate for 'tracker', so
-    // excluding it still correctly reports AMBIGUOUS_PROVIDER (an origin URL that matches no
-    // USABLE adapter signal) -- a clean, named, bounded-time result either way, never a hang.
+    // 'github' is EXCLUDED (PR 4 review round 2, Finding 1), not propagated as
+    // DETECTION_SIGNAL_ERROR: this fixture is the shipped default for 'host', so excluding it
+    // from `matched` still correctly reports AMBIGUOUS_PROVIDER (an origin URL that matches no
+    // USABLE adapter signal, and the default itself is remote-detected) -- a clean, named,
+    // bounded-time result either way, never a hang.
     expect(parsed).toEqual({
       ok: false,
       error: { code: 'AMBIGUOUS_PROVIDER', message: expect.any(String) }
     });
     // The underlying cause (the catastrophic pattern itself) is still named, on stderr.
-    expect(result.stderr).toContain("adapter 'fixture-evil-cli'");
+    expect(result.stderr).toContain("adapter 'github'");
     expect(result.stderr).toContain('^(a+)+$');
   });
 
@@ -959,6 +989,22 @@ describe("remote_url_matches: a bad pattern excludes only that candidate (PR 4 r
         adapter: 'bad-explain-tracker',
         categories: ['tracker'],
         detect: [{ signal: 'remote_url_matches', pattern: '^(x+x)+$' }]
+      })
+    );
+
+    // The 'host' category's shipped default adapter ('github') itself declares a
+    // `remote_url_matches` signal (I2 refinement); an unmatched remote with no host
+    // candidate would otherwise make detection ambiguous for 'host' too, unrelated to what
+    // this test actually exercises ('tracker'). A trivial file_exists host candidate keeps
+    // 'host' resolved and out of the way.
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'host-sink-fixture',
+      fixtureManifest({
+        adapter: 'host-sink-fixture',
+        categories: ['host'],
+        detect: [{ signal: 'file_exists', path: 'marker.txt' }]
       })
     );
 
@@ -1161,13 +1207,16 @@ describe('remote_url_matches: per-process memoization (PR 4 review round 2, Find
     initGitRepo(projectRoot);
     setGitRemote(projectRoot, 'x'.repeat(40) + '!');
 
-    // 'review', not 'tracker': the real, installed `adapter-tracker-azure-boards` adapter
-    // (TRD-033) also declares 'tracker' with its own `remote_url_matches` signal, which this
-    // repo's fixed library-relative "installed" skills roots always include regardless of
-    // `projectRoot` -- its own DISTINCT (adapter, pattern) pair would add a second real cache
-    // miss during the 'tracker' sweep step, breaking this test's "exactly one shared pattern"
-    // premise for a reason unrelated to the memoization behavior under test.
-    const categories = ['review', 'workflow', 'worktree', 'host', 'lint'];
+    // Neither 'tracker' nor 'host' appears here: the real, installed `adapter-tracker-
+    // azure-boards` adapter (TRD-033) declares 'tracker' with its own `remote_url_matches`
+    // signal, and the real, installed `adapter-host-github`/`adapter-host-azure-devops`
+    // adapters (TRD-036) both declare 'host' with their own `remote_url_matches` signals --
+    // this repo's fixed library-relative "installed" skills roots always include all of these
+    // regardless of `projectRoot`. Each is a DISTINCT (adapter, pattern) pair that would add
+    // its own real cache miss during that category's sweep step, breaking this test's "exactly
+    // one shared pattern" premise for a reason unrelated to the memoization behavior under
+    // test.
+    const categories = ['review', 'workflow', 'worktree', 'ci-local', 'lint'];
     writeInstalledAdapter(
       projectRoot,
       'fixture-pkg',
@@ -1291,6 +1340,261 @@ describe('remote_url_matches: per-process memoization (PR 4 review round 2, Find
         // With the memoization bypassed, every category pays its own full evaluation -- exactly
         // what the real (unmutated) "cache misses == 1" test above disproves.
         expect(mutated.__getRemoteUrlMatchCacheMissesForTests()).toBe(categories.length);
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+  });
+});
+
+describe('I2 refinement (PR 9 independent fix): the 7 required real-CLI-subprocess scenarios', () => {
+  // This describe block's own tests cover cases 1, 2, 4 and 7 end-to-end against the REAL,
+  // installed `adapter-tracker-beads`/`adapter-tracker-azure-boards` adapters via a real
+  // `node toolchain-cli.js` subprocess (never a mutant copy, never a fixture adapter) -- the
+  // exact fresh-project-with-a-remote-and-no-config scenario the original bug report
+  // reproduced. Cases 3-6 are already covered end-to-end (via `resolveCategory`/`detectAdapter`
+  // called in-process against fixture adapters, the established convention for this file) by
+  // pre-existing tests above, each updated for this same I2 refinement:
+  //   case 3 (host + unmatched remote 'https://example.invalid/x.git' + no config ->
+  //     AMBIGUOUS_PROVIDER naming the category) == "AC-010-2/AC2: remote matches no installed
+  //     adapter signal > throws AMBIGUOUS_PROVIDER naming the category and
+  //     .ensemble/toolchain.yaml"
+  //   case 4 (host + github.com remote -> github, the REAL shipped adapter, plus the
+  //     "extra third-party adapter also matches" ambiguous variant) == this describe block's
+  //     own "4a."/"4b." tests below (PR 9 fix round, item 0: "AC-010-1/AC1" above was
+  //     generalized to a non-github fixture signal/remote once the shipped `adapter-host-
+  //     github` (TRD-036) made a literal `github.com` remote there collide with it, so AC1 no
+  //     longer exercises case 4 on its own)
+  //   case 5 (no remote -> defaults) == "AC3: no .git repo and no marker files > resolveCategory
+  //     falls through to the shipped default with source default, no error (I2)"
+  //   case 6 (two matching adapters -> AMBIGUOUS lists both) == "AC4: two installed adapters
+  //     both match the remote > AMBIGUOUS_PROVIDER lists both adapter names"
+
+  test('1. a fresh project with a GitHub remote and no config resolves tracker to the shipped default (beads) and preflight passes against the real adapter', () => {
+    const projectRoot = mkTempDir('toolchain-detect-i2-case1-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+
+    const binDir = mkTempDir('toolchain-detect-i2-case1-bin-');
+    writeBeadsStubs(binDir);
+    const xdgConfigHome = mkTempDir('toolchain-detect-i2-case1-xdg-');
+    const env = { PATH: buildStubPath(binDir), XDG_CONFIG_HOME: xdgConfigHome };
+
+    const explainResult = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    expect(explainResult.status).toBe(0);
+    const explained = JSON.parse(explainResult.stdout);
+    expect(explained.ok).toBe(true);
+    expect(explained.data.tracker).toEqual({ adapter: 'beads', source: 'default' });
+
+    const preflightResult = spawnSync(
+      'node',
+      [CLI, 'preflight', '--require', 'tracker.show', '--json'],
+      { cwd: projectRoot, env, encoding: 'utf8', timeout: 10000 }
+    );
+    expect(preflightResult.status).toBe(0);
+    const preflight = JSON.parse(preflightResult.stdout);
+    expect(preflight.ok).toBe(true);
+  });
+
+  test('2. a fresh project with an Azure DevOps remote and no config selects adapter-tracker-azure-boards via detection and preflight passes against the real adapter', () => {
+    const projectRoot = mkTempDir('toolchain-detect-i2-case2-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://dev.azure.com/org/proj/_git/repo');
+
+    const binDir = mkTempDir('toolchain-detect-i2-case2-bin-');
+    writeAzureBoardsStub(binDir);
+    const xdgConfigHome = mkTempDir('toolchain-detect-i2-case2-xdg-');
+    const env = { PATH: buildStubPath(binDir), XDG_CONFIG_HOME: xdgConfigHome };
+
+    const explainResult = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    expect(explainResult.status).toBe(0);
+    const explained = JSON.parse(explainResult.stdout);
+    expect(explained.ok).toBe(true);
+    expect(explained.data.tracker).toEqual({ adapter: 'azure-boards', source: 'detection' });
+
+    const preflightResult = spawnSync(
+      'node',
+      [CLI, 'preflight', '--require', 'tracker.show', '--json'],
+      { cwd: projectRoot, env, encoding: 'utf8', timeout: 10000 }
+    );
+    expect(preflightResult.status).toBe(0);
+    const preflight = JSON.parse(preflightResult.stdout);
+    expect(preflight.ok).toBe(true);
+  });
+
+  test('4a. a fresh project with a GitHub remote and no config resolves host to the shipped github adapter via detection (production, real adapter, no fixture)', () => {
+    const projectRoot = mkTempDir('toolchain-detect-i2-case4a-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+
+    const xdgConfigHome = mkTempDir('toolchain-detect-i2-case4a-xdg-');
+    const env = { PATH: process.env.PATH, XDG_CONFIG_HOME: xdgConfigHome };
+
+    const explainResult = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    expect(explainResult.status).toBe(0);
+    const explained = JSON.parse(explainResult.stdout);
+    expect(explained.ok).toBe(true);
+    expect(explained.data.host).toEqual({ adapter: 'github', source: 'detection' });
+    expect(explained.data.workflow).toEqual({ adapter: 'plain-git', source: 'default' });
+  });
+
+  test('4b. a project with the same GitHub remote and an extra third-party host adapter matching it yields AMBIGUOUS_PROVIDER naming both the shipped github adapter and the third-party one', () => {
+    const projectRoot = mkTempDir('toolchain-detect-i2-case4b-');
+    initGitRepo(projectRoot);
+    setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+
+    writeInstalledAdapter(
+      projectRoot,
+      'fixture-pkg',
+      'third-party-host-fixture',
+      fixtureManifest({
+        adapter: 'third-party-host-fixture',
+        categories: ['host'],
+        detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
+      })
+    );
+
+    const xdgConfigHome = mkTempDir('toolchain-detect-i2-case4b-xdg-');
+    const env = { PATH: process.env.PATH, XDG_CONFIG_HOME: xdgConfigHome };
+
+    const explainResult = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    expect(explainResult.status).toBe(1);
+    const explained = JSON.parse(explainResult.stdout);
+    expect(explained.ok).toBe(false);
+    expect(explained.error.code).toBe('AMBIGUOUS_PROVIDER');
+    expect(explained.error.message).toContain('github');
+    expect(explained.error.message).toContain('third-party-host-fixture');
+  });
+
+  test('7. an explicit .ensemble/toolchain.yaml always wins over detection, even for a remote that would otherwise detect a different real adapter', () => {
+    const projectRoot = mkTempDir('toolchain-detect-i2-case7-');
+    initGitRepo(projectRoot);
+    // An Azure DevOps remote would otherwise detect adapter-tracker-azure-boards (case 2,
+    // above) -- explicit project config must still win.
+    setGitRemote(projectRoot, 'https://dev.azure.com/org/proj/_git/repo');
+    fs.mkdirSync(path.join(projectRoot, '.ensemble'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, '.ensemble', 'toolchain.yaml'), 'tracker: beads\n');
+
+    const binDir = mkTempDir('toolchain-detect-i2-case7-bin-');
+    writeBeadsStubs(binDir);
+    const xdgConfigHome = mkTempDir('toolchain-detect-i2-case7-xdg-');
+    const env = { PATH: buildStubPath(binDir), XDG_CONFIG_HOME: xdgConfigHome };
+
+    const explainResult = spawnSync('node', [CLI, 'explain', '--json'], {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    expect(explainResult.status).toBe(0);
+    const explained = JSON.parse(explainResult.stdout);
+    expect(explained.ok).toBe(true);
+    expect(explained.data.tracker).toEqual({ adapter: 'beads', source: 'project' });
+  });
+
+  describe('mutation proofs (I2 refinement)', () => {
+    test('dropping the default-adapter-name condition reverts to the original bug: case 1\'s exact scenario (unmatched remote, a NON-default candidate declaring a remote signal) becomes falsely AMBIGUOUS_PROVIDER instead of silently resolving to the default', () => {
+      const projectRoot = mkTempDir('toolchain-detect-i2-mutantA-');
+      initGitRepo(projectRoot);
+      setGitRemote(projectRoot, 'https://github.com/example/repo.git');
+      const skillsPkgDir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills');
+      for (const [name, detect] of [
+        ['beads', []],
+        ['azure-boards-fixture', [{ signal: 'remote_url_matches', pattern: 'dev\\.azure\\.com' }]]
+      ]) {
+        const dir = path.join(skillsPkgDir, name);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, 'adapter.yaml'),
+          yaml.dump(fixtureManifest({ adapter: name, categories: ['tracker'], detect }))
+        );
+        fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\n`);
+      }
+
+      // Real (fixed) code: 'beads' IS the default and declares no remote signal;
+      // 'azure-boards-fixture' declares one but is NOT the default -- neither sets
+      // defaultAdapterDeclaresRemoteSignal, so this falls through silently (no throw).
+      expect(detectAdapter('tracker', { projectRoot })).toBeNull();
+
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle = "name === defaultAdapterName &&\n      ";
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/detect.js', needle, '');
+
+        // Mutant: ANY candidate declaring a remote_url_matches signal sets the flag, exactly
+        // the original (pre-PR-9) bug -- 'azure-boards-fixture' is such a candidate even
+        // though it is not the default, so the same fixture now throws.
+        let thrown;
+        try {
+          mutated.detectAdapter('tracker', { projectRoot });
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).toBeDefined();
+        expect(thrown.code).toBe('AMBIGUOUS_PROVIDER');
+      } finally {
+        mutantRoot.cleanup();
+      }
+    });
+
+    test('inverting the final ambiguity gate breaks case 3\'s exact scenario: a non-matching remote whose category default IS remote-detected silently falls through to the default instead of throwing AMBIGUOUS_PROVIDER', () => {
+      const projectRoot = mkTempDir('toolchain-detect-i2-mutantB-');
+      initGitRepo(projectRoot);
+      setGitRemote(projectRoot, 'https://example.invalid/x.git');
+      const dir = path.join(projectRoot, 'packages', 'fixture-pkg', 'skills', 'github');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'adapter.yaml'),
+        yaml.dump(
+          fixtureManifest({
+            adapter: 'github',
+            categories: ['host'],
+            detect: [{ signal: 'remote_url_matches', pattern: 'github\\.com' }]
+          })
+        )
+      );
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), '# github\n');
+
+      // Real (fixed) code: 'github' IS the default for 'host' and declares a remote signal
+      // that does not match 'example.invalid' -- throws AMBIGUOUS_PROVIDER.
+      let realThrown;
+      try {
+        detectAdapter('host', { projectRoot });
+      } catch (error) {
+        realThrown = error;
+      }
+      expect(realThrown).toBeDefined();
+      expect(realThrown.code).toBe('AMBIGUOUS_PROVIDER');
+
+      const mutantRoot = makeMutantToolchainRoot();
+      try {
+        const needle = 'if (originUrl && defaultAdapterDeclaresRemoteSignal) {';
+        const replacement = 'if (originUrl && !defaultAdapterDeclaresRemoteSignal) {';
+        const mutated = mutateAndRequire(mutantRoot.toolchainLibDir + '/detect.js', needle, replacement);
+
+        // Mutant: the flag is still computed correctly (true), but the inverted gate now
+        // requires it to be FALSE to throw -- so this same fixture silently falls through.
+        expect(mutated.detectAdapter('host', { projectRoot })).toBeNull();
       } finally {
         mutantRoot.cleanup();
       }

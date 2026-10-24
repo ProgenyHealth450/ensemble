@@ -14,8 +14,10 @@
  * These tests use the real, on-disk category contracts (`packages/development/toolchain/
  * categories/*.yaml`) via the real `loadContracts`, not fabricated fixture contracts, per the
  * assignment: `tracker.close` (required, no fallback), `work-graph.ready` (optional, fallback
- * `work-graph-links-fallback`) and `host.mergeChangeRequest` (optional, no fallback) are real
- * entries in those files as of this writing.
+ * `work-graph-links-fallback`) and `host.change-request-link-work-item` (optional, no fallback)
+ * are real entries in those files as of this writing. `host.change-request-merge` is required
+ * in the finalized TRD-035 host contract (TRD-2026-8d825f54), so it no longer serves as the
+ * "optional, no fallback" example here.
  */
 
 jest.mock('child_process');
@@ -101,10 +103,10 @@ describe('requireCapabilities: optional capability absent with a documented cont
 });
 
 describe('requireCapabilities: optional capability absent with no documented contract fallback', () => {
-  test('host.mergeChangeRequest (required:false, no fallback field) reports fallback:null', () => {
+  test('host.change-request-link-work-item (required:false, no fallback field) reports fallback:null', () => {
     const adapter = minimalAdapter();
-    const result = requireCapabilities(adapter, [], ['host.mergeChangeRequest']);
-    expect(result['host.mergeChangeRequest']).toEqual({
+    const result = requireCapabilities(adapter, [], ['host.change-request-link-work-item']);
+    expect(result['host.change-request-link-work-item']).toEqual({
       available: false,
       unavailable: true,
       fallback: null,
@@ -207,13 +209,13 @@ describe('runCapability: mutation-proof coverage of the fallback-vs-NOT_ALLOWED 
 
   test('an optional contract capability with no fallback field missing from the adapter still returns plain NOT_ALLOWED', async () => {
     const adapter = minimalAdapter();
-    const result = await runCapability(adapter, 'host.mergeChangeRequest', {});
+    const result = await runCapability(adapter, 'host.change-request-link-work-item', {});
 
     expect(result).toEqual({
       ok: false,
       error: {
         code: 'NOT_ALLOWED',
-        message: "capability 'host.mergeChangeRequest' is not declared by adapter 'fixture-tracker'"
+        message: "capability 'host.change-request-link-work-item' is not declared by adapter 'fixture-tracker'"
       }
     });
     expect(result.unavailable).toBeUndefined();
