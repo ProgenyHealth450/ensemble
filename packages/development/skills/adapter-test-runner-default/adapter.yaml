@@ -87,6 +87,16 @@ capabilities:
   # (no custom config path, no coverage collection) is relied on instead -- see SKILL.md "Known
   # limits".
   #
+  # `successExitCodes: [0, 1]` (TRD-2026-8d825f54 PR 10 fix round, item 3): every one of the
+  # five per-language runner scripts (see each script's own `process.exit`/`sys.exit`/
+  # `System.halt`/`exit`) exits 1 to report a FAILING test suite, not a crash -- without this
+  # opt-in, `runner.js#runCapability` mapped ANY non-zero exit to `TOOL_FAILED` before ever
+  # parsing stdout, so a failing suite could never surface the normalized `{success:false,
+  # passed, failed, failures[]}` this capability's own category contract promises; callers
+  # (for example `implement-trd-beads.yaml`'s test step) must read `data.success`, not the
+  # envelope's `ok` field, to learn whether the suite passed. An exit code outside `[0, 1]`, a
+  # signal, a timeout, or stdout that fails to parse as JSON at all still resolves
+  # `TOOL_FAILED` exactly as before (`runner.js`'s own header documents the full distinction).
   # `parse.map` covers only the six fields EVERY one of the five scripts' own JSON always
   # includes (`success`, `passed`, `failed`, `total`, `duration`, `failures`) -- `parse` is one
   # block shared across every variant (the manifest schema has no per-variant `parse`), and
@@ -98,6 +108,7 @@ capabilities:
   # `BAD_OUTPUT` on every jest/exunit call, so it is left unmapped for all five variants rather
   # than mapped for only some -- see SKILL.md "Known limits".
   test-runner.run:
+    successExitCodes: [0, 1]
     run:
       - node
       - packages/jest/skills/run-test.js

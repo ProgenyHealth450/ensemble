@@ -74,16 +74,17 @@ packages/pytest/skills/run-test.py --file=<file>`), confirmed the same way.
   .js`: "every path must resolve to a present value") on every jest/exunit call. `success`,
   `passed`, `failed`, `total`, `duration` and `failures` are the only fields every one of the
   five scripts' own JSON always includes, so only those are mapped.
-- **A test run that reports failures exits non-zero.** All five shipped scripts intentionally
-  `exit(1)` when the suite they ran has failures (standard test-runner CLI convention, by
-  design, not specific to this adapter). `runner.js#runCapability` spawns every capability via
-  `child_process.execFile`, which treats ANY non-zero exit as an error and resolves `TOOL_FAILED`
-  using `stderr` -- never reading the real, structured JSON report these scripts print to
-  stdout. This is a pre-existing limitation of the generic runner's exit-code handling (shared
-  by every category, not introduced or fixed here); a caller that needs the structured
-  pass/fail report from a FAILING run must invoke the underlying script directly rather than
-  through `toolchain-cli run test-runner.run`, until a future task addresses it at the runner
-  layer. A fully passing run (exit 0) returns the normalized report as documented above.
+- **A test run that reports failures exits non-zero, but still returns the normalized report.**
+  All five shipped scripts intentionally `exit(1)` when the suite they ran has failures
+  (standard test-runner CLI convention, by design, not specific to this adapter).
+  `test-runner.run` declares `successExitCodes: [0, 1]` (`adapter-manifest-schema.json`, TRD-
+  2026-8d825f54 PR 10 fix round, item 3), so `runner.js#runCapability` still parses stdout and
+  returns `ok:true` with `data.success:false` and `data.failures[]` for exit code 1, instead of
+  the generic `TOOL_FAILED` a bare `child_process.execFile` non-zero-exit check would otherwise
+  produce -- a caller must read `data.success`, not the envelope's own `ok` field, to learn
+  whether the suite passed. An exit code OUTSIDE `[0, 1]` (a real crash: wrong interpreter, a
+  missing dependency, an uncaught exception before JSON is ever printed), a signal, a timeout,
+  or stdout that does not even parse as JSON still resolves `TOOL_FAILED` exactly as before.
 - **`packages/xunit/skills/run-test.sh` shells out to `dotnet`/`node` internally.** Those
   subprocess calls are inside the script, not part of this adapter's own argv, so they are
   outside this manifest's `binaries`/`allowlist` scope (the same convention

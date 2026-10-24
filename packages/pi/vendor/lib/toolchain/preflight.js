@@ -19,6 +19,18 @@
  * check id (and containing the literal text "timed out" when the failure was a timeout) and
  * writes no record at all.
  *
+ * For every non-`work-graph` category, the resolved value is also checked by
+ * `./resolve-guard.js#assertKnownAdapter` (TRD-046) BEFORE `loadAdapter` runs (PR 10 fix round,
+ * item 2a): an explicit project-/user-config selection naming an adapter id that does not
+ * actually ship for that category now fails `{code:'UNKNOWN_ADAPTER'}` naming the category,
+ * the bogus id and every real shipped adapter id, instead of the generic `NOT_INSTALLED`
+ * (mapped to `HEALTH_FAILED` here) `loadAdapter` would otherwise throw for the exact same
+ * misconfiguration -- the envelope shape is unchanged (`{ok:false, error:{code, message}}`),
+ * only the `code`/message for this one case changed from `HEALTH_FAILED` to `UNKNOWN_ADAPTER`.
+ * `work-graph` is intentionally excluded, the same way every other `assertKnownAdapter` call
+ * site excludes it (see that module's own header): it resolves through its own
+ * `resolveWorkGraphAdapter`, never `resolveCategory` directly.
+ *
  * `hasPassingPreflightRecord(runId, ctx)` reads that same record back: a missing file,
  * unreadable/unparsable JSON, a record whose `ok` field is not exactly `true`, or a `runId`
  * that fails the path-traversal guard below all count as "no passing record" (fail closed,
@@ -73,6 +85,7 @@ const { isValidRunId, invalidRunIdMessage } = require('./run-id');
 const { isNonInteractive } = require('./confirm');
 const { requireCapabilities } = require('./resolve');
 const { resolveWorkGraphAdapter } = require('./work-graph-resolve');
+const { assertKnownAdapter } = require('./resolve-guard');
 
 const DEFAULT_HEALTH_TIMEOUT_MS = 10000;
 
@@ -212,8 +225,9 @@ async function runPreflight(input = {}, ctx = {}) {
       adapterId = resolved.value;
       loaded = { origin: resolved.origin, dir: resolved.dir, manifest: resolved.manifest };
     } else {
+      let resolvedCategory;
       try {
-        adapterId = resolveCategory(category, ctx).value;
+        resolvedCategory = resolveCategory(category, ctx);
       } catch (error) {
         return {
           ok: false,
@@ -223,6 +237,16 @@ async function runPreflight(input = {}, ctx = {}) {
           }
         };
       }
+
+      try {
+        assertKnownAdapter(category, resolvedCategory, ctx);
+      } catch (error) {
+        return {
+          ok: false,
+          error: { code: error.code || 'UNKNOWN_ADAPTER', message: error.message }
+        };
+      }
+      adapterId = resolvedCategory.value;
 
       try {
         loaded = loadAdapter(adapterId, {

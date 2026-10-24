@@ -23,7 +23,7 @@ against this repository's own real registered worktrees.
 
 - `worktree.create`: create a worktree checking out an existing branch (`git worktree add <path> <branch>`)
 - `worktree.remove`: remove a previously created worktree (`git worktree remove <path>`)
-- `worktree.list`: list registered worktrees (`git worktree list --porcelain`)
+- `worktree.list`: list registered worktrees (`git worktree list`)
 - `worktree.prune`: remove administrative metadata for worktrees whose directories no longer exist (`git worktree prune --verbose`)
 
 No environment variables are required (`env: []`): plain `git worktree` needs no credentials.
@@ -50,26 +50,30 @@ worktree`, so no second allowlist entry (for example a bare `"--version"`, the c
   `parse` block is declared, so the raw progress text is returned as `data` instead.
 - **`worktree.remove`'s `path` output is never populated.** `git worktree remove` prints nothing
   to stdout on success; no `parse` block is declared.
-- **`worktree.list`'s `worktrees` items are raw porcelain lines, not per-worktree objects.**
-  `git worktree list --porcelain`'s real output is multi-line blocks (one `worktree <path>`
-  line, one `HEAD <sha>` line, one `branch <ref>`-or-`detached` line, separated by a blank line
-  per worktree) -- `mapping.js`'s `'lines'` format has no per-block grouping primitive, so the
-  blank-line separators are dropped along with every other empty line, leaving one flat array of
-  raw lines rather than one array entry per worktree. A caller must re-group `worktree ...` /
-  `HEAD ...` / `branch ...`-or-`detached` lines itself.
+- **`worktree.list`'s `worktrees` items are raw text lines, not per-worktree objects.** `git
+  worktree list` (no `--porcelain`) prints exactly one line per worktree (`<path>  <sha>
+  [<branch>]` or `<path>  <sha> (bare)`/`(detached HEAD)`); `parse.format: lines` + `map:
+  {worktrees: "$"}` yields one `worktrees` array entry per worktree, but each entry is still
+  the tool's own raw text line, not a parsed `{path, branch, head}` object -- a caller that
+  needs the branch or head sha as a separate field must parse the line itself.
+  (TRD-2026-8d825f54 PR 10 fix round, item 5: this capability previously used `--porcelain`,
+  whose multi-line-block-per-worktree output `mapping.js`'s `'lines'` format cannot group,
+  flattening every worktree's 3-4 lines into one shared array with no per-worktree boundary at
+  all; plain `git worktree list` sidesteps that entirely by printing one line per worktree in
+  the first place.)
 - **`worktree.list`/`worktree.prune`'s `scope` input is unreferenced.** Real `git worktree list`
   and `git worktree prune` take no path-scoping argument at all (only flags); `scope` is
   declared solely because the category contract schema requires at least one input per
   capability, the same "declared but reserved" convention `adapter-workflow-plain-git`'s own
   unused `branch` allowlist entry uses.
-- **Live-verified capabilities**: `worktree.list` (`git worktree list --porcelain`, this
-  repository's own real registered worktrees: this checkout plus several real
-  `/private/tmp/*` worktrees), `worktree.prune` (`git worktree prune --verbose --dry-run`
-  against this repository printed nothing -- a real, non-fabricated empty result, since no
-  stale worktree administrative files currently exist here), and the `git-worktree-available`
-  health check (`git worktree list`). `worktree.create`/`worktree.remove` were never executed
-  live (both side-effecting against this real repository's working trees); their run templates
-  are grounded in `git worktree`'s own real, documented flags.
+- **Live-verified capabilities**: `worktree.list` (`git worktree list`, this repository's own
+  real registered worktrees: this checkout plus several real `/private/tmp/*` worktrees, one
+  line per worktree), `worktree.prune` (`git worktree prune --verbose --dry-run` against this
+  repository printed nothing -- a real, non-fabricated empty result, since no stale worktree
+  administrative files currently exist here), and the `git-worktree-available` health check
+  (`git worktree list`). `worktree.create`/`worktree.remove` were never executed live (both
+  side-effecting against this real repository's working trees); their run templates are
+  grounded in `git worktree`'s own real, documented flags.
 - **No command wires this adapter in yet.** A repo-wide search of `packages/*/commands/**/*.yaml`
   for `worktree.` capability ids returns zero matches; wiring a command to call `worktree.*`
   capabilities is out of scope for this bead.

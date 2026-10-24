@@ -315,21 +315,25 @@ function validate(ctx = {}, positionals = []) {
  * validated here (there is nothing to validate); a non-side-effecting capability still runs
  * with no run id at all, exactly as before.
  *
+ * `resolveCategory(category, ctx)` is called with `ctx` passed straight through, unmodified --
+ * including `ctx.detect` (TRD-016's detection hook) -- so a detection-selected adapter (PR 4
+ * review Finding 1) resolves here exactly as it does for `resolve`/`explain`/`preflight`. Its
+ * result is checked by `./toolchain/resolve-guard.js#assertKnownAdapter` (TRD-046) and the
+ * adapter is then loaded via `loadAdapter` -- BOTH now run BEFORE the
+ * `hasPassingPreflightRecord` gate below (PR 10 fix round, item 1): an explicit project-/user-
+ * config selection naming an adapter id that does not actually ship for this category always
+ * fails `UNKNOWN_ADAPTER` (or `NOT_INSTALLED` for a shipped-but-uninstalled one), even for a
+ * side-effecting capability with no `--run-id`/no passing preflight record. Previously the
+ * preflight gate ran FIRST and masked this as `PREFLIGHT_REQUIRED` (or, once some unrelated
+ * preflight had already passed for that run id, a confusing success) instead of naming the
+ * real misconfiguration. A read (non-side-effecting) capability's resolution order is
+ * unchanged by this move: it always resolved before any side-effect-only gate ran.
+ *
  * When the capability is side-effecting and `hasPassingPreflightRecord(runId, ctx)`
  * (`./toolchain/preflight.js`, TRD-014) is `false` — including when `--run-id` was omitted
  * entirely — this returns `{ok:false, error:{code:'PREFLIGHT_REQUIRED', message}}` WITHOUT
- * calling `resolveCategory`, `loadAdapter` or `runCapability`: nothing is resolved or spawned.
- *
- * `resolveCategory(category, ctx)` is called with `ctx` passed straight through, unmodified --
- * including `ctx.detect` (TRD-016's detection hook) -- so a detection-selected adapter (PR 4
- * review Finding 1) resolves here exactly as it does for `resolve`/`explain`/`preflight`.
- *
- * `resolveCategory(category, ctx)`'s result is also checked by
- * `./toolchain/resolve-guard.js#assertKnownAdapter` (TRD-046) before `adapterId`/`source` are
- * used: an explicit project-/user-config selection naming an adapter id that does not actually
- * ship for this category throws `.code === 'UNKNOWN_ADAPTER'`, caught by this branch's own
- * `catch` below and returned with that code unchanged.
- *
+ * calling `runCapability`: nothing is spawned. Resolution/loading above has already happened
+ * by this point (needed to even know whether the configured adapter is a real, shipped one).
  * `interactive` (PR 4 review Finding 2) is derived ONCE, via `./toolchain/confirm.js
  * #isNonInteractive` -- the SAME explicit-signal precedence (`--non-interactive`,
  * `ENSEMBLE_NON_INTERACTIVE=1`, a non-empty `FOREMAN_TASK_TITLE`, `CI=true`; never TTY
@@ -391,18 +395,6 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
     contractFile && contractFile.capabilities && contractFile.capabilities[capability];
   const sideEffect = Boolean(capabilityDef && capabilityDef.sideEffect);
 
-  if (sideEffect && !hasPassingPreflightRecord(runId, ctx)) {
-    return {
-      ok: false,
-      error: {
-        code: 'PREFLIGHT_REQUIRED',
-        message:
-          `capability '${capability}' is side-effecting and requires a passing preflight ` +
-          `record for run id '${runId === undefined ? '(none)' : runId}'; run preflight first`
-      }
-    };
-  }
-
   const env = ctx.env || process.env;
   const interactive = !isNonInteractive({ nonInteractive: Boolean(parsed.nonInteractive), env });
 
@@ -437,6 +429,18 @@ async function run(ctx = {}, positionals = [], parsed = {}) {
     } catch (error) {
       return { ok: false, error: { code: error.code || 'NOT_INSTALLED', message: error.message } };
     }
+  }
+
+  if (sideEffect && !hasPassingPreflightRecord(runId, ctx)) {
+    return {
+      ok: false,
+      error: {
+        code: 'PREFLIGHT_REQUIRED',
+        message:
+          `capability '${capability}' is side-effecting and requires a passing preflight ` +
+          `record for run id '${runId === undefined ? '(none)' : runId}'; run preflight first`
+      }
+    };
   }
 
   if (sideEffect) {

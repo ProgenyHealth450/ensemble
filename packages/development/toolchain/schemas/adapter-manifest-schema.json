@@ -179,6 +179,13 @@
               }
             },
             "description": "Optional per-capability variant run templates keyed by '<selectorArg>: {<value>: run[]}'; the selector arg must be declared as an input of this capability in its category contract (TRD-005 AC)."
+          },
+          "successExitCodes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "integer" },
+            "description": "Child process exit codes (beyond 0, which always succeeds) this capability's runner (`runCapability`) must still treat as a non-crash and continue mapping stdout for, instead of `TOOL_FAILED` (TRD-2026-8d825f54 PR 10 fix round, item 3). For example the shipped `test-runner.run` capability declares `[0, 1]` because its per-language runner scripts exit 1 to report a FAILING test suite, not a crash. Never implies success of the underlying operation by itself -- it only controls whether that exit code's stdout still gets parsed; an exit code outside this list, a signal, a timeout, or stdout that fails to parse at all still resolves `TOOL_FAILED`."
           }
         }
       },

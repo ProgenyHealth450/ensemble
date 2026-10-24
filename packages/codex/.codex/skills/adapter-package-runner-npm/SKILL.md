@@ -37,6 +37,18 @@ single env var).
 
 ## Known limits
 
+- **`package-runner.run-script`'s `args` input has no default and must always be supplied
+  explicitly, even as an empty string.** `run-script`'s template references `${args}`
+  directly (`npm run <script> -- ${args}`); `runner.js#buildArgv`/`resolveArg` has no manifest-
+  level default mechanism for ANY placeholder (`category-contract-schema.json` input entries
+  carry no `default`, see `runner.js`'s own "Design note"), so a caller that omits `args`
+  entirely gets a fail-closed `INVALID_ARG` naming `args` -- never a literal, unsubstituted
+  `${args}`/`$args` left in the argv (confirmed live and by
+  `scripts/tests/toolchain-package-runner-args.test.js`, PR 10 fix round, item 4). Most npm
+  scripts need no extra arguments at all, so a caller invoking a script with none must still
+  pass `args: ''` explicitly (an empty string is a valid value: it does not begin with `-`, so
+  `resolveArg` accepts it) to mean "no extra arguments" -- there is no way to omit it.
+
 - **`package-runner.install`'s `args` input is unreferenced.** `npm install` with no arguments
   installs every dependency declared in `package.json`/locked in `package-lock.json` -- the safe,
   declared-dependencies-only case this capability's own category description names. The category

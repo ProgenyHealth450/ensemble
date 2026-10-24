@@ -69,24 +69,25 @@ capabilities:
       - remove
       - "${path}"
 
-  # git worktree list --porcelain: real, documented machine-readable form (`git worktree list
-  # [-v | --porcelain [-z]]` per `git worktree list -h`). `scope` is unreferenced (plain git has
-  # no per-path-scoped worktree listing; it always lists every registered worktree). `parse.
-  # format: lines` splits `--porcelain`'s raw stdout into non-empty lines; `map: {worktrees:
-  # "$"}` returns that flat line array directly. Porcelain output is actually MULTI-LINE BLOCKS
-  # per worktree (a `worktree <path>` line, then `HEAD <sha>`, then `branch <ref>` or `detached`,
-  # separated by blank lines) -- `mapping.js`'s `'lines'` format has no per-block grouping
-  # primitive, so the blank-line separators between worktree records are silently dropped along
-  # with every other empty line, leaving one flat array of raw porcelain lines rather than one
-  # array entry per worktree -- see SKILL.md "Known limits". Live-verified against this
-  # repository's own real worktrees (this checkout plus several `/private/tmp/*` worktrees, each
-  # printed as a real `worktree <path>` / `HEAD <sha>` / `branch <ref>`-or-`detached` block).
+  # git worktree list (no --porcelain): real, documented human-readable form (`git worktree
+  # list [-v | --porcelain [-z]]` per `git worktree list -h`) -- deliberately NOT `--porcelain`
+  # (TRD-2026-8d825f54 PR 10 fix round, item 5): `--porcelain`'s own real output is MULTI-LINE
+  # BLOCKS per worktree (a `worktree <path>` line, then `HEAD <sha>`, then `branch <ref>` or
+  # `detached`, separated by blank lines), and `mapping.js`'s `'lines'` format has no per-block
+  # grouping primitive, so it used to flatten every worktree's 3-4 lines into one shared array
+  # with no boundary between worktrees. Plain `git worktree list` (no flag) instead prints
+  # exactly ONE line per worktree (`<path>  <sha> [<branch>]` or `<path>  <sha> (bare)`/
+  # `(detached HEAD)`), so `parse.format: lines` + `map: {worktrees: "$"}` already yields one
+  # `worktrees` array entry per worktree with no engine change needed -- `scope` is unreferenced
+  # (plain git has no per-path-scoped worktree listing; it always lists every registered
+  # worktree). Each entry is still a raw text line, not a parsed `{path, branch, head}` object
+  # (see SKILL.md "Known limits"). Live-verified against this repository's own real worktrees
+  # (this checkout plus several real `/private/tmp/*` worktrees, each printed as one line).
   worktree.list:
     run:
       - git
       - worktree
       - list
-      - "--porcelain"
     parse:
       format: lines
       map:

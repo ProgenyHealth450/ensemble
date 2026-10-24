@@ -244,7 +244,22 @@
  *   `ledger.js`/`preflight.js` use for their own on-disk records) and truncated to
  *   `MAX_TOOL_FAILED_DETAIL_LENGTH` characters before it ever leaves this function -- a failing
  *   tool's stderr is attacker- or misconfiguration-influenced input the CLI prints verbatim, so
- *   it must never carry a credential or grow unbounded (reviewer Finding 4). Also reached on a
+ *   it must never carry a credential or grow unbounded (reviewer Finding 4). A non-zero exit
+ *   that IS listed in the resolved capability's own manifest-declared `successExitCodes`
+ *   integer array (TRD-2026-8d825f54 PR 10 fix round, item 3; `adapter-manifest-schema.json`)
+ *   is the one exception: it is NOT `TOOL_FAILED` by itself -- the shipped test-runner adapters'
+ *   `test-runner.run` declares `successExitCodes: [0, 1]` because the per-language runner
+ *   scripts it wraps exit 1 to report a FAILING suite, not a crash, so without this opt-in
+ *   EVERY failing-suite run would surface as `TOOL_FAILED` and the normalized `{success:false,
+ *   failed, failures[]}` the category contract promises would never be reachable. A tolerated
+ *   exit still falls through to the SAME stdout handling a zero exit gets below (the zero-exit
+ *   error-envelope check, then `parse`/schema validation); when the resolved capability also
+ *   declares `parse.format: 'json'`, stdout that does not even parse as JSON at all is still
+ *   indistinguishable from a real crash and stays `TOOL_FAILED` rather than reaching
+ *   `BAD_OUTPUT`/`ok:true` -- only an exit code OUTSIDE the declared set, a signal/timeout, or
+ *   genuinely unparseable JSON stay `TOOL_FAILED`; nothing else uses this field today, so every
+ *   other adapter's non-zero exit is `TOOL_FAILED` exactly as before this option existed.
+ *   `TOOL_FAILED` is also reached on a
  *   ZERO exit when stdout parses as a JSON object whose top-level `error` property is itself
  *   an object -- an "error envelope on a successful exit" shape some tools use (e.g. `br
  *   sync`/`br comments list`/`br label add` reporting a failure on stdout with exit 0, TRD-024
@@ -1269,15 +1284,49 @@ async function runCapability(adapter, capability, args = {}, opts = {}) {
               });
               return;
             }
-            const rawDetail = (stderr && String(stderr).trim()) || error.message;
-            resolve({
-              ok: false,
-              error: {
-                code: 'TOOL_FAILED',
-                message: `${adapterId}: capability '${capability}' failed: ${redactAndBound(rawDetail)}`
+
+            const exitCode = typeof error.code === 'number' ? error.code : null;
+            const successExitCodes = Array.isArray(cap.successExitCodes) ? cap.successExitCodes : null;
+            const toleratedExit =
+              exitCode !== null && successExitCodes !== null && successExitCodes.includes(exitCode);
+
+            if (!toleratedExit) {
+              const rawDetail = (stderr && String(stderr).trim()) || error.message;
+              resolve({
+                ok: false,
+                error: {
+                  code: 'TOOL_FAILED',
+                  message: `${adapterId}: capability '${capability}' failed: ${redactAndBound(rawDetail)}`
+                }
+              });
+              return;
+            }
+
+            // A manifest-declared tolerated non-zero exit (`cap.successExitCodes`, TRD-
+            // 2026-8d825f54 PR 10 fix round item 3): some tools (the shipped per-language test
+            // runners) exit non-zero to report a FAILING suite, not a crash -- fall through to
+            // the same stdout handling a zero exit gets below instead of TOOL_FAILED. Stdout
+            // that does not even parse as the capability's own declared JSON `parse.format` is
+            // still indistinguishable from a real crash, so it stays TOOL_FAILED rather than
+            // reaching BAD_OUTPUT/ok:true below.
+            if (cap.parse && cap.parse.format === 'json') {
+              const trimmedStdout = stdout ? String(stdout).trim() : '';
+              try {
+                JSON.parse(trimmedStdout);
+              } catch (parseError) {
+                resolve({
+                  ok: false,
+                  error: {
+                    code: 'TOOL_FAILED',
+                    message:
+                      `${adapterId}: capability '${capability}' exited ${exitCode} (declared a ` +
+                      `tolerated exit code) with output that does not parse as JSON: ` +
+                      `${redactAndBound(parseError.message)}`
+                  }
+                });
+                return;
               }
-            });
-            return;
+            }
           }
 
           const errorEnvelope = checkZeroExitErrorEnvelope(adapterId, capability, stdout);

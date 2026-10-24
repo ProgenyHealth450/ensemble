@@ -44,12 +44,11 @@
  * `require('./adapters')` (and is required by nothing `./adapters.js` or `./config.js`
  * themselves load) sidesteps that entirely.
  *
- * `preflight.js#runPreflight`'s own `resolveCategory` call sites are intentionally NOT wired to
- * this guard in this bead: `runPreflight` already calls `loadAdapter` immediately after
- * `resolveCategory` for every non-`work-graph` category, which already throws `NOT_INSTALLED`
- * (mapped to `HEALTH_FAILED` there) for exactly this same "resolved to a never-shipped id"
- * case -- preflight already fails closed for it today, just under a different, pre-existing
- * code name that no AC this bead names asks to change.
+ * `preflight.js#runPreflight`'s own `resolveCategory` call site for every non-`work-graph`
+ * category IS also wired to this guard (PR 10 fix round, item 2a): it now calls
+ * `assertKnownAdapter` immediately after `resolveCategory` and BEFORE `loadAdapter`, so this
+ * same "resolved to a never-shipped id" case reports `UNKNOWN_ADAPTER` there too, instead of
+ * the generic `NOT_INSTALLED` (mapped to `HEALTH_FAILED`) `loadAdapter` would otherwise throw.
  */
 
 const path = require('path');
