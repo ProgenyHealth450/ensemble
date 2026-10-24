@@ -1,0 +1,20 @@
+{
+  "command": "pr-review-remediation",
+  "path": "packages/quality/skills/pr-review-remediation/SKILL.md",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-045",
+  "sequence": [
+    [
+      "git",
+      "worktree"
+    ],
+    [
+      "git",
+      "branch"
+    ],
+    [
+      "git",
+      "status"
+    ]
+  ]
+}

@@ -1,0 +1,172 @@
+{
+  "command": "beads-build-wave",
+  "path": "packages/development/commands/beads-build-wave.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-029",
+  "sequence": [
+    [
+      "br",
+      "ready"
+    ],
+    [
+      "br",
+      "list"
+    ],
+    [
+      "git",
+      "status"
+    ],
+    [
+      "git",
+      "symbolic-ref"
+    ],
+    [
+      "br",
+      "show"
+    ],
+    [
+      "br",
+      "sync"
+    ],
+    [
+      "bv",
+      "--robot-plan"
+    ],
+    [
+      "br",
+      "update"
+    ],
+    [
+      "git",
+      "add"
+    ],
+    [
+      "git",
+      "commit"
+    ],
+    [
+      "br",
+      "close"
+    ],
+    [
+      "br",
+      "comments add"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "git",
+      "status"
+    ],
+    [
+      "br",
+      "show"
+    ],
+    [
+      "br",
+      "sync"
+    ],
+    [
+      "bv",
+      "--robot-plan"
+    ],
+    [
+      "br",
+      "list"
+    ],
+    [
+      "br",
+      "update"
+    ],
+    [
+      "git",
+      "commit"
+    ],
+    [
+      "br",
+      "close"
+    ],
+    [
+      "br",
+      "comments add"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "br",
+          "ready"
+        ]
+      ],
+      "trd": "TRD-029/TRD-030",
+      "justification": "`br ready` was the fallback scheduler when bv is absent; scheduling is now work-graph.ready/work-graph.plan whose default adapter template is `bv --robot-plan` (the beads manifest declares no `br ready`) with a built-in links fallback, so `br ready` is no longer a default-toolchain step."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "symbolic-ref"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Reads of repository state (current branch, default branch, repo toplevel, remote URL, branch existence) are reworded to state their intent without a literal git command because no workflow.* capability exposes them; for the backend/remote the TRD-039 resolver detection (`toolchain-cli explain`/`resolve`) is the source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "add"
+        ]
+      ],
+      "trd": "TRD-047 lint contract (I1)",
+      "justification": "No workflow.* capability stages files (plain-git workflow.commit is `git commit -m` only), so the source now states the staging intent (\"stage exactly that path\") without a literal `git add`; the agent still stages the same explicit paths before workflow.commit."
+    },
+    {
+      "type": "reordered",
+      "steps": [
+        [
+          "git",
+          "status"
+        ],
+        [
+          "br",
+          "show"
+        ],
+        [
+          "br",
+          "sync"
+        ],
+        [
+          "bv",
+          "--robot-plan"
+        ],
+        [
+          "br",
+          "list"
+        ],
+        [
+          "br",
+          "update"
+        ],
+        [
+          "git",
+          "commit"
+        ],
+        [
+          "br",
+          "close"
+        ],
+        [
+          "br",
+          "comments add"
+        ]
+      ],
+      "trd": "TRD-029",
+      "justification": "The first pre-refactor `br list` was the br availability probe (`br list --status=open > /dev/null`), deleted in favor of preflight; the remaining tracker.list call comes after the scheduler call."
+    }
+  ]
+}

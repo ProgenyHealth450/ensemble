@@ -1,0 +1,86 @@
+{
+  "command": "pr-review-cycle",
+  "path": "packages/development/skills/pr-review-cycle/SKILL.md",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-045",
+  "sequence": [
+    [
+      "git",
+      "archive"
+    ],
+    [
+      "git",
+      "worktree"
+    ],
+    [
+      "git",
+      "branch"
+    ],
+    [
+      "git",
+      "status"
+    ],
+    [
+      "git",
+      "rev-parse"
+    ]
+  ],
+  "expectedPost": [],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "archive"
+        ]
+      ],
+      "trd": "TRD-045",
+      "justification": "pr-review-cycle is a named lint source; the frozen-snapshot isolation (git archive / throwaway worktree) is stated as intent with the capability name (worktree.create) instead of a literal command."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "worktree"
+        ]
+      ],
+      "trd": "TRD-045",
+      "justification": "Isolated worktrees are named via worktree.create; no literal `git worktree` remains in the named source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "branch"
+        ]
+      ],
+      "trd": "TRD-045",
+      "justification": "The parent's branch precondition is stated as intent; working-tree state is named via workflow.status."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "status"
+        ]
+      ],
+      "trd": "TRD-045",
+      "justification": "The working-tree precondition is named via workflow.status (default `git status --porcelain`) without a literal command."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "rev-parse"
+        ]
+      ],
+      "trd": "TRD-045",
+      "justification": "Tree-id resolution is stated as intent (\"its tree id\") because no workflow capability resolves tree ids."
+    }
+  ]
+}

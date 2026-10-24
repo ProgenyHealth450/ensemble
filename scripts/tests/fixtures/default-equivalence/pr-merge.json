@@ -1,0 +1,59 @@
+{
+  "command": "pr-merge",
+  "path": "packages/git/commands/pr-merge.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-039",
+  "sequence": [
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "pr checks"
+    ],
+    [
+      "gh",
+      "api"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr merge"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "pr checks"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr merge"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "gh",
+          "api"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Unresolved review threads were fetched with `gh api graphql`; TRD-039 replaces that with optional host.change-request-threads, whose default github template is `gh pr view <id> --json number,comments` (adapter-host-github declares no GraphQL access; thread fetch via GraphQL is recorded there as a future capability)."
+    }
+  ]
+}
