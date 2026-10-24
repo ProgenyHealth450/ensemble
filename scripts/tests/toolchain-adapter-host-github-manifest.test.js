@@ -37,6 +37,7 @@ const EXPECTED_CAPABILITIES = [
   'host.change-request-list',
   'host.change-request-checks',
   'host.change-request-threads',
+  'host.change-request-reviews',
   'host.change-request-merge'
 ];
 
@@ -130,7 +131,7 @@ describe('TRD-036-TEST: adapter-host-github manifest passes every static validat
     const ghAllowlist = manifest.allowlist.find((e) => e.bin === 'gh');
     expect(ghAllowlist).toBeDefined();
     expect(ghAllowlist.sub.sort()).toEqual(
-      ['pr create', 'pr view', 'pr list', 'pr checks', 'pr merge', 'auth status', 'api', '--version'].sort()
+      ['pr create', 'pr view', 'pr list', 'pr checks', 'pr merge', 'auth status', 'api graphql', '--version'].sort()
     );
   });
 });

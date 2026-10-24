@@ -319,8 +319,13 @@ const Ajv = require('ajv');
 const { mapOutput } = require('./mapping');
 const { redactSecrets } = require('../complexity-analyzer');
 
-const PLACEHOLDER_TEST_PATTERN = /\{[^{}]+\}/;
-const PLACEHOLDER_REPLACE_PATTERN = /\{([^{}]+)\}/g;
+// A placeholder is `{name}` where `name` is a bare identifier-like token (no whitespace). A
+// brace group containing whitespace (e.g. a GraphQL selection set `{ login __typename }`) is
+// literal text, and `\{` / `\}` escape a brace that would otherwise read as a placeholder
+// (e.g. `gh api`'s own `\{owner\}` repository placeholder). See host-github
+// `host.change-request-reviews`.
+const PLACEHOLDER_TEST_PATTERN = /\\[{}]|\{[A-Za-z0-9_.-]+\}/;
+const PLACEHOLDER_REPLACE_PATTERN = /\\([{}])|\{([A-Za-z0-9_.-]+)\}/g;
 const INTEGER_PATTERN = /^-?\d+$/;
 
 /**
@@ -461,7 +466,9 @@ function buildArgv(runTemplate, args = {}, contract = {}) {
     if (typeof element !== 'string' || !PLACEHOLDER_TEST_PATTERN.test(element)) {
       return element;
     }
-    return element.replace(PLACEHOLDER_REPLACE_PATTERN, (match, name) => resolveArg(name, args, inputs));
+    return element.replace(PLACEHOLDER_REPLACE_PATTERN, (match, escaped, name) =>
+      escaped === undefined ? resolveArg(name, args, inputs) : escaped
+    );
   });
 }
 

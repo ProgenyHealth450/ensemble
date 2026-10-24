@@ -54,6 +54,21 @@ capabilities:
     required: false
     sideEffect: false
 
+  host.change-request-reviews:
+    description: >-
+      Read the review state of a change request: the host's review decision, mergeability,
+      the LATEST decisive review per reviewer with the reviewer's host-reported account type
+      (`authorType`: `Bot` or `User`, never inferred from a name), and the UNRESOLVED review
+      threads (`{path, body}`). Optional, not required: not every host adapter has a
+      review-state CLI surface (Azure DevOps' `az repos pr` allowlist has none), and there is
+      no generic cross-tool fallback, so this carries no `fallback` field. A caller that gates
+      on review state (`/ensemble:pr-merge`) MUST fail closed when this resolves
+      `UNAVAILABLE` or returns `ok:false`, never treat it as "no reviews".
+    inputs: [id]
+    outputs: [id, reviewDecision, mergeable, mergeStateStatus, reviews, threads]
+    required: false
+    sideEffect: false
+
   host.change-request-merge:
     description: >-
       Merge a change request once its checks pass. `method` (optional, TRD-2026-8d825f54 PR 9

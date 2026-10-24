@@ -9,7 +9,7 @@ disable-model-invocation: true
 ---
 <!-- Command: ensemble-pr-merge | Version: 2.1.0 -->
 <!-- Description: Drive an open PR to green and merged by dispatching one subagent per failing CI check and unresolved review thread, routed through the correct orchestrator -->
-<!-- Capabilities: required=[host.change-request-view, host.change-request-checks, host.change-request-merge], optional=[host.change-request-threads] -->
+<!-- Capabilities: required=[host.change-request-view, host.change-request-checks, host.change-request-merge, host.change-request-reviews], optional=[host.change-request-threads] -->
 
 # ensemble-pr-merge
 
@@ -18,7 +18,7 @@ disable-model-invocation: true
 > **Constraints:**
 > - NEVER delete, skip, xfail, disable, or weaken a test to make a check pass. Every dispatched subagent inherits this constraint verbatim in its payload. Failing tests, compiler warnings, and build failures MUST be fixed at the root cause. If a test is genuinely obsolete, the subagent MUST HALT and escalate it in the round report for human confirmation.
 > - NEVER force-push over commits you did not author in this run, and NEVER bypass branch protection, required reviews, or required status checks.
-> - NEVER merge without a verified passing local CI status bound to the exact head SHA, as reported by the local-ci-gate skill; hosted CI is NOT waited for. Refuse to merge while a HUMAN reviewer's latest decisive review is CHANGES_REQUESTED, or while the gate reports no run, a failed run, or a stale run (head moved since the verified run). A bot account's CHANGES_REQUESTED review or unresolved bot threads are NOT a refusal. Classify reviewers by the GitHub account type field (Bot vs User), never by account name.
+> - NEVER merge without a verified passing local CI status bound to the exact head SHA, as reported by the local-ci-gate skill; hosted CI is NOT waited for. Refuse to merge while a HUMAN reviewer's latest decisive review is CHANGES_REQUESTED, or while the gate reports no run, a failed run, or a stale run (head moved since the verified run). A bot account's CHANGES_REQUESTED review or unresolved bot threads are NOT a refusal. Classify reviewers by the GitHub account type field (Bot vs User), never by account name. If review state cannot be read through the host adapter (host.change-request-reviews unavailable or ok:false), refuse to merge and escalate to a human; never treat it as no reviews.
 > - Bound remediation to --max-rounds (default 5). Exceeding it is a HALT-and-escalate outcome: the final report MUST list every still-open finding and its last known owner.
 > - Each round dispatches ALL findings concurrently (one subagent per finding) and waits for every dispatch to settle before re-checking.
 > - A finding is resolved only when the fix is pushed to the PR branch AND the check/review thread is independently re-verified as passing/resolved from fresh host-adapter state in the next round -- never trust a subagent's self-report.
@@ -29,7 +29,7 @@ disable-model-invocation: true
 
 **Actions:**
 1. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
-2. Run: node "$TOOLCHAIN_CLI" preflight --require host.change-request-view --require host.change-request-checks --require host.change-request-merge --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". host.change-request-threads is optional and not preflighted here; its call sites below are skipped silently on {ok:false}, never HALTing.
+2. Run: node "$TOOLCHAIN_CLI" preflight --require host.change-request-view --require host.change-request-checks --require host.change-request-merge --require host.change-request-reviews --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". host.change-request-threads is optional and not preflighted here; its call sites below are skipped silently on {ok:false}, never HALTing. host.change-request-reviews gates the merge: if it is unavailable or a later call returns ok:false, print that review state cannot be verified through this host adapter and HALT for a human, never treating it as no reviews.
 
 ### Step 2: Resolve Target PR
 
@@ -46,7 +46,7 @@ Same manifest shape is rebuilt at the top of every round.
 
 **Actions:**
 1. Checks: run the local-ci-gate skill for the current head; its verdict (verified pass for this exact head, or no/failed/stale run) replaces waiting on hosted checks. Pass the skill the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef. A failed gate run is a finding of kind check. Hosted checks are not watched to completion.
-2. Reviews: gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews; classify each reviewer by the account type field (Bot vs User), never by name. For a HUMAN reviewer whose latest decisive review is CHANGES_REQUESTED fetch unresolved threads via gh api graphql (reviewThreads, isResolved:false) -- one entry per thread. Bot-authored CHANGES_REQUESTED reviews and bot threads are not findings that block merge.
+2. Reviews: run node "$TOOLCHAIN_CLI" run host.change-request-reviews --run-id "$RUN_ID" --arg id=<PR_NUMBER> --json and parse as CR_REVIEWS (ok:false: print that review state cannot be verified through this host adapter and HALT for a human; never treat it as no reviews); classify each of data.reviews by its authorType field (Bot vs User), never by name. For a HUMAN reviewer whose latest decisive review is CHANGES_REQUESTED, every entry of data.threads (unresolved threads) is one finding. Bot-authored CHANGES_REQUESTED reviews and bot threads are not findings that block merge.
 3. If the gate reports a verified pass for this head and no human reviewer's latest decisive review is CHANGES_REQUESTED and mergeable == MERGEABLE: skip to Merge and Report.
 4. Otherwise write a numbered manifest of { finding_id, kind: check|review_thread, name, raw_log_excerpt_or_comment_body, link }.
 
@@ -82,7 +82,7 @@ Assign exactly one owner per finding; first matching row wins, never dual-route.
 ### Step 1: Re-Verify Against Live State
 
 **Actions:**
-1. Rebuild the manifest from scratch (never reuse the pre-round one): re-run the local-ci-gate skill for the new head and gh pr view --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus.
+1. Rebuild the manifest from scratch (never reuse the pre-round one): re-run the local-ci-gate skill for the new head and run host.change-request-reviews again (same fail-closed rule) for data.reviews, data.reviewDecision, data.mergeable, data.mergeStateStatus, data.threads.
 2. Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
 3. Manifest empty: proceed to Merge and Report.
 4. Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
@@ -96,7 +96,7 @@ Delegate to git-workflow.
 
 **Actions:**
 1. Run the local-ci-gate skill for the current head, passing the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef; do not restate or reimplement its logic. If it reports no run, a failed run, or a stale run, abort and run another verification round.
-2. Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision,latestReviews; if not MERGEABLE or a human reviewer's latest decisive review is CHANGES_REQUESTED (bots excluded, by account type), abort and run another verification round.
+2. Immediately before merging re-run host.change-request-reviews (same fail-closed rule) and check data.mergeable, data.mergeStateStatus, data.reviewDecision, data.reviews; if data.mergeable is not MERGEABLE or a human reviewer's latest decisive review is CHANGES_REQUESTED (bots excluded, by account type), abort and run another verification round.
 3. Run the sweep BEFORE merging: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 4. If --dry-run: stop and report merge-readiness without merging.
 5. Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).

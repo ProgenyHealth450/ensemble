@@ -144,6 +144,57 @@ describe('TRD-036-TEST: other captured capabilities also normalize through the r
   });
 });
 
+describe('TRD-039 (rebase fix): host.change-request-reviews', () => {
+  const PARSE = () => REAL_MANIFEST.capabilities['host.change-request-reviews'].parse;
+
+  test('maps the REAL gh-api-graphql-reviews.json capture (PR #189: unresolved bot threads, no decisive review)', () => {
+    const mapped = mapOutput(readFixture('gh-api-graphql-reviews.json'), PARSE());
+
+    expect(mapped.id).toBe('189');
+    expect(mapped.reviewDecision).toBeNull();
+    expect(mapped.reviews).toEqual([]);
+    expect(mapped.threads.length).toBeGreaterThan(0);
+    expect(Object.keys(mapped.threads[0]).sort()).toEqual(['body', 'path']);
+    expect(mapped.threads[0].path).toBe('packages/development/skills/local-ci-gate/RUNBOOK.md');
+    expect(Object.keys(mapped).sort()).toEqual(['id', 'mergeStateStatus', 'mergeable', 'reviewDecision', 'reviews', 'threads']);
+  });
+
+  // SYNTHETIC-FROM-REAL: this repo has no PR with a decisive review, so these mutate the real
+  // capture's `reviews` slot (index 4) -- the same technique the DRAFT-state test above uses.
+  test('SYNTHETIC-FROM-REAL: authorType (host account type) is carried through for a bot and a human CHANGES_REQUESTED review', () => {
+    const raw = JSON.parse(readFixture('gh-api-graphql-reviews.json'));
+    raw[1] = 'CHANGES_REQUESTED';
+    raw[4] = [
+      ['coderabbitai', 'Bot', 'CHANGES_REQUESTED'],
+      ['a-human', 'User', 'CHANGES_REQUESTED']
+    ];
+    const mapped = mapOutput(JSON.stringify(raw), PARSE());
+
+    expect(mapped.reviewDecision).toBe('CHANGES_REQUESTED');
+    expect(mapped.reviews).toEqual([
+      { author: 'coderabbitai', authorType: 'Bot', state: 'CHANGES_REQUESTED' },
+      { author: 'a-human', authorType: 'User', state: 'CHANGES_REQUESTED' }
+    ]);
+    expect(mapped.reviews.filter((r) => r.authorType === 'User' && r.state === 'CHANGES_REQUESTED')).toHaveLength(1);
+  });
+
+  test('the run template is exactly one `gh api graphql` call: runner argv keeps the query and gh repo placeholders literal and substitutes only the id', () => {
+    const { buildArgv } = require('../../packages/development/lib/toolchain/runner');
+    const cap = REAL_MANIFEST.capabilities['host.change-request-reviews'];
+    const template = cap.run.map((el) => (typeof el === 'string' ? el.replace(/\$\{([^{}]+)\}/g, '{$1}') : el));
+    const argv = buildArgv(template, { id: '189' }, { inputs: {} });
+
+    expect(argv.slice(0, 3)).toEqual(['gh', 'api', 'graphql']);
+    expect(argv).toContain('owner={owner}');
+    expect(argv).toContain('repo={repo}');
+    expect(argv).toContain('number=189');
+    const query = argv.find((el) => el.startsWith('query='));
+    expect(query).toContain('latestOpinionatedReviews');
+    expect(query).toContain('__typename');
+    expect(query).toContain('reviewThreads');
+  });
+});
+
 describe('TRD-036-TEST: host.change-request-merge declares no parse block (free-text confirmation, not fabricated structure)', () => {
   test('the capability has no parse block at all', () => {
     expect(REAL_MANIFEST.capabilities['host.change-request-merge'].parse).toBeUndefined();

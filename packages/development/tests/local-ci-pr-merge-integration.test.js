@@ -45,6 +45,8 @@ const allStrings = () => [
   ...source.constraints,
   ...phases.flatMap((p) => p.steps.flatMap((s) => [...(s.actions || []), s.delegation?.context].filter(Boolean))),
 ];
+// The merge action is identified by the host capability that performs it (TRD-039: no literal `gh pr merge`).
+const MERGE_ACTION = /run host\.change-request-merge/;
 const isGateRun = (a) => /local-ci-gate/.test(a) && /^Run |^Checks: run /.test(a);
 const isSweep = (a) => /local-ci-cli\.js sweep/.test(a);
 
@@ -52,7 +54,7 @@ describe('gate precedes merge', () => {
   test('a gate invocation exists in an earlier phase than the merge phase and before the merge action', () => {
     const mergePhase = phase('Merge and Report');
     const mergeActions = mergePhase.steps.find((s) => s.title === 'Merge').actions;
-    const mergeIdx = mergeActions.findIndex((a) => /gh pr merge/.test(a));
+    const mergeIdx = mergeActions.findIndex((a) => MERGE_ACTION.test(a));
     expect(mergeIdx).toBeGreaterThan(-1);
     const gateInMerge = mergeActions.findIndex(isGateRun);
     expect(gateInMerge).toBeGreaterThan(-1);
@@ -73,7 +75,7 @@ describe('gate precedes merge', () => {
   test.each(Object.keys(GENERATED_REL))('%s output places the gate before the merge step', (key) => {
     const text = read(GENERATED_REL[key]);
     const mergePhaseAt = text.search(/Phase 5: Merge and Report/);
-    const mergeCmdAt = text.indexOf('gh pr merge');
+    const mergeCmdAt = text.search(MERGE_ACTION);
     const lastGateBeforeMerge = text.lastIndexOf('local-ci-gate skill', mergeCmdAt);
     expect(mergePhaseAt).toBeGreaterThan(-1);
     expect(lastGateBeforeMerge).toBeGreaterThan(mergePhaseAt);
@@ -122,7 +124,9 @@ describe('safety constraints preserved', () => {
   ])('%s equals its committed text and is present', (_n, needle) => {
     const before = preserved(needle);
     expect(before).toBeDefined();
-    expect(source.constraints).toContain(before);
+    // TRD-039 reworded only the state source of the re-verify rule (host-neutral, no `gh`); its meaning is unchanged.
+    const expected = _n === 'independent re-verify' ? before.replace('fresh gh state', 'fresh host-adapter state') : before;
+    expect(source.constraints).toContain(expected);
   });
 
   test('--dry-run behaviour and parameter unchanged', () => {
@@ -130,7 +134,8 @@ describe('safety constraints preserved', () => {
     expect(dryAction(source)).toBe(dryAction(committed));
     const param = (src) => src.expectedInput.sections.find((s) => s.name === 'Dry Run');
     expect(param(source)).toEqual(param(committed));
-    expect(source.metadata.argument_hint).toBe(committed.metadata.argument_hint);
+    // --foreman and --method were added after this fixture; the hint must still start with every pre-existing flag.
+    expect(source.metadata.argument_hint.startsWith(committed.metadata.argument_hint)).toBe(true);
   });
 
   test('max-rounds loop actions unchanged', () => {
@@ -150,7 +155,7 @@ describe('safety constraints preserved', () => {
 describe('sweep runs around the merge', () => {
   test('source: a sweep action before and one after the merge action, in the merge step', () => {
     const actions = phase('Merge and Report').steps.find((s) => s.title === 'Merge').actions;
-    const merge = actions.findIndex((a) => /gh pr merge/.test(a));
+    const merge = actions.findIndex((a) => MERGE_ACTION.test(a));
     const sweeps = actions.map((a, i) => (isSweep(a) ? i : -1)).filter((i) => i >= 0);
     expect(sweeps.length).toBe(2);
     expect(sweeps[0]).toBeLessThan(merge);
@@ -158,9 +163,9 @@ describe('sweep runs around the merge', () => {
     for (const i of sweeps) expect(actions[i]).toMatch(/\bbr\b/);
   });
 
-  test.each(Object.keys(GENERATED_REL))('%s output has sweep before and after gh pr merge', (key) => {
+  test.each(Object.keys(GENERATED_REL))('%s output has sweep before and after the host.change-request-merge action', (key) => {
     const text = read(GENERATED_REL[key]);
-    const merge = text.indexOf('gh pr merge');
+    const merge = text.search(MERGE_ACTION);
     const first = text.indexOf('local-ci-cli.js sweep');
     const last = text.lastIndexOf('local-ci-cli.js sweep');
     expect(first).toBeGreaterThan(-1);
@@ -170,8 +175,8 @@ describe('sweep runs around the merge', () => {
 
   test('source: the post-merge sweep runs before the source branch is deleted (the delete is its own, later action)', () => {
     const actions = phase('Merge and Report').steps.find((s) => s.title === 'Merge').actions;
-    const merge = actions.findIndex((a) => /gh pr merge/.test(a));
-    const del = actions.findIndex((a) => /delete the source branch/i.test(a) && !/gh pr merge/.test(a));
+    const merge = actions.findIndex((a) => MERGE_ACTION.test(a));
+    const del = actions.findIndex((a) => /delete the source branch/i.test(a) && !MERGE_ACTION.test(a));
     const sweeps = actions.map((a, i) => (isSweep(a) ? i : -1)).filter((i) => i >= 0);
     expect(del).toBeGreaterThan(-1);
     expect(merge).toBeLessThan(sweeps[1]);

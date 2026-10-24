@@ -823,6 +823,12 @@ TRD-035's own Master Task List prose spells host capability ids with a two-dot c
 
 Following this fix, the masking repo-level `.ensemble/toolchain.yaml` pin was removed as no longer necessary; `tracker` now resolves to `beads`/`source: default` in this repository with no project-level configuration at all.
 
+### host.change-request-reviews added after rebasing onto dev (pr-merge review-state reads, REQ-015/AC-015-1, TRD-039)
+
+**Reason:** `origin/dev` rewrote `pr-merge` to merge on the local CI gate verdict and to read review state (review decision, reviewer account type, unresolved review threads, `mergeable`) from the host with literal `gh pr view`/`gh api graphql` calls. Those reads violate TRD-039's AC (zero `gh pr`/`az repos`/`git town` invocations in `pr-merge`), and no shipped capability could carry them: `host.change-request-threads` maps only plain PR comments (no resolution state, no review decision, no account type) and `gh pr view --json latestReviews` reports no account type. A new OPTIONAL capability `host.change-request-reviews` (input `id`; outputs `id, reviewDecision, mergeable, mergeStateStatus, reviews[{author, authorType, state}], threads[{path, body}]`, `sideEffect: false`, no `fallback`) now carries them, implemented by `adapter-host-github` as one `gh api graphql` call (the allowlist entry `api` is narrowed to `api graphql`); `adapter-host-azure-devops` does not implement it, so it resolves `UNAVAILABLE`. `runner.js#buildArgv` gained a literal-brace rule (backslash-escaped braces and whitespace-containing brace groups are literal) because a GraphQL argv cannot otherwise be expressed in a manifest.
+
+**Fail-closed rule:** `pr-merge` preflights the capability and, if it is unavailable or a call returns `ok:false`, prints that review state cannot be verified through this host adapter and HALTs for a human. It never treats a missing result as "no reviews"; the gate semantics (verified passing local gate for the exact head, human `CHANGES_REQUESTED` refuses, bot accounts do not, classification by account type, `MERGEABLE` required) are unchanged. Consequence: `pr-merge` does not run end to end on a host adapter without this capability (today Azure DevOps) until it implements one.
+
 ## Changelog
 
 | Version | Date | Changes |

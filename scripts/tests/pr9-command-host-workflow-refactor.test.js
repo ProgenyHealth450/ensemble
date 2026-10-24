@@ -12,15 +12,11 @@
  *      invocation shapes `gh pr <sub>`, `az repos <sub>`, `git town <sub>` (the hyphenated
  *      string `git-town`, used as an adapter/skill-directory name, is explicitly NOT a match
  *      and is expected to remain).
- *   2. Merge safety rules unchanged -- the pre-refactor `pr-merge.yaml` is read via
- *      `git show 68f2181:...` (TRD-041, the last commit before TRD-039 rewrote this file) and
- *      its NEVER-merge constraint's invariant conditions (never merge on a
- *      failing/pending required check, never merge with an outstanding CHANGES_REQUESTED
- *      thread) are checked present in both the pre- and post-refactor text; the wording was
- *      deliberately changed to the new capability names, so this is a targeted
- *      substring/anchor check, not a byte-identical diff -- except for the lead sentence
- *      itself, which is asserted byte-identical, since it carries zero capability-name
- *      references and was not touched by the refactor.
+ *   2. Merge safety rules unchanged -- after the rebase onto dev, the NEVER-merge rule is the
+ *      local-ci-gate rule; this scenario asserts every safety condition (verified passing local
+ *      gate for the exact head, human CHANGES_REQUESTED refusal, bots not a refusal,
+ *      classification by account type, MERGEABLE required, fail closed when review state is
+ *      unavailable via host.change-request-reviews) in the CURRENT wording.
  *   3. Capabilities validate -- both the real `validateCapabilityIds`/
  *      `validateCapabilityInvocationDrift` functions `scripts/validate-all.js` exports
  *      (filtered to these three files) and a real `node scripts/validate-all.js` subprocess
@@ -38,7 +34,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const yaml = require('js-yaml');
 
@@ -46,10 +42,6 @@ const { validateCapabilityIds, validateCapabilityInvocationDrift } = require('..
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const VALIDATE_ALL_PATH = path.join(REPO_ROOT, 'scripts', 'validate-all.js');
-
-// Commit 68f2181 is TRD-041, the last commit to touch this file before TRD-039 (86c545e)
-// rewrote it onto host.* capabilities -- i.e. `86c545e~1` for this path.
-const PRE_TRD_039_COMMIT = '68f2181';
 
 const COMMANDS = {
   'pr-merge.yaml': path.join(REPO_ROOT, 'packages', 'git', 'commands', 'pr-merge.yaml'),
@@ -152,46 +144,76 @@ describe('TRD-039-TEST mutation proof: the forbidden-invocation sweep can actual
     expect(mutated).not.toEqual(real); // the replace actually matched something
     expect(findForbiddenInvocations(mutated)).toEqual(['gh pr']);
 
+    // The review-state reads this rebase moved onto host.change-request-reviews are covered too.
+    const reviewsMutated = real.replace(
+      'run host.change-request-reviews --run-id',
+      'run gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews --run-id'
+    );
+    expect(reviewsMutated).not.toEqual(real);
+    expect(findForbiddenInvocations(reviewsMutated)).toEqual(['gh pr']);
+
     // The file on disk is untouched -- `mutated` only ever existed as a local string.
     expect(fs.readFileSync(COMMANDS['pr-merge.yaml'], 'utf8')).toEqual(real);
   });
 });
 
 describe('TRD-039-TEST Scenario: Merge safety rules unchanged', () => {
-  test('the NEVER-merge invariant conditions survive the host.* refactor', () => {
-    const preRefactorText = execFileSync(
-      'git',
-      ['show', `${PRE_TRD_039_COMMIT}:packages/git/commands/pr-merge.yaml`],
-      { cwd: REPO_ROOT, encoding: 'utf8' }
-    );
-    const preRefactorYaml = yaml.load(preRefactorText);
-    const { parsed: postRefactorYaml } = loadCommand(COMMANDS['pr-merge.yaml']);
+  // The pre-TRD-039 rule ("NEVER merge while any required check is failing/pending ...") was
+  // superseded on dev by the local-ci-gate rule (merge on the verified local gate verdict for
+  // the exact head; reviews read from the host). After the rebase onto dev the safety
+  // conditions are asserted against the CURRENT wording, and every review-state read goes
+  // through host.change-request-reviews (no literal `gh`), failing closed.
+  const { parsed } = loadCommand(COMMANDS['pr-merge.yaml']);
+  const rule = parsed.constraints.find((c) => c.startsWith('NEVER merge'));
+  const actionsOfPhase = (name) =>
+    parsed.workflow.phases.find((p) => p.name === name).steps.flatMap((s) => s.actions || []);
+  const allActions = parsed.workflow.phases.flatMap((p) => p.steps.flatMap((s) => s.actions || []));
 
-    const oldRule = preRefactorYaml.constraints.find((c) => c.includes('NEVER merge'));
-    const newRule = postRefactorYaml.constraints.find((c) => c.includes('NEVER merge'));
-    expect(oldRule).toBeDefined();
-    expect(newRule).toBeDefined();
+  test('the NEVER-merge rule requires a verified passing local gate for the exact head', () => {
+    expect(rule).toBeDefined();
+    expect(rule).toMatch(/verified passing local CI status bound to the exact head SHA/);
+    expect(rule).toContain('local-ci-gate skill');
+    expect(rule).toMatch(/no run, a failed run, or a stale run/);
+  });
 
-    // Invariant 1: never merge while a required check is failing/pending.
-    expect(oldRule).toMatch(/NEVER merge while any required check is failing\/pending/);
-    expect(newRule).toMatch(/NEVER merge while any required check is failing\/pending/);
+  test('a HUMAN reviewer\'s latest decisive CHANGES_REQUESTED review is a refusal; bot accounts are not; classification is by account type, never name', () => {
+    const sentences = rule.split(/(?<=\.)\s+/);
+    const refusal = sentences.find((s) => /^Refuse to merge/.test(s));
+    expect(refusal).toMatch(/HUMAN reviewer's latest decisive review is CHANGES_REQUESTED/);
+    expect(refusal).not.toMatch(/\bbot\b/i);
+    expect(sentences.find((s) => /bot account's CHANGES_REQUESTED/i.test(s))).toMatch(/NOT a refusal/);
+    expect(rule).toMatch(/account type field \(Bot vs User\), never by account name/);
+    const reviewsAction = allActions.find((a) => a.startsWith('Reviews:'));
+    expect(reviewsAction).toMatch(/authorType field \(Bot vs User\), never by name/);
+    expect(reviewsAction).toMatch(/HUMAN reviewer whose latest decisive review is CHANGES_REQUESTED/);
+    expect(reviewsAction).toMatch(/unresolved threads\) is one finding/);
+  });
 
-    // Invariant 2: never merge while a review thread has CHANGES_REQUESTED outstanding.
-    expect(oldRule).toContain('CHANGES_REQUESTED outstanding');
-    expect(newRule).toContain('CHANGES_REQUESTED outstanding');
+  test('the pre-merge re-check requires MERGEABLE and re-reads review state through host.change-request-reviews', () => {
+    const recheck = actionsOfPhase('Merge and Report').find((a) => a.startsWith('Immediately before merging'));
+    expect(recheck).toContain('host.change-request-reviews');
+    expect(recheck).toMatch(/data\.mergeable is not MERGEABLE/);
+    expect(recheck).toMatch(/human reviewer's latest decisive review is CHANGES_REQUESTED \(bots excluded, by account type\)/);
+    expect(recheck).toMatch(/abort and run another verification round/);
+    const rebuild = actionsOfPhase('Verification and Round Loop').find((a) => a.startsWith('Rebuild the manifest'));
+    expect(rebuild).toContain('host.change-request-reviews');
+  });
 
-    // The lead sentence carries both invariants and no capability-specific wording, so it was
-    // left byte-identical by the refactor (only the trailing "Merge only when ..." clause,
-    // which names the old `gh pr view`/`reviewDecision` vocabulary vs. the new
-    // `host.change-request-checks`/`host.change-request-threads` capability ids, was reworded).
-    const leadSentence = (rule) => rule.split('Merge only when')[0].trim();
-    expect(leadSentence(newRule)).toEqual(leadSentence(oldRule));
+  test('review state fails closed: unavailable or ok:false halts for a human, never "no reviews"', () => {
+    expect(rule).toMatch(/cannot be read through the host adapter \(host\.change-request-reviews unavailable or ok:false\), refuse to merge and escalate to a human; never treat it as no reviews/);
+    const reviewsAction = allActions.find((a) => a.startsWith('Reviews:'));
+    expect(reviewsAction).toMatch(/ok:false: print that review state cannot be verified through this host adapter and HALT for a human; never treat it as no reviews/);
+    const preflight = allActions.find((a) => a.includes('preflight --require'));
+    expect(preflight).toContain('--require host.change-request-reviews');
+    expect(preflight).toMatch(/cannot be verified through this host adapter and HALT for a human/);
+    expect(parsed.metadata.capabilities.required).toContain('host.change-request-reviews');
+  });
 
-    // The reworded clause still expresses the same semantic guarantee under the new names.
-    expect(oldRule).toContain('every required check SUCCESS');
-    expect(oldRule).toContain('reviewDecision is APPROVED');
-    expect(newRule).toContain('host.change-request-checks reports every required check SUCCESS');
-    expect(newRule).toContain('no outstanding CHANGES_REQUESTED thread');
+  test('mutation proof: removing the fail-closed clause or the human/bot refusal wording makes these checks fail', () => {
+    const weakened = rule.replace(/ If review state cannot be read.*$/, '');
+    expect(weakened).not.toMatch(/never treat it as no reviews/);
+    const botBlocking = rule.replace('NOT a refusal', 'a refusal');
+    expect(botBlocking).not.toMatch(/NOT a refusal/);
   });
 });
 

@@ -127,7 +127,7 @@ describe('host.yaml / workflow.yaml: Ajv-valid against category-contract-schema.
     expect(validate.errors).toBeNull();
   });
 
-  test('host.yaml declares exactly the 8 finalized capabilities, workflow.yaml exactly the 11', () => {
+  test('host.yaml declares exactly the 9 finalized capabilities, workflow.yaml exactly the 11', () => {
     const contracts = loadContracts(CATEGORIES_DIR);
     const host = contracts['host.yaml'];
     const workflow = contracts['workflow.yaml'];
@@ -140,6 +140,7 @@ describe('host.yaml / workflow.yaml: Ajv-valid against category-contract-schema.
         'host.change-request-link-work-item',
         'host.change-request-list',
         'host.change-request-merge',
+        'host.change-request-reviews',
         'host.change-request-threads',
         'host.change-request-view'
       ].sort()
@@ -170,6 +171,10 @@ describe('host.yaml / workflow.yaml: Ajv-valid against category-contract-schema.
 
     expect(host.capabilities['host.change-request-threads'].required).toBe(false);
     expect(host.capabilities['host.change-request-threads'].fallback).toBeUndefined();
+
+    expect(host.capabilities['host.change-request-reviews'].required).toBe(false);
+    expect(host.capabilities['host.change-request-reviews'].fallback).toBeUndefined();
+    expect(host.capabilities['host.change-request-reviews'].sideEffect).toBe(false);
 
     expect(host.capabilities['host.change-request-link-work-item'].required).toBe(false);
     expect(host.capabilities['host.change-request-link-work-item'].fallback).toBeUndefined();

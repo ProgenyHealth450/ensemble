@@ -9,11 +9,10 @@ contract:
 
 # `gh` has no `--json`/`--jq` support on `pr create`/`pr merge` (confirmed live against gh
 # 2.103.0's own `--help` output for both subcommands, no network call needed) -- only
-# `pr view`/`pr list`/`pr checks`/`auth status` support structured output. `api` is part of
-# TRD-036's own directed 7-entry allowlist but is not wired to any capability here (reserved
-# for a future capability, e.g. GraphQL review threads, that needs it); declaring it unused is
-# the same convention `adapter-tracker-azure-boards` uses for Azure Boards commands it names
-# but never calls.
+# `pr view`/`pr list`/`pr checks`/`auth status` support structured output. `api graphql` is
+# wired to exactly one capability, `host.change-request-reviews` (review decision, reviewer
+# account type, unresolved review threads: GraphQL-only data); the allowlist permits only that
+# exact `api graphql` subcommand, never bare `api` (REST endpoints).
 binaries:
   - gh
 
@@ -31,7 +30,7 @@ allowlist:
       - "pr checks"
       - "pr merge"
       - "auth status"
-      - "api"
+      - "api graphql"
       - "--version"
 
 # Name only (PRD REQ-022/REQ-023), never a literal value. `gh` itself reads `GH_TOKEN` (or
@@ -258,6 +257,57 @@ capabilities:
       map:
         id: "$[0]"
         threads: "$[1]"
+
+  # gh api graphql (one call): review state of a change request for the pr-merge safety gate
+  # (REQ-015/AC-015-1, TRD-039). `gh pr view --json` cannot carry it: its review `author` has
+  # only `login` (no account type) and it exposes no review threads. GraphQL gives
+  # `reviewDecision`, `mergeable`, `mergeStateStatus`, the LATEST opinionated review per
+  # reviewer (`latestOpinionatedReviews`: APPROVED/CHANGES_REQUESTED/DISMISSED; a plain
+  # COMMENTED review is not decisive) with the author's account type (`__typename`: `Bot` or
+  # `User`, the host's own classification, never derived from a name), and `reviewThreads`
+  # (unresolved ones are selected by `--jq`, `isResolved|not`). `\{owner\}`/`\{repo\}` are gh's own
+  # current-repository placeholders; the runner treats a backslash-escaped brace as literal
+  # and a brace group containing whitespace (GraphQL selection sets) as literal text.
+  # `--jq` flattens to `[number, reviewDecision, mergeable, mergeStateStatus,
+  # [[login, accountType, state]...], [[path, body]...]]` (array construction only, the
+  # `host.change-request-view` convention). Limits: first 100 reviews / 100 threads, first
+  # comment of each thread (SKILL.md "Known limits"). Live-verified against real PR #189
+  # (`fixtures/gh-api-graphql-reviews.json`, real unedited stdout, gh 2.103.2): it has
+  # unresolved bot-authored (reviewdog) review threads and no decisive reviews.
+  host.change-request-reviews:
+    run:
+      - gh
+      - api
+      - graphql
+      - "-F"
+      - 'owner=\{owner\}'
+      - "-F"
+      - 'repo=\{repo\}'
+      - "-F"
+      - "number=${id}"
+      - "-f"
+      - 'query=query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { number reviewDecision mergeable mergeStateStatus latestOpinionatedReviews(first: 100) { nodes { state author { login __typename } } } reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { body path } } } } } } }'
+      - "--jq"
+      - '.data.repository.pullRequest | [(.number|tostring), .reviewDecision, .mergeable, .mergeStateStatus, [.latestOpinionatedReviews.nodes[] | [.author.login, .author.__typename, .state]], [.reviewThreads.nodes[] | select(.isResolved|not) | [.comments.nodes[0].path, .comments.nodes[0].body]]]'
+    parse:
+      format: json
+      map:
+        id: "$[0]"
+        reviewDecision: "$[1]"
+        mergeable: "$[2]"
+        mergeStateStatus: "$[3]"
+      arrayMap:
+        reviews:
+          source: "$[4]"
+          item:
+            author: "$[0]"
+            authorType: "$[1]"
+            state: "$[2]"
+        threads:
+          source: "$[5]"
+          item:
+            path: "$[0]"
+            body: "$[1]"
 
   # gh pr merge <id> --squash/--merge/--rebase: `gh pr merge` has no `--json`/`--jq` flag
   # (confirmed via its own `--help`, same gap as `pr create`) -- on success it prints a short

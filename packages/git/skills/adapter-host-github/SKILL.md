@@ -25,6 +25,7 @@ by actually running `gh` against this repository (not synthetic) unless noted ot
 - `host.change-request-list`: list open pull requests (`gh pr list --json ... --jq '[...]'`, default `--state open`)
 - `host.change-request-checks`: read a pull request's status checks (`gh pr checks <id> --json ...`) -- maps only `checks` (see "Known limits")
 - `host.change-request-threads`: approximated via a pull request's issue-level comments (`gh pr view <id> --json number,comments`), NOT true diff-review threads (see "Known limits")
+- `host.change-request-reviews`: review state of a pull request in one `gh api graphql` call -- `reviewDecision`, `mergeable`, `mergeStateStatus`, the latest decisive review per reviewer (`reviews[]` = `{author, authorType, state}`, `authorType` is GitHub's own `Bot`/`User` account type) and the UNRESOLVED review threads (`threads[]` = `{path, body}`); optional, no `fallback` (see "Known limits")
 - `host.change-request-merge`: merge a pull request (`gh pr merge <id> --squash/--merge/--rebase`, selected via the optional `method` input, default `squash`) -- no structured output (see "Known limits")
 
 `host.change-request-link-work-item` is not implemented: GitHub has no native work-item-linking
@@ -47,13 +48,12 @@ project with no matching remote at all still resolves to `github` via `source: '
 refinement" doc for why only a remote-detected default's own mismatch is ambiguous).
 
 `binaries: [gh]`. `allowlist: [{bin: gh, sub: ["pr create", "pr view", "pr list", "pr checks",
-"pr merge", "auth status", "api", "--version"]}]` -- the first seven entries are TRD-036's own
-directed allowlist; `"--version"` is one extra entry (beyond TRD-036's seven) purely so the
+"pr merge", "auth status", "api graphql", "--version"]}]` -- the first seven entries are TRD-036's own
+directed allowlist (its `api` entry narrowed to `api graphql`, so REST endpoints stay blocked); `"--version"` is one extra entry (beyond TRD-036's seven) purely so the
 `gh-installed` health check passes `validateAllowlist` (which checks every `health[]` entry's
 `run`, not only capability templates) -- the same convention `adapter-tracker-azure-boards`
-uses for its own extra `"--version"`/`"extension show"` entries. `api` is declared (per
-TRD-036's own text) but not wired to any capability here -- reserved for a future capability
-(for example GraphQL-based review threads) that genuinely needs it.
+uses for its own extra `"--version"`/`"extension show"` entries. `api graphql` is wired to
+`host.change-request-reviews` only.
 
 ## Known limits
 
@@ -76,6 +76,12 @@ TRD-036's own text) but not wired to any capability here -- reserved for a futur
   --json comments`, the PR's top-level ISSUE-level comments instead (TRD-036's own suggested
   "`gh pr view --json comments` or similar"). Mapped `threads[]` items therefore lack any
   `path`/`line`/`resolved` field a true review-thread shape would carry.
+- **`host.change-request-reviews` reads at most the first 100 latest reviews, the first 100
+  review threads, and the first comment of each thread.** It reports only UNRESOLVED threads;
+  a PR with no decisive review has `reviewDecision: null` and `reviews: []`. Its argv uses
+  `\{owner\}`/`\{repo\}` (gh's current-repository placeholders; `runner.js#buildArgv` treats a
+  backslash-escaped brace as literal text) and a GraphQL query whose brace groups all contain
+  whitespace (a whitespace-free `{name}` group would read as a placeholder).
 - **`host.change-request-merge` defaults to `--squash` but supports `method: merge`/
   `method: rebase` too** (TRD-2026-8d825f54 PR 9 fix round, item 2): `host.yaml`'s own
   `method` input is optional, and this adapter's `variants.method` maps `squash`/`merge`/
@@ -89,7 +95,8 @@ TRD-036's own text) but not wired to any capability here -- reserved for a futur
   require every caller to always supply a value. This capability relies on `gh pr list`'s own
   documented default (`--state` defaults to `"open"`) instead; a caller needing closed/merged/
   all PRs has no way to request that through this capability.
-- **Every fixture in `fixtures/` is a REAL, unedited capture**, not synthetic: run live against
+- **`fixtures/gh-api-graphql-reviews.json` is the real, unedited stdout** of `host.change-request-reviews`'s own `gh api graphql ... --jq` against real PR #189 (gh 2.103.2): it has unresolved bot (reviewdog) threads and no decisive reviews. This repo has no PR with a decisive review, so the human-vs-bot `authorType` cases in tests are mutations of that real capture, labelled as such.
+- **Every other fixture in `fixtures/` is a REAL, unedited capture**, not synthetic: run live against
   this repository with `gh version 2.103.0` while authenticated (`gh-pr-view.json` /
   `gh-pr-list.json` / `gh-pr-checks.json` against real PR #190; `gh-pr-view-threads.json`
   against the same PR, which has zero comments -- `["190",[]]` is the genuine result, not a
