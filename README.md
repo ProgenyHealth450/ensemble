@@ -306,7 +306,7 @@ Passing two or more TRD paths directly now halts with an error. Generate one nor
 
 ### Reqnroll acceptance tests
 
-For .NET projects, `/ensemble:reqnroll` turns PRD acceptance criteria into Gherkin features, step bindings and a test-first loop, with drift checks (`features`, `feature-drift`, `bindings`, `binding-drift`, `tdd`). `implement-trd-beads` also routes `-TEST` tasks through the Reqnroll path and delegates step bodies to `reqnroll-binding-specialist`.
+For .NET projects, `/ensemble:reqnroll` turns PRD acceptance criteria into Gherkin features, step bindings and a test-first loop, with drift checks (`features`, `feature-drift`, `bindings`, `binding-drift`, `tdd`). `create-trd` and `implement-trd-beads` use the Reqnroll path (`-TEST` tasks scaffolded as features, step bodies delegated to `reqnroll-binding-specialist`) only when it is on: `--bdd` / `--no-bdd`, the `ENSEMBLE_BDD` environment variable, or a Reqnroll package reference found in the repo. Otherwise they use the repo's own test framework. See [Optional BDD](packages/development/README.md#optional-bdd-reqnroll).
 
 ## Assessment
 
