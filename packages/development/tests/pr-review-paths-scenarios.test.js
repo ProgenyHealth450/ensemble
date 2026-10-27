@@ -44,8 +44,13 @@ const baseDeclaration = {
 const review = (changedPaths, declaration = baseDeclaration, baseSha = BASE_SHA) =>
   classifyPaths({ changedPaths, declaration, baseSha });
 
-/** Names that mean "this code is deciding whether a PATH is sensitive". */
-const PATH_SENSITIVITY = /prSensitive|isSensitive|SENSITIVE_PATHS|sensitivePaths|sensitive\s*(?:area|path)/i;
+/**
+ * Names that mean "this code is DECIDING whether a path is sensitive":
+ * computing a verdict, or standing up its own list of sensitive paths.
+ * Carrying a maintainer's configured list as validated DATA (the policy
+ * loader's `sensitivePaths` key) is not deciding, and is not matched.
+ */
+const PATH_SENSITIVITY = /\bprSensitive\b|\bisSensitive\b|(?:SENSITIVE_PATHS|sensitivePaths)\s*=\s*\[/;
 
 /**
  * Does this module source decide path sensitivity without asking
@@ -109,9 +114,12 @@ describe('Scenario AC-003-1: an owner-declared path is sensitive for every rule'
     const wellBehaved = "const { classifyPaths } = require('./pr-review-paths');\nconst s = classifyPaths(x).prSensitive;\n";
     const unrelated = "const SENSITIVE_KEY_PATTERN = /token|password/i;\n";
 
+    const carriesConfiguredData = "const SIMPLE_KEYS = { sensitivePaths: isPathList };\n";
+
     expect(decidesPathSensitivityAlone(rogue)).toBe(true);
     expect(decidesPathSensitivityAlone(wellBehaved)).toBe(false);
     expect(decidesPathSensitivityAlone(unrelated)).toBe(false);
+    expect(decidesPathSensitivityAlone(carriesConfiguredData)).toBe(false);
   });
 
   test('negative control: an ordinary PR is not sensitive', () => {
