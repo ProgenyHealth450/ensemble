@@ -156,13 +156,16 @@ describe('pr-review-cycle SKILL.md: guidance is resolved from the base commit (T
     expect(step2).toBeGreaterThan(step1b);
   });
 
-  test('scenario: the remote phase reviews under the same guidance, so a resumed run never reviews with none', () => {
-    // Steps 4-6 repeat for the remote batch, so guidance resolution cannot be local-only.
+  test('scenario: the remote phase and the merge gate review under the same guidance, so neither runs with none', () => {
+    // Steps 4-6 repeat for the remote batch and Step 10 grades the tier, the
+    // sensitive paths and the description from the same facts, so guidance
+    // resolution cannot be local-only.
     const flat = guidance().replace(/\s+/g, ' ');
-    expect(flat).toMatch(/runs in \*\*both\*\* modes/);
+    expect(flat).toMatch(/runs in \*\*every\*\* mode/);
     expect(flat).toContain('MODE=remote');
+    expect(flat).toContain('MODE=gate');
     const modeRow = skillText.split('\n').find((line) => line.startsWith('| `MODE`'));
-    expect(modeRow).toMatch(/Steps 1 and 1b .*run in both modes/);
+    expect(modeRow).toMatch(/Steps 1 and 1b .*run in every mode/);
   });
 
   test('scenario: every guidance file is read from the base commit, never from the PR head (AC-024-1)', () => {

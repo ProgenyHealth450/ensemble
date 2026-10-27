@@ -1,9 +1,9 @@
 ---
 name: "ensemble:pr-merge"
 description: "Drive an open PR to green and merged by dispatching one subagent per failing CI check and unresolved review thread, routed through the correct orchestrator"
-version: "1.2.0"
+version: "1.3.0"
 category: "git"
-last-updated: "2026-09-23"
+last-updated: "2026-10-27"
 allowed-tools: "Read, Bash, Task, Grep, Glob, TodoWrite"
 argument-hint: "[pr-number-or-url] [--max-rounds=N] [--dry-run]"
 model: "opus"
@@ -55,7 +55,7 @@ shape reused at the top of every remediation round.
 
 - Fetch checks: gh pr checks <PR_NUMBER> --json name,state,bucket,workflow,link,description. Include every check whose state is FAILURE, ERROR, CANCELLED, TIMED_OUT, or PENDING (do not skip pending -- it must still be watched to a terminal state before merge).
 - Fetch review state: gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews. For reviewDecision == CHANGES_REQUESTED, fetch the actual unresolved review comment threads via gh api graphql (reviewThreads: isResolved:false) or gh api repos/{owner}/{repo}/pulls/{PR_NUMBER}/comments -- one Findings Manifest entry per distinct unresolved thread, not one entry for the whole review.
-- If zero failing/pending checks AND reviewDecision is not CHANGES_REQUESTED AND mergeable == MERGEABLE: skip directly to the Merge phase -- there is nothing to remediate.
+- If zero failing/pending checks AND reviewDecision is not CHANGES_REQUESTED AND mergeable == MERGEABLE: skip directly to the Merge phase -- there is nothing to remediate. Skipping remediation never skips the merge gate: the Merge phase still runs pr-review-cycle MODE=gate and still requires mergeable:true before merging.
 - Otherwise write the Findings Manifest as a numbered list: { finding_id, kind: check|review_thread, name, raw_log_excerpt_or_comment_body, link }.
 
 ### Phase 2: Classification and Routing
@@ -133,21 +133,36 @@ checks or review, is logged and swallowed, not escalated.
 
 ### Phase 6: Merge and Report
 
-**1. Merge**
-   Merge only once every required check is green and every review thread is resolved.
+**1. Review Merge Gate**
+   Ask the one gate that owns merge readiness for review reasons -- open findings,
+the security lane, the risk tier and the human approvals bound to this exact
+commit -- before any merge is attempted. CI being green says nothing about any
+of that, and this command never decides it for itself.
 
-- Re-confirm immediately before merging (state can change between the last re-verify and now): gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision -- if mergeable != MERGEABLE or reviewDecision == CHANGES_REQUESTED, abort the merge and fall back to another Verification and Round Loop pass instead of forcing it.
-- If --dry-run was passed, stop here and report merge-readiness without merging.
+
+- Re-read the head first: gh pr view <PR_NUMBER> --json headRefOid,baseRefName,author,isDraft,mergeable,mergeStateStatus,reviewDecision. HEAD_SHA is that headRefOid, read now -- never a SHA carried over from an earlier round.
+- Invoke the pr-review-cycle skill (packages/development/skills/pr-review-cycle/SKILL.md) with MODE=gate, BASE_SHA/HEAD_SHA for this PR's range, PR_NUMBER, PR_ID, PR_BODY, AGENT_AUTHORED and DIRECTED_BY (the body's 'Directed by:' line when an agent wrote it). The skill runs the change classifier, the second 'needs another person' assessment and the security lane, reads approvals and reviews from gh itself, and returns the gate result. Never call pr-review-cli.js from this command.
+- Read mergeable from that result. mergeable:true is REQUIRED to proceed; it is not advisory and no other evidence substitutes for it. If mergeable:false, do not merge: report every blocker by its message and nextAction (an open Important finding is named, an open security finding is named, unsatisfied approvals state how many of how many are bound to the current commit, review-data-unavailable names exactly what could not be read), then fall back to another Verification and Round Loop pass or HALT at the round cap.
+- Never accept a self-report in place of this gate: a subagent's, an author's or this session's own claim that review passed, that a finding was fixed, or that someone approved is not evidence. Only the gate's result, computed from reads taken in this run, counts.
+- If the gate reports SERVER-SIDE ENFORCEMENT ABSENT for the base branch, carry that notice and its recommended branch-protection rule into the Final Report verbatim. It never blocks the merge this command performs, and it is never omitted because the merge succeeded.
+
+**2. Merge**
+   Merge only once the review merge gate returns mergeable:true, every required check is green and every review thread is resolved.
+
+- Re-confirm immediately before merging (state can change between the gate and now): gh pr view <PR_NUMBER> --json headRefOid,mergeable,mergeStateStatus,reviewDecision -- if mergeable != MERGEABLE or reviewDecision == CHANGES_REQUESTED, abort the merge and fall back to another Verification and Round Loop pass instead of forcing it.
+- If headRefOid changed since the Review Merge Gate step read it, the gate's answer belongs to a commit nobody is merging: re-run the Review Merge Gate step against the new head and require mergeable:true again before merging.
+- Merge only when BOTH hold on this head: the gate returned mergeable:true, and this fresh read shows mergeable == MERGEABLE with reviewDecision != CHANGES_REQUESTED. Either one alone is not enough.
+- If --dry-run was passed, stop here and report merge-readiness without merging -- including the gate's mergeable value and every blocker it named.
 - Merge with gh pr merge <PR_NUMBER> using this repo's configured default merge method (check branch protection / repo settings for squash vs merge vs rebase -- do not assume); delete the source branch on merge unless it is a long-lived branch.
 - Post a summary comment on the PR listing every finding that was remediated, which orchestrator owned it, and how many rounds it took.
 
    **Delegation:** @github-specialist
-   PR is fully green and approved; merge per repo convention and clean up the branch.
+   PR is fully green, gate-approved and approved by review; merge per repo convention and clean up the branch.
 
-**2. Final Report**
+**3. Final Report**
    Emit a single machine-readable summary line as the last line of output.
 
-- Schema (one line, valid JSON): { pr_number, pr_url, rounds_executed, findings_total, findings_resolved, findings_escalated, constitution_guardrails_added (number), constitution_pr_url (string|null), merged (bool), halted_reason (string|null) }.
+- Schema (one line, valid JSON): { pr_number, pr_url, rounds_executed, findings_total, findings_resolved, findings_escalated, constitution_guardrails_added (number), constitution_pr_url (string|null), merged (bool), halted_reason (string|null), gate_mergeable (bool), gate_blockers (array of blocker codes, empty when mergeable), gate_tier (string|null), branch_protection_enforced (bool|null -- null when the protection read failed, never true by assumption) }.
 - Print the JSON summary as the LAST line of stdout. Do not print further prose after it.
 
 ## Expected Output
@@ -156,6 +171,7 @@ checks or review, is logged and swallowed, not escalated.
 
 **Structure:**
 - **Round Narration**: Per round: Findings Manifest, routing decisions, dispatch/barrier confirmation, re-verification diff
+- **Merge Gate Result**: The pr-review-cycle MODE=gate answer for the merged (or refused) head: mergeable, the risk tier, every blocker by message and next action, and -- when the base branch does not require the approvals that tier needs -- the SERVER-SIDE ENFORCEMENT ABSENT notice with the recommended branch-protection rule.
 - **Constitution Update**: If the target repo has a constitution and at least one resolved finding this run was a generalizable pattern: the URL of the separate housekeeping PR opened against BASE_REF with the appended guardrail(s) and Changelog row(s). Otherwise a one-line note that nothing qualified (no constitution present, or every finding was one-off). This PR is independent of the original PR's merge and is never waited on.
 - **JSON Summary**: One line of valid JSON describing the final outcome: merged, escalated findings, and round count
 
