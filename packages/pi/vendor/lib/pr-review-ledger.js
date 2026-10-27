@@ -746,7 +746,10 @@ function recordRound(input) {
   const firstByFingerprint = new Map();
   findings.forEach((entry) => {
     const fingerprint = fingerprintFinding(entry);
-    if (fingerprint !== null && !firstByFingerprint.has(fingerprint)) firstByFingerprint.set(fingerprint, entry);
+    if (fingerprint === null) return;
+    const known = firstByFingerprint.get(fingerprint);
+    // A live record outranks a cleared one: the cleared one is history, the live one is what a repeat meets.
+    if (known === undefined || (known.cleared === true && entry.cleared !== true)) firstByFingerprint.set(fingerprint, entry);
   });
   const knownClasses = new Set();
   findings.forEach((entry) => {
@@ -757,23 +760,47 @@ function recordRound(input) {
   const repeats = [];
   const attached = [];
   const newFindings = [];
+  const escalated = [];
   const touchedClasses = [];
 
   Array.from(incoming).forEach((candidate) => {
     const normalized = normalizeFinding(candidate);
     const fingerprint = fingerprintFinding(normalized);
 
-    if (fingerprint !== null && firstByFingerprint.has(fingerprint)) {
+    if (fingerprint !== null && firstByFingerprint.has(fingerprint) && firstByFingerprint.get(fingerprint).cleared !== true) {
       const first = firstByFingerprint.get(fingerprint);
       const seenIn = Array.isArray(first.repeatedInRounds) ? Array.from(first.repeatedInRounds) : [];
       if (!seenIn.includes(round)) seenIn.push(round);
       first.repeatedInRounds = seenIn;
+      if (severityRank(normalized) > severityRank(first)) {
+        // Escalation: a repeat that is worse than the first record is news, not noise.
+        if (first.originalSeverity === undefined) first.originalSeverity = first.severity;
+        const from = first.severity;
+        first.severity = normalized.severity;
+        first.severityRecognised = normalized.severityRecognised;
+        first.preExisting = normalized.preExisting;
+        first.escalatedInRound = round;
+        first.escalatedFrom = from;
+        if (!escalated.includes(first)) escalated.push(first);
+        const firstClass = classOf(first);
+        if (firstClass !== null && !touchedClasses.includes(firstClass.toLowerCase())) touchedClasses.push(firstClass.toLowerCase());
+        repeats.push({ id: normalized.id, repeatOf: first.id, fingerprint, reason: 'severity-escalated' });
+        return;
+      }
       repeats.push({ id: normalized.id, repeatOf: first.id, fingerprint, reason: 'already-recorded' });
       return;
     }
 
+    // A fingerprint whose earlier record was cleared as fixed is a REGRESSION: new, with a note.
+    const regressionOf = fingerprint !== null && firstByFingerprint.has(fingerprint) ? firstByFingerprint.get(fingerprint) : null;
+
     const className = classOf(normalized);
     const entry = { ...normalized, firstSeenRound: round };
+    if (regressionOf !== null) {
+      entry.regressionOf = regressionOf.id;
+      entry.regression = true;
+      entry.note = 'regression: an earlier finding with this fingerprint was cleared as fixed and the defect is back';
+    }
     if (className !== null) {
       entry.classFindingId = classFindingId(className);
       const key = className.toLowerCase();
@@ -797,7 +824,7 @@ function recordRound(input) {
   const presentedClasses = Array.isArray(classes)
     ? classes.filter((record) => touchedClasses.includes(record.class.toLowerCase()))
     : [];
-  const presentedPlain = newFindings.filter((entry) => classOf(entry) === null);
+  const presentedPlain = [...newFindings, ...escalated].filter((entry) => classOf(entry) === null);
   const presented = sortFindings([...presentedPlain, ...presentedClasses]);
 
   return {
@@ -805,6 +832,7 @@ function recordRound(input) {
     findings,
     presented: Array.isArray(presented) ? presented : [],
     newFindings,
+    escalated,
     repeats,
     attached,
     classes: Array.isArray(classes) ? classes : [],

@@ -326,3 +326,40 @@ describe('TRD-010 AC-011-2: a later instance attaches to the existing class find
     expect(second.presented).toEqual([]);
   });
 });
+
+describe('recordRound: regressions and escalations are not suppressed', () => {
+  test('a repeat of a finding that was cleared as fixed is a regression: presented as new with a note', () => {
+    const first = recordRound({ ledger: [], incoming: [finding({ id: 'F1' })], round: 1 });
+    const cleared = first.findings.map((entry) => ({ ...entry, cleared: true }));
+    const second = recordRound({ ledger: cleared, incoming: [finding({ id: 'F9' })], round: 2 });
+
+    expect(second.repeats).toEqual([]);
+    expect(second.presented.map((entry) => entry.id)).toEqual(['F9']);
+    expect(second.newFindings[0].regressionOf).toBe('F1');
+    expect(second.newFindings[0].note).toMatch(/regression/);
+    // the next round meets the live record, not the cleared one
+    const third = recordRound({ ledger: second.findings, incoming: [finding({ id: 'F10' })], round: 3 });
+    expect(third.repeats.map((r) => r.repeatOf)).toEqual(['F9']);
+    expect(third.presented).toEqual([]);
+  });
+
+  test('a repeat with higher severity is presented and upgrades the stored severity, keeping originalSeverity', () => {
+    const first = recordRound({ ledger: [], incoming: [finding({ id: 'F1', severity: 'nit' })], round: 1 });
+    const second = recordRound({ ledger: first.findings, incoming: [finding({ id: 'F9', severity: 'important' })], round: 2 });
+
+    expect(second.presented.map((entry) => entry.id)).toEqual(['F1']);
+    expect(second.repeats[0].reason).toBe('severity-escalated');
+    const stored = second.findings.find((entry) => entry.id === 'F1');
+    expect(stored.severity).toBe('important');
+    expect(stored.originalSeverity).toBe('nit');
+  });
+
+  test('a repeat with the same or lower severity stays suppressed', () => {
+    const first = recordRound({ ledger: [], incoming: [finding({ id: 'F1', severity: 'important' })], round: 1 });
+    const same = recordRound({ ledger: first.findings, incoming: [finding({ id: 'F2', severity: 'important' })], round: 2 });
+    const lower = recordRound({ ledger: first.findings, incoming: [finding({ id: 'F3', severity: 'nit' })], round: 2 });
+    expect(same.presented).toEqual([]);
+    expect(lower.presented).toEqual([]);
+    expect(lower.findings.find((entry) => entry.id === 'F1').severity).toBe('important');
+  });
+});

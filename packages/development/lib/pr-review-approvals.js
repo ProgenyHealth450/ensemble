@@ -58,6 +58,9 @@ const normalizeSha = (value) => {
 /** The states that are an approval. Anything else is not one (and is not a rejection either). */
 const APPROVED_STATES = Object.freeze(['approved', 'approve']);
 
+/** The states that withdraw an approval when they are a reviewer's latest. */
+const DECISIVE_NON_APPROVALS = Object.freeze(['changes_requested', 'changes-requested', 'request_changes', 'dismissed']);
+
 /**
  * The fail-closed answer: nothing approved, the strictest requirement, the
  * reason named.
@@ -138,9 +141,12 @@ function evaluateApprovals(input) {
   const effective = isText(tierResult.effectiveTier) ? tierResult.effectiveTier.trim().toLowerCase() : null;
   if (effective === null || !TIERS.includes(effective)) return blocked('unknown-tier');
 
+  // The tier's floor is never lowered: a provided count above it raises the
+  // requirement, one below it (or a missing one) cannot.
+  const floor = HUMANS_REQUIRED[effective];
   const humansRequired = Number.isInteger(tierResult.humansRequired)
-    ? tierResult.humansRequired
-    : HUMANS_REQUIRED[effective];
+    ? Math.max(tierResult.humansRequired, floor)
+    : floor;
   if (!Number.isInteger(humansRequired) || humansRequired < 0) return blocked('unreadable-humans-required');
 
   const headSha = normalizeSha(input.headSha);
@@ -173,6 +179,26 @@ function evaluateApprovals(input) {
   const ignored = [];
   const approvers = [];
 
+  // Only each reviewer's LATEST decisive review counts: a later
+  // CHANGES_REQUESTED or DISMISSED removes an earlier approval; COMMENTED and
+  // PENDING reviews do not cancel it. Later = later `submittedAt` when both
+  // carry a readable one, else later array position.
+  const latest = new Map();
+  for (const review of reviews) {
+    if (!isObject(review) || !isText(review.state)) continue;
+    const state = review.state.trim().toLowerCase();
+    if (!APPROVED_STATES.includes(state) && !DECISIVE_NON_APPROVALS.includes(state)) continue;
+    const who = normalizeLogin(review.author) || normalizeLogin(review.login);
+    if (who === null) continue;
+    const current = latest.get(who);
+    if (current !== undefined) {
+      const a = Date.parse(current.submittedAt);
+      const b = Date.parse(review.submittedAt);
+      if (Number.isFinite(a) && Number.isFinite(b) && b < a) continue;
+    }
+    latest.set(who, review);
+  }
+
   for (const review of reviews) {
     if (!isObject(review)) {
       ignored.push({ login: null, reason: 'unreadable-review', commitSha: null });
@@ -181,6 +207,7 @@ function evaluateApprovals(input) {
     const login = normalizeLogin(review.author) || normalizeLogin(review.login);
     const commitSha = normalizeSha(review.commitSha);
     if (!isApproval(review)) continue; // Not an approval: nothing to count and nothing to ignore.
+    if (login !== null && latest.get(login) !== review) continue; // Superseded by the reviewer's later review.
     if (login === null) {
       ignored.push({ login: null, reason: 'unreadable-approver', commitSha });
       continue;
@@ -237,6 +264,7 @@ function evaluateApprovals(input) {
     satisfied,
     reason,
     tier: effective,
+    headSha,
     humansRequired,
     humansCounted,
     approvedBy: counted,

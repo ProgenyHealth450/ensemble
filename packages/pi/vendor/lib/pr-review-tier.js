@@ -437,17 +437,21 @@ function tierRecord(input) {
   if (!isObject(input)) return blockedRecord('invalid-input');
   const { assignment, effective } = input;
   if (!isObject(assignment) || assignment.ok !== true) return blockedRecord('invalid-assignment');
-  if (!isObject(effective) || typeof effective.humansRequired !== 'number') return blockedRecord('invalid-effective-tier');
+  if (!isObject(effective) || !Number.isInteger(effective.humansRequired) || effective.humansRequired < 0) {
+    return blockedRecord('invalid-effective-tier');
+  }
 
   const tier = fromSet(effective.tier, TIERS);
   const effectiveWord = fromSet(effective.effectiveTier, TIERS);
   if (tier === null || effectiveWord === null) return blockedRecord('unknown-tier');
+  // The record may raise the floor for its tier but never lower it.
+  const humansRequired = Math.max(effective.humansRequired, HUMANS_REQUIRED[effectiveWord]);
 
   const record = {
     ok: true,
     tier,
     effectiveTier: effectiveWord,
-    humansRequired: effective.humansRequired,
+    humansRequired,
     originalTier: fromSet(assignment.baseTier, TIERS) === null ? tier : assignment.baseTier,
     finalTier: tier,
     characteristics: Array.isArray(assignment.kinds) ? assignment.kinds.map((entry) => ({ ...entry })) : [],

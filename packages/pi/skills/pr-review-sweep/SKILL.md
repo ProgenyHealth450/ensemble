@@ -100,8 +100,10 @@ Read the same guidance a PR review reads, from `SWEEP_SHA`:
   `SWEEP_SHA` (`git ls-tree -r --name-only <SWEEP_SHA>`), `baseSha` and
   `sourceSha` both `SWEEP_SHA`;
 - `node "$PR_REVIEW_CLI" paths` with
-  `{ changedPaths, declaration, codeowners, baseSha }`, the declaration and
-  CODEOWNERS text read from `SWEEP_SHA`.
+  `{ changedPaths, declaration, codeowners, baseSha }`, where `declaration`
+  is `{ sourceSha: <SWEEP_SHA>, sensitive: <policy.sensitivePaths>,
+  high: <policy.highPaths> }` (the `policy` result above, read at
+  `SWEEP_SHA`) and `codeowners` is the CODEOWNERS text read from `SWEEP_SHA`.
 
 The `paths` result's `sensitive` and `high` lists are what Step 3 orders the
 sweep by. A guidance call that answers `ok:false` is `SWEEP_BLOCKED`: a sweep
@@ -154,18 +156,24 @@ what is there. No reviewer edits, stages, commits or pushes anything.
 Record every candidate as a ledger entry exactly as `pr-review-cycle` Step 3
 does -- `{ id, source, locationOrLink, severity, failureMode, disposition,
 evidence, originalTextOrLink }` -- with **`severity` set to `Pre-existing` on
-every one of them** (AC-021-1). `Pre-existing` is the third word of the
-ledger's closed severity set (`Important`, `Nit`, `Pre-existing`), so the tag
-is not a note in prose: `ledger` normalises it, the record comes back with
-`preExisting: true`, and every consumer -- the report, the merge gate, the
-metrics -- reads the same fact. It is set because the code was swept, never
-because a reviewer judged a defect old.
+every one of them** (AC-021-1) and a **valid `disposition`**, one of
+`fix|duplicate|not-applicable|deferred|adjudicate|resolved` (a sweep reports
+and never fixes, so use `deferred` with a `reason` naming the follow-up issue
+or report, unless a reviewer marked the candidate `duplicate` or
+`not-applicable`). `Pre-existing` is the third word of the ledger's closed
+severity set (`Important`, `Nit`, `Pre-existing`), but only `recordRound`
+normalises it: `validate` and `dedupe` do not. Run the batch through
+`node "$PR_REVIEW_CLI" ledger` with `action: 'recordRound'` and
+`{ ledger: [], incoming: <candidates>, round: 1 }`; the entries in its
+`findings` come back with `preExisting: true`, and every consumer -- the
+report, the merge gate, the metrics -- reads the same fact. It is set because
+the code was swept, never because a reviewer judged a defect old.
 
-Validate the batch with `node "$PR_REVIEW_CLI" ledger` (`action: 'validate'`,
-then `dedupe`); a finding missing a required field is completed, never
-dropped, and a finding that came back without `preExisting: true` was not
-tagged -- fix its severity before reporting, rather than explaining the tag in
-the summary.
+Then check the recorded `findings` with `action: 'validate'`; a finding
+missing a required field or carrying an invalid disposition is completed,
+never dropped, and a recorded finding without `preExisting: true` was not
+tagged -- fix its severity and run `recordRound` again before reporting,
+rather than explaining the tag in the summary.
 
 A sweep still says how bad each finding is: carry the reviewer's own severity
 judgement in the report (and in `failureMode` and `evidence`), so "pre-existing

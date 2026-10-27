@@ -4,7 +4,7 @@ Modular plugin ecosystem for AI coding agents (Claude Code first, plus Pi/Oh My 
 
 ![The Spec-Driven Factory: Ensemble Plugin Ecosystem](docs/images/ensemble-architecture.png)
 
-Current release: **7.0.0** (`ensemble-full`, `ensemble-development`). Each package is versioned independently; see [Packages](#packages).
+Current release: **7.0.1** (`ensemble-full`, `ensemble-development`). Each package is versioned independently; see [Packages](#packages).
 
 ## Contents
 
@@ -135,13 +135,13 @@ Versions below are taken from each package's `package.json`.
 
 | Package | Version | Contents |
 |---------|---------|----------|
-| `ensemble-full` | 7.0.0 | Meta-package that bundles all plugins |
-| `ensemble-core` | 6.0.0 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
+| `ensemble-full` | 7.0.1 | Meta-package that bundles all plugins |
+| `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
 | `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`, `reqnroll`, `analyze-product`) and the product-management orchestrator |
-| `ensemble-development` | 7.0.0 | TRD, Beads, feature and issue workflows; language skills; development agents |
-| `ensemble-quality` | 6.0.0 | `pr-review-remediation` skill; code-reviewer, deep-debugger, qa-orchestrator, test-runner agents |
+| `ensemble-development` | 7.0.1 | TRD, Beads, feature and issue workflows; language skills; development agents |
+| `ensemble-quality` | 6.0.1 | `pr-review-remediation` skill; code-reviewer, deep-debugger, qa-orchestrator, test-runner agents |
 | `ensemble-infrastructure` | 6.0.0 | Cloud, Kubernetes, Helm, Fly.io, Railway, Supabase, Vercel, Jira and Linear skills; infrastructure agents |
-| `ensemble-git` | 6.0.0 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
+| `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
 | `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`; `smoke-test-runner`, `writing-playwright-tests` skills; `playwright-tester` agent |
 | `ensemble-metrics` | 6.0.0 | `/ensemble:manager-dashboard`; `manager-dashboard-agent` |
 | `ensemble-assessment` | 1.1.0 | `/ensemble:assess` and the 22 assessment and report skills; installable on its own on Pi |
@@ -163,7 +163,7 @@ Versions below are taken from each package's `package.json`.
 | `ensemble-multiplexer-adapters` | 5.2.2 | Terminal multiplexer adapters (WezTerm, Zellij, tmux) |
 | `ensemble-opencode` | 5.3.1 | OpenCode runtime translation layer |
 | `ensemble-pi` | 1.6.16 | Pi runtime translation layer (own version line) |
-| `ensemble-codex` | 6.0.0 | Codex CLI runtime translation layer |
+| `ensemble-codex` | 6.0.1 | Codex CLI runtime translation layer |
 | `ensemble-agent-core` | 0.1.2 | Shared run-index I/O primitives for the `new-feature` and `fix-issue` workflows (library) |
 | `ensemble-pi-extension` | 0.1.2 | Pi extension providing native command completion for the dispatcher commands (no marketplace entry; installed from a checkout) |
 

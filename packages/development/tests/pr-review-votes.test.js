@@ -281,3 +281,40 @@ describe('TRD-016: fail closed -- nothing is dropped and nothing is waved throug
     expect(result.ok).toBe(false);
   });
 });
+
+describe('incomplete verification and malformed security flags', () => {
+  test.each([
+    ['zero votes', []],
+    ['only unknown verdicts', [{ verifier: 'v1', verdict: 'maybe' }, { verifier: 'v2', verdict: 'x' }, { verifier: 'v3', verdict: 'y' }]],
+    ['only unnamed verifiers', [{ verdict: 'not-real' }, { verdict: 'not-real' }, { verdict: 'not-real' }]],
+  ])('%s: unverified, verifier-incomplete, presented', (_name, votes) => {
+    const result = tallyVotes({ depth: 'standard', findings: [candidate({ votes })] });
+    const entry = result.findings[0];
+    expect(entry.outcome).toBe('unverified');
+    expect(entry.reason).toBe('verifier-incomplete');
+    expect(entry.presented).toBe(true);
+    expect(result.verification).not.toBe('performed');
+  });
+
+  test('a full set of usable votes without a majority stays filtered', () => {
+    const result = tallyVotes({ depth: 'standard', findings: [candidate({ votes: [notReal('v1'), notReal('v2'), real('v3')] })] });
+    expect(result.findings[0].outcome).toBe('filtered');
+    expect(result.findings[0].reason).toBe('verifier-majority-not-reached');
+    expect(result.verification).toBe('performed');
+  });
+
+  test.each([
+    ['security "true"', { security: 'true' }],
+    ['security "yes"', { security: 'yes' }],
+    ['security 1', { security: 1 }],
+    ['lane "Security"', { lane: 'Security' }],
+    ['critical "true"', { critical: 'true' }],
+  ])('%s goes to the security lane, never filtered', (_name, flags) => {
+    const result = tallyVotes({
+      depth: 'standard',
+      findings: [candidate({ ...flags, votes: [notReal('v1'), notReal('v2'), notReal('v3')] })],
+    });
+    expect(result.findings[0].outcome).toBe('disputed');
+    expect(result.findings[0].presented).toBe(true);
+  });
+});

@@ -121,8 +121,8 @@ describe('Scenario AC-025-1 / AC-025-2: the verification threshold', () => {
   });
 
   test('a threshold set to always pass is not what ships: expectedVerifiers 0 is the mutation, and it changes the outcome', () => {
-    const asShipped = tallyVotes({ depth: 'standard', findings: [finding({ votes: [] })] });
-    const mutant = tallyVotes({ depth: 'standard', expectedVerifiers: 0, findings: [finding({ votes: [] })] });
+    const asShipped = tallyVotes({ depth: 'standard', findings: [finding({ votes: [vote('v1', 'real')] })] });
+    const mutant = tallyVotes({ depth: 'standard', expectedVerifiers: 0, findings: [finding({ votes: [vote('v1', 'real')] })] });
 
     // As shipped, a finding nobody voted on is never presented as verified.
     expect(outcomeOf(asShipped, 'F1')).not.toBe('present');

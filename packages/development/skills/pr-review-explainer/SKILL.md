@@ -25,7 +25,7 @@ repository's sensitive and High paths.
 | `MODULE` | string | What the requester named: a path (`packages/development/lib/pr-review-votes.js`), a directory (`packages/development/lib`), or a bare name (`pr-review-votes`, `vote tally`). |
 | `REPO_ROOT` | string | Repository root the resolution runs in. Resolution never leaves it. |
 | `REQUESTED` | boolean | True only when a person asked. The High-tier offer (Step 5) produces **no** explainer until this is true. |
-| `TIER` | `'Low'` \| `'Medium'` \| `'High'` (optional) | Recorded tier of the PR whose report carried the offer. Used by Step 5 only. |
+| `TIER` | `'low'` \| `'medium'` \| `'high'` (optional) | Recorded tier of the PR whose report carried the offer. Used by Step 5 only. |
 | `SENSITIVE_PATHS` | string[] (optional) | Touched paths the caller already classified, so Step 5 does not re-run classification. |
 
 ## Outputs
@@ -141,7 +141,7 @@ report). This skill defines what the offer means and what it does:
 - When a person accepts, run Steps 1–4 for the accepted module only, with
   `MODULE` set to that module's path, and attach the result to the review
   thread that offered it.
-- A `TIER` other than `High` is not an error here; it simply means no offer was
+- A `TIER` other than `high` is not an error here; it simply means no offer was
   made, so there is nothing to accept. If this skill is invoked anyway with
   `REQUESTED = true`, it still answers — a maintainer may always ask directly.
 

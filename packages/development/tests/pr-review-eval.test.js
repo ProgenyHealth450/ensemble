@@ -391,3 +391,31 @@ describe('TRD-031: a changed rules file makes its cases stale', () => {
     }
   });
 });
+
+describe('final-gate fixes: fail-closed comparison and confirmation', () => {
+  const run = (entries) => ({ cases: entries.map(([id, found]) => ({ id, found })) });
+
+  test('two empty runs are not ok and make no pass claim', () => {
+    const result = compareEval({ previous: run([]), current: run([]) });
+    expect(result.ok).toBe(false);
+    expect(result.regression).toBe(true);
+    expect(result.reason).toBe('no-cases');
+  });
+
+  test('a run with a duplicate case id is invalid and names the id', () => {
+    const result = compareEval({ previous: run([['a', true]]), current: run([['a', false], ['a', true]]) });
+    expect(result.ok).toBe(false);
+    expect(result.regression).toBe(true);
+    expect(result.reason).toContain('a');
+    expect(result.reason).toContain('duplicate');
+  });
+
+  test('scoreEval marks an unconfirmed case case-unconfirmed when CODEOWNERS is supplied', () => {
+    const cases = [evalCase(), evalCase({ id: 'case-002', confirmedBy: '@docs-owner' })];
+    const findingsByCase = { 'case-001': [finding()], 'case-002': [finding()] };
+    const result = scoreEval({ cases, findingsByCase, codeowners: CODEOWNERS });
+    expect(result.cases[0].found).toBe(true);
+    expect(result.cases[1]).toMatchObject({ id: 'case-002', found: false, reason: 'case-unconfirmed' });
+    expect(result.total.found).toBe(1);
+  });
+});

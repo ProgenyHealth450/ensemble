@@ -33,7 +33,7 @@
  */
 
 const { validateLedger, partitionFindings, isActionable, normalizeSeverity } = require('./pr-review-ledger');
-const { TIERS } = require('./pr-review-tier');
+const { TIERS, HUMANS_REQUIRED } = require('./pr-review-tier');
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = (value) => typeof value === 'string' && value.trim() !== '';
@@ -45,6 +45,7 @@ const BLOCKER_CODES = Object.freeze({
   SECURITY_FINDING_OPEN: 'security-finding-open',
   SECURITY_REVIEW_MISSING: 'security-review-missing',
   APPROVALS_UNSATISFIED: 'approvals-unsatisfied',
+  APPROVALS_TIER_MISMATCH: 'approvals-tier-mismatch',
   DESCRIPTION_SECTION_MISSING: 'description-section-missing',
   REVIEW_DATA_UNAVAILABLE: 'review-data-unavailable',
 });
@@ -279,6 +280,46 @@ function evaluateGate(input) {
 
   const tier = readTier(input.tier, approvalsResult);
   if (tier === null) missing.push('tier');
+
+  // The approvals result must have been computed against the tier floor and
+  // the commit the gate is asked about (fail closed on either mismatch).
+  if (approvalsResult !== null) {
+    const problems = [];
+    const tierResult = isObject(input.tier) && input.tier.ok !== false ? input.tier : null;
+    if (tierResult !== null && tier !== null) {
+      const floor = Math.max(
+        HUMANS_REQUIRED[tier],
+        Number.isInteger(tierResult.humansRequired) && tierResult.humansRequired >= 0 ? tierResult.humansRequired : 0
+      );
+      const approvalsTier = isText(approvalsResult.tier) ? approvalsResult.tier.trim().toLowerCase() : null;
+      const approvalsRank = approvalsTier === null ? -1 : TIERS.indexOf(approvalsTier);
+      if (approvalsRank < TIERS.indexOf(tier)) {
+        problems.push(`approvals were evaluated at tier '${approvalsTier}' but the effective tier is '${tier}'`);
+      }
+      if (!Number.isInteger(approvalsResult.humansRequired) || approvalsResult.humansRequired < floor) {
+        problems.push(`approvals required ${String(approvalsResult.humansRequired)} human(s) but the tier requires ${floor}`);
+      }
+    }
+    if (approvalsResult.headSha !== undefined && approvalsResult.headSha !== null) {
+      const carried = isText(approvalsResult.headSha) ? approvalsResult.headSha.trim().toLowerCase() : null;
+      const gateSha = isText(input.headSha) ? input.headSha.trim().toLowerCase() : null;
+      if (carried === null || gateSha === null || carried !== gateSha) {
+        problems.push(
+          `approvals were evaluated for commit ${carried === null ? '(unreadable)' : carried}, not ${gateSha === null ? '(no head given to the gate)' : gateSha}`
+        );
+      }
+    }
+    if (problems.length > 0) {
+      blockers.push(
+        blocker(
+          BLOCKER_CODES.APPROVALS_TIER_MISMATCH,
+          `the approvals result does not match the gate's tier or commit: ${problems.join('; ')}`,
+          're-run the approvals evaluation against the current head and the current effective tier, then re-run the gate',
+          { problems }
+        )
+      );
+    }
+  }
 
   // --- Description (AC-002-3) --------------------------------------------
   if (!isObject(input.description) || input.description.ok !== true || !Array.isArray(input.description.missing)) {

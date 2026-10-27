@@ -99,11 +99,22 @@ function blocked(reason) {
   return { ok: false, verification: 'blocked', reason, recoveryAction: 're-run-verification', findings: [], presented: [] };
 }
 
+/**
+ * Fail closed on a malformed flag: anything except absent, false, null, 0 or an
+ * explicit "no" word reads as set, so "true", "yes" and 1 all mean the flag is on.
+ */
+function flagged(value) {
+  if (value === undefined || value === null || value === false) return false;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') return !['', 'false', 'no', 'n', '0', 'off'].includes(value.trim().toLowerCase());
+  return true;
+}
+
 /** Whether a finding is in the security lane: a person adjudicates it, never a vote alone. */
 function isSecurityLane(finding) {
-  if (finding.security === true) return true;
-  if (finding.lane === 'security') return true;
-  if (finding.critical === true) return true;
+  if (flagged(finding.security)) return true;
+  if (isText(finding.lane) && finding.lane.trim().toLowerCase() === 'security') return true;
+  if (flagged(finding.critical)) return true;
   return isText(finding.severity) && finding.severity.trim().toLowerCase() === 'critical';
 }
 
@@ -274,6 +285,12 @@ function tallyVotes(input) {
       // Critical and security-relevant findings are never closed by a vote:
       // they go to a person (AC-006-2).
       return withLabel({ ...entry, outcome: 'disputed', reason: 'security-finding-not-verified', presented: true });
+    }
+
+    const usable = votes.counted.real + votes.counted.notReal + votes.counted.abstain;
+    if (usable === 0) {
+      // No usable vote at all: silence is not a verdict, so the finding is kept and marked, never filtered.
+      return withLabel({ ...entry, outcome: 'unverified', reason: 'verifier-incomplete', presented: true });
     }
 
     return withLabel({ ...entry, outcome: 'filtered', reason: 'verifier-majority-not-reached', presented: false, index });

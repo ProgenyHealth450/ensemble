@@ -334,3 +334,21 @@ describe('TRD-023: fail closed -- an unreadable request never buys a cheaper rev
     for (const sample of samples) expect(TIERS).toContain(sample.tier);
   });
 });
+
+describe('tierRecord humansRequired floor', () => {
+  const { tierRecord } = require('../lib/pr-review-tier');
+  const build = (humansRequired, word = 'high') => ({
+    assignment: { ok: true, baseTier: word },
+    effective: { tier: word, effectiveTier: word, humansRequired },
+  });
+
+  test('rejects NaN, negative and non-integer counts', () => {
+    for (const bad of [NaN, -1, 1.5, '2', undefined]) expect(tierRecord(build(bad)).ok).toBe(false);
+  });
+
+  test('a count below the tier floor is raised to it', () => {
+    const record = tierRecord(build(0));
+    expect(record.ok).toBe(true);
+    expect(record.humansRequired).toBe(2);
+  });
+});

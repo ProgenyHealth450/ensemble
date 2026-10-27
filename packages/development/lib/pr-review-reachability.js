@@ -164,6 +164,8 @@ function traceCapabilities(input) {
       const via = [];
       const missing = [];
       const unregistered = [];
+      // A capability that maps to no subcommand is reached through nothing.
+      if (required.length === 0) missing.push('no-subcommands-mapped');
       for (const name of required) {
         const key = name.trim().toLowerCase();
         // Link 3: the CLI must really register it.
@@ -179,7 +181,7 @@ function traceCapabilities(input) {
       }
       return {
         capability,
-        reached: missing.length === 0 && unregistered.length === 0,
+        reached: required.length > 0 && missing.length === 0 && unregistered.length === 0,
         via,
         missing,
         unregistered,
@@ -257,6 +259,7 @@ function compareRuntimes(input) {
   const base = readRuntime(runtimes[baseline]);
   if (base === null) return compareFailure(`baseline runtime ${baseline} is unreadable`);
   if (base.procedures.length === 0 && base.subcommands.length === 0) return compareFailure('baseline-declares-nothing');
+  if (expected.length === 0) return compareFailure('no-runtimes-expected');
 
   const report = [];
   for (const name of expected) {
@@ -321,15 +324,37 @@ function hygieneFailure(reason) {
   };
 }
 
-/** Every `secrets.NAME` reference in a workflow text. */
+/**
+ * Every secret a workflow text references: `secrets.NAME`, `secrets['NAME']`,
+ * `secrets["NAME"]`, and any use of the WHOLE object (`toJSON(secrets)`, a
+ * bare `secrets`, `secrets[dynamic]`, `secrets: inherit`), which is reported
+ * as the wildcard `*` -- it exposes every secret and is never in an allow-list.
+ */
 function secretsReferencedIn(text) {
   const found = new Set();
-  const pattern = /secrets\.([A-Za-z_][A-Za-z0-9_]*)/g;
-  let match = pattern.exec(text);
+  const dotted = /(?<![\w.])secrets\.([A-Za-z_][A-Za-z0-9_]*)/gi;
+  const bracketed = /(?<![\w.])secrets\s*\[\s*(?:'([^']+)'|"([^"]+)")\s*\]/gi;
+  let match = dotted.exec(text);
   while (match !== null) {
     found.add(match[1]);
-    match = pattern.exec(text);
+    match = dotted.exec(text);
   }
+  match = bracketed.exec(text);
+  while (match !== null) {
+    found.add(match[1] !== undefined ? match[1] : match[2]);
+    match = bracketed.exec(text);
+  }
+
+  // Whole-object use: what is left of an expression once the named
+  // references are removed must not mention `secrets` at all.
+  const expressions = /\$\{\{([\s\S]*?)\}\}/g;
+  let expression = expressions.exec(text);
+  while (expression !== null) {
+    const rest = expression[1].replace(dotted, '').replace(bracketed, '');
+    if (/(?<![\w.])secrets(?![\w])/i.test(rest)) found.add('*');
+    expression = expressions.exec(text);
+  }
+  if (/^\s*secrets\s*:\s*inherit\b/im.test(text)) found.add('*');
   return found;
 }
 
@@ -385,6 +410,8 @@ function gradeSecretHygiene(input) {
 
   const samples = input.samples === undefined ? [] : input.samples;
   if (!Array.isArray(samples) || !samples.every(isObject)) return hygieneFailure('samples must be an array of objects');
+  // Nothing to check is not a clean pass.
+  if (workflows.length === 0 && samples.length === 0) return hygieneFailure('nothing-checked');
 
   const newSecrets = [];
   for (const workflow of workflows) {

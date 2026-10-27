@@ -116,6 +116,7 @@ Validate WCAG 2.1 AA compliance for frontend changes
 - `locationOrLink`: file:line for code, or the permalink when the finding is about a comment or thread
 - `severity`: One of the severities above; anything else is read as actionable
 - `failureMode`: What goes wrong, in one line, in the author's terms
+- `disposition`
 - `evidence`: The observation that supports it -- a quoted line, a test name, a command and its output
 - `originalTextOrLink`: The original report text or its link, so nothing is paraphrased away
 

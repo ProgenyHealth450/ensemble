@@ -575,8 +575,8 @@ describe('Guard 3c/3d: cross-round repeat suppression (pr-review-ledger.js)', ()
     mutate: (text, a) =>
       a.replace(
         text,
-        'if (fingerprint !== null && firstByFingerprint.has(fingerprint)) {',
-        'if (fingerprint !== null && firstByFingerprint.has(fingerprint) && false) {'
+        'if (fingerprint !== null && firstByFingerprint.has(fingerprint) && firstByFingerprint.get(fingerprint).cleared !== true) {',
+        'if (fingerprint !== null && firstByFingerprint.has(fingerprint) && firstByFingerprint.get(fingerprint).cleared !== true && false) {'
       ),
   });
 

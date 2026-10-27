@@ -353,3 +353,36 @@ describe('fail closed: an unreadable request is never an absent requirement', ()
     expect(result.satisfied).toBe(false);
   });
 });
+
+describe('per-reviewer latest review and the tier floor', () => {
+  test('a later CHANGES_REQUESTED or DISMISSED removes the same reviewer\'s approval; COMMENTED does not', () => {
+    const run = (reviews) => evaluateApprovals({ reviews, headSha: HEAD, tier: tierOf('medium') });
+    expect(run([approval('a'), approval('a', { state: 'CHANGES_REQUESTED' })]).satisfied).toBe(false);
+    expect(run([approval('a'), approval('a', { state: 'DISMISSED' })]).satisfied).toBe(false);
+    expect(run([approval('a'), approval('a', { state: 'COMMENTED' })]).satisfied).toBe(true);
+    expect(run([approval('a', { state: 'CHANGES_REQUESTED' }), approval('a')]).satisfied).toBe(true);
+  });
+
+  test('submittedAt outranks array order when both carry one', () => {
+    const result = evaluateApprovals({
+      reviews: [
+        approval('a', { state: 'CHANGES_REQUESTED', submittedAt: '2026-01-02T00:00:00Z' }),
+        approval('a', { submittedAt: '2026-01-01T00:00:00Z' }),
+      ],
+      headSha: HEAD,
+      tier: tierOf('medium'),
+    });
+    expect(result.satisfied).toBe(false);
+  });
+
+  test('a tier result cannot lower the floor; the result carries headSha', () => {
+    const result = evaluateApprovals({
+      reviews: [approval('a')],
+      headSha: HEAD,
+      tier: tierOf('high', { humansRequired: 1 }),
+    });
+    expect(result.humansRequired).toBe(2);
+    expect(result.satisfied).toBe(false);
+    expect(result.headSha).toBe(HEAD);
+  });
+});

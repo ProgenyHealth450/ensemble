@@ -390,9 +390,10 @@ findings.
 ### Step 4 -- Triage all findings before any edit
 
 Classify every **presented** ledger entry from Step 3b with `isActionable`
-**before making any code change**. An unresolved thread or a Critical/Major
+**before making any code change**. An unresolved thread or an Important
 finding is actionable; a
-Minor/nitpick finding may be `deferred` only with a recorded reason; an
+Nit finding may be `deferred` only with a recorded reason; a `Pre-existing`
+finding is reported separately and never blocks; an
 uncertain finding is `adjudicate` and is never dropped. A `filtered` finding
 is not triaged and not fixed -- it was already answered by verification --
 but it is never deleted from the ledger. Do not start fixing
@@ -757,6 +758,15 @@ subcommands in this order, each one JSON payload in, one JSON object out:
    (Step 9), `description` the Step 1b `description` result, `security` the
    lane from 10c, and `unavailable` the names of every read that failed twice
    in 10d.
+
+   **A missing ledger is unavailable, never empty.** When `state-read` finds
+   no report for this head, or discards the one it found (it was written for
+   another head or tree), there is no ledger for this commit. Do not pass
+   `[]` -- an empty ledger reads as "reviewed, nothing open" and would let an
+   unreviewed head pass. Omit `ledger` (or pass anything that is not an array)
+   so the gate answers `review-data-unavailable`, and tell the caller to run
+   `MODE=local` / `MODE=remote` for this head first. Pass `[]` only when a
+   report for this exact head was read and it recorded no findings.
 
 **What this step returns.** The `gate` result verbatim: `mergeable`,
 `blockers[]` (each with its `code`, `message` and `nextAction`), `warnings`,

@@ -102,6 +102,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now compares a credential-carrying payload across both runtimes so the
   drift cannot return unnoticed.
 
+- **packages/development, packages/quality, packages/git (final review):**
+  the merge gate no longer passes on a missing ledger -- `pr-review-cycle`
+  Step 10 and `pr-merge` treat a head with no recorded review as unavailable
+  (`review-data-unavailable`), never as an empty ledger. The sweep skill now
+  records `Pre-existing` findings through `recordRound` with a valid
+  disposition and documents the `paths` declaration as
+  `{ sourceSha, sensitive, high }`; Step 4 uses the Important/Nit/Pre-existing
+  vocabulary; the explainer `TIER` is lowercase like the CLI; and the
+  `code-reviewer` output contract lists `disposition`. Versions:
+  ensemble-pi 1.6.18, ensemble-full 7.0.1.
+
 ### Documentation
 
 - **User guide section 11, "Code review process":** the whole process in one

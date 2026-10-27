@@ -313,3 +313,26 @@ describe('TRD-025 AC-4: missing or unavailable review data never passes', () => 
     expect(codesOf(result)).toContain(BLOCKER_CODES.REVIEW_DATA_UNAVAILABLE);
   });
 });
+
+describe('approvals must match the gate tier floor and head (fail closed)', () => {
+  test('approvals evaluated at a lower tier than the effective tier block', () => {
+    const result = evaluateGate(
+      cleanInput({ tier: tier('high'), approvals: approvals({ tier: 'low', humansRequired: 0, humansCounted: 0 }) })
+    );
+    expect(result.mergeable).toBe(false);
+    expect(codesOf(result)).toContain('approvals-tier-mismatch');
+    expect(blockerOf(result, 'approvals-tier-mismatch').nextAction).toEqual(expect.any(String));
+  });
+
+  test('approvals whose humansRequired is below the tier floor block', () => {
+    const result = evaluateGate(cleanInput({ tier: tier('high'), approvals: approvals({ tier: 'high', humansRequired: 1 }) }));
+    expect(codesOf(result)).toContain('approvals-tier-mismatch');
+  });
+
+  test('approvals bound to a different head block; the matching head passes', () => {
+    const stale = evaluateGate(cleanInput({ approvals: approvals({ headSha: 'b'.repeat(40) }) }));
+    expect(codesOf(stale)).toContain('approvals-tier-mismatch');
+    const fresh = evaluateGate(cleanInput({ approvals: approvals({ headSha: HEAD }) }));
+    expect(fresh.mergeable).toBe(true);
+  });
+});

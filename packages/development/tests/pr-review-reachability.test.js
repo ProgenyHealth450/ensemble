@@ -325,7 +325,7 @@ describe('TRD-037 AC-023-3: the in-agent review needs no new CI secret', () => {
 
   test('with no hosted reviewer configured the in-agent review still runs', () => {
     const result = gradeSecretHygiene({
-      workflows: [],
+      workflows: [{ path: '.github/workflows/review.yml', text: 'token: ${{ secrets.GITHUB_TOKEN }}' }],
       allowedSecrets: ['GITHUB_TOKEN'],
       hostedReviewerConfigured: false,
       samples: [],
@@ -407,5 +407,52 @@ describe('TRD-037 AC-024-2: credential-like text is redacted in every new lib', 
       expect(result.inAgentReviewRuns).toBe(false);
       expect(typeof result.reason).toBe('string');
     }
+  });
+});
+
+describe('final-gate fixes: reachability and hygiene fail closed', () => {
+  test('secrets: empty input is refused as nothing-checked', () => {
+    for (const input of [{}, { workflows: [] }, { workflows: [], samples: [] }]) {
+      const result = gradeSecretHygiene(input);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('nothing-checked');
+    }
+  });
+
+  test('secrets: bracket access and whole-object use are caught', () => {
+    const cases = [
+      ["a: ${{ secrets['EVIL'] }}", 'EVIL'],
+      ['a: ${{ secrets["EVIL"] }}', 'EVIL'],
+      ['a: ${{ toJSON(secrets) }}', '*'],
+      ['a: ${{ secrets }}', '*'],
+      ['a: ${{ secrets[matrix.name] }}', '*'],
+    ];
+    for (const [text, name] of cases) {
+      const result = gradeSecretHygiene({ workflows: [{ path: 'w.yml', text }], allowedSecrets: ['GITHUB_TOKEN', '*x'] });
+      expect(result.ok).toBe(false);
+      expect(result.newSecrets).toEqual([{ secret: name, path: 'w.yml' }]);
+    }
+  });
+
+  test('trace: a capability mapped to an empty list is not reached', () => {
+    const result = traceCapabilities({
+      entryPoints: [{ id: 'e', text: entryText() }],
+      skills: [{ id: 'pr-review-cycle', path: SKILL_PATH, text: skillText(ALL_SUBCOMMANDS) }],
+      subcommands: ALL_SUBCOMMANDS,
+      capabilities: { empty: [] },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.unreachable).toEqual(['empty']);
+  });
+
+  test('runtimes: expected [] is not equivalent by vacuity', () => {
+    const result = compareRuntimes({
+      runtimes: { claude: { procedures: ['p'], subcommands: ['votes'] } },
+      baseline: 'claude',
+      expected: [],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.equivalent).toBe(false);
+    expect(result.reason).toBeTruthy();
   });
 });

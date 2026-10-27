@@ -495,6 +495,7 @@ outputContract:
     - locationOrLink
     - severity
     - failureMode
+    - disposition
     - evidence
     - originalTextOrLink
   # The closed severity set the ledger enforces. What each word MEANS stays

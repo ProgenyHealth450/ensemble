@@ -169,6 +169,7 @@ function scoreEval(input) {
   if (!Array.from(cases).every(isObject)) return scoreFailure('cases must contain only objects');
   if (!isObject(findingsByCase)) return scoreFailure('findingsByCase must be an object keyed by case id');
 
+  const confirmationRequired = input.codeowners !== undefined;
   const results = Array.from(cases).map((record) => {
     const id = isText(record.id) ? record.id.trim() : null;
     const location = record.location;
@@ -178,7 +179,12 @@ function scoreEval(input) {
     if (id === null || !locationOk) {
       return { id, found: false, matchedFindingId: null, reason: 'invalid-case' };
     }
-
+    // A case no CODEOWNERS owner confirmed is not evidence (AC-020-1). The
+    // check runs whenever the caller supplies CODEOWNERS text.
+    if (confirmationRequired) {
+      const verdict = validateCase({ case: record, codeowners: input.codeowners, evalCasesDir: input.evalCasesDir });
+      if (!verdict.ok) return { id, found: false, matchedFindingId: null, reason: 'case-unconfirmed' };
+    }
     const recorded = Object.prototype.hasOwnProperty.call(findingsByCase, id) ? findingsByCase[id] : undefined;
     if (!Array.isArray(recorded)) {
       return { id, found: false, matchedFindingId: null, reason: 'no-findings-recorded' };
@@ -215,7 +221,9 @@ function runOutcomes(run) {
   const outcomes = new Map();
   for (const entry of Array.from(run.cases)) {
     if (!isObject(entry) || !isText(entry.id)) return null;
-    outcomes.set(entry.id.trim(), entry.found === true);
+    const id = entry.id.trim();
+    if (outcomes.has(id)) return { duplicate: id };
+    outcomes.set(id, entry.found === true);
   }
   return outcomes;
 }
@@ -246,6 +254,9 @@ function compareEval(input) {
   const current = runOutcomes(input.current);
   if (previous === null) return compareFailure('previous run is unreadable');
   if (current === null) return compareFailure('current run is unreadable');
+  if (previous instanceof Map === false) return compareFailure(`previous run has duplicate case id ${previous.duplicate}`);
+  if (current instanceof Map === false) return compareFailure(`current run has duplicate case id ${current.duplicate}`);
+  if (previous.size === 0 && current.size === 0) return compareFailure('no-cases');
 
   const flipped = [];
   const gained = [];
