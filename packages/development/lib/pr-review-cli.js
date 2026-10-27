@@ -12,7 +12,7 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|explainer-offer> < payload.json
+ * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale> < payload.json
  *
  * `review-range` (TRD-013) is a thin pass-through to `chooseReviewRange`:
  * given `lastReviewedSha`, `commits` and `remediationShas` on top of what
@@ -48,6 +48,19 @@
  * one explainer per touched sensitive module on a High-tier PR, and `generate`
  * stays empty until `requested` names one of them:
  *   explainer-offer  { tier, paths, requested? }
+ *
+ * The metrics and eval subcommands (TRD-032) take the records a maintainer
+ * fetched with `gh` (see docs/guides/pr-review-metrics.md) and answer with
+ * their module's result verbatim:
+ *   metrics          { prs[{ number, title, author, createdAt, mergedAt, reviews, comments, commits, tier? }],
+ *                      findingResponses?, incidents?, revertCommitsOnDefaultBranch?, botLogins? }
+ *   metrics-compare  { baseline, current } -- each a `metrics` payload, a
+ *                    `metrics` result or a committed baseline file; answers
+ *                    the per-target comparison and the revert/incident
+ *                    guardrail (AC-019-3, AC-019-4)
+ *   eval-score       { cases[], findingsByCase{} }
+ *   eval-compare     { previous, current } -- each an `eval-score` result
+ *   eval-stale       { cases[], rulesHashes{} }
  *
  * The verification subcommands (TRD-018) each take the facts their module
  * grades and answer with that module's result verbatim:
@@ -98,6 +111,8 @@ const { checkDescription } = require('./pr-review-description');
 const { tallyVotes } = require('./pr-review-votes');
 const { resolveDepth, checkBounds, boundsFor, planSlices, verifyCoverage } = require('./pr-review-depth');
 const { offerExplainers } = require('./pr-review-explainer-offer');
+const { computeMetrics, compareCohorts } = require('./pr-review-metrics');
+const { scoreEval, compareEval, staleCases } = require('./pr-review-eval');
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -360,6 +375,34 @@ function runExplainerOffer(payload) {
   return offerExplainers(payload);
 }
 
+/**
+ * The metrics and eval subcommands (TRD-032). Each is a pass-through to the
+ * one module function that owns the question, graded IN BAND exactly like
+ * the guidance subcommands: a cohort too small, a comparison it cannot read,
+ * a case the owner never confirmed or a rules hash it does not recognise is
+ * a refusing RESULT (exit 0), never a clean pass. Nothing here aggregates,
+ * re-grades or softens what the module answered.
+ */
+function runMetrics(payload) {
+  return computeMetrics(payload);
+}
+
+function runMetricsCompare(payload) {
+  return compareCohorts(payload);
+}
+
+function runEvalScore(payload) {
+  return scoreEval(payload);
+}
+
+function runEvalCompare(payload) {
+  return compareEval(payload);
+}
+
+function runEvalStale(payload) {
+  return staleCases(payload);
+}
+
 const HANDLERS = Object.freeze({
   scope: runScope,
   'review-range': runReviewRange,
@@ -376,6 +419,11 @@ const HANDLERS = Object.freeze({
   depth: runDepth,
   slices: runSlices,
   'explainer-offer': runExplainerOffer,
+  metrics: runMetrics,
+  'metrics-compare': runMetricsCompare,
+  'eval-score': runEvalScore,
+  'eval-compare': runEvalCompare,
+  'eval-stale': runEvalStale,
 });
 
 /**
@@ -394,7 +442,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|explainer-offer> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale> < payload.json`,
       }) + '\n'
     );
     return 1;
@@ -439,6 +487,11 @@ module.exports = {
   runDepth,
   runSlices,
   runExplainerOffer,
+  runMetrics,
+  runMetricsCompare,
+  runEvalScore,
+  runEvalCompare,
+  runEvalStale,
   LEDGER_ACTIONS,
   HANDLERS,
   main,
