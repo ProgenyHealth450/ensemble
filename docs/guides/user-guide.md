@@ -533,7 +533,7 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:generate-api-docs` | none | Generate OpenAPI/Swagger documentation from the codebase | `ensemble-development` |
 | `/ensemble:standards` | `<discover\|inject\|fold> [args...]` | Dispatcher: coding standards | `ensemble-core` |
 | `/ensemble:fold-prompt` | none | Optimize `CLAUDE.md` for token efficiency and progressive loading | `ensemble-core` |
-| `/ensemble:init-project` | `minimal`, `force` | Scaffold `docs/standards/constitution.md`, `docs/PRD/`, `docs/TRD/` and `.gitignore` entries; hand-authored Markdown with no YAML source, so it is not counted among the 43 generated commands | `ensemble-core` |
+| `/ensemble:init-project` | `minimal`, `force` | Scaffold `docs/standards/constitution.md`, `docs/PRD/`, `docs/TRD/` and `.gitignore` entries, plus the review files every pull-request review reads — `.github/pull_request_template.md`, the root `REVIEW.md` (fenced `ensemble-review-policy` block, read only from the base branch) and `.github/CODEOWNERS` — never overwriting one a maintainer already edited; hand-authored Markdown with no YAML source, so it is not counted among the 43 generated commands | `ensemble-core` |
 | `/ensemble:sessionlog` | none | Save a structured session transcript with decisions and commands to `SessionLogs` | `ensemble-core` |
 | `/ensemble:reinstall-plugins` | `[--all \| <filter>]` | Uninstall and reinstall plugins to pick up marketplace content that version-gated updates miss (Claude Code CLI) | `ensemble-core` |
 | `/ensemble:assess` | `<repo\|team\|config\|report> [--only <dimension>] [args...]` | Dispatcher: repository, team and configuration assessment | `ensemble-assessment` |
