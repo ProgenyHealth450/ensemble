@@ -505,11 +505,16 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
 // ---------------------------------------------------------------------------
 // Guard 3 -- round cap: the shared roundCap (default 3) must actually block further
 // automatic rounds once the cap is reached with actionable findings.
+//
+// Two mutants, because a cap has two ways to be useless (TRD-014, AC-025-1 and
+// AC-025-2): 3a never stops the loop, 3b stops it whatever the repository
+// configured. The second is the case that must be REFUSED -- a gate that
+// always blocks would pass 3a's test while making the configured cap a lie.
 // ---------------------------------------------------------------------------
 
 describe('Guard 3: round cap roundCap (pr-review-status.js)', () => {
   proveGuardMutationIsCaught({
-    id: 'Guard 3',
+    id: 'Guard 3a',
     label:
       'Scenario: disabling roundLimitReached lets the cap be exceeded -- "round limit never completes" fails against the mutant',
     files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
@@ -521,6 +526,75 @@ describe('Guard 3: round cap roundCap (pr-review-status.js)', () => {
         text,
         'const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;',
         'const roundLimitReached = false;'
+      ),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 3b',
+    label:
+      'Scenario: ignoring roundCap makes every open finding "at the cap" -- "a larger repository cap really does allow another round before the block" fails against the mutant',
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a larger repository cap really does allow another round before the block',
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        'const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;',
+        'const roundLimitReached = actionableCount > 0;'
+      ),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 3c/3d -- cross-round repeat suppression in lib/pr-review-ledger.js
+// (TRD-014, AC-025-1 and AC-025-2). Suppression also has two failure modes,
+// and both are proven here: 3c stops recognising a repeat, so the author is
+// asked the same question every round; 3d recognises too much, so a genuinely
+// new defect is swallowed as a repeat of an unrelated one. The second is the
+// case that must be refused -- "nothing new this round" is the one answer this
+// module must never give wrongly.
+// ---------------------------------------------------------------------------
+
+describe('Guard 3c/3d: cross-round repeat suppression (pr-review-ledger.js)', () => {
+  const LEDGER_FILES = [
+    'lib/pr-review-ledger.js',
+    'lib/pr-review-state.js',
+    'lib/pr-review-scope.js',
+    'tests/pr-review-repeats.test.js',
+  ];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 3c',
+    label:
+      'Scenario: removing the already-recorded check re-posts every finding each round -- "the same defect in a later round is classified as a repeat and is not presented" fails against the mutant',
+    files: LEDGER_FILES,
+    targetRel: 'lib/pr-review-ledger.js',
+    testFileRel: 'tests/pr-review-repeats.test.js',
+    testTitle: 'the same defect in a later round is classified as a repeat and is not presented',
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        'if (fingerprint !== null && firstByFingerprint.has(fingerprint)) {',
+        'if (fingerprint !== null && firstByFingerprint.has(fingerprint) && false) {'
+      ),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 3d',
+    label:
+      'Scenario: dropping the failure mode from the fingerprint swallows a new defect as a repeat -- "negative control: a different file or a different failure mode is a new finding, not a repeat" fails against the mutant',
+    files: LEDGER_FILES,
+    targetRel: 'lib/pr-review-ledger.js',
+    testFileRel: 'tests/pr-review-repeats.test.js',
+    testTitle: 'negative control: a different file or a different failure mode is a new finding, not a repeat',
+    // The identity stays well-formed and consistent -- only the failure mode
+    // leaves it -- so every finding in one file collapses onto the first one.
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        'return `${path}::${mode}::${className === null ? \'\' : className.toLowerCase()}`;',
+        'return `${path}::any::${className === null ? \'\' : className.toLowerCase()}`;'
       ),
   });
 });
