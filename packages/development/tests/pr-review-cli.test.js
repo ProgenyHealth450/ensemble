@@ -26,6 +26,9 @@ const {
   runRules,
   runPaths,
   runDescription,
+  runVotes,
+  runDepth,
+  runSlices,
   LEDGER_ACTIONS,
   HANDLERS,
   main,
@@ -38,6 +41,8 @@ const { loadPolicy, DEFAULT_ROUND_CAP } = require('../lib/pr-review-policy');
 const { resolveRuleFiles, NO_AREA_RULES_NOTE } = require('../lib/pr-review-rules');
 const { classifyPaths } = require('../lib/pr-review-paths');
 const { checkDescription } = require('../lib/pr-review-description');
+const { tallyVotes } = require('../lib/pr-review-votes');
+const { resolveDepth, checkBounds, boundsFor, planSlices, verifyCoverage } = require('../lib/pr-review-depth');
 
 const CLI = path.join(__dirname, '..', 'lib', 'pr-review-cli.js');
 
@@ -857,11 +862,11 @@ describe('pr-review-cli: the guidance subcommands are registered and documented 
   const SOURCE = fs.readFileSync(CLI, 'utf8');
   const GUIDANCE = ['policy', 'rules', 'paths', 'description'];
 
-  test('HANDLERS is exported, frozen, and holds exactly the eleven subcommands', () => {
+  test('HANDLERS is exported, frozen, and holds exactly the fourteen subcommands', () => {
     expect(Object.keys(HANDLERS).sort()).toEqual(
       [
-        'description', 'ledger', 'paths', 'policy', 'remote', 'review-range', 'rules', 'scope', 'state-read',
-        'state-write', 'status',
+        'depth', 'description', 'ledger', 'paths', 'policy', 'remote', 'review-range', 'rules', 'scope', 'slices',
+        'state-read', 'state-write', 'status', 'votes',
       ].sort()
     );
     expect(Object.isFrozen(HANDLERS)).toBe(true);
@@ -1042,5 +1047,293 @@ describe('pr-review-cli: the guidance subcommands fail closed at the boundary (T
     const result = runDescription({ body: '## Testing\nnpm test\n\n## Risk\nlow\n', agentAuthored: false });
     expect(result.ready).toBe(false);
     expect(result.missing).toContain('how-to-revert');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD-018. The three verification subcommands -- votes, depth, slices. Same
+// dispatcher contract as TRD-005: each hands its payload to the matching pure
+// module and prints what that module returned, so the CLI and a direct
+// `require(...)` call can never diverge, and no hostile payload is ever told
+// that verification passed or that a large PR was fully covered.
+// ---------------------------------------------------------------------------
+
+describe('pr-review-cli: votes, depth and slices are registered and documented (TRD-018)', () => {
+  const VERIFICATION = ['votes', 'depth', 'slices'];
+
+  test.each(VERIFICATION)('%s is registered to its own handler function', (name) => {
+    const expected = { votes: runVotes, depth: runDepth, slices: runSlices }[name];
+    expect(typeof expected).toBe('function');
+    expect(HANDLERS[name]).toBe(expected);
+  });
+
+  test('the error a caller actually receives names them', () => {
+    const { code, captured } = captureStdout(() => main(['vote']));
+    expect(code).toBe(1);
+    const { error } = JSON.parse(captured);
+    for (const name of VERIFICATION) expect(error).toContain(name);
+  });
+});
+
+describe('pr-review-cli: votes delegates the tally, and the CLI result equals the module result (TRD-018)', () => {
+  /** One round at Standard depth: a majority-real finding, a style one, a rejected security one. */
+  const PAYLOAD = {
+    depth: 'standard',
+    findings: [
+      {
+        id: 'F1',
+        severity: 'important',
+        reviewer: 'reviewer-a',
+        votes: [
+          { verifier: 'v1', verdict: 'real' },
+          { verifier: 'v2', verdict: 'real' },
+          { verifier: 'v3', verdict: 'not-real' },
+        ],
+      },
+      {
+        id: 'F2',
+        severity: 'nit',
+        kind: 'style',
+        reviewer: 'reviewer-a',
+        votes: [
+          { verifier: 'v1', verdict: 'real' },
+          { verifier: 'v2', verdict: 'real' },
+          { verifier: 'v3', verdict: 'real' },
+        ],
+      },
+      {
+        id: 'F3',
+        severity: 'important',
+        security: true,
+        reviewer: 'reviewer-b',
+        votes: [
+          { verifier: 'v1', verdict: 'not-real' },
+          { verifier: 'v2', verdict: 'not-real' },
+          { verifier: 'v3', verdict: 'not-real' },
+        ],
+      },
+    ],
+  };
+
+  test('the handler returns exactly what tallyVotes returns', () => {
+    expect(runVotes(PAYLOAD)).toEqual(tallyVotes(PAYLOAD));
+  });
+
+  test('through the real process the answer is the module answer, and it grades the round (AC-005-1)', () => {
+    const res = spawnSync('node', [CLI, 'votes'], { input: JSON.stringify(PAYLOAD), encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe('');
+    const result = JSON.parse(res.stdout);
+    expect(result).toEqual(JSON.parse(JSON.stringify(tallyVotes(PAYLOAD))));
+
+    const byId = Object.fromEntries(result.findings.map((entry) => [entry.id, entry]));
+    expect(byId.F1.outcome).toBe('present');
+    expect(byId.F2.outcome).toBe('filtered');
+    expect(byId.F3.outcome).toBe('disputed');
+    expect(result.verification).toBe('performed');
+  });
+
+  test.each([null, undefined, [], 'x', 5, true, false, {}])('votes on %p equals tallyVotes called directly', (payload) => {
+    expect(runVotes(payload)).toEqual(tallyVotes(payload));
+  });
+});
+
+describe('pr-review-cli: depth resolves the mode and grades the counts in one answer (TRD-018)', () => {
+  test('a tier alone resolves the mode and the bounds in force, and grades nothing', () => {
+    const result = runDepth({ tier: 'high' });
+    expect(result).toMatchObject({ ok: true, mode: 'deep', source: 'tier' });
+    expect(result.bounds).toEqual(resolveDepth({ tier: 'high' }).bounds);
+    expect(result.violations).toEqual([]);
+  });
+
+  test('a Low PR is Standard until the waiver is enabled, exactly as the module decides (AC-016-3)', () => {
+    expect(runDepth({ tier: 'low' })).toMatchObject({ mode: 'standard', reasons: ['low-treated-as-medium'] });
+    expect(runDepth({ tier: 'low', lowWaiverEnabled: true })).toMatchObject({ mode: 'quick' });
+  });
+
+  test('planned and used counts are graded against the resolved mode, each set named (AC-016-1)', () => {
+    const result = runDepth({ tier: 'medium', planned: { reviewers: 2, verifiers: 3 }, used: { reviewers: 1, verifiers: 2 } });
+    expect(result.ok).toBe(false);
+    expect(result.mode).toBe('standard');
+    expect(result.violations).toEqual(
+      checkBounds({ mode: 'standard', planned: { reviewers: 2, verifiers: 3 }, used: { reviewers: 1, verifiers: 2 } }).violations
+    );
+    expect(result.violations.map((violation) => `${violation.set}.${violation.role}.${violation.kind}`)).toEqual([
+      'used.reviewers.below-minimum',
+      'used.verifiers.below-minimum',
+    ]);
+  });
+
+  test('a Quick run that exceeds its ceiling is a violation, not a quietly deeper review', () => {
+    const result = runDepth({ tier: 'low', lowWaiverEnabled: true, used: { reviewers: 3, verifiers: 5 } });
+    expect(result.mode).toBe('quick');
+    expect(result.ok).toBe(false);
+    expect(result.violations.map((violation) => violation.kind)).toEqual(['exceeds-maximum', 'exceeds-maximum']);
+  });
+
+  test('an explicit request wins and is recorded when it asks for less than the tier default', () => {
+    const result = runDepth({ tier: 'high', requested: 'quick' });
+    expect(result).toMatchObject({ mode: 'quick', source: 'requested' });
+    expect(result.reasons).toContain('requested-below-tier-default');
+  });
+
+  test('a tier nobody can read is the deepest review, never the cheapest, and says so', () => {
+    const result = runDepth({ tier: 'whatever' });
+    expect(result).toMatchObject({ ok: false, mode: 'deep' });
+    expect(result.reasons).toContain('unknown-tier');
+  });
+
+  test('unreadable bounds are a violation: the default bounds are never substituted for a policy nobody could read', () => {
+    const result = runDepth({ tier: 'medium', used: { reviewers: 2, verifiers: 3 }, bounds: 'all of them' });
+    expect(result.ok).toBe(false);
+    expect(result.bounds).toBeNull();
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  test('a policy bounds override is in force before any reviewer is planned, not only when counts are graded', () => {
+    const bounds = { standard: { reviewers: { min: 3, max: null }, verifiers: { min: 4, max: null } } };
+    const result = runDepth({ tier: 'medium', bounds });
+
+    expect(result.mode).toBe('standard');
+    expect(result.bounds).toEqual(boundsFor('standard', bounds).bounds);
+    expect(result.bounds.reviewers.min).toBe(3);
+    expect(result.violations).toEqual([]);
+
+    // The same override still grades the counts once they exist.
+    expect(runDepth({ tier: 'medium', bounds, used: { reviewers: 2, verifiers: 4 } }).violations).toEqual([
+      { set: 'used', role: 'reviewers', kind: 'below-minimum', bound: 3, count: 2 },
+    ]);
+  });
+
+  test('an override nobody can read is never the defaults quietly standing in, even with nothing to grade', () => {
+    const result = runDepth({ tier: 'medium', bounds: 'all of them' });
+    expect(result.ok).toBe(false);
+    expect(result.bounds).toBeNull();
+    expect(result.warnings).toContain('invalid-bounds');
+  });
+
+  test('through the real process the answer is the same one', () => {
+    const payload = { tier: 'medium', used: { reviewers: 1, verifiers: 0 } };
+    const res = spawnSync('node', [CLI, 'depth'], { input: JSON.stringify(payload), encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe('');
+    expect(JSON.parse(res.stdout)).toEqual(JSON.parse(JSON.stringify(runDepth(payload))));
+  });
+});
+
+describe('pr-review-cli: slices plans the areas and verifies the coverage (TRD-018)', () => {
+  const PATHS = [
+    { path: 'packages/development/lib/a.js', lines: 900 },
+    { path: 'packages/development/lib/b.js', lines: 400 },
+    { path: 'packages/quality/skills/c.md', lines: 500 },
+    { path: 'README.md', lines: 60 },
+  ];
+  const AREAS = ['packages/development', 'packages/quality'];
+
+  test('a PR over the threshold is partitioned by area, every path in exactly one slice (AC-018-1)', () => {
+    const result = runSlices({ paths: PATHS, areas: AREAS, threshold: 1500 });
+    expect(result).toEqual(planSlices({ paths: PATHS, areas: AREAS, threshold: 1500 }));
+    expect(result.sliced).toBe(true);
+
+    const planned = result.slices.flatMap((slice) => slice.paths);
+    expect(planned.sort()).toEqual(PATHS.map((entry) => entry.path).sort());
+    expect(new Set(planned).size).toBe(PATHS.length);
+  });
+
+  test('a PR under the threshold is one slice, not a plan nobody asked for', () => {
+    const result = runSlices({ paths: [{ path: 'README.md', lines: 10 }] });
+    expect(result.sliced).toBe(false);
+    expect(result.slices).toEqual([{ id: 'whole-pr', area: '', paths: ['README.md'], lines: 10 }]);
+  });
+
+  test('with reviewed slice ids the answer names every path that was not covered (AC-018-2)', () => {
+    const plan = runSlices({ paths: PATHS, areas: AREAS, threshold: 1500 });
+    const reviewed = plan.slices.map((slice) => slice.id).filter((id) => id !== 'packages/quality');
+
+    const result = runSlices({ paths: PATHS, areas: AREAS, threshold: 1500, reviewed });
+    expect(result.covered).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.uncovered).toEqual(['packages/quality/skills/c.md']);
+    expect(result.unreviewedSlices).toEqual(['packages/quality']);
+  });
+
+  test('every slice reviewed is full coverage, and it equals verifyCoverage on the same plan', () => {
+    const plan = runSlices({ paths: PATHS, areas: AREAS, threshold: 1500 });
+    const reviewed = plan.slices.map((slice) => slice.id);
+    const result = runSlices({ paths: PATHS, areas: AREAS, threshold: 1500, reviewed });
+
+    expect(result.covered).toBe(true);
+    expect(result.uncovered).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.reviewedSlices).toEqual(verifyCoverage({ slices: plan.slices, reviewed }).reviewedSlices);
+  });
+
+  test('a plan the module refused is never read as covered, whatever slice ids the caller claims', () => {
+    const result = runSlices({ paths: 'everything', reviewed: ['whole-pr'] });
+    expect(result.ok).toBe(false);
+    expect(result.slices).toEqual([]);
+    expect(result.covered).not.toBe(true);
+  });
+
+  test('through the real process the answer is the same one', () => {
+    const payload = { paths: PATHS, areas: AREAS, threshold: 1500 };
+    const res = spawnSync('node', [CLI, 'slices'], { input: JSON.stringify(payload), encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe('');
+    expect(JSON.parse(res.stdout)).toEqual(JSON.parse(JSON.stringify(planSlices(payload))));
+  });
+});
+
+describe('pr-review-cli: the verification subcommands fail closed at the boundary (TRD-018)', () => {
+  // The same payloads the TRD-005 sweep uses: not an object, or an empty one.
+  const PAYLOADS = ['null', '[]', '"x"', '5', 'true', 'false', '{}', '[{}]', '{"__proto__":{"depth":"deep"}}', '{"constructor":{"prototype":{}}}'];
+
+  const run = (subcommand, json) => {
+    const { code, captured } = withStdin(json, () => captureStdout(() => main([subcommand])));
+    return { code, result: JSON.parse(captured) };
+  };
+
+  test.each(PAYLOADS)('votes %s: blocked, never a presented finding', (json) => {
+    const { code, result } = run('votes', json);
+    expect(code).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.verification).toBe('blocked');
+    expect(result.presented).toEqual([]);
+  });
+
+  test.each(PAYLOADS)('depth %s: the deepest review, never a clean Quick', (json) => {
+    const { code, result } = run('depth', json);
+    expect(code).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.mode).toBe('deep');
+    expect(result.reasons).toContain('unknown-tier');
+  });
+
+  test.each(PAYLOADS)('slices %s: no plan at all, never one safe slice', (json) => {
+    const { code, result } = run('slices', json);
+    expect(code).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.slices).toEqual([]);
+    expect(result.covered).not.toBe(true);
+  });
+
+  test.each(['votes', 'depth', 'slices'])('%s with unparseable stdin exits 1 with a JSON error', (name) => {
+    const { code, captured } = withStdin('{ not json', () => captureStdout(() => main([name])));
+    expect(code).toBe(1);
+    expect(JSON.parse(captured).error).toMatch(/invalid JSON on stdin/);
+  });
+
+  test('a __proto__ payload neither pollutes a result nor buys a cheaper review', () => {
+    const { code, result } = run('depth', '{"__proto__":{"tier":"low","lowWaiverEnabled":true},"used":{"reviewers":1,"verifiers":0}}');
+    expect(code).toBe(0);
+    expect(result.mode).toBe('deep');
+    expect({}.tier).toBeUndefined();
+  });
+
+  test('votes never drops a finding it cannot read: it comes back unverified and presented (REQ-006)', () => {
+    const { result } = run('votes', JSON.stringify({ depth: 'standard', findings: [{ id: 'F1', votes: 'two of them said yes' }] }));
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].outcome).toBe('unverified');
+    expect(result.presented.map((entry) => entry.id)).toEqual(['F1']);
   });
 });

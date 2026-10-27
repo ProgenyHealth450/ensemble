@@ -140,6 +140,11 @@ function readBound(value, fallback) {
  * The bounds in force for a mode: the defaults, with a readable policy
  * override applied. Quick's ceiling is clamped back to one reviewer and no
  * verifier whatever the override says, and the clamp is reported.
+ *
+ * Exported because a caller that has not planned any reviewers yet still
+ * needs the bounds the policy puts it under (TRD-018's `depth` subcommand):
+ * an override nobody can read answers `{ bounds: null }`, never the defaults
+ * standing in for it.
  */
 function boundsFor(mode, override) {
   const base = DEFAULT_BOUNDS[mode];
@@ -396,6 +401,7 @@ module.exports = {
   resolveDepth,
   checkBounds,
   planSlices,
+  boundsFor,
   verifyCoverage,
   MODES,
   DEFAULT_BOUNDS,
