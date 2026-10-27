@@ -12,7 +12,7 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices> < payload.json
+ * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|explainer-offer> < payload.json
  *
  * `review-range` (TRD-013) is a thin pass-through to `chooseReviewRange`:
  * given `lastReviewedSha`, `commits` and `remediationShas` on top of what
@@ -42,6 +42,12 @@
  *   rules        { changedPaths, ruleFiles, rulesFileName?, baseSha?, sourceSha? }
  *   paths        { changedPaths, declaration?, codeowners?, baseSha }
  *   description  { body, agentAuthored? } (or the PR body as a bare JSON string)
+ *
+ * `explainer-offer` (TRD-043) decides what a review report OFFERS, never what
+ * it writes: given the effective tier and the `paths` classification, it names
+ * one explainer per touched sensitive module on a High-tier PR, and `generate`
+ * stays empty until `requested` names one of them:
+ *   explainer-offer  { tier, paths, requested? }
  *
  * The verification subcommands (TRD-018) each take the facts their module
  * grades and answer with that module's result verbatim:
@@ -91,6 +97,7 @@ const { classifyPaths } = require('./pr-review-paths');
 const { checkDescription } = require('./pr-review-description');
 const { tallyVotes } = require('./pr-review-votes');
 const { resolveDepth, checkBounds, boundsFor, planSlices, verifyCoverage } = require('./pr-review-depth');
+const { offerExplainers } = require('./pr-review-explainer-offer');
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -343,6 +350,16 @@ function runSlices(payload) {
   return result;
 }
 
+/**
+ * `explainer-offer` is a pass-through to `offerExplainers`. Like the guidance
+ * subcommands it is graded IN BAND: a payload the module cannot read answers
+ * `ok:false` with `offered:false` and an empty `generate` (exit 0), never an
+ * offer and never an explainer nobody asked for.
+ */
+function runExplainerOffer(payload) {
+  return offerExplainers(payload);
+}
+
 const HANDLERS = Object.freeze({
   scope: runScope,
   'review-range': runReviewRange,
@@ -358,6 +375,7 @@ const HANDLERS = Object.freeze({
   votes: runVotes,
   depth: runDepth,
   slices: runSlices,
+  'explainer-offer': runExplainerOffer,
 });
 
 /**
@@ -376,7 +394,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|explainer-offer> < payload.json`,
       }) + '\n'
     );
     return 1;
@@ -420,6 +438,7 @@ module.exports = {
   runVotes,
   runDepth,
   runSlices,
+  runExplainerOffer,
   LEDGER_ACTIONS,
   HANDLERS,
   main,

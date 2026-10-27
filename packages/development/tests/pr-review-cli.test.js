@@ -862,11 +862,11 @@ describe('pr-review-cli: the guidance subcommands are registered and documented 
   const SOURCE = fs.readFileSync(CLI, 'utf8');
   const GUIDANCE = ['policy', 'rules', 'paths', 'description'];
 
-  test('HANDLERS is exported, frozen, and holds exactly the fourteen subcommands', () => {
+  test('HANDLERS is exported, frozen, and holds exactly the fifteen subcommands', () => {
     expect(Object.keys(HANDLERS).sort()).toEqual(
       [
-        'depth', 'description', 'ledger', 'paths', 'policy', 'remote', 'review-range', 'rules', 'scope', 'slices',
-        'state-read', 'state-write', 'status', 'votes',
+        'depth', 'description', 'explainer-offer', 'ledger', 'paths', 'policy', 'remote', 'review-range', 'rules',
+        'scope', 'slices', 'state-read', 'state-write', 'status', 'votes',
       ].sort()
     );
     expect(Object.isFrozen(HANDLERS)).toBe(true);
