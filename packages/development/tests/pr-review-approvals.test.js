@@ -76,6 +76,23 @@ describe('AC-014-1: an automated approval never counts', () => {
     expect(result.approvedBy).toEqual(['some-app']);
     expect(result.satisfied).toBe(true);
   });
+
+  // TRD-028: the proof target for the bot-filter guard. Stated in plain
+  // matchers over the counted result, so a mutant that lets an automated
+  // approval count fails HERE, by this test's own assertion.
+  test('a bot approval never fills the required human slot', () => {
+    const result = evaluateApprovals({
+      reviews: [approval('coderabbitai')],
+      headSha: HEAD,
+      tier: tierOf('medium'),
+      policy: { botLogins: ['coderabbitai'] },
+    });
+
+    expect(result.humansCounted).toBe(0);
+    expect(result.approvedBy).toEqual([]);
+    expect(result.satisfied).toBe(false);
+    expect(result.ignored.map((entry) => entry.reason)).toEqual(['automated']);
+  });
 });
 
 describe('AC-014-2: an approval is bound to the commit it was given on', () => {
@@ -90,6 +107,22 @@ describe('AC-014-2: an approval is bound to the commit it was given on', () => {
     expect(ignoredFor(result, 'human-a')).toMatchObject({ reason: 'stale-commit', commitSha: OTHER_COMMIT });
     expect(result.humansCounted).toBe(0);
     expect(result.satisfied).toBe(false);
+  });
+
+  // TRD-028: the proof target for the commit/tree-binding guard, in plain
+  // matchers over the counted result for the same reason as above.
+  test('a stale approval never fills the required human slot', () => {
+    const result = evaluateApprovals({
+      reviews: [approval('human-a', { commitSha: OTHER_COMMIT, treeSha: OTHER_TREE })],
+      headSha: HEAD,
+      headTreeSha: HEAD_TREE,
+      tier: tierOf('medium'),
+    });
+
+    expect(result.humansCounted).toBe(0);
+    expect(result.approvedBy).toEqual([]);
+    expect(result.satisfied).toBe(false);
+    expect(result.ignored.map((entry) => entry.reason)).toEqual(['stale-commit']);
   });
 
   test('an approval on another commit whose tree EQUALS the head tree still counts', () => {

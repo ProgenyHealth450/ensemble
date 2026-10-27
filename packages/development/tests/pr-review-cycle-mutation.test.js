@@ -843,6 +843,151 @@ describe('Guard 10: verification vote threshold (pr-review-votes.js)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Guard 11 -- the sensitive-path floor in lib/pr-review-tier.js (TRD-028,
+// AC-025-1 and AC-025-2). A floor has two failure modes and both are proven:
+// 11a removes it, so a PR touching a sensitive path is graded on its change
+// kinds alone and can be Low; 11b applies it to everything, so the floor
+// stops being a floor and becomes a constant. 11b is the case that must be
+// REFUSED -- a tier that is always High would pass 11a's test while making
+// the tier decision meaningless.
+// ---------------------------------------------------------------------------
+
+describe('Guard 11: sensitive-path tier floor (pr-review-tier.js)', () => {
+  const TIER_FILES = ['lib/pr-review-tier.js', 'tests/pr-review-tier.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 11a',
+    label:
+      'Scenario: removing the sensitive floor lets a sensitive path be graded Low -- "a sensitive path is High whatever the classifier concluded (AC-013-3)" fails against the mutant',
+    files: TIER_FILES,
+    targetRel: 'lib/pr-review-tier.js',
+    testFileRel: 'tests/pr-review-tier.test.js',
+    testTitle: 'a sensitive path is High whatever the classifier concluded (AC-013-3)',
+    // Still a real read of a real classification -- it just never finds one.
+    mutate: (text, a) => a.replace(text, "  if (classification.sensitive.length > 0) {\n    floor = 'high';", "  if (classification.sensitive.length < 0) {\n    floor = 'high';"),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 11b',
+    label:
+      'Scenario: flooring every PR to High makes the floor a constant -- "documentation, copy and additive-behind-flag changes are Low" fails against the mutant',
+    files: TIER_FILES,
+    targetRel: 'lib/pr-review-tier.js',
+    testFileRel: 'tests/pr-review-tier.test.js',
+    testTitle: 'documentation, copy and additive-behind-flag changes are Low',
+    mutate: (text, a) => a.replace(text, "  if (classification.sensitive.length > 0) {\n    floor = 'high';", "  if (classification.sensitive.length >= 0) {\n    floor = 'high';"),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 12 -- approval binding in lib/pr-review-approvals.js (TRD-028,
+// AC-025-1 and AC-025-2): the bot filter and the commit/tree comparison are
+// the two things that make "a human approval, on this commit" true. 12a lets
+// an automated approval count; 12b lets an approval given on an older commit
+// with a different tree keep counting; 12c is the case that must be REFUSED
+// -- dropping the tree comparison altogether would pass 12b's test while
+// discarding approvals of commits that changed nothing.
+// ---------------------------------------------------------------------------
+
+describe('Guard 12: bot filter and commit binding (pr-review-approvals.js)', () => {
+  const APPROVAL_FILES = ['lib/pr-review-approvals.js', 'lib/pr-review-tier.js', 'tests/pr-review-approvals.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 12a',
+    label:
+      'Scenario: dropping the bot filter counts an automated approval as a person -- "a bot approval never fills the required human slot" fails against the mutant',
+    files: APPROVAL_FILES,
+    targetRel: 'lib/pr-review-approvals.js',
+    testFileRel: 'tests/pr-review-approvals.test.js',
+    testTitle: 'a bot approval never fills the required human slot',
+    mutate: (text, a) => a.replace(text, '    const automated = automatedReason(login, review, botLogins);\n    if (automated !== null) {', '    const automated = automatedReason(login, review, botLogins);\n    if (automated === null && automated !== null) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 12b',
+    label:
+      'Scenario: accepting any reviewed commit unbinds approval from the head -- "a stale approval never fills the required human slot" fails against the mutant',
+    files: APPROVAL_FILES,
+    targetRel: 'lib/pr-review-approvals.js',
+    testFileRel: 'tests/pr-review-approvals.test.js',
+    testTitle: 'a stale approval never fills the required human slot',
+    mutate: (text, a) => a.replace(text, "  if (tree !== null && headTreeSha !== null && tree === headTreeSha) return null;\n  return 'stale-commit';", "  if (tree !== null && headTreeSha !== null && tree === headTreeSha) return null;\n  return null;"),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 12c',
+    label:
+      'Scenario: discarding the tree comparison throws away an approval of an identical tree -- "an approval on another commit whose tree EQUALS the head tree still counts" fails against the mutant',
+    files: APPROVAL_FILES,
+    targetRel: 'lib/pr-review-approvals.js',
+    testFileRel: 'tests/pr-review-approvals.test.js',
+    testTitle: 'an approval on another commit whose tree EQUALS the head tree still counts',
+    mutate: (text, a) => a.replace(text, '  if (tree !== null && headTreeSha !== null && tree === headTreeSha) return null;', '  if (tree !== null && headTreeSha !== null && tree !== headTreeSha) return null;'),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 13 -- the merge gate in lib/pr-review-gate.js (TRD-028, AC-025-1 and
+// AC-025-2): the blocking security lane and the open-Important block are the
+// two refusals that stand between a reviewed PR and the merge button. 13a and
+// 13c remove each refusal; 13b and 13d are the cases that must be REFUSED --
+// a gate that blocks on an answered finding, or on a security finding closed
+// with a stated reason, would pass 13a and 13c while never letting any PR
+// merge, which is not a gate either.
+// ---------------------------------------------------------------------------
+
+describe('Guard 13: security block and answered-findings merge block (pr-review-gate.js)', () => {
+  // The gate's require closure reaches most of the review libraries, so the
+  // whole lib/ directory is mirrored; only lib/pr-review-gate.js is mutated.
+  const GATE_FILES = ['lib', 'tests/pr-review-gate.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13a',
+    label:
+      'Scenario: recording an open security finding without blocking on it lets the PR merge -- "an open security finding blocks the merge and names it" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'an open security finding blocks the merge and names it',
+    // The finding is still recorded as open -- it just stops refusing the merge.
+    mutate: (text, a) => a.replace(text, '    record.open.push(id);\n    blockers.push(\n      blocker(\n        BLOCKER_CODES.SECURITY_FINDING_OPEN,', '    record.open.push(id);\n    warnings.push(\n      blocker(\n        BLOCKER_CODES.SECURITY_FINDING_OPEN,'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13b',
+    label:
+      'Scenario: ignoring a recorded resolution blocks a security finding the author already answered -- "a security finding closed with a stated reason stops blocking and the reason is recorded (AC-017-3)" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'a security finding closed with a stated reason stops blocking and the reason is recorded (AC-017-3)',
+    mutate: (text, a) => a.replace(text, '    const reason = resolutionReason(entry);\n    if (reason !== null && !isActionable(entry)) {', '    const reason = resolutionReason(entry);\n    if (reason === null && !isActionable(entry)) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13c',
+    label:
+      'Scenario: treating every ledger finding as answered waves an open Important finding through -- "an open Important finding refuses the merge and names the finding" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'an open Important finding refuses the merge and names the finding',
+    mutate: (text, a) => a.replace(text, '          if (!isActionable(entry)) continue;', '          if (isActionable(entry) || !isActionable(entry)) continue;'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13d',
+    label:
+      'Scenario: treating every ledger finding as open blocks a PR whose findings were answered -- "an Important finding answered with a recorded reason stops blocking" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'an Important finding answered with a recorded reason stops blocking',
+    mutate: (text, a) => a.replace(text, '          if (!isActionable(entry)) continue;', '          if (isActionable(entry) && !isActionable(entry)) continue;'),
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Harness self-checks: the proof gate must itself be able to fail.
 // ---------------------------------------------------------------------------
 
