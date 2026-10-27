@@ -447,7 +447,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2a',
     label:
       'Scenario: ignoring actionableCount in localPhase lets an unresolved finding slip through -- "a single local blocker keeps the local phase pending, not complete: unresolved finding" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: unresolved finding',
@@ -458,7 +458,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2b',
     label:
       'Scenario: ignoring isStale in localPhase lets a stale reviewed-head SHA slip through -- "a single local blocker keeps the local phase pending, not complete: stale SHA" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: stale SHA',
@@ -469,7 +469,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2c',
     label:
       'Scenario: dropping the tests condition from the local phase lets failed tests publish -- "a single local blocker keeps the local phase pending, not complete: failed test" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: failed test',
@@ -482,7 +482,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2d',
     label:
       'Scenario: dropping remotePhase from fullyComplete lets a pending remote review slip through -- "each blocker alone prevents completion: pending review" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'each blocker alone prevents completion: pending review',
@@ -494,7 +494,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2e',
     label:
       'Scenario: disabling the required-facts gate lets missing facts through -- "a missing baseSha is never complete: blocked" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a missing baseSha is never complete: blocked',
@@ -503,23 +503,23 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Guard 3 -- round cap: MAX_AUTO_ROUNDS=2 must actually block further
+// Guard 3 -- round cap: the shared roundCap (default 3) must actually block further
 // automatic rounds once the cap is reached with actionable findings.
 // ---------------------------------------------------------------------------
 
-describe('Guard 3: round cap MAX_AUTO_ROUNDS=2 (pr-review-status.js)', () => {
+describe('Guard 3: round cap roundCap (pr-review-status.js)', () => {
   proveGuardMutationIsCaught({
     id: 'Guard 3',
     label:
       'Scenario: disabling roundLimitReached lets the cap be exceeded -- "round limit never completes" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'round limit never completes',
     mutate: (text, a) =>
       a.replace(
         text,
-        'const roundLimitReached = actionableCount > 0 && roundsUsed >= MAX_AUTO_ROUNDS;',
+        'const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;',
         'const roundLimitReached = false;'
       ),
   });
@@ -901,7 +901,7 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy B',
-          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
           targetRel: 'lib/pr-review-status.js',
           testFileRel: 'tests/pr-review-status.test.js',
           testTitle: 'round limit never completes',
@@ -914,7 +914,7 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy C',
-          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
           targetRel: 'lib/pr-review-status.js',
           testFileRel: 'tests/pr-review-status.test.js',
           testTitle: 'a test title that does not exist anywhere',

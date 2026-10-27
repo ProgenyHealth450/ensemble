@@ -238,11 +238,11 @@ describe('pr-review-policy: the round cap (AC-009-2, AC-009-3)', () => {
   });
 
   test('no other pr-review module keeps a private round cap of its own', () => {
-    // AC-009-3: one number, in one place. pr-review-status.js still carries
-    // MAX_AUTO_ROUNDS; cutting it over to this loader is TRD-012 (br-zc4a),
-    // so it is the one recorded exception and anything NEW fails here.
+    // AC-009-3: one number, in one place. Since TRD-012 there is no
+    // exception: pr-review-status.js takes DEFAULT_ROUND_CAP from this loader
+    // and keeps no cap of its own, and anything NEW fails here.
     const libDir = path.join(__dirname, '..', 'lib');
-    const KNOWN_EXCEPTIONS = new Set(['pr-review-status.js']);
+    const KNOWN_EXCEPTIONS = new Set();
     const PRIVATE_CAP = /(?:MAX_(?:AUTO_)?ROUNDS|ROUND_CAP|maxRounds|roundCap)\s*=\s*\d/;
 
     const offenders = fs

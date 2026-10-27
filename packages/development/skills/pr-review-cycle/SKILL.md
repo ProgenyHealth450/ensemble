@@ -255,12 +255,19 @@ batch (triage all remote findings before any edit, delegate the whole batch
 to `pr-review-remediation` in one pass -- never fix remote comments one at a
 time -- then verify and re-review) before any further push.
 
-**Round cap:** run at most **two** automatic remediation rounds per head /
-review cycle (the CLI's `MAX_AUTO_ROUNDS`). Count each batch-fix pass in
-`roundsUsed`; a new head starts a new cycle with `roundsUsed = 0`. When the
-cap is reached with actionable findings still open, do not start another
-round: derive status (Step 8), which returns `REVIEW_PENDING` or
-`REVIEW_BLOCKED` with the ledger and next action -- never `REVIEW_COMPLETE`.
+**Round cap:** the cap is ONE number for every review procedure in this
+repository, and it comes from the policy block in the base branch's
+`REVIEW.md` (CLI `policy` -> `policy.roundCap`; 1-5, default **3** when the
+repository sets nothing or sets something outside that range). Never keep a
+private number here or in a calling command. Count each batch-fix pass in
+`roundsUsed`; a new head starts a new cycle with `roundsUsed = 0`. Pass both
+`roundsUsed` and `roundCap` to the CLI `status` call (Step 8) so the cap is
+graded, not asserted. When the cap is reached with actionable findings still
+open, do not start another round: derive status, which returns
+`REVIEW_PENDING` or `REVIEW_BLOCKED` with `next:
+reconsider-approach-with-author` -- report that outcome to the author and ask
+them to step back and reconsider the approach rather than iterating again.
+`REVIEW_COMPLETE` is never reachable at the cap.
 
 **Interactive wait (non-Foreman only):** if the remote review for the
 current head has not arrived yet, wait **at most 10 minutes** for it. This
@@ -282,11 +289,14 @@ never dismiss the finding to force completion.
 Run `node "$PR_REVIEW_CLI" status` with the accumulated facts: `{ baseSha,
 headSha, reviewedHeadSha, reviewedTreeSha, headTreeSha,
 findingCounts:{total, actionable, deferred}, tests:{passed, skipped, command},
-remotePhase, roundsUsed, access, prUrl, reportPath }`. `baseSha`, `headSha` and
+remotePhase, roundsUsed, roundCap, access, prUrl, reportPath }`. `baseSha`, `headSha` and
 `reviewedHeadSha` (full 40- or 64-hex
 object ids, never a bare ref) and `findingCounts` (`total`, `actionable` and
 `deferred`: non-negative integers with `total >= actionable + deferred`) are
-required, `roundsUsed`, when given, is a non-negative integer, and `tests`,
+required, `roundsUsed`, when given, is a non-negative integer, `roundCap`,
+when given, is the policy's integer 1-5 (absent means the strict default of
+3, and a value outside the range is refused with the default applied), and
+`tests`,
 when given, carries boolean `passed` / `skipped` flags (leave `tests` out and
 the tests count as never run): the grader fails closed, so a missing or invalid
 fact is never defaulted to a passing value -- it yields `LOCAL_REVIEW_BLOCKED`

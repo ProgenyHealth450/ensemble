@@ -229,7 +229,8 @@ A **fix round** is a review that was acted on: a review (as defined above) follo
 commit made after it and before the next review or, for the last review, before the merge. Reviews
 nobody acted on — an approval, a bot summary, a comment answered in the thread — are not rounds,
 and two reviews with no commit between them are at most one round, since only the second can be
-followed by a fix. The `pr-review-cycle` skill's `MAX_AUTO_ROUNDS = 2` caps the *automatic* rounds a
+followed by a fix. The `pr-review-cycle` skill's shared round cap (the `roundCap` policy key in
+REVIEW.md: 1-5, default 3) caps the *automatic* rounds a
 PR goes through; this is the observable proxy for the rounds actually used, not a read of the
 skill's own state, so it also counts rounds a human reviewer prompted.
 

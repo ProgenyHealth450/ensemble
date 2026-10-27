@@ -1,6 +1,6 @@
 const {
   deriveStatus,
-  MAX_AUTO_ROUNDS,
+  DEFAULT_ROUND_CAP,
   STATUSES,
   LOCAL_PHASES,
   REMOTE_PHASES,
@@ -39,9 +39,39 @@ function without(key) {
   return facts;
 }
 
-describe('pr-review-status: MAX_AUTO_ROUNDS', () => {
-  test('is bounded at 2', () => {
-    expect(MAX_AUTO_ROUNDS).toBe(2);
+describe('pr-review-status: DEFAULT_ROUND_CAP', () => {
+  test('is the shared default of 3, taken from the policy loader and not kept privately here', () => {
+    expect(DEFAULT_ROUND_CAP).toBe(3);
+    expect(DEFAULT_ROUND_CAP).toBe(require('../lib/pr-review-policy').DEFAULT_ROUND_CAP);
+  });
+
+  test('a repository cap from the policy is the one used, and it is reported', () => {
+    const result = deriveStatus(baseFacts({ roundCap: 1, roundsUsed: 1, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+    expect(result.rounds).toEqual({ used: 1, max: 1 });
+    expect(result.contract.roundCap).toBe(1);
+    expect(result.status).toBe('REVIEW_BLOCKED');
+  });
+
+  test('a cap outside 1-5, or one that is not an integer, never widens the budget', () => {
+    for (const roundCap of [0, 6, 99, 2.5, '5']) {
+      const result = deriveStatus(baseFacts({ roundCap, roundsUsed: 3, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+      expect(result.rounds.max).toBe(DEFAULT_ROUND_CAP);
+      expect(result.status).toBe('REVIEW_BLOCKED');
+    }
+  });
+
+  test('an invalid cap says so in the reasons rather than being silently swapped', () => {
+    const result = deriveStatus(baseFacts({ roundCap: 9 }));
+    expect(result.reasons.some((reason) => /invalid roundCap/.test(reason))).toBe(true);
+  });
+
+  test('a larger repository cap really does allow another round before the block', () => {
+    const facts = { roundsUsed: 3, findingCounts: { total: 1, actionable: 1, deferred: 0 } };
+    expect(deriveStatus(baseFacts({ ...facts })).status).toBe('REVIEW_BLOCKED');
+
+    const wider = deriveStatus(baseFacts({ ...facts, roundCap: 5 }));
+    expect(wider.status).toBe('REVIEW_PENDING');
+    expect(wider.next).toBe('run-fix-round');
   });
 });
 
@@ -58,28 +88,28 @@ describe('pr-review-status: deriveStatus', () => {
     expect(result.baseSha).toBe(BASE_SHA);
     expect(result.headSha).toBe(HEAD_SHA);
     expect(result.prUrl).toBe('https://github.com/org/repo/pull/1');
-    expect(result.rounds).toEqual({ used: 1, max: MAX_AUTO_ROUNDS });
+    expect(result.rounds).toEqual({ used: 1, max: DEFAULT_ROUND_CAP });
     expect(result.findingCounts).toEqual({ total: 0, actionable: 0, deferred: 0 });
     expect(result.tests).toEqual({ passed: true, skipped: false, command: 'npx jest tests/foo.test.js' });
     expect(result.reportPath).toBe('.ensemble/pr-review/pr-1.json');
   });
 
-  test('at most two rounds -- roundsUsed at the cap with an unresolved finding permits no further automatic round', () => {
+  test('the cap holds -- roundsUsed at the cap with an unresolved finding permits no further automatic round', () => {
     const result = deriveStatus(
-      baseFacts({ roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
+      baseFacts({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
     );
     expect(result.next).not.toMatch(/auto|another-round|fix-round/i);
   });
 
   test('round limit never completes -- the cap is reached with actionable findings', () => {
     const result = deriveStatus(
-      baseFacts({ roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
+      baseFacts({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
     );
     expect(result.status).not.toBe('REVIEW_COMPLETE');
     expect(result.status).toBe('REVIEW_BLOCKED');
     expect(result.localPhase).toBe('LOCAL_REVIEW_BLOCKED');
-    expect(result.reasons).toContain('round limit reached');
-    expect(result.next).toBe('escalate-to-human');
+    expect(result.reasons.some((reason) => /round cap reached/.test(reason))).toBe(true);
+    expect(result.next).toBe('reconsider-approach-with-author');
   });
 
   test('unauthorized access blocks -- a 403 from review retrieval names the access problem', () => {
@@ -148,7 +178,7 @@ describe('pr-review-status: closed vocabulary', () => {
     'remote pending': baseFacts({ remotePhase: 'REMOTE_REVIEW_PENDING' }),
     'actionable finding with rounds left': baseFacts({ findingCounts: { total: 1, actionable: 1, deferred: 0 } }),
     'round limit reached': baseFacts({
-      roundsUsed: MAX_AUTO_ROUNDS,
+      roundsUsed: DEFAULT_ROUND_CAP,
       findingCounts: { total: 1, actionable: 1, deferred: 0 },
     }),
     'stale head': baseFacts({ reviewedHeadSha: OTHER_SHA }),
@@ -449,19 +479,19 @@ describe('pr-review-status: roundsUsed must be a non-negative integer', () => {
   test.each([0, 1, 2, 3, 10])('roundsUsed %p is a valid count', (roundsUsed) => {
     const result = deriveStatus(baseFacts({ roundsUsed }));
     expect(result.status).toBe('REVIEW_COMPLETE');
-    expect(result.rounds).toEqual({ used: roundsUsed, max: MAX_AUTO_ROUNDS });
+    expect(result.rounds).toEqual({ used: roundsUsed, max: DEFAULT_ROUND_CAP });
   });
 
   test('an absent roundsUsed means no round has been used yet', () => {
     const result = deriveStatus(without('roundsUsed'));
     expect(result.status).toBe('REVIEW_COMPLETE');
-    expect(result.rounds).toEqual({ used: 0, max: MAX_AUTO_ROUNDS });
+    expect(result.rounds).toEqual({ used: 0, max: DEFAULT_ROUND_CAP });
   });
 
   test('a count above the cap with actionable findings still blocks through the round limit', () => {
-    const result = deriveStatus(baseFacts({ roundsUsed: MAX_AUTO_ROUNDS + 5, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+    const result = deriveStatus(baseFacts({ roundsUsed: DEFAULT_ROUND_CAP + 5, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
     expect(result.localPhase).toBe('LOCAL_REVIEW_BLOCKED');
-    expect(result.next).toBe('escalate-to-human');
+    expect(result.next).toBe('reconsider-approach-with-author');
   });
 });
 
@@ -503,7 +533,7 @@ describe('pr-review-status: findingCounts must be consistent non-negative intege
   });
 
   test('an inconsistent count is blocked as missing facts, not escalated as a round limit', () => {
-    const result = deriveStatus(baseFacts({ roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 1 } }));
+    const result = deriveStatus(baseFacts({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 1 } }));
     expect(result.next).toBe('supply-review-facts');
   });
 
@@ -749,7 +779,7 @@ describe('pr-review-status: a published commit that holds the reviewed tree is f
       'a pending remote review': { remotePhase: 'REMOTE_REVIEW_PENDING' },
       'an access failure': { access: { ok: false, reason: '403 Forbidden' } },
       'a missing baseSha': { baseSha: undefined },
-      'the round limit': { roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 0 } },
+      'the round limit': { roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } },
     };
     for (const [label, overrides] of Object.entries(blockers)) {
       const result = deriveStatus(published(overrides));
@@ -757,7 +787,7 @@ describe('pr-review-status: a published commit that holds the reviewed tree is f
     }
     expect(deriveStatus(published(blockers['an actionable finding'])).next).toBe('run-fix-round');
     expect(deriveStatus(published(blockers['failed tests'])).next).toMatch(/^run-tests/);
-    expect(deriveStatus(published(blockers['the round limit'])).next).toBe('escalate-to-human');
+    expect(deriveStatus(published(blockers['the round limit'])).next).toBe('reconsider-approach-with-author');
   });
 
   test('the result echoes the heads and trees it graded, so the report recorded from it carries what was reviewed', () => {

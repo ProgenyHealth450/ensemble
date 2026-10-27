@@ -41,8 +41,21 @@
  */
 
 const { isObjectId } = require('./pr-review-scope');
+const { DEFAULT_ROUND_CAP, ROUND_CAP_MIN, ROUND_CAP_MAX } = require('./pr-review-policy');
 
-const MAX_AUTO_ROUNDS = 2;
+/**
+ * ONE round cap for every review procedure (REQ-009, AC-009-3). The number
+ * lives in `pr-review-policy.js`, which reads it from the repository's
+ * REVIEW.md and validates the 1-5 range; this module keeps no cap of its own.
+ * A caller that resolved the policy passes `roundCap` in the facts; a caller
+ * that did not gets the strict default, never a larger number.
+ */
+function readRoundCap(value, reasons) {
+  if (value === undefined || value === null) return DEFAULT_ROUND_CAP;
+  if (Number.isInteger(value) && value >= ROUND_CAP_MIN && value <= ROUND_CAP_MAX) return value;
+  reasons.push(`invalid roundCap (expected an integer ${ROUND_CAP_MIN}-${ROUND_CAP_MAX}); default ${DEFAULT_ROUND_CAP} applied`);
+  return DEFAULT_ROUND_CAP;
+}
 
 const STATUSES = Object.freeze(['REVIEW_COMPLETE', 'REVIEW_PENDING', 'REVIEW_BLOCKED']);
 const LOCAL_PHASES = Object.freeze(['LOCAL_REVIEW_COMPLETE', 'LOCAL_REVIEW_PENDING', 'LOCAL_REVIEW_BLOCKED']);
@@ -77,6 +90,9 @@ function isCount(value) {
  *   recorded value must be an object whose `passed` and `skipped`, when present, are booleans.
  * @param {string} [facts.prUrl]
  * @param {number} [facts.roundsUsed]  A non-negative integer; absent means no automatic round has been used yet.
+ * @param {number} [facts.roundCap]  The repository's round cap from `loadPolicy` (an integer 1-5). Absent means the
+ *   strict default of 3; a value outside the range is refused and the default applies, with the reason recorded --
+ *   no caller can widen its own budget by passing a bigger number.
  * @param {string} [facts.remotePhase]  'REMOTE_REVIEW_COMPLETE' | 'REMOTE_REVIEW_PENDING'; anything else is pending.
  * @param {{ok:boolean, reason?:string}} [facts.access]  A failure signal only: absent means nothing failed, `ok:false`
  *   blocks, any other shape is an unrecognised fact.
@@ -108,10 +124,13 @@ function deriveStatus(facts = {}) {
   const tests = isObject(input.tests) ? input.tests : { passed: false, skipped: false, command: null };
   // Only an explicit COMPLETE completes; absent, misspelled or unrecognised values are still pending.
   const remotePhase = input.remotePhase === 'REMOTE_REVIEW_COMPLETE' ? 'REMOTE_REVIEW_COMPLETE' : 'REMOTE_REVIEW_PENDING';
+  // The cap every procedure shares, validated here so a bad fact can only shrink the budget, never grow it.
+  const capReasons = [];
+  const roundCap = readRoundCap(input.roundCap, capReasons);
 
   const contract = {
     statuses: STATUSES,
-    maxAutoRounds: MAX_AUTO_ROUNDS,
+    roundCap,
     requiresForComplete: ['LOCAL_REVIEW_COMPLETE', 'REMOTE_REVIEW_COMPLETE'],
   };
 
@@ -122,7 +141,7 @@ function deriveStatus(facts = {}) {
     reviewedTreeSha: isObjectId(reviewedTreeSha) ? reviewedTreeSha : null,
     headTreeSha: isObjectId(headTreeSha) ? headTreeSha : null,
     prUrl,
-    rounds: { used: roundsUsed, max: MAX_AUTO_ROUNDS },
+    rounds: { used: roundsUsed, max: roundCap },
     findingCounts,
     tests,
     reportPath,
@@ -185,7 +204,7 @@ function deriveStatus(facts = {}) {
     };
   }
 
-  const reasons = [];
+  const reasons = [...capReasons];
   const actionableCount = findingCounts.actionable;
   // Fresh when the reviewed head IS the head, or when both trees were supplied and are the identical tree (past the gate
   // above a supplied tree is a full object id). A tree on one side only establishes nothing, and equality is as strict
@@ -194,7 +213,7 @@ function deriveStatus(facts = {}) {
   const sameTree = reviewedTreeSha !== null && headTreeSha !== null && reviewedTreeSha === headTreeSha;
   const isStale = !(sameHead || sameTree);
   const testsSettled = tests.passed === true || tests.skipped === true;
-  const roundLimitReached = actionableCount > 0 && roundsUsed >= MAX_AUTO_ROUNDS;
+  const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;
 
   if (actionableCount > 0) reasons.push('unresolved actionable finding');
   if (isStale) reasons.push('stale reviewedHeadSha');
@@ -215,7 +234,7 @@ function deriveStatus(facts = {}) {
     reasons.push('failed test');
   }
 
-  if (roundLimitReached) reasons.push('round limit reached');
+  if (roundLimitReached) reasons.push(`round cap reached (${roundsUsed} of ${roundCap}): step back and reconsider the approach`);
 
   const fullyComplete =
     localPhase === 'LOCAL_REVIEW_COMPLETE' &&
@@ -232,7 +251,7 @@ function deriveStatus(facts = {}) {
     next = 'none';
   } else if (roundLimitReached) {
     status = 'REVIEW_BLOCKED';
-    next = 'escalate-to-human';
+    next = 'reconsider-approach-with-author';
   } else if (actionableCount > 0) {
     status = 'REVIEW_PENDING';
     next = 'run-fix-round';
@@ -257,4 +276,4 @@ function deriveStatus(facts = {}) {
   return { ...common, status, localPhase, remotePhase, reasons, next };
 }
 
-module.exports = { deriveStatus, MAX_AUTO_ROUNDS, STATUSES, LOCAL_PHASES, REMOTE_PHASES };
+module.exports = { deriveStatus, DEFAULT_ROUND_CAP, STATUSES, LOCAL_PHASES, REMOTE_PHASES };

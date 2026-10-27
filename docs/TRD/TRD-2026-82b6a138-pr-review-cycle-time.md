@@ -61,7 +61,7 @@ No foundational TRD capabilities matched (`trd-graph-cli capabilities docs/TRD` 
 2. **`pr-review-scope.js`** -- `resolveReviewScope({ baseRef, baseSha, headSha, mergeBaseSha, prBaseSha })` -> `{ ok, baseSha, headSha, range }` or `{ ok:false, status:'REVIEW_BLOCKED', missing:[...] }`. Never guesses a base; `range` is always `baseSha..headSha`.
 3. **`pr-review-ledger.js`** -- `validateLedger`, `isActionable`, `dedupeFindings`, `scopeViolations`. Fail-closed validation of the finding ledger (REQ-004, AC-009-2/4).
 4. **`pr-review-remote.js`** -- `evaluateRemoteReview({ headSha, reviews, checkRuns, threads, botLogins })` -> remote-phase qualifier + unresolved threads. Counts only a bot-authored review/check whose commit identity equals `headSha`.
-5. **`pr-review-status.js`** -- `deriveStatus(facts)` -> `{ status, localPhase, remotePhase, reasons }` and `MAX_AUTO_ROUNDS = 2`. The only place `REVIEW_COMPLETE` can be produced.
+5. **`pr-review-status.js`** -- `deriveStatus(facts)` -> `{ status, localPhase, remotePhase, reasons }` and the round cap. The only place `REVIEW_COMPLETE` can be produced. (Since TRD-2026-70e784f2 TRD-012, `MAX_AUTO_ROUNDS = 2` is gone: the cap is `DEFAULT_ROUND_CAP = 3` from `pr-review-policy.js`, overridable per repository through the `roundCap` fact, 1-5.)
 6. **`pr-review-state.js`** -- read/write/invalidate the per-PR review-state report at `.ensemble/pr-review/<key>.json`; redacts secrets; discards state when the head changed.
 7. **`pr-review-cli.js`** -- subcommands `scope`, `ledger`, `remote`, `status`, `state-read`, `state-write`; JSON on stdin/stdout; exit non-zero only on malformed input.
 8. **Callers** -- `fix-issue.yaml`, `implement-trd-beads.yaml`, `complete-beads/SKILL.md` (invoke the skill; never grade by prose).
@@ -160,7 +160,7 @@ SKILL.md --> .ensemble/pr-review/<key>.json (untracked; never part of the PR hea
 - [ ] **TRD-004-TEST** Status derivation contract [Verifies TRD-004] [Satisfies REQ-008, REQ-009, REQ-010, REQ-014] [Depends: TRD-004] (6h)
   - Validates PRD ACs: AC-008-1, AC-008-2, AC-008-4, AC-008-5, AC-008-6, AC-009-1, AC-009-3, AC-009-5, AC-009-6, AC-010-1, AC-014-1, AC-014-2
   - Test AC:
-    - [ ] Scenario: at most two rounds -- Given roundsUsed of 2 and an unresolved finding, When status is derived, Then no third automatic round is permitted
+    - [ ] Scenario: the cap holds -- Given roundsUsed at the repository's round cap and an unresolved finding, When status is derived, Then no further automatic round is permitted (the cap was 2 here; TRD-2026-70e784f2 TRD-012 made it the shared policy cap, default 3)
     - [ ] Scenario: round limit never completes -- Given the limit reached with actionable findings, When status is derived, Then it is not REVIEW_COMPLETE
     - [ ] Scenario: unauthorized access blocks -- Given a 403 from review retrieval, When status is derived, Then it is REVIEW_BLOCKED naming the access problem
     - [ ] Scenario: not-yet-posted review is pending -- Given working access and no review for the head, When status is derived, Then it is REVIEW_PENDING not blocked

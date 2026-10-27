@@ -21,7 +21,7 @@ for implementation code, qa-orchestrator for test failures and test-related revi
 build-orchestrator for CI/build-pipeline checks, infrastructure-orchestrator for
 infra/deployment checks, and github-specialist for PR mechanics (conflicts, branch state,
 approvals, merge). Re-verifies against live CI/review state after every round -- never
-trusts a subagent's self-report -- and loops, bounded by --max-rounds, until every check is
+trusts a subagent's self-report -- and loops, bounded by the shared policy round cap, until every check is
 green and every review thread is resolved, then merges. Hard constraint: no finding may be
 resolved by deleting, skipping, or weakening a test; only real fixes to source, test, build,
 or config code count as resolution. Once merge-ready, distills every finding resolved
@@ -104,8 +104,8 @@ step 2.
 - Re-run: gh pr checks <PR_NUMBER> --json name,state,bucket,workflow,link,description and gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus.
 - Diff against the round's dispatched findings: mark each as resolved (no longer failing/pending, or thread now resolved) or still-open (persists) or new (appeared only after this round's fixes -- e.g. a regression introduced by a fix).
 - If the manifest is now empty (zero failing/pending checks, no CHANGES_REQUESTED, mergeable == MERGEABLE): proceed to the Merge phase.
-- If findings remain and round_number < --max-rounds: increment round_number, re-classify the new manifest (Classification and Routing phase), and re-dispatch (Parallel Remediation Dispatch phase).
-- If findings remain and round_number == --max-rounds: HALT. Do not merge. Produce the final report (Reporting step) with every still-open finding, its last owning orchestrator, and its most recent log/comment state, and stop for human escalation.
+- If findings remain and round_number < ROUND_CAP (the lower of the policy cap from the pr-review-cycle skill and any --max-rounds argument): increment round_number, re-classify the new manifest (Classification and Routing phase), and re-dispatch (Parallel Remediation Dispatch phase).
+- If findings remain and round_number == ROUND_CAP: HALT. Do not merge. Produce the final report (Reporting step) with every still-open finding, its last owning orchestrator, and its most recent log/comment state, and ask the author to step back and reconsider the approach rather than opening another round.
 
 ### Phase 5: Constitution Learning Capture
 

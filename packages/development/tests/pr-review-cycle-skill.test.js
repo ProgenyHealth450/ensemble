@@ -238,6 +238,7 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
     tests: () => ({ passed: true, skipped: false, command: 'npm test' }),
     remotePhase: () => 'REMOTE_REVIEW_COMPLETE',
     roundsUsed: () => 0,
+    roundCap: () => 3,
     access: () => ({ ok: true }),
     prUrl: () => 'https://github.com/org/repo/pull/1',
     reportPath: () => '.ensemble/pr-review/pr-1.json',
@@ -358,6 +359,7 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
         'reportPath',
         'reviewedHeadSha',
         'reviewedTreeSha',
+        'roundCap',
         'roundsUsed',
         'tests',
       ].sort()

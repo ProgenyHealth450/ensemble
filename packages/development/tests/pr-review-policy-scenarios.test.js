@@ -265,12 +265,11 @@ describe('Scenario AC-009-3: every procedure reads the repository cap, none keep
   });
 
   test('no SHIPPED pr-review module stands up a round cap of its own', () => {
-    // The one recorded exception is pr-review-status.js, whose MAX_AUTO_ROUNDS
-    // is the 82b6a138 automatic-remediation count; cutting it over to this
-    // loader is TRD-012. Anything NEW -- in packages/development/lib or in the
+    // Since TRD-012 there is no exception: pr-review-status.js takes the cap
+    // from this loader. Anything NEW -- in packages/development/lib or in the
     // packages/full mirror a consumer installs -- fails here.
     const PRIVATE_CAP = /(?:MAX_(?:AUTO_)?ROUNDS|ROUND_CAP|maxRounds|roundCap)\s*=\s*\d/;
-    const KNOWN_EXCEPTIONS = new Set(['pr-review-status.js']);
+    const KNOWN_EXCEPTIONS = new Set();
 
     const offenders = [];
     for (const dir of [LIB_DIR, FULL_LIB_DIR]) {
