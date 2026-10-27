@@ -21,13 +21,22 @@ const {
   runStatus,
   runStateRead,
   runStateWrite,
+  runPolicy,
+  runRules,
+  runPaths,
+  runDescription,
   LEDGER_ACTIONS,
+  HANDLERS,
   main,
 } = require('../lib/pr-review-cli');
 
 const { resolveReviewScope } = require('../lib/pr-review-scope');
 const { evaluateRemoteReview } = require('../lib/pr-review-remote');
 const { deriveStatus } = require('../lib/pr-review-status');
+const { loadPolicy, DEFAULT_ROUND_CAP } = require('../lib/pr-review-policy');
+const { resolveRuleFiles, NO_AREA_RULES_NOTE } = require('../lib/pr-review-rules');
+const { classifyPaths } = require('../lib/pr-review-paths');
+const { checkDescription } = require('../lib/pr-review-description');
 
 const CLI = path.join(__dirname, '..', 'lib', 'pr-review-cli.js');
 
@@ -586,6 +595,40 @@ describe('pr-review-cli: adversarial sweep over every subcommand -- no invalid p
       expect(typeof result.error).toBe('string');
     }
   });
+
+  // The guidance subcommands (TRD-005) are graded in band like scope/remote/status: a payload
+  // they cannot read is a fail-closed RESULT, never a clean pass.
+  test.each(PAYLOADS)('policy %s: strict defaults, never a repository policy', (json) => {
+    const { code, result } = run('policy', json);
+    expect(code).toBe(0);
+    expect(result.source).toBe('defaults');
+    expect(result.policy.roundCap).toBe(DEFAULT_ROUND_CAP);
+    expect(result.policy.lowWaiverEnabled).toBe(false);
+  });
+
+  test.each(PAYLOADS)('rules %s: no rules file is ever reported as applied', (json) => {
+    const { code, result } = run('rules', json);
+    expect(code).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.applied).toEqual([]);
+    expect(result.notes).toContain(NO_AREA_RULES_NOTE);
+  });
+
+  test.each(PAYLOADS)('paths %s: sensitive, never a clean not-sensitive answer', (json) => {
+    const { code, result } = run('paths', json);
+    expect(code).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.prSensitive).toBe(true);
+    expect(result.declarationChanged).toBe(true);
+    expect(result.declarationSource).toBe('defaults');
+  });
+
+  test.each(PAYLOADS)('description %s: never ready for approval', (json) => {
+    const { code, result } = run('description', json);
+    expect(code).toBe(0);
+    expect(result.ready).toBe(false);
+    expect(result.missing.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -736,5 +779,201 @@ describe('pr-review-cli: tree facts carry a locally reviewed snapshot through to
       expect(runStateWrite({ prId: '42', cwd, state: { headSha: S, ledger: [] } }).ok).toBe(true);
       expect(runStateWrite({ prId: '43', cwd, state: { headSha: S, reviewedTreeSha: null, ledger: [] } }).ok).toBe(true);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD-005. The four guidance subcommands -- policy, rules, paths, description.
+// The CLI stays a dispatcher: each one hands its payload to the matching module
+// and prints that module's return value, so a caller can never be told something
+// the library would not say on the same input.
+// ---------------------------------------------------------------------------
+
+describe('pr-review-cli: the guidance subcommands are registered and documented (TRD-005)', () => {
+  const SOURCE = fs.readFileSync(CLI, 'utf8');
+  const GUIDANCE = ['policy', 'rules', 'paths', 'description'];
+
+  test('HANDLERS is exported, frozen, and holds exactly the ten subcommands', () => {
+    expect(Object.keys(HANDLERS).sort()).toEqual(
+      ['description', 'ledger', 'paths', 'policy', 'remote', 'rules', 'scope', 'state-read', 'state-write', 'status'].sort()
+    );
+    expect(Object.isFrozen(HANDLERS)).toBe(true);
+    for (const name of Object.keys(HANDLERS)) expect(typeof HANDLERS[name]).toBe('function');
+  });
+
+  test('a frozen map cannot gain a subcommand or have one replaced at runtime', () => {
+    expect(() => {
+      HANDLERS.evil = () => ({ ok: true });
+    }).toThrow(TypeError);
+    expect(() => {
+      HANDLERS.policy = () => ({ ok: true });
+    }).toThrow(TypeError);
+    expect(HANDLERS.evil).toBeUndefined();
+  });
+
+  test.each(GUIDANCE)('%s is registered to its own handler function', (name) => {
+    const expected = { policy: runPolicy, rules: runRules, paths: runPaths, description: runDescription }[name];
+    expect(typeof expected).toBe('function');
+    expect(HANDLERS[name]).toBe(expected);
+  });
+
+  test('both usage strings -- the header comment and the unknown-subcommand error -- list every handler', () => {
+    const usageLines = SOURCE.split('\n').filter((line) => line.includes('Usage:'));
+    expect(usageLines).toHaveLength(2);
+    for (const line of usageLines) {
+      for (const name of Object.keys(HANDLERS)) {
+        expect([line.trim(), name, line.includes(name)]).toEqual([line.trim(), name, true]);
+      }
+    }
+  });
+
+  test('the error a caller actually receives names the new subcommands', () => {
+    const { code, captured } = captureStdout(() => main(['polcy']));
+    expect(code).toBe(1);
+    const { error } = JSON.parse(captured);
+    for (const name of GUIDANCE) expect(error).toContain(name);
+  });
+
+  test.each(INHERITED_NAMES)('%s is still not a subcommand once the map has grown', (name) => {
+    const { code, captured } = captureStdout(() => main([name]));
+    expect(code).toBe(1);
+    expect(JSON.parse(captured).error).toMatch(/Unknown subcommand/);
+  });
+});
+
+describe('pr-review-cli: the guidance subcommands delegate, and the CLI result equals the module result (TRD-005)', () => {
+  const POLICY_TEXT = [
+    '# Review rules',
+    '',
+    '```ensemble-review-policy',
+    JSON.stringify({ sourceSha: BASE_SHA, roundCap: 5, maintainerLogins: ['ldangelo'], lowWaiverEnabled: true }),
+    '```',
+    '',
+  ].join('\n');
+
+  /** One good payload per guidance subcommand, with the module call it must equal. */
+  const CASES = {
+    policy: {
+      payload: { text: POLICY_TEXT, baseSha: BASE_SHA, sourceSha: BASE_SHA },
+      direct: (p) => loadPolicy(p),
+      handler: (p) => runPolicy(p),
+    },
+    rules: {
+      payload: {
+        changedPaths: ['packages/development/lib/a.js', 'docs/guides/b.md'],
+        ruleFiles: ['REVIEW.md', 'packages/development/REVIEW.md'],
+        baseSha: BASE_SHA,
+        sourceSha: BASE_SHA,
+      },
+      direct: (p) => resolveRuleFiles(p),
+      handler: (p) => runRules(p),
+    },
+    paths: {
+      payload: {
+        changedPaths: ['.github/workflows/ci.yml', 'src/app.js'],
+        declaration: { sourceSha: BASE_SHA, sensitive: ['src/**'] },
+        codeowners: '/src/ @team-a\n',
+        baseSha: BASE_SHA,
+      },
+      direct: (p) => classifyPaths(p),
+      handler: (p) => runPaths(p),
+    },
+    description: {
+      payload: { body: '## Testing\nnpm test\n\n## Risk\nlow\n\n## How to revert\nrevert the commit\n\nDirected by: @ldangelo\n' },
+      direct: (p) => checkDescription(p),
+      handler: (p) => runDescription(p),
+    },
+  };
+
+  test.each(Object.keys(CASES))('%s: the handler returns exactly what the module returns', (name) => {
+    const { payload, direct, handler } = CASES[name];
+    expect(handler(payload)).toEqual(direct(payload));
+  });
+
+  test.each(Object.keys(CASES))('%s through main() prints one JSON object equal to the module result', (name) => {
+    const { payload, direct } = CASES[name];
+    const { code, captured } = withStdin(payload, () => captureStdout(() => main([name])));
+    expect(code).toBe(0);
+    expect(captured.trimEnd().split('\n')).toHaveLength(1);
+    expect(JSON.parse(captured)).toEqual(JSON.parse(JSON.stringify(direct(payload))));
+  });
+
+  test.each(Object.keys(CASES))('%s through the real process equals the module called directly', (name) => {
+    const { payload, direct } = CASES[name];
+    const res = spawnSync('node', [CLI, name], { input: JSON.stringify(payload), encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe('');
+    expect(JSON.parse(res.stdout)).toEqual(JSON.parse(JSON.stringify(direct(payload))));
+  });
+
+  test('the configured policy really is in force through the CLI, not a default', () => {
+    const result = runPolicy(CASES.policy.payload);
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('policy');
+    expect(result.policy.roundCap).toBe(5);
+    expect(result.policy.maintainerLogins).toEqual(['ldangelo']);
+  });
+
+  test.each([null, undefined, [], 'x', 5, true, false, {}])(
+    'every guidance handler on %p equals its module called directly',
+    (payload) => {
+      expect(runPolicy(payload)).toEqual(loadPolicy(payload));
+      expect(runRules(payload)).toEqual(resolveRuleFiles(payload));
+      expect(runPaths(payload)).toEqual(classifyPaths(payload));
+      expect(runDescription(payload)).toEqual(checkDescription(payload));
+    }
+  );
+});
+
+describe('pr-review-cli: the guidance subcommands fail closed at the boundary (TRD-005)', () => {
+  test.each(['policy', 'rules', 'paths', 'description'])('%s with unparseable stdin exits 1 with a JSON error', (name) => {
+    const { code, captured } = withStdin('{ not json', () => captureStdout(() => main([name])));
+    expect(code).toBe(1);
+    expect(JSON.parse(captured).error).toMatch(/invalid JSON on stdin/);
+  });
+
+  test('a __proto__ payload neither pollutes a result nor relaxes the policy in force', () => {
+    const json = '{"__proto__":{"roundCap":99,"lowWaiverEnabled":true},"baseSha":"' + BASE_SHA + '"}';
+    const { code, result } = (() => {
+      const { code: c, captured } = withStdin(json, () => captureStdout(() => main(['policy'])));
+      return { code: c, result: JSON.parse(captured) };
+    })();
+    expect(code).toBe(0);
+    expect(result.source).toBe('defaults');
+    expect(result.policy.roundCap).toBe(DEFAULT_ROUND_CAP);
+    expect(result.policy.lowWaiverEnabled).toBe(false);
+    expect({}.roundCap).toBeUndefined();
+  });
+
+  test('a policy block the PR brought with it (sourceSha not the base) is refused, and the defaults apply', () => {
+    const result = runPolicy({
+      text: '```ensemble-review-policy\n' + JSON.stringify({ sourceSha: HEAD_SHA, roundCap: 5, lowWaiverEnabled: true }) + '\n```\n',
+      baseSha: BASE_SHA,
+      sourceSha: HEAD_SHA,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('policy-not-from-base');
+    expect(result.policy.roundCap).toBe(DEFAULT_ROUND_CAP);
+    expect(result.policy.lowWaiverEnabled).toBe(false);
+  });
+
+  test('paths with no declaration still reports CI workflow definitions as sensitive (AC-003-2)', () => {
+    const result = runPaths({ changedPaths: ['.github/workflows/release.yml'], baseSha: BASE_SHA });
+    expect(result.ok).toBe(true);
+    expect(result.sensitive).toEqual(['.github/workflows/release.yml']);
+    expect(result.prSensitive).toBe(true);
+    expect(result.paths[0].source).toBe('default');
+  });
+
+  test('rules with no rules file at all reports that none were found (AC-001-4)', () => {
+    const result = runRules({ changedPaths: ['src/app.js'], ruleFiles: [] });
+    expect(result.applied).toEqual([]);
+    expect(result.notes).toContain(NO_AREA_RULES_NOTE);
+  });
+
+  test('description missing a section is not ready and names it (AC-002-3)', () => {
+    const result = runDescription({ body: '## Testing\nnpm test\n\n## Risk\nlow\n', agentAuthored: false });
+    expect(result.ready).toBe(false);
+    expect(result.missing).toContain('how-to-revert');
   });
 });

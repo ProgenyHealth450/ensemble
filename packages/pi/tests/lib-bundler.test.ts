@@ -210,8 +210,10 @@ describe('bundleLibs against real packages directory', () => {
     // workstream-planner, cross-trd-deps, workstream-status, workstream-trd,
     // pr-strategy, quickstart-generator, beads-label, beads-stage, trd-graph (closure) + pr-review-cli.js's
     // own siblings (pr-review-scope, pr-review-ledger, pr-review-remote,
-    // pr-review-status, pr-review-state) + validate-git-town.sh
-    expect(results.length).toBe(23);
+    // pr-review-status, pr-review-state, and the TRD-005 guidance modules
+    // pr-review-policy, pr-review-rules, pr-review-paths, pr-review-description)
+    // + validate-git-town.sh
+    expect(results.length).toBe(27);
   });
 
   it('all results have type === "lib"', async () => {
@@ -251,6 +253,10 @@ describe('bundleLibs against real packages directory', () => {
       'pr-review-remote.js',
       'pr-review-status.js',
       'pr-review-state.js',
+      'pr-review-policy.js',
+      'pr-review-rules.js',
+      'pr-review-paths.js',
+      'pr-review-description.js',
     ]) {
       expect(vendoredNames).toContain(expected);
     }
