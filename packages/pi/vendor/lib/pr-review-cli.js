@@ -12,7 +12,7 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|tier|approvals|gate|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale> < payload.json
+ * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|tier|approvals|gate|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale|reachability> < payload.json
  *
  * `review-range` (TRD-013) is a thin pass-through to `chooseReviewRange`:
  * given `lastReviewedSha`, `commits` and `remediationShas` on top of what
@@ -141,6 +141,7 @@ const { evaluateApprovals } = require('./pr-review-approvals');
 const { evaluateGate } = require('./pr-review-gate');
 const { computeMetrics, compareCohorts } = require('./pr-review-metrics');
 const { scoreEval, compareEval, staleCases } = require('./pr-review-eval');
+const { traceCapabilities, compareRuntimes, gradeSecretHygiene } = require('./pr-review-reachability');
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -481,6 +482,23 @@ function runEvalStale(payload) {
   return staleCases(payload);
 }
 
+/**
+ * `reachability` (TRD-037) grades the cross-runtime proof. One payload
+ * selects one grader via `action`, mirroring the `ledger` precedent:
+ *   trace     { entryPoints, skills, subcommands, capabilities? }
+ *   runtimes  { runtimes, baseline?, expected? }
+ *   secrets   { workflows, allowedSecrets?, hostedReviewerConfigured?, samples? }
+ * An unknown action is refused in-band rather than guessed at, because a
+ * guessed proof is worse than no proof.
+ */
+function runReachability(payload) {
+  const action = isObject(payload) && typeof payload.action === 'string' ? payload.action.trim().toLowerCase() : null;
+  if (action === 'trace') return traceCapabilities(payload);
+  if (action === 'runtimes') return compareRuntimes(payload);
+  if (action === 'secrets') return gradeSecretHygiene(payload);
+  return { ok: false, reason: `unknown reachability action ${JSON.stringify(action)} (expected trace, runtimes or secrets)` };
+}
+
 const HANDLERS = Object.freeze({
   scope: runScope,
   'review-range': runReviewRange,
@@ -505,6 +523,7 @@ const HANDLERS = Object.freeze({
   'eval-score': runEvalScore,
   'eval-compare': runEvalCompare,
   'eval-stale': runEvalStale,
+  reachability: runReachability,
 });
 
 /**
@@ -523,7 +542,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|tier|approvals|gate|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|tier|approvals|gate|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale|reachability> < payload.json`,
       }) + '\n'
     );
     return 1;

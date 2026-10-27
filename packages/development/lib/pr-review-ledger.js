@@ -484,14 +484,19 @@ function partitionFindings(findings) {
  * returned unchanged, still blocking. "Closed with no reason" is not a thing
  * this library can record.
  *
+ * The REFUSED finding is echoed back REDACTED (AC-024-2). A refusal is still
+ * an output a skill may put in a report or a comment, so a credential inside
+ * a malformed request must not ride out on the error path -- the one route
+ * that would otherwise bypass every redaction on the success path.
+ *
  * @param {Object} finding
  * @param {{reason:string, by?:string, at?:string}} resolution
  * @returns {{ok:true, finding:Object}|{ok:false, reason:string, finding:Object}}
  */
 function recordResolution(finding, resolution) {
-  if (!isObject(finding)) return { ok: false, reason: 'a resolution needs a finding object', finding };
+  if (!isObject(finding)) return { ok: false, reason: 'a resolution needs a finding object', finding: redact(finding) };
   if (!isObject(resolution) || !isText(resolution.reason)) {
-    return { ok: false, reason: 'a resolution needs a text reason', finding };
+    return { ok: false, reason: 'a resolution needs a text reason', finding: redact(finding) };
   }
 
   const record = { reason: redact(resolution.reason.trim()) };
