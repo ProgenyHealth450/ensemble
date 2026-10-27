@@ -225,10 +225,18 @@ function sweep({ repo, sweepSha, scope = ['.'], tier, maxPaths, requestedBy = 'd
   ])];
   const threshold = policy.policy.sliceThreshold;
   const plan = cli('slices', { paths: slicePaths, areas, threshold });
+  if (!plan.ok) {
+    return { outcome: 'SWEEP_BLOCKED', reason: `slices: ${plan.reason}`, plan, findings: undefined };
+  }
 
   // --- Step 5: review, tagging every candidate Pre-existing ----------------
   const tagged = candidates.map((entry) => ({ ...entry, severity: 'Pre-existing' }));
   const validated = cli('ledger', { action: 'validate', findings: tagged });
+  if (!validated.ok) {
+    // A finding missing a required field is completed, never dropped -- and
+    // never reported as a verified sweep result on the way.
+    return { outcome: 'SWEEP_BLOCKED', reason: 'ledger-invalid', validated, findings: undefined };
+  }
   const deduped = cli('ledger', { action: 'dedupe', findings: tagged });
   // Recorded exactly as pr-review-cycle Step 3 records a round: this is where
   // the tag stops being a word in a report and becomes `preExisting` on the
@@ -434,6 +442,21 @@ describe('Scenario AC-021-1: a maintainer requests a sweep, and it reviews exist
     // ...but the tag is set because the code was SWEPT, whatever the reviewer
     // said: one candidate came in Important, the other Nit, and both are tagged.
     expect(report.ledger.map((entry) => entry.originalSeverity)).toEqual(['Pre-existing', 'Pre-existing']);
+  });
+
+  test('a candidate missing a required field blocks the report; it is never quietly dropped', () => {
+    const repo = sweepRepo();
+    const incomplete = candidate();
+    delete incomplete.evidence;
+    const report = sweep({ repo, candidates: [candidate({ id: 'SW0' }), incomplete] });
+
+    expect(report.outcome).toBe('SWEEP_BLOCKED');
+    expect(report.reason).toBe('ledger-invalid');
+    expect(report.validated.ok).toBe(false);
+    expect(report.validated.offendingIds).toContain('SW1');
+    // No findings list at all: a sweep that could not grade its own candidates
+    // reports that, rather than reporting the one candidate it could read.
+    expect(report.findings).toBeUndefined();
   });
 
   test('a swept finding cannot stop anybody\'s merge; the same defect tagged Important does', () => {
