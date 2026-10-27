@@ -95,7 +95,8 @@ orchestrator skips the approval gate (the parent already gated), runs the beads 
 (claim via `br update <BEAD_ID> --status=in_progress`, close via `br close <BEAD_ID>`,
 sync via `br sync --flush-only`), follows the parent-supplied `quality_loop` (claim,
 implement, run tests, delegate to code-reviewer, parse verdict, review rounds bounded by
-the repository's shared round cap from the pr-review-cycle skill's policy -- never a private number),
+the repository's shared round cap from the pr-review-cycle skill's policy -- never a private number;
+at the cap, stop iterating and ask the author to step back and reconsider the approach),
 and never re-calls `bv --robot-plan` or re-partitions the bead list. If the prompt does
 not satisfy both invariants (non-empty track_beads AND scope object), the orchestrator
 falls back to the standard Approval-First Workflow.

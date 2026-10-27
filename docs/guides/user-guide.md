@@ -442,7 +442,7 @@ Expected behavior:
 
 - Each failing or pending CI check and each unresolved change request becomes a finding, classified by root cause and dispatched concurrently, one subagent per finding, through the orchestrator that owns that domain (`tech-lead-orchestrator`, `qa-orchestrator`, `build-orchestrator`, `infrastructure-orchestrator`, `github-specialist`).
 - After every round the command re-reads live CI and review state; a finding counts as resolved only after the fix is pushed and independently re-verified.
-- Rounds are bounded by `--max-rounds` (default 5). Exceeding it halts with a report of every open finding.
+- Rounds are bounded by the repository's shared round cap, read from the `ensemble-review-policy` block in the base branch's `REVIEW.md` (1 to 5, default 3). `--max-rounds=N` may only lower it for one run; a larger value is ignored. Reaching the cap halts with a report of every open finding and asks the author to step back and reconsider the approach.
 - It never deletes, skips or weakens a test to get green, never force-pushes over others' commits, and never bypasses branch protection. It merges only when every required check passes and no review requests changes.
 - `--dry-run` stops after reporting merge readiness.
 - After a real remediation, resolved findings may be distilled into guardrails and proposed to an existing constitution through a separate housekeeping PR. This is best-effort, never creates a constitution file, and never touches the PR being merged.

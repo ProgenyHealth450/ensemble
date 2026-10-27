@@ -153,7 +153,7 @@ SKILL.md --> .ensemble/pr-review/<key>.json (untracked; never part of the PR hea
   - Implementation AC:
     - [ ] Given facts, when `deriveStatus` runs, then it returns exactly one of the three statuses plus `localPhase` and `remotePhase` qualifiers and the AC-009-1 fields (SHAs, PR URL if known, rounds, finding counts, test commands/results, report path)
     - [ ] Given any of: unresolved actionable finding, failed test, pending review, stale `reviewedHeadSha`, or skipped tests, when it runs, then `REVIEW_COMPLETE` is never returned; `REVIEW_COMPLETE` requires `LOCAL_REVIEW_COMPLETE` and `REMOTE_REVIEW_COMPLETE`
-    - [ ] Given `roundsUsed >= MAX_AUTO_ROUNDS` (2) with actionable findings, when it runs, then the result is `REVIEW_PENDING` or `REVIEW_BLOCKED` with the ledger and next action, never complete
+    - [ ] Given `roundsUsed >= roundCap` with actionable findings, when it runs, then the result is `REVIEW_PENDING` or `REVIEW_BLOCKED` with the ledger and next action, never complete (this task shipped `MAX_AUTO_ROUNDS = 2`; since TRD-2026-70e784f2 TRD-012 the cap is the shared `roundCap` fact from `pr-review-policy.js` -- 1-5, default 3 -- and the next action is `reconsider-approach-with-author`)
     - [ ] Given unavailable or unauthorized review access, when it runs, then it returns `REVIEW_BLOCKED`; given access works but the head's review is not posted, it returns `REVIEW_PENDING`
     - [ ] Given `tests.skipped`, when it runs, then it returns `REVIEW_PENDING` with reason `tests skipped` and the test command to run; given an explicit override flag from a caller that supports it, the incomplete status is preserved and never relabeled
 

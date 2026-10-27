@@ -12,16 +12,25 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json
+ * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices> < payload.json
  *
- * `ledger` exposes five independent library functions; the payload selects
- * one via `action` (validate|isActionable|dedupe|merge|scopeViolations) and
+ * `review-range` (TRD-013) is a thin pass-through to `chooseReviewRange`:
+ * given `lastReviewedSha`, `commits` and `remediationShas` on top of what
+ * `scope` takes, it answers whether the next review is a `delta` against the
+ * previously reviewed head or must fall back to the `full` base-correct
+ * range -- the skill calls this for every round after the first (AC-010-1).
+ *
+ * `ledger` exposes six independent library functions; the payload selects
+ * one via `action` (validate|isActionable|dedupe|merge|scopeViolations|recordRound) and
  * carries that action's keys:
  *   validate         { findings }
  *   isActionable     { finding }
  *   dedupe           { findings }
  *   merge            { existingLedger, incomingFindings, headSha }
  *   scopeViolations  { changedFiles, scope, ledger }
+ *   recordRound      { ledger, incoming, round } -- suppresses repeats, attaches
+ *                    class instances to their one class finding and reports
+ *                    both (AC-010-2, AC-011-1, AC-011-2)
  * `state-read` takes { headSha } plus an optional { treeSha } (the tree of that
  * head) and `state-write` { state } (whose `reviewedTreeSha`, when present, must
  * be a full object id), each with either an explicit `targetPath` or a `prId`
@@ -33,6 +42,17 @@
  *   rules        { changedPaths, ruleFiles, rulesFileName?, baseSha?, sourceSha? }
  *   paths        { changedPaths, declaration?, codeowners?, baseSha }
  *   description  { body, agentAuthored? } (or the PR body as a bare JSON string)
+ *
+ * The verification subcommands (TRD-018) each take the facts their module
+ * grades and answer with that module's result verbatim:
+ *   votes   { findings[{ id, severity?, kind?, security?, reviewer?, votes[{ verifier, verdict }],
+ *             incompleteVerifiers? }], depth, expectedVerifiers?, verificationCapability? }
+ *   depth   { tier, effectiveTier?, requested?, lowWaiverEnabled?, planned?, used?, bounds? }
+ *           -- resolves the mode AND, when planned or used counts are given,
+ *           grades them against that mode's bounds in the same answer
+ *   slices  { paths[{ path, lines }], areas?, threshold?, reviewed?, changedPaths? }
+ *           -- plans the areas and, when `reviewed` slice ids are given, names
+ *           every changed path they did not cover
  *
  * FAIL CLOSED at the boundary. Two kinds of payload value are told apart:
  *   - the review FACTS of `scope`, `remote`, `status`, `policy`, `rules`,
@@ -53,13 +73,14 @@
 
 const fs = require('fs');
 
-const { resolveReviewScope } = require('./pr-review-scope');
+const { resolveReviewScope, chooseReviewRange } = require('./pr-review-scope');
 const {
   validateLedger,
   isActionable,
   dedupeFindings,
   mergeFindings,
   scopeViolations,
+  recordRound,
 } = require('./pr-review-ledger');
 const { evaluateRemoteReview } = require('./pr-review-remote');
 const { deriveStatus } = require('./pr-review-status');
@@ -68,6 +89,8 @@ const { loadPolicy } = require('./pr-review-policy');
 const { resolveRuleFiles } = require('./pr-review-rules');
 const { classifyPaths } = require('./pr-review-paths');
 const { checkDescription } = require('./pr-review-description');
+const { tallyVotes } = require('./pr-review-votes');
+const { resolveDepth, checkBounds, boundsFor, planSlices, verifyCoverage } = require('./pr-review-depth');
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -76,6 +99,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 const ARRAY = { check: Array.isArray, describe: 'an array' };
 const OBJECT = { check: isObject, describe: 'an object' };
 const TEXT = { check: (value) => typeof value === 'string' && value.trim() !== '', describe: 'a non-empty string' };
+const INTEGER = { check: (value) => Number.isInteger(value), describe: 'an integer' };
 
 /**
  * Every key in `keys` must be on `payload` with a value of the kind named. Nothing is defaulted: an absent key
@@ -112,6 +136,10 @@ function runScope(payload) {
   return resolveReviewScope(payload);
 }
 
+function runReviewRange(payload) {
+  return chooseReviewRange(payload);
+}
+
 /** dedupe, merge and scopeViolations answer with an array; anything else is the module refusing input it cannot read. */
 function arrayOrThrow(result) {
   if (!Array.isArray(result)) throw new Error(result && result.reason ? result.reason : 'ledger input rejected');
@@ -139,6 +167,14 @@ const LEDGER_ACTIONS = Object.freeze({
   scopeViolations: {
     keys: { changedFiles: ARRAY, scope: ARRAY, ledger: ARRAY },
     run: (p) => ({ violations: arrayOrThrow(scopeViolations(p.changedFiles, p.scope, p.ledger)) }),
+  },
+  recordRound: {
+    keys: { ledger: ARRAY, incoming: ARRAY, round: INTEGER },
+    run: (p) => {
+      const result = recordRound({ ledger: p.ledger, incoming: p.incoming, round: p.round });
+      if (!result.ok) throw new Error(result.reason);
+      return result;
+    },
   },
 });
 
@@ -213,8 +249,103 @@ function runDescription(payload) {
   return checkDescription(payload);
 }
 
+/**
+ * The three verification subcommands (TRD-018). Like the guidance four, each
+ * is graded IN BAND by its module: a payload the module cannot read is a
+ * blocked, deepest-mode or no-plan RESULT (exit 0), never a clean pass.
+ *
+ * `votes` is a pass-through. `depth` and `slices` each call exactly two
+ * functions of their one module -- resolve then grade, plan then verify --
+ * because that is the single question the skill asks; the dispatcher still
+ * decides nothing itself, and the only value it combines is `ok`, which it
+ * can only make stricter.
+ */
+function runVotes(payload) {
+  return tallyVotes(payload);
+}
+
+/**
+ * `depth` answers one question with two parts, because the skill asks them
+ * together: which mode this PR gets, and -- when the caller already knows the
+ * reviewer and verifier counts it planned or ran -- whether those counts sit
+ * inside that mode's bounds (AC-016-1, AC-016-3).
+ *
+ * The grading never softens the resolution: an unreadable tier still resolves
+ * to the deepest mode, bounds the policy made unreadable stay `null` rather
+ * than silently falling back to the defaults, and `ok` is true only when both
+ * halves are. A `bounds` override is honoured on both paths -- a caller that
+ * has not planned anyone yet is still told the bounds the policy puts it
+ * under, not the defaults.
+ */
+function runDepth(payload) {
+  const resolved = resolveDepth(payload);
+  const request = isObject(payload) ? payload : {};
+  if (request.planned === undefined && request.used === undefined) {
+    const { bounds, warnings } = boundsFor(resolved.mode, request.bounds);
+    return {
+      ...resolved,
+      ok: resolved.ok && bounds !== null,
+      bounds,
+      violations: [],
+      warnings: [...new Set([...resolved.warnings, ...warnings])],
+    };
+  }
+
+  const graded = checkBounds({
+    mode: resolved.mode,
+    planned: request.planned,
+    used: request.used,
+    bounds: request.bounds,
+  });
+
+  const result = {
+    ok: resolved.ok && graded.ok,
+    mode: resolved.mode,
+    tier: resolved.tier,
+    source: resolved.source,
+    bounds: graded.bounds,
+    violations: graded.violations,
+    reasons: resolved.reasons,
+    warnings: [...new Set([...resolved.warnings, ...graded.warnings])],
+  };
+  if (graded.reason !== undefined) result.reason = graded.reason;
+  return result;
+}
+
+/**
+ * `slices` plans the review by area and, when the caller names the slice ids
+ * it actually reviewed, says which changed paths that left uncovered
+ * (AC-018-1, AC-018-2). A plan the module refused is returned as the refusal
+ * it is: coverage is never computed over an empty plan, because "no slices,
+ * all reviewed" is exactly the false pass this gate exists to prevent.
+ */
+function runSlices(payload) {
+  const plan = planSlices(payload);
+  const request = isObject(payload) ? payload : {};
+  if (!plan.ok || request.reviewed === undefined) return plan;
+
+  const coverage = verifyCoverage({
+    slices: plan.slices,
+    reviewed: request.reviewed,
+    changedPaths: request.changedPaths,
+  });
+
+  const result = {
+    ...plan,
+    ok: plan.ok && coverage.ok && coverage.covered,
+    covered: coverage.covered,
+    uncovered: coverage.uncovered,
+    reviewedSlices: coverage.reviewedSlices,
+    unreviewedSlices: coverage.unreviewedSlices,
+    unknownReviewed: coverage.unknownReviewed,
+  };
+  if (coverage.reason !== undefined) result.coverageReason = coverage.reason;
+  return result;
+}
+
 const HANDLERS = Object.freeze({
   scope: runScope,
+  'review-range': runReviewRange,
   ledger: runLedger,
   remote: runRemote,
   status: runStatus,
@@ -224,6 +355,9 @@ const HANDLERS = Object.freeze({
   rules: runRules,
   paths: runPaths,
   description: runDescription,
+  votes: runVotes,
+  depth: runDepth,
+  slices: runSlices,
 });
 
 /**
@@ -242,7 +376,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices> < payload.json`,
       }) + '\n'
     );
     return 1;
@@ -273,6 +407,7 @@ function main(argv) {
 
 module.exports = {
   runScope,
+  runReviewRange,
   runLedger,
   runRemote,
   runStatus,
@@ -282,6 +417,9 @@ module.exports = {
   runRules,
   runPaths,
   runDescription,
+  runVotes,
+  runDepth,
+  runSlices,
   LEDGER_ACTIONS,
   HANDLERS,
   main,
