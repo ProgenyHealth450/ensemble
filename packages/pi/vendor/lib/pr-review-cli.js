@@ -128,7 +128,7 @@ const {
 } = require('./pr-review-ledger');
 const { evaluateRemoteReview } = require('./pr-review-remote');
 const { deriveStatus } = require('./pr-review-status');
-const { statePath, writeState, readState } = require('./pr-review-state');
+const { statePath, writeState, readState, redact } = require('./pr-review-state');
 const { loadPolicy } = require('./pr-review-policy');
 const { resolveRuleFiles } = require('./pr-review-rules');
 const { classifyPaths } = require('./pr-review-paths');
@@ -558,7 +558,13 @@ function main(argv) {
 
   try {
     const result = handler(payload);
-    const json = JSON.stringify(result);
+    // REQ-024/AC-024-2: this stdout is the text that becomes a finding, a PR
+    // comment or a ledger entry, so a credential a reviewer was shown must not
+    // survive it. Redaction belongs at the one output boundary rather than in
+    // each handler: a subcommand added later is covered without anyone
+    // remembering to ask. `redact` is the same deep, key-aware pass already
+    // applied before anything touches disk.
+    const json = JSON.stringify(redact(result));
     if (typeof json !== 'string') {
       throw new Error('Result was not JSON-serializable');
     }
@@ -566,7 +572,9 @@ function main(argv) {
     return 0;
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
-    process.stdout.write(JSON.stringify({ error: message }) + '\n');
+    // An error message echoes the payload that caused it, so it is redacted
+    // on the same terms as a success.
+    process.stdout.write(JSON.stringify({ error: redact(message) }) + '\n');
     return 1;
   }
 }
