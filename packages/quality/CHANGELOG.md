@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `code-reviewer` is read-only and reports a structured finding contract. The
+  agent no longer carries Write or Edit tools: it records or posts findings and
+  never changes the code it reviews. It reads the applied `REVIEW.md` files,
+  `CLAUDE.md` and the constitution from the target branch (never from the PR
+  head), and every finding it returns carries the ledger fields -- location,
+  severity from the closed set, failure mode, evidence and the original text or
+  link -- so `pr-review-cycle` can verify it by vote (a strict majority of the
+  depth's verifiers: 2 of 3 at Standard, 3 of 5 at Deep) before the author is
+  asked to answer anything.
 - `pr-review-remediation` skill — verify and remediate findings from CodeRabbit or
   another PR review agent: triage each finding (valid, stale, duplicate, already
   fixed, or incorrect), reproduce behavioral defects with a focused regression

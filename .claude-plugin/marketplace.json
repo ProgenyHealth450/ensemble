@@ -76,7 +76,7 @@
     },
     {
       "name": "ensemble-development",
-      "version": "7.0.0",
+      "version": "7.0.1",
       "source": "./packages/development",
       "description": "Development workflow orchestration and best practices",
       "category": "workflow",
@@ -92,7 +92,7 @@
     },
     {
       "name": "ensemble-quality",
-      "version": "6.0.0",
+      "version": "6.0.1",
       "source": "./packages/quality",
       "description": "Quality assurance and code review workflows",
       "category": "workflow",
