@@ -2,7 +2,7 @@
 
 Ensemble is a marketplace of plugins that add commands, skills and agents to AI coding runtimes (Claude Code, Pi/Oh My Pi, Codex, OpenCode). Its core workflow takes a product idea through a PRD, a TRD, a Beads task hierarchy and a merged pull request, with a gate at every hand-off.
 
-This guide is task oriented. Sections 1 to 3 get you installed and through one full cycle. Section 4 is a set of recipes. Sections 5 to 7 are reference tables. Sections 8 to 10 cover configuration, troubleshooting and upgrading from 6.x.
+This guide is task oriented. Sections 1 to 3 get you installed and through one full cycle. Section 4 is a set of recipes. Sections 5 to 7 are reference tables. Sections 8 to 10 cover configuration, troubleshooting and upgrading from 6.x. Section 11 is the code review process: the policy you edit, the gates that are enforced for you, and the honest limits of both.
 
 ## Table of contents
 
@@ -16,6 +16,7 @@ This guide is task oriented. Sections 1 to 3 get you installed and through one f
 8. [Configuration and environment](#8-configuration-and-environment)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Upgrading from 6.x](#10-upgrading-from-6x)
+11. [Code review process](#11-code-review-process)
 
 ## 1. Concepts
 
@@ -841,3 +842,75 @@ The `release-agent` and `test-reader-agent` agents were removed. Use `/ensemble:
 - `ensemble-assessment` is no longer bundled into `ensemble-pi`; install `@sunstone-partners/ensemble-assessment` on Pi.
 - The `xunit` and `rspec` skills are now full skills with working helper scripts that print real JSON results.
 - `ensemble-infrastructure` and `ensemble-quality` depend on `ensemble-core`.
+
+## 11. Code review process
+
+Ensemble reviews a pull request in one place: the `pr-review-cycle` skill. `/ensemble:fix-issue`, `/ensemble:implement-trd-beads` and `/ensemble:pr-merge` all reach the review through that skill, so the behaviour described here is the behaviour you get from any of them.
+
+The split to keep in mind: **what a review values is yours to edit in Markdown; what a review is allowed to conclude is graded by code.** Prose a model can misread cannot be a guarantee, so the vote threshold, the risk tier, the approval count and the merge gate are deterministic modules, reached as subcommands of `pr-review-cli.js`.
+
+### 11.1 `REVIEW.md` and the policy block
+
+Review guidance lives in `REVIEW.md` files you write. A root `REVIEW.md` carries repository-wide guidance; a `REVIEW.md` in any directory adds guidance for that area, and when two areas conflict the more restrictive instruction wins.
+
+Policy *keys* are read from the **root** file only, from a fenced ` ```ensemble-review-policy ` JSON block:
+
+| Key | Meaning | Default when absent |
+| --- | --- | --- |
+| `roundCap` | Review rounds before the cycle stops and asks you to reconsider the approach (1-5) | `3` |
+| `maintainerLogins` | People who may resolve findings as maintainers | none |
+| `botLogins` | Logins whose approvals never count toward the human requirement | none |
+| `sensitivePaths` | Globs that floor the risk tier at High | a strict built-in set |
+| `highPaths` | Globs that floor the risk tier at Medium or above | none |
+| `lowWaiverEnabled` | Whether a Low tier may actually mean Low | `false` |
+| `sliceThreshold` | Changed lines above which a PR is reviewed area by area | `1500` |
+
+Two deliberate properties:
+
+- The policy is read **from the target branch**, never from the PR head. A PR cannot weaken the rules it is judged by.
+- A repository with no `REVIEW.md` gets strict defaults rather than no policy: Low is treated as Medium, the cap is 3, and the built-in sensitive set applies. `/ensemble:init-project` scaffolds a starter `REVIEW.md` for you.
+
+### 11.2 Depth and verification
+
+The risk tier selects a depth, and the depth fixes how many reviewers and verifiers run: **Quick** one reviewer, no verifiers; **Standard** at least two reviewers and 3 verifiers; **Deep** at least two reviewers and 5 verifiers.
+
+Every candidate finding — from every reviewer, every local tool and every review bot, CodeRabbit included — enters one ledger and is voted on by fresh-context verifiers that did not raise it. A finding is presented only on a **strict majority of the verifiers the depth expects** (2 of 3, 3 of 5). The denominator is the expected count, never the number of votes that happened to arrive, so a missing verifier is never read as agreement. A finding the verifiers split on is `disputed` and goes to a person rather than being dropped.
+
+### 11.3 Risk tiers
+
+The tier comes from the change, never from who wrote it. Sensitive and High paths floor it. The assignment is **raise-only**: anyone may propose a higher tier, but a proposal that lowers one is ignored and recorded as `lowering-needs-code-owner` unless a code owner of the affected path makes it.
+
+| Tier | Human approvals required |
+| --- | --- |
+| High | 2 |
+| Medium | 1 |
+| Low | 1 — **Low is treated as Medium** unless `lowWaiverEnabled` is on and the waiver's evidence is present |
+
+Even a code owner lowering a PR to Low does not escape the human requirement while the waiver is disabled: the effective tier stays Medium.
+
+### 11.4 Approvals and the merge gate
+
+An approval counts only when it is **bound to the commit (or tree) under review**, so a later push invalidates it. A bot approval never counts. An author never fills a required slot. On an agent-authored PR, the person named on the `Directed by:` line counts as one of the required reviewers, as if they had written the code themselves.
+
+`/ensemble:pr-merge` requires `mergeable: true` from the gate, computed from freshly read GitHub state. The gate refuses — and names the blocker and a `nextAction` — on an open Important finding, an unanswered security finding, an incomplete description, approvals short of the tier, or review data it could not read. It never passes on missing data.
+
+> **Honest limit.** These gates run where ensemble runs. Server-side enforcement needs a branch-protection rule in your repository; `pr-merge` reports when one is absent and recommends it, but cannot enforce it.
+
+### 11.5 Metrics and the reviewer eval set
+
+Review metrics are computed per cohort (open-to-merge time, first-review latency, rounds, review wait) so a change to the process can be compared against a recorded baseline instead of an impression. A guardrail watches reverts and incidents: a cohort that merged faster while reverting more is not reported as an improvement.
+
+The **eval set** is how review quality stays measurable. When a bug escapes review — an incident or a revert — add it with the `pr-review-eval` skill as a code-owner-confirmed case. Scoring replays the set and reports what the current reviewer would have caught.
+
+### 11.6 Sweeps and explainers
+
+- **Sweeps** (`pr-review-sweep`) review code that is *already merged*, on demand, sensitive areas first, with the same bounds and the same strict-majority verification a PR gets. Findings are tagged `Pre-existing`, so they can never block somebody else's merge. A sweep reports: no edit, no commit, no push, no PR. Recurrence is your repository's or Foreman's — the skill holds no timer, and ensemble's own workflows carry no `schedule:` trigger. `/ensemble:init-project` scaffolds a weekly sweep workflow only if you opt in.
+- **Explainers** (`pr-review-explainer`) describe a module from the code as it is now, naming every file read. A High-tier PR's report *offers* an explainer for each touched sensitive module; one is generated only when you ask.
+
+### 11.7 Runtime coverage
+
+The review is equivalent on **Claude Code** and **Pi**: both carry the same procedures and the same CLI subcommands, and are tested by running the same payloads through each runtime's own shipped CLI and comparing the output.
+
+On **Codex** and **OpenCode** the capability is **reduced**: both generate the command entry points, but neither bundles the `pr-review-*` procedure skills or a vendored CLI, so the graded steps do not run there. This is stated rather than papered over — see `docs/reports/pr-review-cross-runtime-reachability.md`.
+
+No part of the in-agent review requires a new CI secret, and nothing on the review path makes a network call. A credential that appears in a diff is redacted at the CLI's output boundary, so it is not reproduced in a finding, a PR comment or a ledger entry.

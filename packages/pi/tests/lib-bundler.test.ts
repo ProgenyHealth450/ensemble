@@ -214,10 +214,15 @@ describe('bundleLibs against real packages directory', () => {
     // pr-review-policy, pr-review-rules, pr-review-paths, pr-review-description,
     // the TRD-018 verification modules pr-review-votes, pr-review-depth,
     // the TRD-043 pr-review-explainer-offer, the TRD-032 pr-review-metrics and
-    // pr-review-eval, and the TRD-026 pr-review-tier, pr-review-approvals and
-    // pr-review-gate)
+    // pr-review-eval, the TRD-026 pr-review-tier, pr-review-approvals and
+    // pr-review-gate, and the TRD-037 pr-review-reachability)
     // + validate-git-town.sh
-    expect(results.length).toBe(35);
+    //
+    // This number grows whenever a vendored entry point gains a sibling
+    // require. A failure here means the closure changed: confirm the new
+    // module really belongs in the Pi bundle, then update the count and the
+    // list above together.
+    expect(results.length).toBe(36);
   });
 
   it('all results have type === "lib"', async () => {

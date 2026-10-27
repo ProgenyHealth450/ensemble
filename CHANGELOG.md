@@ -62,6 +62,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ensemble-full` mirrors the new libraries and the new skill, and
   `ensemble-pi` vendors them with the generated `pr-review-eval` skill copy.
 
+- **packages/development, packages/core, packages/git:** on-demand sweeps,
+  explainers and the cross-runtime reachability proof that completes the code
+  review process (TRD-2026-70e784f2, PR 6). `pr-review-sweep` reviews code
+  that is **already merged**, sensitive areas first, with the same bounds and
+  the same strict-majority verification a PR gets; every finding is tagged
+  `Pre-existing`, so a sweep can never block somebody else's merge, and it
+  reports without editing, committing, pushing or opening a PR. Recurrence
+  stays the host repository's (Constitution Rule 4): the skill holds no timer
+  and ensemble's own workflows gain no `schedule:` trigger.
+  `pr-review-explainer` describes a module from the code as it is now and
+  names every file it read; a High-tier PR's report offers one for each
+  touched sensitive module, and generates it only on request.
+  `lib/pr-review-reachability.js` proves every capability is reached from the
+  REAL entry points -- entry command text to skill to a registered subcommand
+  -- rather than merely unit-tested, and grades the four runtimes against a
+  baseline.
+  **Runtime coverage, stated rather than implied:** Claude Code and Pi are
+  equivalent (the same payloads produce byte-identical output from each
+  runtime's own shipped CLI); **Codex and OpenCode are reduced** -- both
+  generate the command entry points, but neither bundles the `pr-review-*`
+  procedure skills or a vendored CLI, so the graded steps do not run there.
+  See `docs/reports/pr-review-cross-runtime-reachability.md`.
+  The in-agent review needs **no new CI secret** and makes no network call.
+  The whole process is now documented for users in section 11 of
+  `docs/guides/user-guide.md`.
+
+### Fixed
+
+- **packages/development, packages/pi:** a credential shown to a reviewer
+  could be reproduced in a PR comment or ledger entry. `pr-review-cli.js`
+  redacted only before a state report touched **disk**, so a token in a
+  finding's text survived into the CLI's stdout -- the text that actually
+  becomes a comment or a ledger entry -- through `ledger` and `votes`.
+  Redaction now happens at the single output boundary, error path included.
+  The vendored Pi copy had drifted and was still printing the credential
+  after the fix landed in `packages/development`, so the same review was
+  clean on Claude and leaking on Pi; it has been re-vendored, and a scenario
+  now compares a credential-carrying payload across both runtimes so the
+  drift cannot return unnoticed.
+
+### Documentation
+
+- **User guide section 11, "Code review process":** the whole process in one
+  chapter -- `REVIEW.md` and the `ensemble-review-policy` block, depth and
+  verification thresholds, risk tiers, commit-bound approvals and the merge
+  gate, metrics and the reviewer eval set, sweeps and explainers, and which
+  runtimes the capability is reduced on. Each stated gate was checked against
+  the shipped modules by running them, not against the changelog.
+- **Wiki:** a `Code-Review-Process` page is staged at
+  `.wiki-staging/Code-Review-Process.md` per AGENTS.md (local-only, excluded
+  from git) and is published with `scripts/wiki-publish.sh --yes`. It is
+  generated from user guide section 11, which stays the source of truth.
+
 ## [7.0.0] - 2026-10-18
 
 ### Changed
