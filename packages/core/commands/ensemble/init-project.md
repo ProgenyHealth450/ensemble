@@ -264,19 +264,22 @@ rebuild or release.
 
 <!-- What changed, and why. One short paragraph. -->
 
+<!--
+An agent-authored PR must name the accountable human on its own line,
+outside any comment, like this:  Directed by: @your-github-login
+-->
+
 ## Testing
 
-<!-- The commands you ran and what they proved. Name any test you added. -->
-
-- [ ] Automated tests cover this change
-- [ ] Manual verification (describe):
+<!--
+The commands you ran and what they proved; name any test you added.
+Replace this comment with your answer: a section left as a comment, a bare
+list marker or a blank line counts as MISSING, not answered.
+-->
 
 ## Risk
 
 <!-- What could break, who is affected, and how it would be noticed. -->
-
-- Blast radius:
-- Monitoring / signal to watch:
 
 ## How to revert
 

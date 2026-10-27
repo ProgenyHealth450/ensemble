@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { loadPolicy } = require('../../development/lib/pr-review-policy');
+const { checkDescription } = require('../../development/lib/pr-review-description');
 
 const SOURCE_PATH = path.join(__dirname, '../commands/ensemble/init-project.md');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
@@ -86,6 +87,24 @@ describe('init-project scaffolds the review files (AC-002-4)', () => {
     expect(template).toContain('## Testing');
     expect(template).toContain('## Risk');
     expect(template).toContain('## How to revert');
+  });
+
+  test('the real description checker reads the scaffolded PR template', () => {
+    const template = templateFor('.github/pull_request_template.md', 'markdown');
+
+    // Unfilled, it is not a description: a heading is not content.
+    const empty = checkDescription({ body: template, agentAuthored: false });
+    expect(empty.ready).toBe(false);
+    expect(empty.missing).toEqual(['testing', 'risk', 'how-to-revert']);
+
+    // Filled in, the same headings satisfy the checker -- so a team that
+    // uses the scaffolded template can actually pass the description gate.
+    const answered = checkDescription({
+      body: template.replace(/^(## .*)$/gm, '$1\n\nfilled by the author.'),
+      agentAuthored: false,
+    });
+    expect(answered.ready).toBe(true);
+    expect(answered.missing).toEqual([]);
   });
 
   test('the scaffolded REVIEW.md carries a policy block the loader accepts', () => {

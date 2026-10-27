@@ -21,6 +21,10 @@ const path = require('path');
 
 const { loadPolicy } = require('../lib/pr-review-policy');
 const { classifyPaths } = require('../lib/pr-review-paths');
+const { checkDescription } = require('../lib/pr-review-description');
+
+/** The template with every section body filled in, as an author would send it. */
+const filled = (template) => template.replace(/^(## .*)$/gm, '$1\n\nfilled by the author.');
 
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 
@@ -118,6 +122,21 @@ describe('this repository ships a PR template and an ownership declaration', () 
     expect(template).toContain('## Testing');
     expect(template).toContain('## Risk');
     expect(template).toContain('## How to revert');
+  });
+
+  test('the real description checker recognises every section of the template', () => {
+    const template = read('.github/pull_request_template.md');
+
+    // Unfilled, the template is NOT a description: headings are not content.
+    const empty = checkDescription({ body: template, agentAuthored: false });
+    expect(empty.ready).toBe(false);
+    expect(empty.missing).toEqual(['testing', 'risk', 'how-to-revert']);
+
+    // Filled in, the same headings satisfy the checker: the template's
+    // spelling matches the section labels the checker accepts.
+    const answered = checkDescription({ body: filled(template), agentAuthored: false });
+    expect(answered.ready).toBe(true);
+    expect(answered.missing).toEqual([]);
   });
 
   test('CODEOWNERS exists and every entry names a path and an owner', () => {
