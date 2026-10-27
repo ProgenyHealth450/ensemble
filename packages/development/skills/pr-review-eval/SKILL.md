@@ -1,0 +1,267 @@
+---
+name: pr-review-eval
+description: Add an escaped bug (an incident or a revert) to the reviewer eval set as a code-owner-confirmed case, and run the eval set when the reviewer's rules, prompts or model change - scoring each case, comparing with the previous run and reporting regressions. Use when a maintainer says "add this incident to the eval set" or "run the reviewer eval"; do not use to review a PR (that is `pr-review-cycle`) or to compute cohort review metrics (that is `pr-review-cli.js metrics`).
+---
+
+# PR Review Eval
+
+Two jobs, one procedure (REQ-020, AC-020-1, AC-020-2):
+
+- **ADD** — a change escaped review and caused an incident or a revert. Record
+  it as a case the code owner of the affected area confirmed, so future
+  reviewers can be measured against it.
+- **RUN** — the reviewer's rules, prompts or model changed. Run the reviewer
+  over every case, score what it found, compare with the previous run and
+  report regressions.
+
+This skill owns editable prose only (Constitution Rule 8): the case-gathering
+interview, what a maintainer is asked to confirm and how a run is reported.
+Every judgement that grades a claim is made by `pr-review-cli.js`, which is the
+only thing here that decides anything (Rule 7). Recurrence is the host
+repository's (Rule 4): this skill runs when it is invoked and holds no timer,
+no schedule and no watcher.
+
+---
+
+## Inputs
+
+| Variable | Type | Description |
+|---|---|---|
+| `MODE` | `'add'` \| `'run'` | Which job. Anything else is an error, not a default. |
+| `REPO_ROOT` | string | Repository root. Every path below is relative to it and never leaves it. |
+| `CASE` | object (ADD) | What the maintainer supplies: `id`, `change`, `bug`, `location {path,startLine,endLine}`, `confirmedBy`. The skill derives `rulesFile` and `rulesHash`. |
+| `PREVIOUS_RUN` | path (RUN, optional) | The previous `eval-score` result to compare against. Absent means there is nothing to compare, which is reported as such — never as "no regression". |
+| `REVIEWER` | string (RUN, optional) | Which reviewer configuration is under test; recorded in the report so a result can be attributed. |
+
+`evalCasesDir` is **not** an input: it is read from the repository policy, so a
+maintainer who moved the directory does not have to tell this skill twice.
+
+```bash
+# The policy block of the root REVIEW.md, read from the base commit (REQ-024).
+node packages/development/lib/pr-review-cli.js policy <<< "$(jq -n \
+  --arg text "$(git show "$BASE_SHA:REVIEW.md" 2>/dev/null)" --arg base "$BASE_SHA" \
+  '{text: $text, baseSha: $base}')"
+```
+
+Use `.policy.evalCasesDir` from that answer. When the policy cannot be read the
+CLI answers with the strict defaults, and the default is
+`docs/review-eval/cases` — a missing policy never means "put the case
+anywhere".
+
+## Outputs
+
+Exactly one of:
+
+- **`EVAL_CASE_ADDED`** — the path written and the owner who confirmed it.
+- **`EVAL_CASE_REFUSED`** — the field that failed and why; **no file is
+  written**. An unconfirmed case is not a case (AC-020-1).
+- **`EVAL_RUN_COMPLETE`** — the per-case score, the total, the comparison with
+  the previous run, and the stale cases that need owner re-review.
+- **`EVAL_RUN_BLOCKED`** — what could not be read or run, and no score. A run
+  that could not reach a case is never reported as a case the reviewer missed,
+  and never as one it found.
+
+Never both, and never a score for a case whose findings were not actually
+collected.
+
+---
+
+## MODE = add
+
+### Step A1 — Gather the case record
+
+Ask for, and record verbatim, every field. Do not infer one from another, and
+do not fill one in from the incident title:
+
+| Field | What it is | Refusal when missing |
+|---|---|---|
+| `id` | Short, file-safe identifier (`^[A-Za-z0-9][A-Za-z0-9._-]*$`). It becomes the file name. | `missing-field` / `invalid-case-id` |
+| `change` | The change that escaped review: PR number or commit SHA, with a link. | `missing-field` |
+| `bug` | What was actually wrong, in one or two sentences — the defect, not the symptom. | `missing-field` |
+| `location.path` | The repo-relative file the bug lived in. | `invalid-location` |
+| `location.startLine`, `location.endLine` | The line range the bug lived in, as of the escaping change. Both are integers ≥ 1 and `endLine >= startLine`. | `invalid-location` |
+| `confirmedBy` | The login of the code owner who confirmed this is a real escaped bug in their area. | `missing-confirmation` |
+
+Record the bug location from the **escaping change**, not from the fix: the
+case asks "would a reviewer have caught this when it was proposed?".
+
+### Step A2 — The code-owner confirmation is checked, not asserted
+
+A maintainer's say-so is not the confirmation. Resolve the owners of
+`location.path` from CODEOWNERS and require `confirmedBy` to be one of them:
+
+```bash
+node packages/development/lib/pr-review-cli.js paths <<< "$(jq -n \
+  --arg p "$CASE_PATH" --arg owners "$(git show "$BASE_SHA:CODEOWNERS" 2>/dev/null)" --arg base "$BASE_SHA" \
+  '{changedPaths: [$p], codeowners: $owners, baseSha: $base}')"
+```
+
+Read `.paths[0].owners`. Then:
+
+- `confirmedBy` matches an owner login (without `@`, case-insensitively) → proceed.
+- The path has **no** owner → `EVAL_CASE_REFUSED: no-code-owner`. Add a
+  CODEOWNERS entry for the area first; an area nobody owns has nobody who can
+  confirm a case about it.
+- The only owners are teams (`@org/team`) → that names no login this repository
+  can check without the network, so it cannot confirm a case
+  (`confirmed-by-not-owner`). Ask a named member of that team to confirm.
+- `confirmedBy` is not among them → `EVAL_CASE_REFUSED: confirmed-by-not-owner`,
+  naming the owners who could confirm it.
+
+Never record a confirmation the owner did not give, and never record the
+operator of this skill as the confirmer unless they are the owner and they said
+so.
+
+### Step A3 — Pin the rules the case was confirmed against
+
+A case is confirmed against the review rules in force at that moment. Record
+both the file and its hash, so `eval-stale` can tell later that the rules moved
+and the owner should look again:
+
+```bash
+RULES_FILE="$(dirname "$CASE_PATH")/REVIEW.md"      # the area rules file, when one exists
+[ -f "$REPO_ROOT/$RULES_FILE" ] || RULES_FILE="REVIEW.md"   # otherwise the root rules
+RULES_HASH="$(git hash-object "$REPO_ROOT/$RULES_FILE")"
+```
+
+Use `pr-review-cli.js rules` when the area rules for a path are not obvious:
+its `applied[]` names the rule files that govern that path, most specific
+first. Do not guess a rules file, and never record a hash you did not compute
+from the file you named — a hash that does not match its file makes every later
+staleness answer a lie.
+
+### Step A4 — Write the case, and nothing else
+
+Write `<evalCasesDir>/<id>.json` with exactly these keys:
+
+```json
+{
+  "id": "2026-10-auth-token-expiry",
+  "change": "https://github.com/<org>/<repo>/pull/1234",
+  "bug": "The refresh path compared expiry in seconds against a millisecond timestamp, so every token read as expired.",
+  "location": { "path": "packages/development/lib/pr-review-approvals.js", "startLine": 118, "endLine": 131 },
+  "confirmedBy": "ldangelo",
+  "rulesFile": "REVIEW.md",
+  "rulesHash": "0d1e2f3a4b5c6d7e8f90a1b2c3d4e5f607182930"
+}
+```
+
+`packages/development/skills/pr-review-eval/case-template.json` is that shape
+with every field empty; copy it rather than writing one from memory.
+
+Rules:
+
+- The file name is `<id>.json` and it lives directly under `evalCasesDir`. A
+  case written anywhere else is not loaded (`case-outside-eval-dir`), and a file
+  whose name does not match its `id` is rejected (`case-filename-mismatch`).
+- One case per file. Never append a second case, and never edit an existing
+  case to describe a different bug — add a new one, so the previous runs that
+  scored the old case stay meaningful.
+- No credentials, customer data or incident-report text beyond the two
+  sentences `bug` needs.
+
+### Step A5 — Verify what was written
+
+Re-read the file from disk and run it through the same scorer the eval uses, as
+a case whose review recorded no findings:
+
+```bash
+jq -n --slurpfile c "<evalCasesDir>/<id>.json" \
+  '{cases: $c, findingsByCase: ($c[0].id | {(.): []})}' \
+  | node packages/development/lib/pr-review-cli.js eval-score
+```
+
+`cases[0].reason` must be `no-important-finding-at-location` — that proves the
+record is readable, that its `id` is the key a run will score it under, and
+that its location anchors. `invalid-case` means the file is not a usable case,
+and `no-findings-recorded` means the id did not round-trip: fix it, or delete
+the file and refuse. Report `EVAL_CASE_ADDED` with the path and the confirming
+owner only after this check passes.
+
+---
+
+## MODE = run
+
+### Step R1 — Load the cases
+
+Read every `*.json` directly under `evalCasesDir`. A file that does not parse,
+or that is not an object, is reported in the run as unloadable and the run
+continues — but it is never counted as a case the reviewer missed, and never as
+one it found.
+
+### Step R2 — Review each case the way a PR is reviewed
+
+For each case, run the reviewer under test over the change the case names, with
+the **same** fresh-context dispatch `pr-review-cycle` uses: the reviewer sees
+the diff, the applied rules and repository guidance, and never the incident
+report, the case record or this conversation. A reviewer told where the bug is
+proves nothing about whether it would have found it.
+
+Collect every candidate finding per case id into
+`findingsByCase: { "<case id>": [ findings ] }`, each finding carrying the
+`severity` and the `file:line` anchor the ledger vocabulary requires. Record
+them with their source exactly as a review round does.
+
+If a case's change cannot be reached (the commit is gone, the diff cannot be
+produced), do not invent a review: leave that case out of `findingsByCase` —
+`eval-score` reports it as `no-findings-recorded` — and name it in the
+`EVAL_RUN_BLOCKED` list when nothing could be run at all.
+
+### Step R3 — Score, compare, and report regressions
+
+```bash
+# R3.1 Score this run.
+jq -n --slurpfile cases /tmp/eval-cases.json --slurpfile findings /tmp/eval-findings.json \
+  '{cases: $cases[0], findingsByCase: $findings[0]}' \
+  | node packages/development/lib/pr-review-cli.js eval-score > /tmp/eval-run-today.json
+
+# R3.2 Compare with the previous run; a lower total is a regression, by name.
+jq -n --slurpfile previous "$PREVIOUS_RUN" --slurpfile current /tmp/eval-run-today.json \
+  '{previous: $previous[0], current: $current[0]}' \
+  | node packages/development/lib/pr-review-cli.js eval-compare
+
+# R3.3 Which cases need owner re-review because their rules file moved.
+jq -n --slurpfile cases /tmp/eval-cases.json \
+  --argjson hashes "$(jq -n '{}')" '{cases: $cases[0], rulesHashes: $hashes}' \
+  | node packages/development/lib/pr-review-cli.js eval-stale
+```
+
+Build `rulesHashes` by running `git hash-object` over every distinct
+`rulesFile` the cases name, keyed by that path. A rules file left out of the
+map makes its cases stale, which is the intended direction: an unknown rules
+state is never "unchanged".
+
+Report `EVAL_RUN_COMPLETE` with:
+
+- the per-case result (`found`, the matched finding id, and the reason when not
+  found) and the total `found / cases` with its score;
+- the comparison: `regression: true` with the `flipped` cases named, or
+  `regression: false` with the delta. When `PREVIOUS_RUN` was absent say "no
+  previous run to compare against" — never `regression: false`;
+- the `stale` case ids with their reasons, as the owner re-review list;
+- the reviewer configuration under test, so the result can be attributed.
+
+A `regression` is a result, not a crash: report it and stop. This skill does
+not re-run the eval to get a better number, does not retune a prompt to clear
+the regression, and does not edit a case to match what the reviewer found —
+each of those would make the eval unable to fail, which is the one thing it
+exists to do.
+
+### Step R4 — Recurrence belongs to the host repository
+
+Run this skill when the reviewer's rules, prompts or model change, or when a
+maintainer asks. Do not add a schedule, a cron entry, a watcher or a workflow
+`schedule:` trigger to this repository for it (Rule 4). A host repository that
+wants a weekly eval run wires it in its own automation and invokes this skill
+by name.
+
+---
+
+## Reachability
+
+Invoked by name by a maintainer ("add this incident to the eval set", "run the
+reviewer eval"). Every capability it uses is reached through
+`pr-review-cli.js`; no YAML caller references the CLI, as the parity tests
+require. The scoring, comparison and staleness rules live in
+`packages/development/lib/pr-review-eval.js`, and the runbook form of the same
+commands is `docs/guides/pr-review-metrics.md` §5.
