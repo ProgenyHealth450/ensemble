@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Per-cohort review metrics (TRD-030, REQ-019).
+ * Per-cohort review metrics and cohort comparison (TRD-030 and TRD-042,
+ * REQ-019).
  *
  * NO side effects, NO shell, NO network, NO file reads. A pure function over
  * the merged-PR records a maintainer collects with `gh` (the capture in
@@ -26,6 +27,14 @@
  *
  * FAIL CLOSED: a request this module cannot read is refused with a reason.
  * There is no input for which it answers "no problems found".
+ *
+ * `compareCohorts` (TRD-042) adds the second half of REQ-019: it compares a
+ * post-change cohort with the baseline, expresses every target RELATIVE to
+ * that baseline (AC-019-3), and fails the whole comparison on any increase in
+ * reverts or incidents (AC-019-4). It invents nothing either: a cohort under
+ * 20 PRs or 30 days is rejected instead of compared, a target whose baseline
+ * number was never measured is not met, and a guardrail that cannot be
+ * checked is `unknown` -- never `passed`.
  */
 
 /** The default bot list, matching the runbook's `bots` definition. A caller may pass its own. */
@@ -371,13 +380,231 @@ function checkAgainstBaseline(input) {
   return { ok: true, reproduces: mismatches.length === 0, mismatches };
 }
 
+// ---------------------------------------------------------------------------
+// TRD-042 -- cohort comparison and the revert/incident guardrail (AC-019-3,
+// AC-019-4).
+// ---------------------------------------------------------------------------
+
+/**
+ * The targets REQ-019 states, each relative to the baseline. `requiredReduction`
+ * is the share of the baseline value that must be removed; `null` means the
+ * target only asks for a lower number, with no size attached.
+ */
+const TARGETS = Object.freeze([
+  { id: 'rounds-to-pass', metric: 'roundsToPass.median', requiredReduction: 0.3 },
+  { id: 'prs-needing-5-plus-rounds', metric: 'shareNeeding5PlusRounds.share', requiredReduction: 0.5 },
+  { id: 'noise-rate', metric: 'noiseRate.value', requiredReduction: 0.3 },
+  { id: 'human-approvals-median', metric: 'humanApprovalsPerPr.median', requiredReduction: null },
+  { id: 'wait-on-human-p95', metric: 'waitOnHumanHours.p95', requiredReduction: null },
+]);
+
+/** The counts the guardrail watches. An increase in any of them fails the cohort (AC-019-4). */
+const GUARDRAIL_METRICS = Object.freeze([
+  { metric: 'revertPrsInCohort', path: 'reverts.revertPrsInCohort' },
+  { metric: 'revertCommitsOnDefaultBranch', path: 'reverts.revertCommitsOnDefaultBranch' },
+  { metric: 'incidents', path: 'incidents.value' },
+]);
+
+function comparisonFailure(reason) {
+  return {
+    ok: false,
+    reason,
+    cohortOk: false,
+    insufficient: [],
+    targets: [],
+    targetsMet: false,
+    guardrail: 'unknown',
+    guardrailBreaches: [],
+    guardrailUnknown: [],
+    byTier: { baseline: [], current: [] },
+    met: false,
+  };
+}
+
+/** Reads `a.b.c` off a metrics object; anything that is not a finite number reads as null. */
+function numberAt(metrics, dotted) {
+  let value = metrics;
+  for (const key of dotted.split('.')) {
+    if (!isObject(value)) return null;
+    value = value[key];
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** The snake_case metric names a committed baseline file uses -> the camelCase ones this module computes. */
+function fromBaselineFile(file) {
+  const b = file.metrics;
+  const cohortBlock = file.cohort;
+  const pick = (block, key) => (isObject(block) && typeof block[key] === 'number' ? block[key] : null);
+  return {
+    cohort: {
+      prCount: pick(cohortBlock, 'pr_count'),
+      spanDays: pick(cohortBlock, 'span_days'),
+      earliestCreatedAt: isText(cohortBlock.earliest_created_at) ? cohortBlock.earliest_created_at : null,
+      latestCreatedAt: isText(cohortBlock.latest_created_at) ? cohortBlock.latest_created_at : null,
+    },
+    metrics: {
+      humanApprovalsPerPr: { median: pick(b.human_approvals_per_pr, 'median'), p95: pick(b.human_approvals_per_pr, 'p95') },
+      waitOnHumanHours: { median: pick(b.wait_on_human_hours, 'median'), p95: pick(b.wait_on_human_hours, 'p95') },
+      roundsToPass: { median: pick(b.rounds_to_pass, 'median'), p95: pick(b.rounds_to_pass, 'p95') },
+      shareNeeding5PlusRounds: { count: pick(b.share_needing_5plus_rounds, 'count'), share: pick(b.share_needing_5plus_rounds, 'share') },
+      noiseRate: { value: isObject(b.noise_rate) && typeof b.noise_rate.value === 'number' ? b.noise_rate.value : null },
+      reverts: {
+        revertPrsInCohort: pick(b.reverts, 'revert_prs_in_cohort'),
+        revertCommitsOnDefaultBranch: pick(b.reverts, 'revert_commits_on_default_branch'),
+      },
+      incidents: { value: isObject(b.incidents) ? (Number.isInteger(b.incidents.value) ? b.incidents.value : null) : null },
+      byTier: Array.isArray(b.by_tier) ? b.by_tier : [],
+    },
+  };
+}
+
+/**
+ * One side of the comparison, whatever shape it arrived in: a raw cohort
+ * input (`{ prs }`, computed here), a `computeMetrics` result, or a parsed
+ * committed baseline file (snake_case). A side this function cannot read is
+ * refused by name -- it is never treated as a cohort of zeros.
+ */
+function sideOf(value, name) {
+  if (!isObject(value)) return { ok: false, reason: `${name} must be a cohort input, a metrics result or a baseline file` };
+
+  if (Array.isArray(value.prs)) {
+    const computed = computeMetrics(value);
+    if (!computed.ok) return { ok: false, reason: `${name}: ${computed.reason}` };
+    return { ok: true, cohort: computed.cohort, metrics: computed.metrics };
+  }
+
+  if (isObject(value.metrics) && isObject(value.cohort)) {
+    if (isObject(value.metrics.humanApprovalsPerPr)) return { ok: true, cohort: value.cohort, metrics: value.metrics };
+    if (isObject(value.metrics.human_approvals_per_pr)) return { ok: true, ...fromBaselineFile(value) };
+    return { ok: false, reason: `${name}: metrics carries neither the computed nor the baseline-file field names` };
+  }
+
+  return { ok: false, reason: `${name} must be a cohort input, a metrics result or a baseline file` };
+}
+
+/** Why a cohort is too thin to compare, or null when it is big enough and long enough. */
+function insufficiencyOf(cohort) {
+  const prCount = Number.isInteger(cohort.prCount) ? cohort.prCount : null;
+  const spanDays = Number.isInteger(cohort.spanDays) ? cohort.spanDays : null;
+  if (prCount === null || spanDays === null) return { reason: 'cohort size or span was not recorded', prCount, spanDays };
+  if (prCount < COHORT_MINIMUMS.prs) return { reason: `fewer-than-${COHORT_MINIMUMS.prs}-prs`, prCount, spanDays };
+  if (spanDays < COHORT_MINIMUMS.days) return { reason: `shorter-than-${COHORT_MINIMUMS.days}-days`, prCount, spanDays };
+  return null;
+}
+
+/**
+ * Grades one target against the baseline. Every unmeasurable case is NOT MET
+ * with the reason attached: a target nobody can evaluate is never evidence
+ * that the change worked.
+ */
+function gradeTarget(target, baselineMetrics, currentMetrics) {
+  const baselineValue = numberAt(baselineMetrics, target.metric);
+  const currentValue = numberAt(currentMetrics, target.metric);
+  const entry = {
+    id: target.id,
+    metric: target.metric,
+    requiredReduction: target.requiredReduction,
+    baseline: baselineValue,
+    current: currentValue,
+    achievedReduction: null,
+    met: false,
+  };
+
+  if (baselineValue === null) return { ...entry, reason: 'baseline-value-unavailable' };
+  if (currentValue === null) return { ...entry, reason: 'current-value-unavailable' };
+
+  if (baselineValue === 0) {
+    // Nothing can be reduced by a share of zero. Holding at zero is the only
+    // outcome that is not worse than the baseline.
+    return currentValue === 0
+      ? { ...entry, met: true, reason: 'baseline-is-zero-held-at-zero' }
+      : { ...entry, met: false, reason: 'baseline-is-zero-current-is-higher' };
+  }
+
+  const achievedReduction = (baselineValue - currentValue) / baselineValue;
+  const met = target.requiredReduction === null ? currentValue < baselineValue : achievedReduction >= target.requiredReduction;
+  return { ...entry, achievedReduction, met };
+}
+
+/**
+ * Compares a post-change cohort with the baseline (AC-019-3, AC-019-4).
+ *
+ * @param {Object} input
+ * @param {Object} input.baseline  A cohort input, a `computeMetrics` result or
+ *   a parsed `docs/guides/review-baseline-<date>.json`.
+ * @param {Object} input.current   The post-change cohort, in any of the same shapes.
+ * @returns {{ok:boolean, reason?:string, cohortOk:boolean,
+ *   insufficient:Array<{side:string, reason:string, prCount:?number, spanDays:?number}>,
+ *   targets:Array<{id:string, metric:string, requiredReduction:?number, baseline:?number,
+ *     current:?number, achievedReduction:?number, met:boolean, reason?:string}>,
+ *   targetsMet:boolean, guardrail:'passed'|'failed'|'unknown',
+ *   guardrailBreaches:Array<{metric:string, baseline:number, current:number}>,
+ *   guardrailUnknown:Array<{metric:string, baseline:?number, current:?number}>,
+ *   byTier:{baseline:Object[], current:Object[]}, met:boolean}}
+ *   `met` is true only when the cohorts are big enough, every target is met
+ *   AND the guardrail passed.
+ */
+function compareCohorts(input) {
+  if (!isObject(input)) return comparisonFailure('invalid-input');
+
+  const baseline = sideOf(input.baseline, 'baseline');
+  if (!baseline.ok) return comparisonFailure(baseline.reason);
+  const current = sideOf(input.current, 'current');
+  if (!current.ok) return comparisonFailure(current.reason);
+
+  const insufficient = [];
+  for (const [side, value] of [['baseline', baseline], ['current', current]]) {
+    const problem = insufficiencyOf(value.cohort);
+    if (problem !== null) insufficient.push({ side, ...problem });
+  }
+  const cohortOk = insufficient.length === 0;
+
+  // The guardrail is a matter of fact (a revert happened or it did not), so it
+  // is evaluated even for a cohort too thin to certify a target.
+  const guardrailBreaches = [];
+  const guardrailUnknown = [];
+  for (const { metric, path: dotted } of GUARDRAIL_METRICS) {
+    const baselineValue = numberAt(baseline.metrics, dotted);
+    const currentValue = numberAt(current.metrics, dotted);
+    if (baselineValue === null || currentValue === null) {
+      guardrailUnknown.push({ metric, baseline: baselineValue, current: currentValue });
+    } else if (currentValue > baselineValue) {
+      guardrailBreaches.push({ metric, baseline: baselineValue, current: currentValue });
+    }
+  }
+  const guardrail = guardrailBreaches.length > 0 ? 'failed' : guardrailUnknown.length > 0 ? 'unknown' : 'passed';
+
+  const targets = cohortOk ? TARGETS.map((target) => gradeTarget(target, baseline.metrics, current.metrics)) : [];
+  const targetsMet = cohortOk && targets.every((target) => target.met);
+
+  return {
+    ok: true,
+    cohortOk,
+    insufficient,
+    targets,
+    targetsMet,
+    guardrail,
+    guardrailBreaches,
+    guardrailUnknown,
+    byTier: {
+      baseline: Array.isArray(baseline.metrics.byTier) ? baseline.metrics.byTier : [],
+      current: Array.isArray(current.metrics.byTier) ? current.metrics.byTier : [],
+    },
+    met: cohortOk && targetsMet && guardrail === 'passed',
+  };
+}
+
 module.exports = {
   computeMetrics,
   checkAgainstBaseline,
+  compareCohorts,
   median,
   percentile,
   DEFAULT_BOTS,
   NOISE_CLASSES,
   RESPONSE_CLASSES,
   COHORT_MINIMUMS,
+  TARGETS,
+  GUARDRAIL_METRICS,
 };
