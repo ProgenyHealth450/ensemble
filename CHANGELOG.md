@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **packages/development, packages/git:** risk tiers, commit-bound human
+  approvals and the merge gate (TRD-2026-70e784f2, PR 4).
+  `lib/pr-review-tier.js` derives the tier from the change itself (never from
+  who wrote it), floors it on sensitive and High paths, and is **raise-only**:
+  anyone may propose a higher tier, but a proposal that lowers one is ignored
+  and recorded as `lowering-needs-code-owner` unless a code owner of the
+  affected path makes it. `lib/pr-review-approvals.js` counts an approval only
+  when it is bound to the commit (or tree) under review, so a push invalidates
+  it; bot approvals never count, the author never fills a required slot, and
+  the person named on an agent-authored PR's `Directed by:` line counts as one
+  of the required reviewers. `lib/pr-review-gate.js` answers "may this PR
+  merge?" with `mergeable` plus a blocker list that always carries a
+  `nextAction`, refusing on an open Important finding, an unanswered security
+  finding, an incomplete description or review data it could not read — it
+  never passes on missing data. Reached as the `tier`, `approvals` and `gate`
+  subcommands of `lib/pr-review-cli.js`, and through `MODE=gate` of the
+  `pr-review-cycle` skill, which `pr-merge` now requires `mergeable:true` from
+  on freshly read GitHub state.
+  **Strict by default:** the Low tier is treated as Medium unless
+  `lowWaiverEnabled` is turned on with its evidence, so no PR silently drops
+  to zero human reviewers.
+  **Honest limit:** these gates run where ensemble runs. Server-side
+  enforcement of required approvals needs a branch-protection rule in the host
+  repository; `pr-merge` reports when it is absent and recommends it, but
+  cannot enforce it. See the README section "Risk tiers, human approvals and
+  the merge gate".
+
 - **packages/development:** review metrics and the reviewer eval set
   (TRD-2026-70e784f2, PR 5). `lib/pr-review-metrics.js` computes per-cohort
   human approvals per PR (median and p95), human comments, wait-on-human

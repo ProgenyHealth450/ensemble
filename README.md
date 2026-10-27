@@ -299,6 +299,50 @@ floor comes back `insufficient` with no targets graded at all. Procedure:
 [docs/guides/pr-review-metrics.md](docs/guides/pr-review-metrics.md), which extends §6 of
 [docs/guides/pr-review-cycle-time-pilot.md](docs/guides/pr-review-cycle-time-pilot.md).
 
+### Risk tiers, human approvals and the merge gate
+
+Every PR is reviewed and approved at a risk tier derived from **the change itself**, never from
+who wrote it. The tier decides how many people must approve before `pr-merge` will merge:
+
+| Effective tier | Human approvals required | Typical change |
+|---|---|---|
+| Low | 0 | docs or copy only — **and only with the Low waiver enabled** (see below) |
+| Medium | 1 | the default for ordinary product changes |
+| High | 2 | sensitive paths, or a second assessment saying another person is needed |
+
+**Strict by default.** The Low tier is *treated as Medium* unless the `lowWaiver` policy key is
+explicitly enabled with its evidence. A fresh repository therefore requires a human approval on
+every PR that is not already covered, and nothing silently drops to zero reviewers.
+
+**Raise-only.** An agent or the author may *propose* a tier. A proposal that raises the tier is
+accepted from anyone; a proposal that lowers it is **ignored** and recorded as
+`lowering-needs-code-owner` unless a code owner of the affected path makes it. Lowering the
+assigned tier still does not bypass the Low-waiver rule above.
+
+**Approvals are bound to a commit and to a person.** An approval counts only when it is bound to
+the commit (or tree) under review, so a push invalidates it. Bot approvals never count. Where an
+agent authored the PR on a person's instruction, the `Directed by:` line in the PR body makes that
+person count as one of the required reviewers, as if they had written the code themselves.
+
+Policy keys live in the fenced `ensemble-review-policy` block of the **root `REVIEW.md` on the base
+branch** — never the PR head, so a PR cannot loosen its own review:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `roundCap` | Shared review-round cap before escalating to the author | `3` (valid 1–5) |
+| `lowWaiverEnabled` | Whether a Low-tier PR may merge with no human approval | `false` |
+| `botLogins` | Logins whose approvals are never counted | empty |
+| `maintainerLogins` | Logins eligible to enable the Low waiver | empty |
+| `sensitivePaths` / `highPaths` | Globs that floor the tier at Medium / High | empty |
+
+> **Recommended: turn on branch protection.** These gates run where ensemble runs, so they cannot
+> stop a direct push or a merge made outside `pr-merge`. Ensemble reports when server-side
+> enforcement is absent, and recommends it, but **cannot enforce it**. For the guarantee, configure
+> a GitHub branch-protection rule on the default branch requiring pull requests and at least the
+> number of approving reviews your highest tier expects (2 for High), with stale approvals
+> dismissed on new commits. `pr-merge` prints a `SERVER-SIDE ENFORCEMENT ABSENT` notice with the
+> rule to configure whenever it finds the base branch unprotected.
+
 ## The PRD to TRD to Beads to implementation workflow
 
 ```text
