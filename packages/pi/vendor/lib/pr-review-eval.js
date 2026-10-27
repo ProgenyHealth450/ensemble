@@ -229,6 +229,9 @@ function runOutcomes(run) {
  *
  * Fail closed: a comparison this module cannot read is reported as a
  * regression with `ok:false` -- "we could not tell" is never "all clear".
+ * A run that reports its OWN failure (`ok:false`, as every `scoreEval`
+ * failure does) is unreadable evidence too, not a score of zero: comparing
+ * two failed runs must never read as "nothing was lost".
  *
  * @param {{previous:Object, current:Object}} input  Each run is a `scoreEval`
  *   result, or any `{ cases: [{ id, found }] }`.
@@ -237,6 +240,8 @@ function runOutcomes(run) {
  */
 function compareEval(input) {
   if (!isObject(input)) return compareFailure('invalid-input');
+  if (isObject(input.previous) && input.previous.ok === false) return compareFailure('previous run reported a failure');
+  if (isObject(input.current) && input.current.ok === false) return compareFailure('current run reported a failure');
   const previous = runOutcomes(input.previous);
   const current = runOutcomes(input.current);
   if (previous === null) return compareFailure('previous run is unreadable');

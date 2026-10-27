@@ -314,6 +314,34 @@ describe('TRD-031 AC-020-3: a lower total than the previous run is a regression'
     }
   });
 
+  test('fail closed: a run that reports its own failure is never compared as "no regression"', () => {
+    // A `scoreEval` failure carries `ok:false` AND an empty `cases` array. Read
+    // only as `{ cases: [] }`, two such runs compare as "nothing lost" -- the
+    // eval harness would report all-clear for two runs that never scored
+    // anything. A run that says it failed is unreadable evidence, not a zero.
+    const failed = scoreEval({ cases: 'not-an-array', findingsByCase: {} });
+    expect(failed.ok).toBe(false);
+
+    const both = compareEval({ previous: failed, current: failed });
+    expect(both.ok).toBe(false);
+    expect(both.regression).toBe(true);
+    expect(both.reason).toMatch(/previous/);
+
+    const currentFailed = compareEval({ previous: run([['c1', true]]), current: failed });
+    expect(currentFailed.ok).toBe(false);
+    expect(currentFailed.regression).toBe(true);
+    expect(currentFailed.reason).toMatch(/current/);
+  });
+
+  test('negative control: a run with no `ok` field at all is still comparable', () => {
+    // The documented input is "a scoreEval result, OR any { cases: [{id, found}] }".
+    // Rejecting a bare run would break that contract, so only an explicit
+    // `ok:false` is refused.
+    const result = compareEval({ previous: run([['c1', true]]), current: run([['c1', true]]) });
+    expect(result.ok).toBe(true);
+    expect(result.regression).toBe(false);
+  });
+
   test('a scoreEval result feeds compareEval directly', () => {
     const previous = scoreEval({ cases: [evalCase()], findingsByCase: { 'case-001': [finding()] } });
     const current = scoreEval({ cases: [evalCase()], findingsByCase: { 'case-001': [finding({ severity: 'nit' })] } });
