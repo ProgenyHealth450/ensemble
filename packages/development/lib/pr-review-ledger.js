@@ -569,6 +569,243 @@ function clearFixedFindings(input) {
   return { ok: true, findings, cleared };
 }
 
+/**
+ * The path a finding is about: the file part of its `file:line` anchor, else
+ * its `file` field or the bare path it cites. `null` when it cites no path at
+ * all, which makes the finding unfingerprintable and therefore never
+ * suppressible.
+ *
+ * A bare LINK is not a path. `coveredFile` splits a location on `:` and would
+ * read `https://host/pr/1` as the file `https`, which would make two findings
+ * on unrelated links look like the same defect; a location carrying a URL
+ * scheme is refused here instead.
+ */
+function fingerprintPath(finding) {
+  const anchor = anchorOf(finding);
+  if (anchor !== null) return anchor.file;
+  if (isText(finding.file)) return finding.file.trim();
+  if (!isText(finding.locationOrLink)) return null;
+  const location = finding.locationOrLink.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(location)) return null;
+  const file = location.split(':')[0].trim();
+  return file === '' ? null : file;
+}
+
+/**
+ * A failure mode reduced to what it SAYS: lower case, punctuation and runs of
+ * whitespace flattened to single spaces. "Unchecked array index" and
+ * "  unchecked   ARRAY index.  " are the same defect written twice, and the
+ * second must not be posted again (AC-010-2).
+ */
+function normalizeFailureMode(value) {
+  if (!isText(value)) return null;
+  const flattened = value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return flattened === '' ? null : flattened;
+}
+
+/** The class a finding belongs to, as written, or `null` when it names none. */
+function classOf(finding) {
+  return isObject(finding) && isText(finding.class) ? finding.class.trim() : null;
+}
+
+/** The stable id of a class finding: one per class, so later rounds find the same record. */
+function classFindingId(className) {
+  return `class:${String(className).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`;
+}
+
+/**
+ * The identity a repeat is recognised by: path, normalized failure mode and
+ * class (AC-010-2). The LINE is deliberately not part of it -- the same defect
+ * reported two rounds later, after the file shifted, is the same defect.
+ *
+ * @returns {string|null}  `null` when the finding cites no path or no failure
+ *   mode. An unfingerprintable finding is never treated as a repeat: dropping
+ *   it would be the one unsafe answer.
+ */
+function fingerprintFinding(finding) {
+  if (!isObject(finding)) return null;
+  const path = fingerprintPath(finding);
+  const mode = normalizeFailureMode(finding.failureMode);
+  if (path === null || mode === null) return null;
+  const className = classOf(finding);
+  return `${path}::${mode}::${className === null ? '' : className.toLowerCase()}`;
+}
+
+/** One instance line inside a class finding: who found it, where, and whether it is still open. */
+function instanceOf(entry) {
+  const anchor = anchorOf(entry);
+  return {
+    id: entry.id,
+    locationOrLink: entry.locationOrLink,
+    file: anchor === null ? fingerprintPath(entry) : anchor.file,
+    line: anchor === null ? null : anchor.line,
+    source: entry.source,
+    open: isActionable(entry),
+  };
+}
+
+/** The class finding for one class: it NAMES the class and LISTS every instance (AC-011-1). */
+function buildClassFinding(className, entries) {
+  const instances = entries.map(instanceOf);
+  const open = instances.filter((instance) => instance.open);
+  const worst = entries.reduce(
+    (rank, entry) => Math.max(rank, severityRank(entry)),
+    SEVERITY_RANK['pre-existing']
+  );
+  const severity = worst >= SEVERITY_RANK.important ? 'important' : worst >= SEVERITY_RANK.nit ? 'nit' : 'pre-existing';
+  const sources = [];
+  entries.forEach((entry) => {
+    if (isText(entry.source) && !sources.includes(entry.source)) sources.push(entry.source);
+  });
+
+  return {
+    id: classFindingId(className),
+    kind: 'class',
+    class: className,
+    source: sources.length === 0 ? 'ledger' : sources.join(', '),
+    locationOrLink: instances[0].locationOrLink,
+    severity,
+    failureMode: `${className} (class of bug, ${instances.length} instance${instances.length === 1 ? '' : 's'})`,
+    disposition: open.length === 0 ? 'resolved' : 'fix',
+    evidence: `instances: ${instances.map((instance) => instance.locationOrLink).join(', ')}`,
+    originalTextOrLink: isText(entries[0].originalTextOrLink) ? entries[0].originalTextOrLink : instances[0].locationOrLink,
+    instances,
+    instanceCount: instances.length,
+    openInstanceCount: open.length,
+  };
+}
+
+/**
+ * The class findings a ledger carries: one record per named class, in the
+ * order the classes were first recorded, each listing every instance location
+ * (AC-011-1). Findings that name no class produce no record.
+ *
+ * @returns {Object[]|{ok:false, reason:string}}  Rejects anything that is not
+ *   an array of finding objects, so a misread ledger is never "no classes".
+ */
+function classFindings(ledger) {
+  if (!Array.isArray(ledger)) return rejection('ledger must be an array');
+  if (!everyEntry(ledger, isObject)) return rejection('ledger must contain only objects');
+
+  const groups = new Map();
+  Array.from(ledger).forEach((entry) => {
+    const className = classOf(entry);
+    if (className === null) return;
+    const key = className.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { className, entries: [] });
+    groups.get(key).entries.push(entry);
+  });
+
+  return Array.from(groups.values()).map((group) => buildClassFinding(group.className, group.entries));
+}
+
+/**
+ * Records one review round against the ledger built over the earlier rounds
+ * (AC-010-2, AC-011-1, AC-011-2).
+ *
+ * Three outcomes for each incoming finding, in this order:
+ *
+ *   1. its fingerprint is already recorded for this PR -- it is a REPEAT. It
+ *      is not added to the ledger and not presented; the FIRST record stands,
+ *      unedited, and only gains the rounds in which the defect was seen
+ *      again, so the history is kept without the author being told twice;
+ *   2. it names a class that was already flagged -- it is ATTACHED to that
+ *      existing class finding rather than opened as a new finding
+ *      (AC-011-2); the class finding is presented again with the new instance
+ *      in its list;
+ *   3. otherwise it is NEW: it joins the ledger and is presented, as its own
+ *      finding or, when it names a class, inside that class's one finding.
+ *
+ * Fail closed: a request this function cannot read is REFUSED -- it is never
+ * read as "nothing new this round" -- and a finding that cannot be
+ * fingerprinted is presented rather than suppressed.
+ *
+ * @param {{ledger?:Object[], incoming:Object[], round:number}} input
+ * @returns {{ok:true, findings:Object[], presented:Object[], newFindings:Object[],
+ *   repeats:Array<{id:*, repeatOf:*, fingerprint:string, reason:string}>,
+ *   attached:Array<{id:*, class:string, classFindingId:string}>,
+ *   classes:Object[]}|{ok:false, reason:string}}
+ */
+function recordRound(input) {
+  if (!isObject(input)) return rejection('invalid-input');
+  const ledger = input.ledger === undefined ? [] : input.ledger;
+  const { incoming, round } = input;
+
+  if (!Array.isArray(ledger)) return rejection('ledger must be an array');
+  if (!everyEntry(ledger, isObject)) return rejection('ledger must contain only objects');
+  if (!Array.isArray(incoming)) return rejection('incoming must be an array');
+  if (!everyEntry(incoming, isObject)) return rejection('incoming must contain only objects');
+  if (!Number.isInteger(round) || round < 1) return rejection('round must be an integer >= 1');
+
+  const findings = Array.from(ledger).map(normalizeFinding);
+  const firstByFingerprint = new Map();
+  findings.forEach((entry) => {
+    const fingerprint = fingerprintFinding(entry);
+    if (fingerprint !== null && !firstByFingerprint.has(fingerprint)) firstByFingerprint.set(fingerprint, entry);
+  });
+  const knownClasses = new Set();
+  findings.forEach((entry) => {
+    const className = classOf(entry);
+    if (className !== null) knownClasses.add(className.toLowerCase());
+  });
+
+  const repeats = [];
+  const attached = [];
+  const newFindings = [];
+  const touchedClasses = [];
+
+  Array.from(incoming).forEach((candidate) => {
+    const normalized = normalizeFinding(candidate);
+    const fingerprint = fingerprintFinding(normalized);
+
+    if (fingerprint !== null && firstByFingerprint.has(fingerprint)) {
+      const first = firstByFingerprint.get(fingerprint);
+      const seenIn = Array.isArray(first.repeatedInRounds) ? Array.from(first.repeatedInRounds) : [];
+      if (!seenIn.includes(round)) seenIn.push(round);
+      first.repeatedInRounds = seenIn;
+      repeats.push({ id: normalized.id, repeatOf: first.id, fingerprint, reason: 'already-recorded' });
+      return;
+    }
+
+    const className = classOf(normalized);
+    const entry = { ...normalized, firstSeenRound: round };
+    if (className !== null) {
+      entry.classFindingId = classFindingId(className);
+      const key = className.toLowerCase();
+      if (!touchedClasses.includes(key)) touchedClasses.push(key);
+      if (knownClasses.has(key)) {
+        entry.attachedToExistingClass = true;
+        attached.push({ id: entry.id, class: className, classFindingId: entry.classFindingId });
+      } else {
+        knownClasses.add(key);
+        newFindings.push(entry);
+      }
+    } else {
+      newFindings.push(entry);
+    }
+
+    findings.push(entry);
+    if (fingerprint !== null) firstByFingerprint.set(fingerprint, entry);
+  });
+
+  const classes = classFindings(findings);
+  const presentedClasses = Array.isArray(classes)
+    ? classes.filter((record) => touchedClasses.includes(record.class.toLowerCase()))
+    : [];
+  const presentedPlain = newFindings.filter((entry) => classOf(entry) === null);
+  const presented = sortFindings([...presentedPlain, ...presentedClasses]);
+
+  return {
+    ok: true,
+    findings,
+    presented: Array.isArray(presented) ? presented : [],
+    newFindings,
+    repeats,
+    attached,
+    classes: Array.isArray(classes) ? classes : [],
+  };
+}
+
 module.exports = {
   validateLedger,
   auditTaxonomy,
@@ -584,6 +821,9 @@ module.exports = {
   partitionFindings,
   recordResolution,
   clearFixedFindings,
+  fingerprintFinding,
+  classFindings,
+  recordRound,
   SEVERITIES,
   LEGACY_SEVERITY_MAP,
 };
