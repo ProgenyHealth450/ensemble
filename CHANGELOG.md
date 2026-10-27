@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **packages/development:** review metrics and the reviewer eval set
+  (TRD-2026-70e784f2, PR 5). `lib/pr-review-metrics.js` computes per-cohort
+  human approvals per PR (median and p95), human comments, wait-on-human
+  hours, rounds-to-pass, the share of PRs needing five or more rounds and the
+  noise rate, counting no bot reviewer, and compares a post-change cohort with
+  the committed baseline: targets are graded relative to baseline and a
+  revert/incident guardrail fails the cohort on its own.
+  `lib/pr-review-eval.js` scores an incident-driven, code-owner-confirmed eval
+  case set, compares runs and reports regressions and stale cases. Both are
+  reached as JSON-in/JSON-out subcommands of `lib/pr-review-cli.js`
+  (`metrics`, `metrics-compare`, `eval-score`, `eval-compare`, `eval-stale`)
+  and through the new `pr-review-eval` skill, which walks a maintainer through
+  adding a case (`docs/review-eval/cases/<id>.json`) and running the eval set
+  when the reviewer's rules, prompts or model change. No dashboard, no
+  scheduler, no new dependency: recurrence is the host repository's
+  responsibility (Constitution Rule 4).
+  **Entry criterion:** a comparison is only meaningful against a baseline
+  captured *before* the review changes land — capture the baseline cohort once
+  (at least 20 PRs **and** at least 30 days) and commit it as
+  `docs/guides/review-baseline-<date>.json`; never edit a baseline in place. A
+  cohort missing either floor is returned as `insufficient` with no target
+  graded. Runbook: `docs/guides/pr-review-metrics.md` (extends §6 of
+  `docs/guides/pr-review-cycle-time-pilot.md`).
+  `ensemble-full` mirrors the new libraries and the new skill, and
+  `ensemble-pi` vendors them with the generated `pr-review-eval` skill copy.
+
 ## [7.0.0] - 2026-10-18
 
 ### Changed

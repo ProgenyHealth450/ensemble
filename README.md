@@ -272,6 +272,33 @@ Eight commands are marked `metadata.visibility: hidden` in their YAML. They cann
 
 `--tunnel=quick` requires the [`cloudflared`](https://github.com/cloudflare/cloudflared) binary on `PATH` (or `CLOUDFLARED_PATH` set to its absolute path). Completed sessions can be re-opened by re-running with `--collab` against the same path; to start over, delete the session file under `~/.config/ensemble/logs/refinement-review/`. Details: [docs/guides/refinement-review-collab.md](docs/guides/refinement-review-collab.md).
 
+### Review metrics and the reviewer eval set
+
+`pr-review-cli.js` (in `ensemble-development`, reached through the `pr-review-cycle` and
+`pr-review-eval` skills) computes the review-process metrics and the reviewer eval score by hand —
+no dashboard, no scheduler, no new dependency:
+
+| Subcommand | Answers |
+|---|---|
+| `metrics` | Per-cohort human approvals per PR (median and p95), human comments, wait-on-human hours, rounds-to-pass, the share of PRs needing five or more rounds, and the noise rate. Bot reviewers are never counted. |
+| `metrics-compare` | A post-change cohort against the committed baseline: every target graded relative to baseline, plus a revert/incident guardrail that fails the cohort on its own. |
+| `eval-score` | Whether the reviewer found the bug in each eval case (a PR that caused an incident or a revert, confirmed by the code owner of the affected area). |
+| `eval-compare` | This eval run against the previous one, naming regressions. |
+| `eval-stale` | Which cases need re-review because their area's review rules changed. |
+
+The `pr-review-eval` skill walks a maintainer through adding a case
+(`docs/review-eval/cases/<id>.json`) and through running the eval set when the reviewer's rules,
+prompts or model change. Recurrence is the host repository's responsibility; ensemble runs no
+recurring job of its own.
+
+**Entry criterion — capture the baseline first.** A comparison only means something against a
+baseline captured *before* the review changes land, so the baseline cohort is captured once (at
+least 20 PRs **and** at least 30 days) and committed as `docs/guides/review-baseline-<date>.json`.
+It is never edited in place: a baseline that moves proves nothing. A cohort that misses either
+floor comes back `insufficient` with no targets graded at all. Procedure:
+[docs/guides/pr-review-metrics.md](docs/guides/pr-review-metrics.md), which extends §6 of
+[docs/guides/pr-review-cycle-time-pilot.md](docs/guides/pr-review-cycle-time-pilot.md).
+
 ## The PRD to TRD to Beads to implementation workflow
 
 ```text
@@ -354,7 +381,7 @@ Skill directories use the bare technology name. The tree has 69 source skill dir
 | Package | Skills |
 |---------|--------|
 | core | `detect-stack` |
-| development | `typescript`, `python`, `php`, `laravel`, `flutter`, `tailwind`, `prisma`, `celery`, `complete-beads`, `completion-verification`, `pr-review-cycle`, `staleness-gate`, `tool-path-resolution` |
+| development | `typescript`, `python`, `php`, `laravel`, `flutter`, `tailwind`, `prisma`, `celery`, `complete-beads`, `completion-verification`, `pr-review-cycle`, `pr-review-eval`, `pr-review-explainer`, `staleness-gate`, `tool-path-resolution` |
 | infrastructure | `aws`, `kubernetes`, `helm`, `flyio`, `railway`, `supabase`, `vercel`, `jira`, `linear` |
 | git | `git-town`, `changelog-generator`, `act-local-ci` |
 | quality | `pr-review-remediation` |

@@ -12,7 +12,7 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices> < payload.json
+ * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|tier|approvals|gate|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale> < payload.json
  *
  * `review-range` (TRD-013) is a thin pass-through to `chooseReviewRange`:
  * given `lastReviewedSha`, `commits` and `remediationShas` on top of what
@@ -34,7 +34,13 @@
  * `state-read` takes { headSha } plus an optional { treeSha } (the tree of that
  * head) and `state-write` { state } (whose `reviewedTreeSha`, when present, must
  * be a full object id), each with either an explicit `targetPath` or a `prId`
- * (resolved via `statePath`) plus an optional `cwd`.
+ * (resolved via `statePath`) plus an optional `cwd`. The tier decision this
+ * CLI's `tier` subcommand answers is stored by `state-write` under the
+ * report's `tier` key (data model: `{ tier, effectiveTier, reasons[],
+ * raised[], assignedBy }` and the rest of the record), and `state-read`
+ * returns it verbatim for the same head (AC-015-1, AC-015-2). `state-write`
+ * writes the state object it is handed as-is: the report is a report, so
+ * nothing here re-grades, trims or defaults a recorded decision.
  *
  * The guidance subcommands (TRD-005) each take the facts their module grades,
  * all read FROM THE BASE COMMIT by the caller, never from the PR head:
@@ -42,6 +48,25 @@
  *   rules        { changedPaths, ruleFiles, rulesFileName?, baseSha?, sourceSha? }
  *   paths        { changedPaths, declaration?, codeowners?, baseSha }
  *   description  { body, agentAuthored? } (or the PR body as a bare JSON string)
+ *
+ * `explainer-offer` (TRD-043) decides what a review report OFFERS, never what
+ * it writes: given the effective tier and the `paths` classification, it names
+ * one explainer per touched sensitive module on a High-tier PR, and `generate`
+ * stays empty until `requested` names one of them:
+ *   explainer-offer  { tier, paths, requested? }
+ *
+ * The metrics and eval subcommands (TRD-032) take the records a maintainer
+ * fetched with `gh` (see docs/guides/pr-review-metrics.md) and answer with
+ * their module's result verbatim:
+ *   metrics          { prs[{ number, title, author, createdAt, mergedAt, reviews, comments, commits, tier? }],
+ *                      findingResponses?, incidents?, revertCommitsOnDefaultBranch?, botLogins? }
+ *   metrics-compare  { baseline, current } -- each a `metrics` payload, a
+ *                    `metrics` result or a committed baseline file; answers
+ *                    the per-target comparison and the revert/incident
+ *                    guardrail (AC-019-3, AC-019-4)
+ *   eval-score       { cases[], findingsByCase{} }
+ *   eval-compare     { previous, current } -- each an `eval-score` result
+ *   eval-stale       { cases[], rulesHashes{} }
  *
  * The verification subcommands (TRD-018) each take the facts their module
  * grades and answer with that module's result verbatim:
@@ -53,6 +78,25 @@
  *   slices  { paths[{ path, lines }], areas?, threshold?, reviewed?, changedPaths? }
  *           -- plans the areas and, when `reviewed` slice ids are given, names
  *           every changed path they did not cover
+ *
+ * The tier, approval and merge-gate subcommands (TRD-026) each take the facts
+ * their module grades and answer with that module's result verbatim:
+ *   tier       { kinds[{ kind, paths[] }], paths, secondAssessment?, proposedTier?,
+ *                proposedBy?, author?, policy?, evidence?, enabledBy?, assignedBy?, at? }
+ *              -- assigns the tier from the CHANGE, resolves the Low waiver into
+ *              the effective tier, and answers the RECORD that `state-write`
+ *              stores under the report's `tier` key: tier and effective tier,
+ *              humans required, the characteristics and paths that drove it, who
+ *              or what assigned it, and every raise with its original tier,
+ *              final tier and reason (AC-015-1, AC-015-2)
+ *   approvals  { reviews[{ author|login, state, commitSha, treeSha?, isBot? }], headSha,
+ *                headTreeSha?, tier, policy?, author?, directedBy?, agentAuthored? }
+ *              -- `tier` is a `tier` result (or an `effectiveTier` one): the
+ *              humans required come from it, never from this CLI
+ *   gate       { ledger[], approvals, tier?, description, security{ status, findings?, reason? },
+ *                headSha?, unavailable?[] }
+ *              -- the one answer to "may this PR merge?", with every blocker
+ *              carrying its code, message and next action
  *
  * FAIL CLOSED at the boundary. Two kinds of payload value are told apart:
  *   - the review FACTS of `scope`, `remote`, `status`, `policy`, `rules`,
@@ -91,6 +135,12 @@ const { classifyPaths } = require('./pr-review-paths');
 const { checkDescription } = require('./pr-review-description');
 const { tallyVotes } = require('./pr-review-votes');
 const { resolveDepth, checkBounds, boundsFor, planSlices, verifyCoverage } = require('./pr-review-depth');
+const { offerExplainers } = require('./pr-review-explainer-offer');
+const { assignTier, effectiveTier, tierRecord } = require('./pr-review-tier');
+const { evaluateApprovals } = require('./pr-review-approvals');
+const { evaluateGate } = require('./pr-review-gate');
+const { computeMetrics, compareCohorts } = require('./pr-review-metrics');
+const { scoreEval, compareEval, staleCases } = require('./pr-review-eval');
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -343,6 +393,94 @@ function runSlices(payload) {
   return result;
 }
 
+/**
+ * `tier` answers the one question the skill asks -- "what tier is this PR
+ * reviewed and approved at, and what gets recorded?" -- by calling the three
+ * functions of its one module in the only order they compose: assign the tier
+ * from the change, resolve the Low waiver into the effective tier, then build
+ * the record (AC-015-1, AC-015-2). The dispatcher decides nothing: it never
+ * picks a tier, never grants a waiver, and the only value it combines is
+ * `ok`, which it can only make STRICTER.
+ *
+ * Graded IN BAND and fail-closed UPWARDS: a payload the module cannot read is
+ * a High record requiring two humans with the reason named (exit 0), never a
+ * cheaper review. A blocked assignment therefore still answers a record --
+ * an unrecorded tier is never an absent requirement.
+ */
+function runTier(payload) {
+  const request = isObject(payload) ? payload : {};
+  const assignment = assignTier(payload);
+  const effective = effectiveTier({
+    assignment,
+    policy: request.policy,
+    evidence: request.evidence,
+    enabledBy: request.enabledBy,
+    author: request.author,
+  });
+  const record = tierRecord({
+    assignment,
+    effective,
+    assignedBy: request.assignedBy,
+    at: request.at,
+  });
+  return { ...record, ok: record.ok === true && assignment.ok === true && effective.ok === true };
+}
+
+/**
+ * `approvals` and `gate` are pass-throughs to the one module that owns each
+ * question. Both grade their input IN BAND and fail closed: a request, a tier
+ * or a review record they cannot read is `satisfied:false` / `mergeable:false`
+ * with the reason named (exit 0). Nothing here re-grades, softens or
+ * aggregates what the module answered -- a gate that passed because this
+ * dispatcher defaulted a missing key is exactly the false pass these gates
+ * exist to prevent.
+ */
+function runApprovals(payload) {
+  return evaluateApprovals(payload);
+}
+
+function runGate(payload) {
+  return evaluateGate(payload);
+}
+
+/**
+ * `explainer-offer` is a pass-through to `offerExplainers`. Like the guidance
+ * subcommands it is graded IN BAND: a payload the module cannot read answers
+ * `ok:false` with `offered:false` and an empty `generate` (exit 0), never an
+ * offer and never an explainer nobody asked for.
+ */
+function runExplainerOffer(payload) {
+  return offerExplainers(payload);
+}
+
+/**
+ * The metrics and eval subcommands (TRD-032). Each is a pass-through to the
+ * one module function that owns the question, graded IN BAND exactly like
+ * the guidance subcommands: a cohort too small, a comparison it cannot read,
+ * a case the owner never confirmed or a rules hash it does not recognise is
+ * a refusing RESULT (exit 0), never a clean pass. Nothing here aggregates,
+ * re-grades or softens what the module answered.
+ */
+function runMetrics(payload) {
+  return computeMetrics(payload);
+}
+
+function runMetricsCompare(payload) {
+  return compareCohorts(payload);
+}
+
+function runEvalScore(payload) {
+  return scoreEval(payload);
+}
+
+function runEvalCompare(payload) {
+  return compareEval(payload);
+}
+
+function runEvalStale(payload) {
+  return staleCases(payload);
+}
+
 const HANDLERS = Object.freeze({
   scope: runScope,
   'review-range': runReviewRange,
@@ -358,6 +496,15 @@ const HANDLERS = Object.freeze({
   votes: runVotes,
   depth: runDepth,
   slices: runSlices,
+  tier: runTier,
+  approvals: runApprovals,
+  gate: runGate,
+  'explainer-offer': runExplainerOffer,
+  metrics: runMetrics,
+  'metrics-compare': runMetricsCompare,
+  'eval-score': runEvalScore,
+  'eval-compare': runEvalCompare,
+  'eval-stale': runEvalStale,
 });
 
 /**
@@ -376,7 +523,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description|votes|depth|slices|tier|approvals|gate|explainer-offer|metrics|metrics-compare|eval-score|eval-compare|eval-stale> < payload.json`,
       }) + '\n'
     );
     return 1;
@@ -420,6 +567,15 @@ module.exports = {
   runVotes,
   runDepth,
   runSlices,
+  runTier,
+  runApprovals,
+  runGate,
+  runExplainerOffer,
+  runMetrics,
+  runMetricsCompare,
+  runEvalScore,
+  runEvalCompare,
+  runEvalStale,
   LEDGER_ACTIONS,
   HANDLERS,
   main,
