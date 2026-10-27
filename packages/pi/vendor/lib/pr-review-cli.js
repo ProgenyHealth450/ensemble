@@ -3,7 +3,8 @@
 
 /**
  * pr-review-cli.js -- JSON-in/JSON-out CLI over the pure pr-review-*.js
- * helper modules (TRD-2026-82b6a138-pr-review-cycle-time, TRD-006).
+ * helper modules (TRD-2026-82b6a138-pr-review-cycle-time, TRD-006;
+ * TRD-2026-70e784f2-code-review-process, TRD-005).
  *
  * A thin dispatcher: every subcommand reads one JSON payload from stdin,
  * delegates directly to the matching module function, and prints that
@@ -11,7 +12,7 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|ledger|remote|status|state-read|state-write> < payload.json
+ * Usage: node pr-review-cli.js <scope|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json
  *
  * `ledger` exposes five independent library functions; the payload selects
  * one via `action` (validate|isActionable|dedupe|merge|scopeViolations) and
@@ -26,10 +27,19 @@
  * be a full object id), each with either an explicit `targetPath` or a `prId`
  * (resolved via `statePath`) plus an optional `cwd`.
  *
+ * The guidance subcommands (TRD-005) each take the facts their module grades,
+ * all read FROM THE BASE COMMIT by the caller, never from the PR head:
+ *   policy       { text?, baseSha, sourceSha? }  -- root REVIEW.md text
+ *   rules        { changedPaths, ruleFiles, rulesFileName?, baseSha?, sourceSha? }
+ *   paths        { changedPaths, declaration?, codeowners?, baseSha }
+ *   description  { body, agentAuthored? } (or the PR body as a bare JSON string)
+ *
  * FAIL CLOSED at the boundary. Two kinds of payload value are told apart:
- *   - the review FACTS of `scope`, `remote` and `status` are graded in-band by
- *     their modules, so a missing or invalid fact is a blocked or pending
- *     RESULT (exit 0), never a completed phase;
+ *   - the review FACTS of `scope`, `remote`, `status`, `policy`, `rules`,
+ *     `paths` and `description` are graded in-band by their modules, so a
+ *     missing or invalid fact is a blocked, strict-default or not-ready
+ *     RESULT (exit 0), never a completed phase, a repository policy in force
+ *     or a PR that is ready for approval;
  *   - the REQUEST parameters -- a ledger action and its keys, `headSha` for
  *     state-read, `treeSha` for state-read when given, `state` for
  *     state-write, `prId`/`targetPath`/`cwd` -- are checked here. One that is
@@ -54,6 +64,10 @@ const {
 const { evaluateRemoteReview } = require('./pr-review-remote');
 const { deriveStatus } = require('./pr-review-status');
 const { statePath, writeState, readState } = require('./pr-review-state');
+const { loadPolicy } = require('./pr-review-policy');
+const { resolveRuleFiles } = require('./pr-review-rules');
+const { classifyPaths } = require('./pr-review-paths');
+const { checkDescription } = require('./pr-review-description');
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -174,6 +188,31 @@ function runStateWrite(payload) {
   return writeState(targetPath, payload.state, { cwd: payload.cwd });
 }
 
+/**
+ * The four guidance subcommands (TRD-005). Each is a pass-through to one pure
+ * module: the payload is NOT pre-checked here, because every one of these
+ * modules grades its own input in band and fails closed on anything it cannot
+ * read (strict default policy, no rules applied, a sensitive PR, a PR that is
+ * not ready). Checking here as well could only make the CLI answer differently
+ * from the library on the same input, which is the one thing this file exists
+ * to prevent.
+ */
+function runPolicy(payload) {
+  return loadPolicy(payload);
+}
+
+function runRules(payload) {
+  return resolveRuleFiles(payload);
+}
+
+function runPaths(payload) {
+  return classifyPaths(payload);
+}
+
+function runDescription(payload) {
+  return checkDescription(payload);
+}
+
 const HANDLERS = Object.freeze({
   scope: runScope,
   ledger: runLedger,
@@ -181,6 +220,10 @@ const HANDLERS = Object.freeze({
   status: runStatus,
   'state-read': runStateRead,
   'state-write': runStateWrite,
+  policy: runPolicy,
+  rules: runRules,
+  paths: runPaths,
+  description: runDescription,
 });
 
 /**
@@ -199,7 +242,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|ledger|remote|status|state-read|state-write> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json`,
       }) + '\n'
     );
     return 1;
@@ -235,7 +278,12 @@ module.exports = {
   runStatus,
   runStateRead,
   runStateWrite,
+  runPolicy,
+  runRules,
+  runPaths,
+  runDescription,
   LEDGER_ACTIONS,
+  HANDLERS,
   main,
 };
 

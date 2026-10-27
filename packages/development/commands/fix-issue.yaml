@@ -706,8 +706,14 @@ workflow:
                - {File 1}: {Description}
                - {File 2}: {Description}
 
-               ## Test Plan
-               {What was tested, coverage added}
+               ## Testing
+               {Commands actually run and their result, e.g. "npm test -- <scope>: 42 passed"; the regression test added for this fix, and coverage added}
+
+               ## Risk
+               {What could break, the blast radius, and the severity; say "Low: <reason>" when it is low rather than leaving it empty}
+
+               ## How to revert
+               {The exact undo: `git revert <merge-commit-sha>` or the GitHub "Revert" button, plus any data, migration or config step that revert alone does not undo}
 
                ## Checklist
                - [x] Tests pass locally
@@ -716,8 +722,25 @@ workflow:
 
                Fixes #{issue-number}
 
+               Directed by: @{the GitHub login of the person who asked for this fix — the human accountable for the Testing, Risk and How-to-revert sections above, never the agent}
+
                Generated with [Ensemble Fix-Issue](https://github.com/Sunstone-Partners/ensemble)
                ```
+
+            5b. Body gate (REQ-002): before creating the PR, hand the body
+               from item 5 to the shared pr-review-cycle skill, located at
+               "$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md",
+               with PR_BODY=<the generated body>, AGENT_AUTHORED=true and
+               the same BASE_SHA / HEAD_SHA / PR_ID the Local Review and
+               Batch Fix step used; its Step 1b runs the description check.
+               Fill in every section it reports missing (Testing, Risk, How
+               to revert) and name the human who directed this fix on the
+               `Directed by:` line — they are accountable for those three
+               sections, not the agent that drafted them — then re-run the
+               check. Never create the PR with a body the skill reported as
+               not ready, and never invoke the review CLI or its lib
+               modules directly: this check is reached only through the
+               skill.
 
             6. Create PR:
                - IF --draft-pr: gh pr create --draft --title "..." --body "..."

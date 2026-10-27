@@ -490,7 +490,12 @@ describe('Fix-Issue Command', () => {
       expect(prStep.instructions).toContain('## Problem');
       expect(prStep.instructions).toContain('## Solution');
       expect(prStep.instructions).toContain('## Changes');
-      expect(prStep.instructions).toContain('## Test Plan');
+      // REQ-002 (TRD-006): Testing, Risk and How to revert are the sections the
+      // description checker grades; "Test Plan" was the pre-TRD-006 wording.
+      expect(prStep.instructions).toContain('## Testing');
+      expect(prStep.instructions).toContain('## Risk');
+      expect(prStep.instructions).toContain('## How to revert');
+      expect(prStep.instructions).toContain('Directed by:');
       expect(prStep.instructions).toContain('## Checklist');
       expect(prStep.instructions).toContain('Fixes #{issue-number}');
     });
