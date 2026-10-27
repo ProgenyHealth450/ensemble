@@ -24,15 +24,18 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const yaml = require('js-yaml');
 
 const DEV_ROOT = path.join(__dirname, '..');
 const SKILL_PATH = path.join(DEV_ROOT, 'skills', 'pr-review-cycle', 'SKILL.md');
 const CLI = path.join(DEV_ROOT, 'lib', 'pr-review-cli.js');
-const FIX_ISSUE = path.join(DEV_ROOT, 'commands', 'fix-issue.yaml');
-const IMPLEMENT_TRD_BEADS = path.join(DEV_ROOT, 'commands', 'implement-trd-beads.yaml');
 
 const { NO_AREA_RULES_NOTE } = require('../lib/pr-review-rules');
+const {
+  CALLER_PATHS,
+  EXPECTED_BODY_COUNT,
+  bodiesIn,
+  filled,
+} = require('./helpers/caller-pr-bodies');
 
 const BASE_SHA = '8b87a6d71146cd2e36e09c4fc265b6bb336f8798';
 const OTHER_SHA = 'b8fe66aeb70b304237e584311a2b481a3c990f91';
@@ -243,75 +246,17 @@ describe('pr-review-cycle SKILL.md: guidance is resolved from the base commit (T
 // The two YAML callers (AC-002-1, AC-002-2).
 // ---------------------------------------------------------------------------
 
-const CALLERS = {
-  'fix-issue.yaml': FIX_ISSUE,
-  'implement-trd-beads.yaml': IMPLEMENT_TRD_BEADS,
-};
+const CALLERS = CALLER_PATHS;
 
 const SKILL_REFERENCE =
   '"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md"';
-
-/** A YAML block scalar indents its content; a body an executor writes out does not. */
-const dedent = (block) => {
-  const lines = block.split('\n');
-  const indents = lines.filter((line) => line.trim() !== '').map((line) => line.match(/^ */)[0].length);
-  const common = indents.length === 0 ? 0 : Math.min(...indents);
-  return lines.map((line) => line.slice(common)).join('\n');
-};
-
-/** Every string the command document carries, with YAML escapes already resolved. */
-const prose = (raw) => {
-  const texts = [];
-  const walk = (node) => {
-    if (typeof node === 'string') texts.push(node);
-    else if (Array.isArray(node)) node.forEach(walk);
-    else if (node && typeof node === 'object') Object.values(node).forEach(walk);
-  };
-  walk(yaml.load(raw));
-  return texts.join('\n');
-};
-
-/**
- * The PR body a caller builds, as the command source carries it, normalised to real
- * markdown. A body ends at the `Directed by:` line it must carry: that is the last thing
- * in it, so anchoring there extracts the body and nothing of the prose around it.
- */
-const bodiesIn = (raw) => {
-  const text = prose(raw);
-  const bodies = [];
-  // fix-issue: a fenced ```markdown template inside the instructions.
-  for (const [, fenced] of text.matchAll(/```markdown\n([\s\S]*?)\n *```/g)) {
-    if (/directed[\s-]*by/i.test(fenced)) bodies.push(dedent(fenced));
-  }
-  // implement-trd-beads: PR_BODY / COMPLETION_BODY = '...' with \n escapes.
-  for (const [, assigned] of text.matchAll(
-    /(?:PR_BODY|COMPLETION_BODY) = '([\s\S]*?Directed by: @<[^<>]*>)>?'/g
-  )) {
-    // The command wraps the whole body in <...>; the closing bracket is outside the capture.
-    bodies.push(assigned.replace(/^</, '').replace(/\\n/g, '\n'));
-  }
-  return bodies;
-};
-
-/**
- * Placeholders (`{thing}` / `<thing>`) stand in for runtime values; a real body has text
- * there. Nested ones (`<... <merge-commit-sha> ...>`) resolve inside-out, so a few passes
- * are made until none is left.
- */
-const filled = (body) => {
-  let text = body.trim().replace(/\{[^{}]*\}/g, 'ldangelo');
-  for (let pass = 0; pass < 5 && /<[^<>]*>/.test(text); pass += 1) {
-    text = text.replace(/<[^<>]*>/g, 'ldangelo');
-  }
-  return text;
-};
 
 describe.each(Object.keys(CALLERS))('%s builds a PR body the real checker accepts (TRD-006)', (name) => {
   const text = fs.readFileSync(CALLERS[name], 'utf8');
 
   // Every body a caller can publish: fix-issue has one template, implement-trd-beads builds a
   // phase body and a completion body. A regex that found fewer would grade less than it claims.
-  const EXPECTED_BODIES = { 'fix-issue.yaml': 1, 'implement-trd-beads.yaml': 2 };
+  const EXPECTED_BODIES = EXPECTED_BODY_COUNT;
 
   test('scenario: the PR body it generates carries Testing, Risk and How-to-revert and names who directed it', () => {
     const bodies = bodiesIn(text);
