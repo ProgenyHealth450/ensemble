@@ -52,6 +52,9 @@ const DEFAULT_ROUND_CAP = 3;
 const ROUND_CAP_MIN = 1;
 const ROUND_CAP_MAX = 5;
 
+/** Where eval cases live when a repository says nothing (TRD-031, data model). */
+const DEFAULT_EVAL_CASES_DIR = 'docs/review-eval/cases';
+
 /** Quick may never exceed this: one reviewer, no verifier (AC-016-2 bound). */
 const QUICK_MAX_REVIEWERS = 1;
 const QUICK_MAX_VERIFIERS = 0;
@@ -82,6 +85,7 @@ const DEFAULT_POLICY = deepFreeze({
   highPaths: [],
   lowWaiverEnabled: false,
   sliceThreshold: 1500,
+  evalCasesDir: DEFAULT_EVAL_CASES_DIR,
 });
 
 /** A GitHub login: alphanumerics and single inner hyphens, at most 39 characters. */
@@ -105,6 +109,9 @@ const SIMPLE_KEYS = Object.freeze({
   highPaths: isPathList,
   lowWaiverEnabled: (value) => typeof value === 'boolean',
   sliceThreshold: (value) => Number.isInteger(value) && value >= 1,
+  // A repository-relative directory: never absolute, never climbing out of the repository.
+  evalCasesDir: (value) =>
+    isNonEmptyString(value) && !value.trim().startsWith('/') && !value.split(/[\\/]/).includes('..'),
 });
 
 const KNOWN_KEYS = Object.freeze(['sourceSha', 'roundCap', 'depth', ...Object.keys(SIMPLE_KEYS)]);
@@ -271,6 +278,7 @@ function loadPolicy(input) {
 
 module.exports = {
   loadPolicy,
+  DEFAULT_EVAL_CASES_DIR,
   DEFAULT_POLICY,
   DEFAULT_ROUND_CAP,
   ROUND_CAP_MIN,
