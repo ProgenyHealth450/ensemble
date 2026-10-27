@@ -142,6 +142,8 @@ Integration points:
 
 Resume state is a per-PR report under `.ensemble/pr-review/` (git-ignored: committing it would change the head SHA and invalidate the review it records). See [`docs/guides/pr-review-cycle-time-pilot.md`](../../docs/guides/pr-review-cycle-time-pilot.md) for how the cycle-time effect is measured; the 50% median open-to-merge target is not claimed until a comparable post-change cohort demonstrates it.
 
+The review loop is bounded by **one shared round cap**: `roundCap` in the `ensemble-review-policy` block of the repository's root `REVIEW.md`, read from the *base* commit, never from the PR head. The default is **3** and the accepted range is **1 to 5** (integers). A missing, non-integer or out-of-range value does not fail the run and is not silently honoured: `pr-review-cli.js status` falls back to the default 3 and records the reason (`invalid roundCap (expected an integer 1-5); default 3 applied`) in its output. The same cap governs `pr-review-cycle`, `pr-merge` and the quality loop, so all three stop at the same round and ask the author to step back and reconsider the approach rather than opening another round.
+
 ## Documentation
 
 See the [main ensemble repository](https://github.com/Sunstone-Partners/ensemble) for complete documentation.
