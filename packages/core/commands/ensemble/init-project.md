@@ -29,6 +29,7 @@ Examples:
 - Create `docs/standards/constitution.md` with project guardrails
 - Set up `docs/PRD/` and `docs/TRD/` directories
 - Configure `.gitignore` for state files
+- Scaffold the review files every PR review reads (PR template, `REVIEW.md`, `CODEOWNERS`)
 - Provide foundation for `/ensemble:create-prd`, `/ensemble:create-trd`, and `/ensemble:implement-trd-beads` workflows
 
 ---
@@ -237,7 +238,116 @@ Append to `.gitignore` if not already present:
 .trd-state/
 ```
 
-### Step 6: Completion Report
+### Step 6: Scaffold Review Files
+
+Scaffold the three files every pull-request review reads: the pull-request
+template, the root review rules file (which also carries the review policy
+block) and the ownership declaration. All three are plain text a maintainer
+edits directly — changing them changes the next review with no code change,
+rebuild or release.
+
+**Existing files are never overwritten.** For each target:
+
+1. If the file does not exist: write the template below.
+2. If it exists and "force" was not requested: show the difference between the
+   existing file and the template, then **merge** the missing sections (append
+   a missing heading or policy key, preserving every existing line) or **skip**
+   the file when the user declines. Never overwrite and never delete a line the
+   user wrote.
+3. If it exists and "force" was requested: replace it, after showing the
+   difference.
+
+#### `.github/pull_request_template.md`
+
+```markdown
+## Summary
+
+<!-- What changed, and why. One short paragraph. -->
+
+## Testing
+
+<!-- The commands you ran and what they proved. Name any test you added. -->
+
+- [ ] Automated tests cover this change
+- [ ] Manual verification (describe):
+
+## Risk
+
+<!-- What could break, who is affected, and how it would be noticed. -->
+
+- Blast radius:
+- Monitoring / signal to watch:
+
+## How to revert
+
+<!-- The exact revert path: a `git revert <sha>`, a flag flip, or a rollback. -->
+```
+
+#### `REVIEW.md`
+
+Written at the repository root. The fenced `ensemble-review-policy` block is
+the **only** place policy keys are read from, and only the copy on the base
+branch is read — a pull request cannot relax its own review by editing it.
+Set `sourceSha` to the commit the policy takes effect from
+(`git rev-parse HEAD` after the file lands); while it does not match a
+review's base commit, the strict defaults apply.
+
+````markdown
+# Review Rules
+
+What a reviewer of this repository should care about. Edit this file to
+change the next review; no code change, rebuild or release is needed.
+
+## What every review checks
+
+- Behaviour is covered by a test that fails without the change.
+- Errors are handled where they occur; nothing is silently swallowed.
+- No secret, token or credential is added to the repository.
+- Public interfaces are documented where callers will look.
+
+## Area rules
+
+Any directory may carry its own `REVIEW.md`. A change is reviewed against
+the root file plus the nearest such file above it — for example
+`packages/api/REVIEW.md` governs everything under `packages/api/`. When two
+area files conflict, the more restrictive instruction wins.
+
+## Policy
+
+```ensemble-review-policy
+{
+  "sourceSha": "0000000000000000000000000000000000000000",
+  "roundCap": 3,
+  "maintainerLogins": ["@your-maintainer"],
+  "botLogins": ["@coderabbitai"],
+  "sensitivePaths": ["infra/**"],
+  "highPaths": ["src/payments/**"],
+  "lowWaiverEnabled": false,
+  "sliceThreshold": 1500
+}
+```
+
+- `sensitivePaths` — areas an owner declares sensitive. A pull request that
+  touches one is treated as sensitive by every review and approval rule.
+  These ADD to the built-in set (CI workflows, release gates, installers,
+  the generation pipeline and the constitution); they can never shrink it.
+- `highPaths` — areas that start at the High risk tier.
+- `roundCap` — review rounds before the cycle escalates (1–5, default 3).
+- `maintainerLogins` / `botLogins` — who may approve, and which reviewers
+  are bots (a bot approval never satisfies a human-approval requirement).
+````
+
+#### `.github/CODEOWNERS`
+
+```text
+# Default owners for everything in the repository.
+* @your-org/maintainers
+
+# Narrower areas override the default.
+/.github/workflows/ @your-org/platform
+```
+
+### Step 7: Completion Report
 
 Output summary:
 
@@ -249,15 +359,22 @@ Created:
   docs/PRD/                       - Product Requirements Documents
   docs/TRD/                       - Technical Requirements Documents
   docs/TRD/completed/             - Archived completed TRDs
+  REVIEW.md                       - Review rules and policy block (edit freely)
+  .github/pull_request_template.md - Testing, Risk, How to revert
+  .github/CODEOWNERS              - Ownership declaration
 
 Updated:
   .gitignore                      - Added .trd-state/ exclusion
 
+Skipped (already present, not overwritten):
+  [list of existing review files, with the difference shown above]
+
 Next steps:
   1. Review docs/standards/constitution.md and customize as needed
-  2. Create a PRD with /ensemble:create-prd for new features
-  3. Generate TRD with /ensemble:create-trd from approved PRD
-  4. Implement with /ensemble:implement-trd-beads
+  2. Set REVIEW.md sourceSha (git rev-parse HEAD) and list your maintainers
+  3. Create a PRD with /ensemble:create-prd for new features
+  4. Generate TRD with /ensemble:create-trd from approved PRD
+  5. Implement with /ensemble:implement-trd-beads
 
 Tech stack detected:
   [summary of detected stack]
