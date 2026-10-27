@@ -22,6 +22,30 @@ cannot relax its own review by editing this file.
   source changes, the generated output is regenerated in the same PR
   (`npm run generate`, `npm run validate`).
 
+## Severity
+
+A review reports findings under exactly three words. The words are a closed
+set the tooling enforces; **what each one means is the prose below**, and a
+maintainer changes it by editing this section — no code change, rebuild or
+release.
+
+- **Important** — the change is wrong, unsafe or unproven: a defect a user or
+  another agent would hit, a security or secret exposure, a gate that cannot
+  fail, a claim with no command behind it, or a generated artifact that no
+  longer matches its source. An Important finding must be answered before
+  merge.
+- **Nit** — a preference that does not change behaviour: naming, wording,
+  ordering, formatting, a comment that could be clearer. A Nit never blocks a
+  merge and is never worth a review round on its own.
+- **Pre-existing** — a real defect in code this pull request did not
+  introduce. It is reported separately, never blocks this PR, and belongs in
+  an issue rather than this review.
+
+Older ledgers written as Critical, Major, Minor or Nitpick are read as
+Important (Critical, Major) and Nit (Minor, Nitpick); nothing is lost and no
+blocking outcome changes. A word outside the set is treated as Important
+until a person says otherwise.
+
 ## Area rules
 
 Any directory may carry its own `REVIEW.md`. A change is reviewed against this
