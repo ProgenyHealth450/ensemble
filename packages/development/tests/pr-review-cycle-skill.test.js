@@ -223,6 +223,8 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
     changedFiles: () => ['src/a.js'],
     scope: () => ['src/a.js'],
     ledger: () => [],
+    incoming: () => [finding({ failureMode: 'bug' })],
+    round: () => 1,
     // remote
     reviews: () => [{ id: 'r1', author: BOT, commitSha: HEAD_SHA, state: 'APPROVED' }],
     comments: () => [],

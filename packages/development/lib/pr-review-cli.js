@@ -12,16 +12,25 @@
  * direct `require(...)` call on the same input can never diverge. NO
  * business logic lives here, NO network calls, NO shell calls.
  *
- * Usage: node pr-review-cli.js <scope|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json
+ * Usage: node pr-review-cli.js <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json
  *
- * `ledger` exposes five independent library functions; the payload selects
- * one via `action` (validate|isActionable|dedupe|merge|scopeViolations) and
+ * `review-range` (TRD-013) is a thin pass-through to `chooseReviewRange`:
+ * given `lastReviewedSha`, `commits` and `remediationShas` on top of what
+ * `scope` takes, it answers whether the next review is a `delta` against the
+ * previously reviewed head or must fall back to the `full` base-correct
+ * range -- the skill calls this for every round after the first (AC-010-1).
+ *
+ * `ledger` exposes six independent library functions; the payload selects
+ * one via `action` (validate|isActionable|dedupe|merge|scopeViolations|recordRound) and
  * carries that action's keys:
  *   validate         { findings }
  *   isActionable     { finding }
  *   dedupe           { findings }
  *   merge            { existingLedger, incomingFindings, headSha }
  *   scopeViolations  { changedFiles, scope, ledger }
+ *   recordRound      { ledger, incoming, round } -- suppresses repeats, attaches
+ *                    class instances to their one class finding and reports
+ *                    both (AC-010-2, AC-011-1, AC-011-2)
  * `state-read` takes { headSha } plus an optional { treeSha } (the tree of that
  * head) and `state-write` { state } (whose `reviewedTreeSha`, when present, must
  * be a full object id), each with either an explicit `targetPath` or a `prId`
@@ -53,13 +62,14 @@
 
 const fs = require('fs');
 
-const { resolveReviewScope } = require('./pr-review-scope');
+const { resolveReviewScope, chooseReviewRange } = require('./pr-review-scope');
 const {
   validateLedger,
   isActionable,
   dedupeFindings,
   mergeFindings,
   scopeViolations,
+  recordRound,
 } = require('./pr-review-ledger');
 const { evaluateRemoteReview } = require('./pr-review-remote');
 const { deriveStatus } = require('./pr-review-status');
@@ -76,6 +86,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 const ARRAY = { check: Array.isArray, describe: 'an array' };
 const OBJECT = { check: isObject, describe: 'an object' };
 const TEXT = { check: (value) => typeof value === 'string' && value.trim() !== '', describe: 'a non-empty string' };
+const INTEGER = { check: (value) => Number.isInteger(value), describe: 'an integer' };
 
 /**
  * Every key in `keys` must be on `payload` with a value of the kind named. Nothing is defaulted: an absent key
@@ -112,6 +123,10 @@ function runScope(payload) {
   return resolveReviewScope(payload);
 }
 
+function runReviewRange(payload) {
+  return chooseReviewRange(payload);
+}
+
 /** dedupe, merge and scopeViolations answer with an array; anything else is the module refusing input it cannot read. */
 function arrayOrThrow(result) {
   if (!Array.isArray(result)) throw new Error(result && result.reason ? result.reason : 'ledger input rejected');
@@ -139,6 +154,14 @@ const LEDGER_ACTIONS = Object.freeze({
   scopeViolations: {
     keys: { changedFiles: ARRAY, scope: ARRAY, ledger: ARRAY },
     run: (p) => ({ violations: arrayOrThrow(scopeViolations(p.changedFiles, p.scope, p.ledger)) }),
+  },
+  recordRound: {
+    keys: { ledger: ARRAY, incoming: ARRAY, round: INTEGER },
+    run: (p) => {
+      const result = recordRound({ ledger: p.ledger, incoming: p.incoming, round: p.round });
+      if (!result.ok) throw new Error(result.reason);
+      return result;
+    },
   },
 });
 
@@ -215,6 +238,7 @@ function runDescription(payload) {
 
 const HANDLERS = Object.freeze({
   scope: runScope,
+  'review-range': runReviewRange,
   ledger: runLedger,
   remote: runRemote,
   status: runStatus,
@@ -242,7 +266,7 @@ function main(argv) {
   if (handler === undefined) {
     process.stdout.write(
       JSON.stringify({
-        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json`,
+        error: `Unknown subcommand ${shown(subcommand)}. Usage: pr-review-cli <scope|review-range|ledger|remote|status|state-read|state-write|policy|rules|paths|description> < payload.json`,
       }) + '\n'
     );
     return 1;
@@ -273,6 +297,7 @@ function main(argv) {
 
 module.exports = {
   runScope,
+  runReviewRange,
   runLedger,
   runRemote,
   runStatus,

@@ -16,6 +16,7 @@ const { spawnSync } = require('child_process');
 
 const {
   runScope,
+  runReviewRange,
   runLedger,
   runRemote,
   runStatus,
@@ -30,7 +31,7 @@ const {
   main,
 } = require('../lib/pr-review-cli');
 
-const { resolveReviewScope } = require('../lib/pr-review-scope');
+const { resolveReviewScope, chooseReviewRange } = require('../lib/pr-review-scope');
 const { evaluateRemoteReview } = require('../lib/pr-review-remote');
 const { deriveStatus } = require('../lib/pr-review-status');
 const { loadPolicy, DEFAULT_ROUND_CAP } = require('../lib/pr-review-policy');
@@ -124,6 +125,43 @@ describe('pr-review-cli: delegation to the matching module (handler functions)',
     expect(result.range).toBeUndefined();
   });
 
+  test('review-range delegates to chooseReviewRange and returns its exact result (TRD-013, AC-010-1)', () => {
+    const payload = { baseSha: BASE_SHA, headSha: HEAD_SHA };
+    expect(runReviewRange(payload)).toEqual(chooseReviewRange(payload));
+    const result = runReviewRange(payload);
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('full');
+    expect(result.reason).toBe('first-round');
+  });
+
+  test('review-range with a vouched-for last reviewed head narrows to the delta (AC-010-1, AC-010-3)', () => {
+    const payload = {
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      lastReviewedSha: BASE_SHA,
+      commits: [{ sha: HEAD_SHA, parents: [BASE_SHA] }],
+      remediationShas: [HEAD_SHA],
+    };
+    const result = runReviewRange(payload);
+    expect(result).toEqual(chooseReviewRange(payload));
+    expect(result.mode).toBe('delta');
+    expect(result.range).toBe(`${BASE_SHA}..${HEAD_SHA}`);
+  });
+
+  test('review-range with an unvouched push falls back to the full base-correct range (AC-010-3)', () => {
+    const payload = {
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      lastReviewedSha: BASE_SHA,
+      commits: [{ sha: HEAD_SHA, parents: [BASE_SHA, 'f'.repeat(40)] }],
+      remediationShas: [],
+    };
+    const result = runReviewRange(payload);
+    expect(result.mode).toBe('full');
+    expect(result.range).toBe(`${BASE_SHA}..${HEAD_SHA}`);
+    expect(result.unvouched.length).toBeGreaterThan(0);
+  });
+
   test('remote delegates to evaluateRemoteReview and returns its exact result', () => {
     const payload = {
       headSha: 'head-1',
@@ -185,6 +223,26 @@ describe('pr-review-cli: delegation to the matching module (handler functions)',
       ledger: [],
     });
     expect(result.violations).toEqual(['src/out-of-scope.js']);
+  });
+
+  test('ledger recordRound action suppresses a repeat and flags a class across rounds (TRD-013, AC-010-2, AC-011-1, AC-011-2)', () => {
+    const round1 = runLedger({
+      action: 'recordRound',
+      ledger: [],
+      incoming: [makeFinding({ id: 'f1', failureMode: 'missing-null-check' })],
+      round: 1,
+    });
+    expect(round1.newFindings).toHaveLength(1);
+    expect(round1.repeats).toHaveLength(0);
+
+    const round2 = runLedger({
+      action: 'recordRound',
+      ledger: round1.findings,
+      incoming: [makeFinding({ id: 'f1', failureMode: 'missing-null-check' })],
+      round: 2,
+    });
+    expect(round2.repeats).toEqual([{ id: 'f1', repeatOf: 'f1', fingerprint: expect.any(String), reason: 'already-recorded' }]);
+    expect(round2.presented).toHaveLength(0);
   });
 
   test('ledger with an unknown action throws naming the valid actions', () => {
@@ -337,6 +395,7 @@ const LEDGER_PAYLOADS = {
     headSha: 'h1',
   },
   scopeViolations: { action: 'scopeViolations', changedFiles: ['src/a.js'], scope: ['src/a.js'], ledger: [] },
+  recordRound: { action: 'recordRound', ledger: [], incoming: [makeFinding()], round: 1 },
 };
 const KEY_KINDS = {
   findings: 'array',
@@ -347,6 +406,8 @@ const KEY_KINDS = {
   changedFiles: 'array',
   scope: 'array',
   ledger: 'array',
+  incoming: 'array',
+  round: 'integer',
 };
 const KEY_CASES = Object.entries(LEDGER_PAYLOADS).flatMap(([action, payload]) =>
   Object.keys(payload)
@@ -357,6 +418,7 @@ const isKind = {
   array: (value) => Array.isArray(value),
   object: (value) => value !== null && typeof value === 'object' && !Array.isArray(value),
   text: (value) => typeof value === 'string' && value.trim() !== '',
+  integer: (value) => Number.isInteger(value),
 };
 const outcomeOf = (fn) => {
   try {
@@ -412,8 +474,10 @@ describe('pr-review-cli: subcommands and ledger actions are matched as own prope
     expect(() => runLedger({ action, findings: [], changedFiles: [], scope: [], ledger: [] })).toThrow(/Unknown ledger action/);
   });
 
-  test('the ledger actions are exactly the documented five', () => {
-    expect(Object.keys(LEDGER_ACTIONS).sort()).toEqual(['dedupe', 'isActionable', 'merge', 'scopeViolations', 'validate']);
+  test('the ledger actions are exactly the documented six', () => {
+    expect(Object.keys(LEDGER_ACTIONS).sort()).toEqual(
+      ['dedupe', 'isActionable', 'merge', 'recordRound', 'scopeViolations', 'validate']
+    );
   });
 });
 
@@ -793,9 +857,12 @@ describe('pr-review-cli: the guidance subcommands are registered and documented 
   const SOURCE = fs.readFileSync(CLI, 'utf8');
   const GUIDANCE = ['policy', 'rules', 'paths', 'description'];
 
-  test('HANDLERS is exported, frozen, and holds exactly the ten subcommands', () => {
+  test('HANDLERS is exported, frozen, and holds exactly the eleven subcommands', () => {
     expect(Object.keys(HANDLERS).sort()).toEqual(
-      ['description', 'ledger', 'paths', 'policy', 'remote', 'rules', 'scope', 'state-read', 'state-write', 'status'].sort()
+      [
+        'description', 'ledger', 'paths', 'policy', 'remote', 'review-range', 'rules', 'scope', 'state-read',
+        'state-write', 'status',
+      ].sort()
     );
     expect(Object.isFrozen(HANDLERS)).toBe(true);
     for (const name of Object.keys(HANDLERS)) expect(typeof HANDLERS[name]).toBe('function');

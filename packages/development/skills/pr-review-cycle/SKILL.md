@@ -181,9 +181,26 @@ absent or misspelt one is a CLI error (non-zero exit), never an empty default.
 * `dedupe` -- `{ action, findings }`
 * `merge` -- `{ action, existingLedger, incomingFindings, headSha }`
 * `scopeViolations` -- `{ action, changedFiles, scope, ledger }`
+* `recordRound` -- `{ action, ledger, incoming, round }` (TRD-013)
 
 A finding missing a required field is rejected and must be completed, not
-dropped. Duplicates are merged under one fix id, keeping every original link.
+dropped. Duplicates found within the same round's own findings are merged
+under one fix id with `dedupe`, keeping every original link.
+
+**Cross-round suppression and class flags (TRD-013, AC-010-2, AC-011-1,
+AC-011-2).** Every round after `dedupe` runs `recordRound` with `ledger` set
+to the findings carried over in the review-state report (empty on round 1),
+`incoming` set to this round's deduped findings, and `round` set to the
+current round number. Its result names three outcomes per incoming finding:
+a `repeat` (the same path, failure mode and class already recorded -- the
+first record stands and only gains the round it was seen again in; it is
+never presented twice), an `attached` instance of a class already flagged
+(joins that one class finding instead of opening a new one), or a `new`
+finding. Report `repeats` as suppressed by name (not silently dropped) and
+`classes` by naming the class and listing every instance found so the batch
+fix in Step 5 covers all of them, not just the one just reported. Carry
+`findings` forward into the next round's `ledger` in the state report
+(Step 9).
 
 ### Step 4 -- Triage all findings before any edit
 
@@ -213,9 +230,26 @@ state and never silently skips remediation.
 After the batch fix returns, run the focused regression tests first, then
 run the broad test gate **once** (`TEST_COMMAND`, unless `SKIP_TESTS`, in
 which case record `tests.skipped = true` and the command that would have
-run). Then re-review the diff against the same `range` (base-correct) to
-confirm the batch actually resolved what it claims and introduced nothing
-new. This closes the local phase.
+run). Then re-review the diff against the same `range` (base-correct) to confirm the batch actually resolved what
+it claims and introduced nothing new. This closes the local phase.
+
+**Delta re-review after the first round (CLI `review-range`, TRD-013,
+AC-010-1, AC-010-3).** Round 1's re-review (the first time Step 6 runs)
+always reviews the full base-correct `range`: nothing has been reviewed yet
+to compare against. Every re-review after that -- when Step 7 repeats
+Steps 4-6 for a remote batch -- first runs `node "$PR_REVIEW_CLI"
+review-range` with `{ baseSha, headSha, lastReviewedSha, commits,
+remediationShas }`, where `lastReviewedSha` is the `reviewedHeadSha` the
+prior round recorded in the state report, `commits` is the commit log of
+`lastReviewedSha..headSha` (`{ sha, parents }` per commit) and
+`remediationShas` is the set of remediation commits the prior rounds
+recorded there. When the result is `{ mode: 'delta', range }`, re-review
+only that `range` -- the changes since the previously reviewed commit, not
+the whole diff again. When it is `{ mode: 'full', reason, unvouched }`
+instead (an unreviewable push, a merge commit, or history this module
+cannot vouch for), fall back to the full base-correct range and report
+`reason` and `unvouched` verbatim: a push that cannot be vouched for is
+never trusted as "nothing else changed."
 
 The batch fix changes the tree, so re-resolve the head SHA once the batch has
 landed: the re-review diff (same base), `headSha` and `reviewedHeadSha` for
