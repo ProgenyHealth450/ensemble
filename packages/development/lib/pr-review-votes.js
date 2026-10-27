@@ -32,8 +32,46 @@
  *                 finding -- presented and marked.
  *
  * Per-finding degradation, ledger recording and the author-facing wording of
- * these outcomes are TRD-039's.
+ * these outcomes (TRD-039, AC-005-4, AC-006-1, AC-006-3):
+ *
+ *   - `authorLabel` on every finding is the exact word the author sees:
+ *     "verifier disagrees" for a finding that FAILED verification (votes were
+ *     cast, the majority was not reached), never "required fix" -- a finding
+ *     that fails verification is still present in the ledger with its votes
+ *     and the reason (AC-005-4, AC-006-1);
+ *   - a finding may carry `incompleteVerifiers: [{verifier, reason}]` naming
+ *     a verifier that was assigned to it but returned no usable vote
+ *     (timeout, tool failure). That finding is `unverified` /
+ *     `verifier-incomplete` -- presented and marked -- even when the votes
+ *     that did arrive would otherwise have reached a majority; a finding
+ *     whose verifiers all returned keeps its tally-based outcome untouched
+ *     (AC-006-3);
+ *   - `input.verificationCapability === false` means no subagent capability
+ *     ran this round at all: every finding is `unverified` /
+ *     `no-subagent-capability`, `result.verification` is `not-performed`,
+ *     and nothing is dropped (AC-006-3);
+ *   - `result.verification` is `partial` when some but not all findings are
+ *     per-finding degraded, `not-performed` when none of them could be
+ *     verified at all (Quick or no capability), `performed` otherwise;
+ *   - every blocked or degraded result names `recoveryAction`:
+ *     `re-run-verification` for a structural failure or a round with no
+ *     capability at all, `supply-the-missing-votes` for per-finding
+ *     incomplete coverage.
  */
+
+/** The exact word the author sees for an outcome/reason pair; `undefined` when none applies. */
+const AUTHOR_LABELS = Object.freeze({
+  'filtered:verifier-majority-not-reached': 'verifier disagrees',
+  'disputed:security-finding-not-verified': 'disputed',
+  'unverified:verifier-incomplete': 'unverified',
+  'unverified:no-subagent-capability': 'unverified',
+  'unverified:verification-not-performed': 'unverified',
+  'unverified:unreadable-votes': 'unverified',
+});
+
+function authorLabelFor(outcome, reason) {
+  return AUTHOR_LABELS[`${outcome}:${reason}`];
+}
 
 /** The verifiers each depth expects (AC-005-1). Quick runs no verification at all. */
 const EXPECTED_VERIFIERS = Object.freeze({ quick: 0, standard: 3, deep: 5 });
@@ -58,7 +96,7 @@ function majorityOf(expected) {
 
 /** The fail-closed answer: nothing verified, nothing presented as agreed, the reason named. */
 function blocked(reason) {
-  return { ok: false, verification: 'blocked', reason, findings: [], presented: [] };
+  return { ok: false, verification: 'blocked', reason, recoveryAction: 're-run-verification', findings: [], presented: [] };
 }
 
 /** Whether a finding is in the security lane: a person adjudicates it, never a vote alone. */
@@ -128,10 +166,19 @@ function countVotes(finding) {
  *
  * @param {Object} input
  * @param {Object[]} input.findings  Candidate findings, each `{ id, severity?, kind?,
- *   security?, reviewer?, votes:[{ verifier, verdict }] }`.
+ *   security?, reviewer?, votes:[{ verifier, verdict }], incompleteVerifiers?:
+ *   [{verifier, reason}] }`. `incompleteVerifiers` names a verifier assigned to
+ *   THIS finding that returned no usable vote (timeout, tool failure) -- the
+ *   finding is degraded even when the votes that did arrive would otherwise
+ *   reach a majority (AC-006-3).
  * @param {string} input.depth       `quick` | `standard` | `deep`.
  * @param {number} [input.expectedVerifiers]  Overrides the depth's expected count.
- * @returns {{ok:boolean, verification:string, reason?:string, findings:Object[], presented:Object[]}}
+ * @param {boolean} [input.verificationCapability]  `false` means no subagent
+ *   capability ran this round at all: every finding comes back `unverified`
+ *   and nothing is dropped (AC-006-3). Anything other than an explicit
+ *   `false` is read as capable.
+ * @returns {{ok:boolean, verification:string, reason?:string, recoveryAction?:string,
+ *   findings:Object[], presented:Object[]}}
  */
 function tallyVotes(input) {
   if (!isObject(input)) return blocked('invalid-input');
@@ -156,46 +203,80 @@ function tallyVotes(input) {
 
   const needed = majorityOf(expected);
   const quick = expected === 0;
+  const capable = input.verificationCapability !== false;
+
+  /** Verifiers named on `finding.incompleteVerifiers` that returned no usable vote for it. */
+  const incompleteVerifiersOf = (finding) => {
+    if (!Array.isArray(finding.incompleteVerifiers)) return [];
+    return finding.incompleteVerifiers.filter((entry) => isObject(entry) && isText(entry.verifier));
+  };
+
+  const withLabel = (entry) => ({ ...entry, authorLabel: authorLabelFor(entry.outcome, entry.reason) });
 
   const findings = input.findings.map((finding, index) => {
     const base = { ...finding, id: finding.id };
+
+    if (!capable) {
+      return withLabel({
+        ...base,
+        outcome: 'unverified',
+        reason: 'no-subagent-capability',
+        presented: true,
+        tally: { real: 0, notReal: 0, abstain: 0, expected, needed },
+        ignoredVotes: [],
+      });
+    }
+
     const votes = countVotes(finding);
 
     if (!votes.ok) {
       // Unreadable votes: the finding stays, marked, and is presented.
-      return {
+      return withLabel({
         ...base,
         outcome: 'unverified',
         reason: votes.reason,
         presented: true,
         tally: { real: 0, notReal: 0, abstain: 0, expected, needed },
         ignoredVotes: [],
-      };
+      });
     }
 
     const tally = { ...votes.counted, expected, needed };
     const entry = { ...base, tally, ignoredVotes: votes.ignoredVotes };
+    const incompleteVerifiers = incompleteVerifiersOf(finding);
 
     if (quick) {
       // No verifier was expected, so no vote can speak for this finding.
-      return { ...entry, outcome: 'unverified', reason: 'verification-not-performed', presented: true };
+      return withLabel({ ...entry, outcome: 'unverified', reason: 'verification-not-performed', presented: true });
+    }
+
+    if (incompleteVerifiers.length > 0) {
+      // Coverage for THIS finding is incomplete (timeout, tool failure): degraded even if the
+      // votes that did arrive would otherwise reach a majority (AC-006-3).
+      return withLabel({
+        ...entry,
+        outcome: 'unverified',
+        reason: 'verifier-incomplete',
+        presented: true,
+        incompleteVerifiers,
+      });
     }
 
     if (isNonFinding(finding)) {
-      return { ...entry, outcome: 'filtered', reason: 'non-finding', presented: false };
+      return withLabel({ ...entry, outcome: 'filtered', reason: 'non-finding', presented: false });
     }
 
     if (votes.counted.real >= needed) {
-      return { ...entry, outcome: 'present', reason: 'verifier-majority', presented: true };
+      return withLabel({ ...entry, outcome: 'present', reason: 'verifier-majority', presented: true });
     }
 
     if (isSecurityLane(finding)) {
       // Critical and security-relevant findings are never closed by a vote:
       // they go to a person (AC-006-2).
-      return { ...entry, outcome: 'disputed', reason: 'security-finding-not-verified', presented: true };
+      return withLabel({ ...entry, outcome: 'disputed', reason: 'security-finding-not-verified', presented: true });
     }
 
-    return { ...entry, outcome: 'filtered', reason: 'verifier-majority-not-reached', presented: false, index };
+    return withLabel({ ...entry, outcome: 'filtered', reason: 'verifier-majority-not-reached', presented: false, index });
   });
 
   const cleaned = findings.map((entry) => {
@@ -204,13 +285,36 @@ function tallyVotes(input) {
     return copy;
   });
 
+  const degraded = cleaned.filter((entry) => entry.outcome === 'unverified');
+  let verification = 'performed';
+  let reason;
+  let recoveryAction;
+  if (!capable) {
+    verification = 'not-performed';
+    reason = 'no-subagent-capability';
+    recoveryAction = 're-run-verification';
+  } else if (quick) {
+    verification = 'not-performed';
+    reason = 'depth-quick-no-verifiers';
+    recoveryAction = 're-run-verification';
+  } else if (degraded.length === cleaned.length && cleaned.length > 0) {
+    verification = 'not-performed';
+    reason = 'verifier-incomplete';
+    recoveryAction = 'supply-the-missing-votes';
+  } else if (degraded.length > 0) {
+    verification = 'partial';
+    reason = 'some-verifiers-did-not-return';
+    recoveryAction = 'supply-the-missing-votes';
+  }
+
   const result = {
     ok: true,
-    verification: quick ? 'not-performed' : 'performed',
+    verification,
     findings: cleaned,
     presented: cleaned.filter((entry) => entry.presented),
   };
-  if (quick) result.reason = 'depth-quick-no-verifiers';
+  if (reason !== undefined) result.reason = reason;
+  if (recoveryAction !== undefined) result.recoveryAction = recoveryAction;
   return result;
 }
 
