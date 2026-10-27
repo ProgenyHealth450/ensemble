@@ -799,6 +799,50 @@ describe('Guard 9: epic closure fails closed (complete-beads/SKILL.md)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Guard 10 -- the verification vote threshold in lib/pr-review-votes.js
+// (TRD-021, AC-025-1 and AC-025-2). The threshold also has two failure modes
+// and both are proven: 10a lets a finding no majority verified through as
+// `present`, so "verified" would mean nothing; 10b drops the critical/security
+// bypass, so a rejected security finding would be filtered away instead of
+// going to a person. 10b is the case that must be REFUSED -- a threshold that
+// simply obeys the vote would pass 10a's test while silently closing the one
+// class of finding a vote may never close.
+// ---------------------------------------------------------------------------
+
+describe('Guard 10: verification vote threshold (pr-review-votes.js)', () => {
+  const VOTE_FILES = ['lib/pr-review-votes.js', 'tests/pr-review-votes.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 10a',
+    label:
+      'Scenario: relaxing the majority comparison to a single vote waves through an unverified finding -- "1 of 3 real votes does not present it: it is filtered as verifier-rejected" fails against the mutant',
+    files: VOTE_FILES,
+    targetRel: 'lib/pr-review-votes.js',
+    testFileRel: 'tests/pr-review-votes.test.js',
+    testTitle: '1 of 3 real votes does not present it: it is filtered as verifier-rejected',
+    // Still a real comparison against a real count, so the module keeps working
+    // -- it just stops being a majority.
+    mutate: (text, a) => a.replace(text, 'if (votes.counted.real >= needed) {', 'if (votes.counted.real >= 1) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 10b',
+    label:
+      'Scenario: dropping the critical/security bypass lets a vote close a security finding -- "a security finding rejected by every verifier is disputed, not filtered" fails against the mutant',
+    files: VOTE_FILES,
+    targetRel: 'lib/pr-review-votes.js',
+    testFileRel: 'tests/pr-review-votes.test.js',
+    testTitle: 'a security finding rejected by every verifier is disputed, not filtered',
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        "    if (isSecurityLane(finding)) {\n      // Critical and security-relevant findings are never closed by a vote:",
+        "    if (false) {\n      // Critical and security-relevant findings are never closed by a vote:"
+      ),
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Harness self-checks: the proof gate must itself be able to fail.
 // ---------------------------------------------------------------------------
 
