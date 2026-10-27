@@ -29,6 +29,9 @@ const {
   runVotes,
   runDepth,
   runSlices,
+  runTier,
+  runApprovals,
+  runGate,
   LEDGER_ACTIONS,
   HANDLERS,
   main,
@@ -43,6 +46,10 @@ const { classifyPaths } = require('../lib/pr-review-paths');
 const { checkDescription } = require('../lib/pr-review-description');
 const { tallyVotes } = require('../lib/pr-review-votes');
 const { resolveDepth, checkBounds, boundsFor, planSlices, verifyCoverage } = require('../lib/pr-review-depth');
+const { assignTier, effectiveTier, tierRecord, HUMANS_REQUIRED } = require('../lib/pr-review-tier');
+const { evaluateApprovals } = require('../lib/pr-review-approvals');
+const { evaluateGate } = require('../lib/pr-review-gate');
+const { statePath, readState } = require('../lib/pr-review-state');
 
 const CLI = path.join(__dirname, '..', 'lib', 'pr-review-cli.js');
 
@@ -862,12 +869,12 @@ describe('pr-review-cli: the guidance subcommands are registered and documented 
   const SOURCE = fs.readFileSync(CLI, 'utf8');
   const GUIDANCE = ['policy', 'rules', 'paths', 'description'];
 
-  test('HANDLERS is exported, frozen, and holds exactly the twenty subcommands', () => {
+  test('HANDLERS is exported, frozen, and holds exactly the twenty-three subcommands', () => {
     expect(Object.keys(HANDLERS).sort()).toEqual(
       [
-        'depth', 'description', 'eval-compare', 'eval-score', 'eval-stale', 'explainer-offer', 'ledger', 'metrics',
-        'metrics-compare', 'paths', 'policy', 'remote', 'review-range', 'rules',
-        'scope', 'slices', 'state-read', 'state-write', 'status', 'votes',
+        'approvals', 'depth', 'description', 'eval-compare', 'eval-score', 'eval-stale', 'explainer-offer', 'gate',
+        'ledger', 'metrics', 'metrics-compare', 'paths', 'policy', 'remote', 'review-range', 'rules',
+        'scope', 'slices', 'state-read', 'state-write', 'status', 'tier', 'votes',
       ].sort()
     );
     expect(Object.isFrozen(HANDLERS)).toBe(true);
@@ -1336,5 +1343,287 @@ describe('pr-review-cli: the verification subcommands fail closed at the boundar
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0].outcome).toBe('unverified');
     expect(result.presented.map((entry) => entry.id)).toEqual(['F1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD-026. The tier, approval and merge-gate subcommands, and the tier decision
+// as it is RECORDED in the review-state report (REQ-015, AC-015-1, AC-015-2).
+// ---------------------------------------------------------------------------
+
+/** The classifier's output and the path classification for an ordinary product PR. */
+function tierPayload(overrides = {}) {
+  return {
+    kinds: [{ kind: 'product', paths: ['src/app.js'] }],
+    paths: { ok: true, sensitive: [], high: [], paths: ['src/app.js'] },
+    assignedBy: 'pr-review-cycle/classifier',
+    ...overrides,
+  };
+}
+
+/** The same composition the CLI performs, built here from the modules directly. */
+function tierDirect(payload) {
+  const assignment = assignTier(payload);
+  const effective = effectiveTier({
+    assignment,
+    policy: payload && payload.policy,
+    evidence: payload && payload.evidence,
+    enabledBy: payload && payload.enabledBy,
+    author: payload && payload.author,
+  });
+  const record = tierRecord({
+    assignment,
+    effective,
+    assignedBy: payload && payload.assignedBy,
+    at: payload && payload.at,
+  });
+  return { ...record, ok: record.ok === true && assignment.ok === true && effective.ok === true };
+}
+
+describe('pr-review-cli: tier, approvals and gate are registered and documented (TRD-026)', () => {
+  const SOURCE = fs.readFileSync(CLI, 'utf8');
+  const TRD_026 = ['tier', 'approvals', 'gate'];
+
+  test.each(TRD_026)('%s is registered to its own handler function', (name) => {
+    const expected = { tier: runTier, approvals: runApprovals, gate: runGate }[name];
+    expect(typeof expected).toBe('function');
+    expect(Object.prototype.hasOwnProperty.call(HANDLERS, name)).toBe(true);
+    expect(HANDLERS[name]).toBe(expected);
+  });
+
+  test('both usage strings -- the header comment and the unknown-subcommand error -- name all three', () => {
+    const usageLines = SOURCE.split('\n').filter((line) => line.includes('Usage:'));
+    expect(usageLines).toHaveLength(2);
+    for (const line of usageLines) {
+      for (const name of TRD_026) expect([line.trim(), name, line.includes(name)]).toEqual([line.trim(), name, true]);
+    }
+  });
+
+  test('the error a caller actually receives names them', () => {
+    const { code, captured } = captureStdout(() => main(['teir']));
+    expect(code).toBe(1);
+    const { error } = JSON.parse(captured);
+    for (const name of TRD_026) expect(error).toContain(name);
+  });
+});
+
+describe('pr-review-cli: tier composes assign -> effective -> record, and nothing else (TRD-026)', () => {
+  test('an ordinary product PR is Medium, one human, with the characteristics that drove it', () => {
+    const payload = tierPayload();
+    const result = runTier(payload);
+    expect(result).toEqual(tierDirect(payload));
+    expect(result.ok).toBe(true);
+    expect(result.tier).toBe('medium');
+    expect(result.effectiveTier).toBe('medium');
+    expect(result.humansRequired).toBe(HUMANS_REQUIRED.medium);
+    expect(result.characteristics).toEqual([{ kind: 'product', paths: ['src/app.js'] }]);
+    expect(result.assignedBy).toBe('pr-review-cycle/classifier');
+    expect(result.reasons).toContain('product-change');
+  });
+
+  test('AC-015-2: a sensitive path raises the tier, and the record shows original, final and reason', () => {
+    const payload = tierPayload({
+      kinds: [{ kind: 'docs', paths: ['docs/auth.md'] }, { kind: 'product', paths: ['src/auth/token.js'] }],
+      paths: { ok: true, sensitive: ['src/auth/token.js'], high: [], paths: ['docs/auth.md', 'src/auth/token.js'] },
+    });
+    const result = runTier(payload);
+    expect(result).toEqual(tierDirect(payload));
+    expect(result.originalTier).toBe('medium');
+    expect(result.finalTier).toBe('high');
+    expect(result.tier).toBe('high');
+    expect(result.humansRequired).toBe(HUMANS_REQUIRED.high);
+    expect(result.reasons).toContain('sensitive-path');
+    expect(result.paths.sensitive).toEqual(['src/auth/token.js']);
+  });
+
+  test('AC-015-2: a second assessment raises the tier and the raise records its reason', () => {
+    const payload = tierPayload({
+      secondAssessment: { needsAnotherPerson: true, reason: 'touches the release path', evidencePaths: ['src/app.js'] },
+    });
+    const result = runTier(payload);
+    expect(result.originalTier).toBe('medium');
+    expect(result.finalTier).toBe('high');
+    expect(result.raised).toEqual([{ from: 'medium', to: 'high', reason: 'touches the release path' }]);
+  });
+
+  test('a lowering proposal from a non-owner is ignored and the record says why (AC-013-2)', () => {
+    const result = runTier(tierPayload({ proposedTier: 'low', proposedBy: { login: 'author', isCodeOwner: false } }));
+    expect(result.tier).toBe('medium');
+    expect(result.ignored).toEqual([{ proposedTier: 'low', by: 'author', reason: 'lowering-needs-code-owner' }]);
+  });
+
+  test('the dispatcher only ever makes ok stricter: a refused waiver is not a clean tier result', () => {
+    const payload = tierPayload({
+      kinds: [{ kind: 'docs', paths: ['README.md'] }],
+      paths: { ok: true, sensitive: [], high: [], paths: ['README.md'] },
+      policy: { lowWaiverEnabled: true, maintainerLogins: ['maint'] },
+      enabledBy: { login: 'maint', isCodeOwner: true },
+      author: 'maint',
+    });
+    const result = runTier(payload);
+    expect(result.tier).toBe('low');
+    expect(result.effectiveTier).toBe('medium');
+    expect(result.humansRequired).toBe(HUMANS_REQUIRED.medium);
+    expect(result.waiver.applies).toBe(false);
+    expect(result.refusals.map((entry) => entry.code)).toContain('low-waiver-unsupported');
+  });
+});
+
+describe('pr-review-cli: approvals and gate are pass-throughs to their one module (TRD-026)', () => {
+  const APPROVALS = {
+    reviews: [{ login: 'reviewer-a', state: 'approved', commitSha: HEAD_SHA }],
+    headSha: HEAD_SHA,
+    tier: runTier(tierPayload()),
+    author: 'author',
+  };
+
+  test('approvals returns evaluateApprovals verbatim', () => {
+    expect(runApprovals(APPROVALS)).toEqual(evaluateApprovals(APPROVALS));
+    expect(runApprovals(APPROVALS).satisfied).toBe(true);
+  });
+
+  test('gate returns evaluateGate verbatim', () => {
+    const payload = {
+      ledger: [],
+      approvals: runApprovals(APPROVALS),
+      tier: runTier(tierPayload()),
+      description: checkDescription({ body: '## Testing\nran\n## Risk\nlow\n## Rollback\nrevert\n' }),
+      security: { status: 'clean' },
+      headSha: HEAD_SHA,
+    };
+    expect(runGate(payload)).toEqual(evaluateGate(payload));
+  });
+
+  test.each([null, undefined, [], 'x', 5, true, false, {}])('approvals and gate of %p equal the module called directly', (payload) => {
+    expect(runApprovals(payload)).toEqual(evaluateApprovals(payload));
+    expect(runGate(payload)).toEqual(evaluateGate(payload));
+  });
+});
+
+describe('pr-review-cli: tier, approvals and gate fail closed at the boundary (TRD-026)', () => {
+  const PAYLOADS = ['null', '[]', '"x"', '5', 'true', 'false', '{}', '[{}]', '{"__proto__":{"tier":"low"}}', '{"constructor":{"prototype":{}}}'];
+
+  const run = (subcommand, json) => {
+    const { code, captured } = withStdin(json, () => captureStdout(() => main([subcommand])));
+    return { code, result: JSON.parse(captured) };
+  };
+
+  test.each(PAYLOADS)('tier %s: High with two humans, never a cheaper review', (json) => {
+    const { code, result } = run('tier', json);
+    expect(code).toBe(0);
+    expect(result.ok).toBe(false);
+    expect(result.tier).toBe('high');
+    expect(result.effectiveTier).toBe('high');
+    expect(result.finalTier).toBe('high');
+    expect(result.humansRequired).toBe(HUMANS_REQUIRED.high);
+    expect(result.waiver.applies).toBe(false);
+  });
+
+  test.each(PAYLOADS)('approvals %s: never satisfied, two humans required', (json) => {
+    const { code, result } = run('approvals', json);
+    expect(code).toBe(0);
+    expect(result.satisfied).toBe(false);
+    expect(result.humansRequired).toBe(HUMANS_REQUIRED.high);
+    expect(result.approvedBy).toEqual([]);
+  });
+
+  test.each(PAYLOADS)('gate %s: never mergeable, and it names the missing data', (json) => {
+    const { code, result } = run('gate', json);
+    expect(code).toBe(0);
+    expect(result.mergeable).toBe(false);
+    expect(result.blockers.length).toBeGreaterThan(0);
+    for (const blocker of result.blockers) {
+      expect(typeof blocker.code).toBe('string');
+      expect(typeof blocker.message).toBe('string');
+      expect(typeof blocker.nextAction).toBe('string');
+    }
+  });
+
+  test.each(['tier', 'approvals', 'gate'])('%s with unparseable stdin exits 1 with a JSON error', (name) => {
+    const { code, captured } = withStdin('{ not json', () => captureStdout(() => main([name])));
+    expect(code).toBe(1);
+    expect(JSON.parse(captured).error).toMatch(/invalid JSON on stdin/);
+  });
+
+  test('a __proto__ payload neither pollutes a result nor buys a cheaper tier', () => {
+    const { code, result } = run('tier', '{"__proto__":{"kinds":[{"kind":"docs","paths":["a.md"]}],"paths":{"ok":true,"sensitive":[],"high":[]}}}');
+    expect(code).toBe(0);
+    expect(result.tier).toBe('high');
+    expect({}.kinds).toBeUndefined();
+  });
+
+  test.each([
+    ['a tier word instead of a tier result', 'low'],
+    ['a tier result the module refused', { ok: false, effectiveTier: 'low', humansRequired: 0 }],
+  ])('approvals with %s is never satisfied: two humans are required', (_label, tier) => {
+    const { result } = run('approvals', JSON.stringify({
+      reviews: [{ login: 'reviewer-a', state: 'approved', commitSha: HEAD_SHA }],
+      headSha: HEAD_SHA,
+      tier,
+    }));
+    expect(result.ok).toBe(false);
+    expect(result.satisfied).toBe(false);
+    expect(result.humansRequired).toBe(HUMANS_REQUIRED.high);
+    expect(result.approvedBy).toEqual([]);
+  });
+});
+
+describe('pr-review-cli: state-write records the tier decision and state-read returns it (AC-015-1, AC-015-2)', () => {
+  const run = (subcommand, payload) => {
+    const { code, captured } = withStdin(JSON.stringify(payload), () => captureStdout(() => main([subcommand])));
+    return { code, result: JSON.parse(captured) };
+  };
+
+  test('the recorded report carries tier, reasons, original and final tier for the same head', () => {
+    const cwd = tmpCwd();
+    const tier = runTier(tierPayload({
+      kinds: [{ kind: 'product', paths: ['src/auth/token.js'] }],
+      paths: { ok: true, sensitive: ['src/auth/token.js'], high: [], paths: ['src/auth/token.js'] },
+    }));
+    expect(tier.originalTier).toBe('medium');
+    expect(tier.finalTier).toBe('high');
+
+    const written = run('state-write', { prId: '42', cwd, state: { headSha: HEAD_SHA, tier } });
+    expect(written.code).toBe(0);
+    expect(written.result.ok).toBe(true);
+    // The report lives under the untracked .ensemble/pr-review/ directory.
+    expect(written.result.path).toBe(statePath('42', cwd));
+    expect(written.result.path).toContain(path.join('.ensemble', 'pr-review'));
+
+    const read = run('state-read', { prId: '42', cwd, headSha: HEAD_SHA });
+    expect(read.code).toBe(0);
+    expect(read.result.ok).toBe(true);
+    expect(read.result.discarded).toBe(false);
+    expect(read.result.state.tier).toEqual(tier);
+    expect(read.result.state.tier.tier).toBe('high');
+    expect(read.result.state.tier.originalTier).toBe('medium');
+    expect(read.result.state.tier.finalTier).toBe('high');
+    expect(read.result.state.tier.reasons).toContain('sensitive-path');
+    expect(read.result.state.tier.assignedBy).toBe('pr-review-cycle/classifier');
+
+    // The same decision read straight off disk -- the CLI did not re-grade it.
+    expect(readState(statePath('42', cwd), HEAD_SHA, { cwd }).state.tier).toEqual(tier);
+  });
+
+  test('a report written for one head is not resumed for another: the tier is not reused', () => {
+    const cwd = tmpCwd();
+    const tier = runTier(tierPayload());
+    expect(run('state-write', { prId: '43', cwd, state: { headSha: HEAD_SHA, tier } }).result.ok).toBe(true);
+    const read = run('state-read', { prId: '43', cwd, headSha: 'c'.repeat(40) });
+    expect(read.result.discarded).toBe(true);
+    expect(read.result.state).toBeNull();
+  });
+});
+
+describe('pr-review-cli: tier, approvals and gate over a real shell invocation (TRD-026)', () => {
+  test.each([
+    ['tier', tierPayload()],
+    ['approvals', { reviews: [], headSha: HEAD_SHA, tier: runTier(tierPayload()) }],
+    ['gate', { ledger: [], approvals: runApprovals({ reviews: [], headSha: HEAD_SHA, tier: runTier(tierPayload()) }), description: checkDescription({ body: '' }), security: { status: 'clean' } }],
+  ])('%s through the executable equals the direct handler call', (subcommand, payload) => {
+    const run = spawnSync('node', [CLI, subcommand], { input: JSON.stringify(payload), encoding: 'utf8' });
+    expect(run.status).toBe(0);
+    const direct = { tier: runTier, approvals: runApprovals, gate: runGate }[subcommand](payload);
+    expect(JSON.parse(run.stdout)).toEqual(JSON.parse(JSON.stringify(direct)));
   });
 });

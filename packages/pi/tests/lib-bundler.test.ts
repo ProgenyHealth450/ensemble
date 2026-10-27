@@ -212,9 +212,12 @@ describe('bundleLibs against real packages directory', () => {
     // own siblings (pr-review-scope, pr-review-ledger, pr-review-remote,
     // pr-review-status, pr-review-state, the TRD-005 guidance modules
     // pr-review-policy, pr-review-rules, pr-review-paths, pr-review-description,
-    // and the TRD-018 verification modules pr-review-votes, pr-review-depth)
+    // the TRD-018 verification modules pr-review-votes, pr-review-depth,
+    // the TRD-043 pr-review-explainer-offer, the TRD-032 pr-review-metrics and
+    // pr-review-eval, and the TRD-026 pr-review-tier, pr-review-approvals and
+    // pr-review-gate)
     // + validate-git-town.sh
-    expect(results.length).toBe(29);
+    expect(results.length).toBe(35);
   });
 
   it('all results have type === "lib"', async () => {
@@ -260,6 +263,12 @@ describe('bundleLibs against real packages directory', () => {
       'pr-review-description.js',
       'pr-review-votes.js',
       'pr-review-depth.js',
+      'pr-review-explainer-offer.js',
+      'pr-review-metrics.js',
+      'pr-review-eval.js',
+      'pr-review-tier.js',
+      'pr-review-approvals.js',
+      'pr-review-gate.js',
     ]) {
       expect(vendoredNames).toContain(expected);
     }
