@@ -210,10 +210,17 @@ function loadPolicy(input) {
   if (!isObject(parsed)) return strict('policy-not-an-object', warnings);
 
   // --- The policy must be the base-commit copy (REQ-024, AC-024-1) -------
+  // A block cannot name the commit that contains it, so the identity is the
+  // commit the CALLER read the text from (`sourceSha`, via `git show
+  // <baseSha>:REVIEW.md`). A block that ALSO declares a `sourceSha` must
+  // declare the base; one naming another commit is a copy from elsewhere and
+  // is never read. With neither identity nothing ties the text to the base.
   const declaredSource = Object.prototype.hasOwnProperty.call(parsed, 'sourceSha') ? parsed.sourceSha : undefined;
   const sourceMatchesBase = (value) => isObjectId(value) && String(value).toLowerCase() === String(baseSha).toLowerCase();
-  if (!isObjectId(baseSha) || !sourceMatchesBase(declaredSource)) return strict('policy-not-from-base', warnings);
-  if (sourceSha !== undefined && !sourceMatchesBase(sourceSha)) return strict('policy-not-from-base', warnings);
+  const hasIdentity = declaredSource !== undefined || sourceSha !== undefined;
+  const declaredOk = declaredSource === undefined || sourceMatchesBase(declaredSource);
+  const callerOk = sourceSha === undefined || sourceMatchesBase(sourceSha);
+  if (!isObjectId(baseSha) || !hasIdentity || !declaredOk || !callerOk) return strict('policy-not-from-base', warnings);
 
   // --- Key by key: accept, or reject by name and use the default ---------
   const policy = clone(DEFAULT_POLICY);

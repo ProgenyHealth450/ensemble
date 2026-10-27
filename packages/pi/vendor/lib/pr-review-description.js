@@ -172,7 +172,11 @@ function checkDescription(input, options) {
   const warnings = [];
 
   // --- Read the body outside fenced code blocks (REQ-024) -----------------
-  const lines = body.split(/\r?\n/);
+  // An HTML comment renders as nothing on the PR page, so a heading, answer or
+  // `Directed by:` line inside one is never seen by a reader and must not count
+  // (an unterminated `<!--` hides the rest of the body, as GitHub renders it).
+  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, ' ');
+  const lines = visible.split(/\r?\n/);
   const headings = [];
   const directedCandidates = [];
   let inFence = false;

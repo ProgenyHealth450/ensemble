@@ -282,6 +282,24 @@ describe('pr-review-policy: the policy must come from the base commit (AC-024-1)
     expect(result.policy.roundCap).toBe(DEFAULT_ROUND_CAP);
   });
 
+  test('a block that declares no sourceSha is read when the caller names the base as the commit it read it from', () => {
+    // A block cannot contain the hash of the commit that holds it, so the
+    // caller's `git show <baseSha>:REVIEW.md` is the identity.
+    const result = loadPolicy({ text: reviewMd({ roundCap: 5 }), baseSha: BASE_SHA, sourceSha: BASE_SHA });
+
+    expect(result.ok).toBe(true);
+    expect(result.source).toBe('policy');
+    expect(result.policy.roundCap).toBe(5);
+  });
+
+  test('a block that declares no sourceSha is rejected when the caller read it from another commit', () => {
+    const result = loadPolicy({ text: reviewMd({ roundCap: 5 }), baseSha: BASE_SHA, sourceSha: HEAD_SHA });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('policy-not-from-base');
+    expect(result.policy.roundCap).toBe(DEFAULT_ROUND_CAP);
+  });
+
   test('a block whose own sourceSha disagrees with the base is rejected', () => {
     const result = loadPolicy({
       text: reviewMd({ sourceSha: HEAD_SHA, roundCap: 5 }),

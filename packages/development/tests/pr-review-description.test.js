@@ -253,3 +253,31 @@ describe('pr-review-description: fail-closed request handling', () => {
     expect(result.missing).toEqual(['testing', 'risk', 'how-to-revert']);
   });
 });
+
+describe('pr-review-description: hidden HTML comments are not body text (REQ-024)', () => {
+  test('sections written only inside an HTML comment do not count', () => {
+    const body = ['## Summary', 'x', '<!--', '## Testing', 'ran it', '## Risk', 'low', '## How to revert', 'git revert', '-->'].join('\n');
+    const result = checkDescription(body);
+    expect(result.ready).toBe(false);
+    expect(result.missing).toEqual(['testing', 'risk', 'how-to-revert']);
+  });
+
+  test('an unterminated comment hides the rest of the body', () => {
+    const result = checkDescription(`${complete}\n<!-- never closed\n## Extra\n`);
+    expect(result.ready).toBe(true);
+    const hidden = checkDescription(`## Testing\nran\n<!-- never closed\n## Risk\nlow\n## How to revert\nrevert`);
+    expect(hidden.ready).toBe(false);
+    expect(hidden.missing).toEqual(['risk', 'how-to-revert']);
+  });
+
+  test('a Directed by line inside a comment does not name the accountable human', () => {
+    const result = checkDescription(`${complete}\n<!-- Directed by: @someone -->\n`, { agentAuthored: true });
+    expect(result.ready).toBe(false);
+    expect(result.missing).toEqual(['directed-by']);
+  });
+
+  test('visible sections are still read around a comment', () => {
+    const result = checkDescription(complete.replace('## Risk', '<!-- note -->\n## Risk'));
+    expect(result.ready).toBe(true);
+  });
+});
