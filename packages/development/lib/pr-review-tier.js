@@ -241,6 +241,10 @@ function assignTier(input) {
     baseTier,
     floor,
     kinds,
+    // The paths that drove the floor, kept so the recorded decision can name
+    // them (TRD-041, AC-015-1) rather than make the reader re-derive them.
+    sensitivePaths: classification.sensitive.slice(),
+    highPaths: classification.high.slice(),
     uncitedPaths,
     reasons,
     raised,
@@ -250,4 +254,228 @@ function assignTier(input) {
   };
 }
 
-module.exports = { assignTier, TIERS, KINDS, LOW_KINDS };
+/**
+ * The evidence a repository must have RECORDED before a Low PR may skip human
+ * approval (AC-013-1). These are the PRD's numbers, kept here as one named
+ * constant so a reader can check them against the requirement.
+ */
+const WAIVER_EVIDENCE_MINIMUMS = Object.freeze({ lowPrs: 20, days: 30, maxReverts: 0, maxIncidents: 0 });
+
+/** Humans required by effective tier: an effective-Low PR needs none, Medium one, High two. */
+const HUMANS_REQUIRED = Object.freeze({ low: 0, medium: 1, high: 2 });
+
+/** The fail-closed effective tier: High, two humans, no waiver, the reason named. */
+function blockedEffective(reason) {
+  return {
+    ok: false,
+    tier: 'high',
+    effectiveTier: 'high',
+    humansRequired: HUMANS_REQUIRED.high,
+    waiver: { applies: false, reason, evidence: null, enabledBy: null },
+    refusals: [],
+    reasons: [reason],
+    warnings: [reason],
+  };
+}
+
+/** A count that is really a count: an integer at or above zero. A numeric STRING is not a count. */
+const isCount = (value) => Number.isInteger(value) && value >= 0;
+
+/**
+ * The recorded Low-waiver evidence, or a named reason it cannot be used.
+ * Every field must be present and readable: evidence that is partly missing
+ * is not evidence, and "no reverts recorded" is not the same as "zero
+ * reverts".
+ */
+function readEvidence(value) {
+  if (value === undefined || value === null) return { ok: false, reason: 'no-evidence' };
+  if (!isObject(value)) return { ok: false, reason: 'unreadable-evidence' };
+  const { lowPrs, days, reverts, incidents } = value;
+  if (![lowPrs, days, reverts, incidents].every(isCount)) return { ok: false, reason: 'unreadable-evidence' };
+  return { ok: true, evidence: { lowPrs, days, reverts, incidents } };
+}
+
+/**
+ * The effective tier: the tier a PR is actually reviewed and approved at
+ * (AC-013-1, AC-013-4).
+ *
+ * A Low assignment is effectively MEDIUM -- one human approval -- unless all
+ * four of these hold:
+ *
+ *   1. the policy has the Low waiver enabled (exactly `true`);
+ *   2. a CODEOWNERS-checked code owner enabled it;
+ *   3. the recorded evidence meets `WAIVER_EVIDENCE_MINIMUMS`: at least 20
+ *      Low PRs over at least 30 days with zero reverts and zero incidents;
+ *   4. the author is a repository maintainer -- every other author's Low PR
+ *      still needs one human (AC-014-5).
+ *
+ * When the waiver is enabled but the evidence is missing or unreadable, the
+ * attempt is REFUSED and named in `refusals` so the approval evaluator can
+ * report why approval is still required (AC-013-4).
+ *
+ * Medium and High are untouched: no waiver lowers them.
+ *
+ * @param {{assignment:Object, policy?:Object, evidence?:Object,
+ *   enabledBy?:{login:string, isCodeOwner:boolean}, author?:string}} input
+ * @returns {{ok:boolean, tier:string, effectiveTier:string, humansRequired:number,
+ *   waiver:{applies:boolean, reason:string, evidence:Object|null, enabledBy:string|null},
+ *   refusals:Array<{code:string, detail:string, nextAction:string}>, reasons:string[], warnings:string[]}}
+ */
+function effectiveTier(input) {
+  if (!isObject(input)) return blockedEffective('invalid-input');
+
+  const assignment = input.assignment;
+  if (!isObject(assignment)) return blockedEffective('invalid-assignment');
+  if (assignment.ok === false) return blockedEffective('assignment-blocked');
+
+  const tier = fromSet(assignment.tier, TIERS);
+  if (tier === null) return blockedEffective('unknown-tier');
+
+  const reasons = [];
+  const warnings = [];
+  const refusals = [];
+
+  const policy = isObject(input.policy) ? input.policy : null;
+  if (input.policy !== undefined && input.policy !== null && policy === null) warnings.push('unreadable-policy');
+
+  const waiverEnabled = policy !== null && policy.lowWaiverEnabled === true;
+  if (policy !== null && policy.lowWaiverEnabled !== undefined && typeof policy.lowWaiverEnabled !== 'boolean') {
+    warnings.push('unreadable-low-waiver-flag');
+  }
+
+  const enabledByOwner = isObject(input.enabledBy) && input.enabledBy.isCodeOwner === true;
+  const enabledByLogin = isObject(input.enabledBy) && isText(input.enabledBy.login) ? input.enabledBy.login : null;
+  const maintainers = policy !== null && Array.isArray(policy.maintainerLogins)
+    ? policy.maintainerLogins.filter(isText).map((login) => login.trim().replace(/^@/, '').toLowerCase())
+    : [];
+  const author = isText(input.author) ? input.author.trim().replace(/^@/, '').toLowerCase() : null;
+
+  const deny = (reason) => {
+    reasons.push(reason);
+    return {
+      ok: true,
+      tier,
+      effectiveTier: tier === 'low' ? 'medium' : tier,
+      humansRequired: HUMANS_REQUIRED[tier === 'low' ? 'medium' : tier],
+      waiver: { applies: false, reason, evidence: null, enabledBy: enabledByLogin },
+      refusals,
+      reasons,
+      warnings,
+    };
+  };
+
+  if (tier !== 'low') return deny('not-low-tier');
+  if (!waiverEnabled) return deny('waiver-not-enabled');
+  if (!enabledByOwner) return deny('waiver-not-enabled-by-code-owner');
+
+  const evidence = readEvidence(input.evidence);
+  if (!evidence.ok) {
+    refusals.push({
+      code: 'low-waiver-unsupported',
+      detail: evidence.reason,
+      nextAction: 'record the Low-waiver evidence (20+ Low PRs over 30+ days, zero reverts, zero incidents) or request one human approval',
+    });
+    return deny(evidence.reason);
+  }
+
+  const { lowPrs, days, reverts, incidents } = evidence.evidence;
+  if (lowPrs < WAIVER_EVIDENCE_MINIMUMS.lowPrs) return deny('insufficient-low-pr-count');
+  if (days < WAIVER_EVIDENCE_MINIMUMS.days) return deny('insufficient-window');
+  if (reverts > WAIVER_EVIDENCE_MINIMUMS.maxReverts) return deny('reverts-recorded');
+  if (incidents > WAIVER_EVIDENCE_MINIMUMS.maxIncidents) return deny('incidents-recorded');
+  if (author === null || !maintainers.includes(author)) return deny('author-not-maintainer');
+
+  reasons.push('low-waiver-applied');
+  return {
+    ok: true,
+    tier,
+    effectiveTier: 'low',
+    humansRequired: HUMANS_REQUIRED.low,
+    waiver: { applies: true, reason: 'low-waiver-applied', evidence: evidence.evidence, enabledBy: enabledByLogin },
+    refusals,
+    reasons,
+    warnings,
+  };
+}
+
+/** The fail-closed tier record: High, two humans, the reason named, nothing granted. */
+function blockedRecord(reason) {
+  return {
+    ok: false,
+    tier: 'high',
+    effectiveTier: 'high',
+    humansRequired: HUMANS_REQUIRED.high,
+    originalTier: 'high',
+    finalTier: 'high',
+    characteristics: [],
+    paths: { sensitive: [], high: [], uncited: [] },
+    reasons: [reason],
+    raised: [],
+    lowered: [],
+    ignored: [],
+    waiver: { applies: false, reason, evidence: null, enabledBy: null },
+    refusals: [],
+    assignedBy: null,
+    warnings: [reason],
+  };
+}
+
+/**
+ * The tier decision as it is written into the review-state report (AC-015-1,
+ * AC-015-2): the tier and the effective tier, the humans they require, the
+ * characteristics (change kinds) and paths that drove the decision, who or
+ * what assigned it, every raise with its original tier, final tier and
+ * reason, and the Low-waiver outcome with any refusal.
+ *
+ * Fail closed: a record that cannot be built is High with two humans. An
+ * unrecorded tier is never an absent requirement.
+ *
+ * @param {{assignment:Object, effective:Object, assignedBy?:string, at?:string}} input
+ * @returns {Object}
+ */
+function tierRecord(input) {
+  if (!isObject(input)) return blockedRecord('invalid-input');
+  const { assignment, effective } = input;
+  if (!isObject(assignment) || assignment.ok !== true) return blockedRecord('invalid-assignment');
+  if (!isObject(effective) || typeof effective.humansRequired !== 'number') return blockedRecord('invalid-effective-tier');
+
+  const tier = fromSet(effective.tier, TIERS);
+  const effectiveWord = fromSet(effective.effectiveTier, TIERS);
+  if (tier === null || effectiveWord === null) return blockedRecord('unknown-tier');
+
+  const record = {
+    ok: true,
+    tier,
+    effectiveTier: effectiveWord,
+    humansRequired: effective.humansRequired,
+    originalTier: fromSet(assignment.baseTier, TIERS) === null ? tier : assignment.baseTier,
+    finalTier: tier,
+    characteristics: Array.isArray(assignment.kinds) ? assignment.kinds.map((entry) => ({ ...entry })) : [],
+    paths: {
+      sensitive: Array.isArray(assignment.sensitivePaths) ? assignment.sensitivePaths.slice() : [],
+      high: Array.isArray(assignment.highPaths) ? assignment.highPaths.slice() : [],
+      uncited: Array.isArray(assignment.uncitedPaths) ? assignment.uncitedPaths.slice() : [],
+    },
+    reasons: [...(Array.isArray(assignment.reasons) ? assignment.reasons : []), ...(Array.isArray(effective.reasons) ? effective.reasons : [])],
+    raised: Array.isArray(assignment.raised) ? assignment.raised.map((entry) => ({ ...entry })) : [],
+    lowered: Array.isArray(assignment.lowered) ? assignment.lowered.map((entry) => ({ ...entry })) : [],
+    ignored: Array.isArray(assignment.ignored) ? assignment.ignored.map((entry) => ({ ...entry })) : [],
+    waiver: isObject(effective.waiver) ? { ...effective.waiver } : { applies: false, reason: 'no-waiver-record', evidence: null, enabledBy: null },
+    refusals: Array.isArray(effective.refusals) ? effective.refusals.map((entry) => ({ ...entry })) : [],
+    assignedBy: isText(input.assignedBy) ? input.assignedBy.trim() : null,
+    warnings: [...(Array.isArray(assignment.warnings) ? assignment.warnings : []), ...(Array.isArray(effective.warnings) ? effective.warnings : [])],
+  };
+  if (isText(input.at)) record.at = input.at.trim();
+  return record;
+}
+
+module.exports = {
+  assignTier,
+  effectiveTier,
+  tierRecord,
+  TIERS,
+  KINDS,
+  LOW_KINDS,
+  WAIVER_EVIDENCE_MINIMUMS,
+  HUMANS_REQUIRED,
+};
