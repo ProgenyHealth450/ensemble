@@ -169,4 +169,24 @@ describe('resolveBdd precedence', () => {
     expect(resolveBdd({ env: {}, trdPath: trdWith(root), repoRoot: root })).toMatchObject({ source: 'detected' });
     expect(resolveBdd({ env: {}, trdPath: path.join(root, 'nope.md'), repoRoot: root })).toMatchObject({ source: 'detected' });
   });
+
+  describe('Reqnroll added to the repo after create-trd ran', () => {
+    // create-trd leaves test_approach out when BDD_MODE.source is `default`, so this is the TRD it writes then.
+    test('a TRD written on the bare default carries no stamp, so implement-trd-beads picks Reqnroll up once it exists', () => {
+      const root = tmp();
+      const trd = trdWith(root); // no test_approach
+      expect(resolveBdd({ env: {}, repoRoot: root })).toMatchObject({ enabled: false, source: 'default' }); // create-trd time
+      expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: false, source: 'default' });
+
+      write(root, 'tests/App.E2E/App.E2E.csproj', REQNROLL_CSPROJ); // the Reqnroll project is scaffolded afterwards
+      expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: true, source: 'detected' });
+    });
+
+    test('an explicit opt-out is stamped, and still wins over Reqnroll added later', () => {
+      const root = tmp();
+      const trd = trdWith(root, 'standard'); // what create-trd writes for --no-bdd or ENSEMBLE_BDD=0
+      write(root, 'tests/App.E2E/App.E2E.csproj', REQNROLL_CSPROJ);
+      expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: false, source: 'trd' });
+    });
+  });
 });

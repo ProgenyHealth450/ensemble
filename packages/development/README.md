@@ -45,11 +45,11 @@ BDD/Reqnroll is a mode, not a requirement. `/ensemble:create-trd` and `/ensemble
 | --- | --- | --- |
 | 1 | `--bdd` / `--no-bdd` (`create-trd` only) | on / off |
 | 2 | `ENSEMBLE_BDD` environment variable | `1`, `true`, `on`, `yes` / `0`, `false`, `off`, `no` |
-| 3 | `test_approach:` in the TRD frontmatter (`implement-trd-beads` reads it; `create-trd` writes it) | `bdd-reqnroll` / `standard` |
+| 3 | `test_approach:` in the TRD frontmatter (`implement-trd-beads` reads it; `create-trd` writes it unless the answer was only the default) | `bdd-reqnroll` / `standard` |
 | 4 | A Reqnroll package reference in a `.csproj`, `.fsproj`, `.vbproj`, `Directory.Packages.props`, `Directory.Build.props` or `packages.config` under the repo | on |
 | 5 | none of the above | off |
 
-A repo that already uses Reqnroll keeps the behavior below with no setup; a repo that does not (a Playwright + xUnit repo, a Node or Rails repo) gets the standard path. To use BDD in a repo that does not reference Reqnroll yet, pass `--bdd` to `create-trd`: the TRD records `test_approach: bdd-reqnroll`, so `implement-trd-beads` follows it. An unrecognised `ENSEMBLE_BDD` or `test_approach` value is ignored with a warning.
+A repo that already uses Reqnroll keeps the behavior below with no setup; a repo that does not (a Playwright + xUnit repo, a Node or Rails repo) gets the standard path. To use BDD in a repo that does not reference Reqnroll yet, pass `--bdd` to `create-trd` (or set `ENSEMBLE_BDD=1`): the TRD records `test_approach: bdd-reqnroll`, so `implement-trd-beads` follows it. If you run `create-trd` before the Reqnroll project exists and pass nothing, the TRD records no `test_approach`, so `implement-trd-beads` looks again and picks Reqnroll up once the project references it. An unrecognised `ENSEMBLE_BDD` or `test_approach` value is ignored with a warning.
 
 **BDD off.** The `-TEST` task pairing and one `Test AC:` item per AC-NNN-M are unchanged, because `validate`, `analyze`, `req-status` and the `req-verified` evidence tokens depend on them. There is no minimum scenario count: a functional REQ with fewer than 3 ACs is listed as a coverage note in the readiness scorecard, which never blocks and never lowers the score. `-TEST` beads are implemented in the repo's own test framework from their `Test AC:` items, confirmed RED, and run through the `test-runner.run` capability. Nothing is scaffolded through `reqnroll-cli` and no `reqnroll-binding-specialist` is involved.
 

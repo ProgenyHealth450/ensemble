@@ -10,7 +10,9 @@
  *   1. `flag`     — `--bdd` / `--no-bdd` (create-trd only; the CLI maps them to 'bdd' | 'no-bdd')
  *   2. `env`      — ENSEMBLE_BDD = 1|true|on|yes (on) or 0|false|off|no (off)
  *   3. `trd`      — the TRD's `test_approach` frontmatter (`bdd-reqnroll` | `standard`), which
- *                   create-trd writes so a TRD stays self-describing
+ *                   create-trd writes when the choice was explicit (flag, env or detected) so the TRD
+ *                   stays self-describing. A TRD written on the bare default (5) carries none, so
+ *                   Reqnroll added to the repo afterwards is still picked up by implement-trd-beads
  *   4. `detected` — a Reqnroll package reference in a project manifest under the repo root
  *   5. `default`  — off
  *

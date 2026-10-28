@@ -104,7 +104,12 @@ describe('create-trd resolves the test approach once, before it needs it', () =>
 
   test('the saved TRD records the decision as test_approach frontmatter', () => {
     const text = actions(doc, 'Output Management', 'TRD Document Generation');
-    expect(text).toContain('`test_approach` (`bdd-reqnroll` if BDD_MODE.enabled, else `standard`)');
+    expect(text).toContain('`test_approach` (`bdd-reqnroll` if BDD_MODE.enabled, else `standard`;');
+  });
+
+  test('a TRD written on the bare default carries no test_approach, so a later-added Reqnroll project is still detected', () => {
+    const text = actions(doc, 'Output Management', 'TRD Document Generation');
+    expect(text).toContain('omit it when BDD_MODE.source is `default`');
   });
 });
 
