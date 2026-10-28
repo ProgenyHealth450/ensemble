@@ -376,7 +376,7 @@ describe('TRD-027: pr-merge requires mergeable:true from the gate, on freshly re
   test('a self-report never stands in for the gate, and the gate is re-run per head', () => {
     expect(PR_MERGE_FLAT).toContain('Never accept a self-report in place of this gate');
     expect(PR_MERGE_FLAT).toContain('Re-run the gate against freshly read state immediately before merging, never reuse an earlier round\'s result');
-    expect(PR_MERGE_FLAT).toContain('HEAD_SHA = git rev-parse origin/<headBranch>, read now -- never a SHA carried over from an earlier round');
+    expect(PR_MERGE_FLAT).toContain("HEAD_SHA = <headBranch>'s live head from the host adapter, read now -- never a SHA carried over from an earlier round");
   });
 
   test('the shortcut that skips remediation does not skip the gate', () => {

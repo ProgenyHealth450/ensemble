@@ -98,7 +98,7 @@ Assign exactly one owner per finding; first matching row wins, never dual-route.
 The one gate that owns review merge readiness; green local CI says nothing about it.
 
 **Actions:**
-1. Re-read the head first: git fetch origin <headBranch>, HEAD_SHA = git rev-parse origin/<headBranch>, read now -- never a SHA carried over from an earlier round.
+1. Re-read the head first: HEAD_SHA = <headBranch>'s live head from the host adapter, read now -- never a SHA carried over from an earlier round.
 2. Invoke the pr-review-cycle skill (packages/development/skills/pr-review-cycle/SKILL.md) with MODE=gate, BASE_SHA/HEAD_SHA for this PR's range, PR_NUMBER, PR_ID, PR_BODY, AGENT_AUTHORED and DIRECTED_BY (the body's 'Directed by:' line when an agent wrote it). It reads approvals and reviews itself. Never call pr-review-cli.js from this command.
 3. MODE=gate with no recorded review for this head must never be given an empty ledger: when the review-state report for HEAD_SHA is missing or belongs to another head, the ledger is UNAVAILABLE and the gate blocks with review-data-unavailable. Do not substitute []; tell the user to run pr-review-cycle MODE=local/remote for this head first, then re-run the gate.
 4. mergeable:true is REQUIRED to proceed; no other evidence substitutes. If mergeable:false, do not merge: report every blocker by its message and nextAction, then run another Verification and Round Loop pass or HALT at the round cap. The Final Report includes the gate's mergeable value and every blocker.
