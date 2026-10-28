@@ -20,12 +20,18 @@ const DEV_ROOT = path.join(__dirname, '..', '..');
 /**
  * Where a caller's PR body templates live when the command defers them: the
  * thin `implement-trd-beads.yaml` orchestrator points at "reference section 3"
- * of the `implement-trd-beads-reference` skill, which owns the phase and
- * completion body templates.
+ * of the `implement-trd-beads-reference` skill (SKILL.md plus its
+ * `reference/pr-bodies.md`), which owns the phase and completion body templates;
+ * `fix-issue.yaml` points at the pr-review-cycle skill's
+ * `reference/fix-issue-pr-body.md`.
  */
 const BODY_COMPANIONS = Object.freeze({
   'implement-trd-beads.yaml': [
     path.join(DEV_ROOT, 'skills', 'implement-trd-beads-reference', 'SKILL.md'),
+    path.join(DEV_ROOT, 'skills', 'implement-trd-beads-reference', 'reference', 'pr-bodies.md'),
+  ],
+  'fix-issue.yaml': [
+    path.join(DEV_ROOT, 'skills', 'pr-review-cycle', 'reference', 'fix-issue-pr-body.md'),
   ],
 });
 
