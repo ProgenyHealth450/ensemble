@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **packages/development:** BDD/Reqnroll is optional in `/ensemble:create-trd` and `/ensemble:implement-trd-beads`. One resolver, `trd-cli resolve-bdd`, decides from `--bdd` / `--no-bdd`, the `ENSEMBLE_BDD` environment variable, the TRD's `test_approach` frontmatter, or a Reqnroll package reference in the repo; otherwise the standard path is used and nothing is scaffolded through Reqnroll. Repos that already use Reqnroll keep today's behavior. See [Optional BDD](packages/development/README.md#optional-bdd-reqnroll).
+- **packages/development:** BDD/Reqnroll stays on by default in `/ensemble:create-trd` and `/ensemble:implement-trd-beads`, and a repo that does not use it can opt out. One resolver, `trd-cli resolve-bdd`, decides from `--bdd` / `--no-bdd`, the `ENSEMBLE_BDD` environment variable, or the TRD's `test_approach` frontmatter; with `--no-bdd` or `ENSEMBLE_BDD=0` the standard path is used and nothing is scaffolded through Reqnroll. Nothing changes for a repo that does not opt out. See [Optional BDD](packages/development/README.md#optional-bdd-reqnroll).
 
 ### Removed
 

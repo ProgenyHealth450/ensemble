@@ -31,7 +31,7 @@
  *   beads-stage --match <title-substring> [--label <l>] [--check] [--dry-run]
  *   quickstart <trd-path> --out <path> [--json]
  *   resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>
- *   resolve-bdd  [--bdd | --no-bdd] [--trd <path>] [--repo <dir>]   (create-trd and implement-trd-beads: is the Reqnroll/BDD path on?)
+ *   resolve-bdd  [--bdd | --no-bdd] [--trd <path>]   (create-trd and implement-trd-beads: is the Reqnroll/BDD path on?)
  *   validate     <trd-path> [--prd path]
  *   analyze      <trd-path> [--prd path]
  *   req-status   <trd-path> [--prd path] [--issues-json file] [--verified REQ-001,...] [--comments-json file]
@@ -722,16 +722,16 @@ function runResolveSdlc(argv, env) {
 }
 
 /**
- * `resolve-bdd [--bdd | --no-bdd] [--trd <path>] [--repo <dir>]`
+ * `resolve-bdd [--bdd | --no-bdd] [--trd <path>]`
  *   -> { ok:true, enabled, source, evidence?, warning? }
  *
  * Thin CLI adapter over bdd-mode.js's resolveBdd (precedence: flag, ENSEMBLE_BDD, the TRD's
- * `test_approach` frontmatter, Reqnroll detected under `--repo` (default cwd), off). Run by both
+ * `test_approach` frontmatter, on). BDD stays on by default; these are the ways to opt out. Run by both
  * `create-trd` and `implement-trd-beads` so the two commands agree on whether Reqnroll is in play.
  * Reads ENSEMBLE_BDD from the `env` param rather than process.env directly, like runResolveSdlc.
  */
 function runResolveBdd(argv, env) {
-  const { flags } = parseArgs(argv, new Set(['trd', 'repo']));
+  const { flags } = parseArgs(argv, new Set(['trd']));
   if (flags.bdd === true && flags['no-bdd'] === true) {
     throw new Error('--bdd and --no-bdd are mutually exclusive');
   }
@@ -742,7 +742,6 @@ function runResolveBdd(argv, env) {
       flag,
       env: env || {},
       trdPath: flags.trd || undefined,
-      repoRoot: flags.repo || process.cwd(),
     }),
   };
 }

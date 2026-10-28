@@ -1,20 +1,19 @@
 'use strict';
 
 /**
- * Tests for lib/bdd-mode.js: the one place that decides whether the TRD commands use the
- * Reqnroll/BDD path. Precedence is flag > ENSEMBLE_BDD > TRD `test_approach` > detected > default.
+ * Tests for lib/bdd-mode.js: the one place that decides whether the TRD commands use the Reqnroll/BDD
+ * path. BDD stays on by default (what the commands did before it was configurable); these are the ways
+ * to opt out. Precedence is flag > ENSEMBLE_BDD > TRD `test_approach` > default (on).
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { resolveBdd, detectReqnroll } = require('../lib/bdd-mode');
+const bddMode = require('../lib/bdd-mode');
+const { resolveBdd } = bddMode;
 
-const REQNROLL_CSPROJ =
-  '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>' +
-  '<PackageReference Include="Reqnroll.xUnit" Version="2.0.0" />' +
-  '</ItemGroup></Project>\n';
+const DEFAULT_MESSAGE = 'Test approach: BDD (Reqnroll) [default; opt out with --no-bdd or ENSEMBLE_BDD=0]';
 
 const roots = [];
 function tmp() {
@@ -32,161 +31,95 @@ function trdWith(root, testApproach) {
   const stamp = testApproach === undefined ? '' : `test_approach: ${testApproach}\n`;
   return write(root, 'docs/TRD/TRD-2026-aaaaaaaa-x.md', `---\ndocument_id: TRD-2026-aaaaaaaa\nstatus: Draft\n${stamp}---\n\n# TRD\n`);
 }
-/** A repo that references Reqnroll, so `detected` would say yes. */
-function reqnrollRepo() {
-  const root = tmp();
-  write(root, 'src/App.Tests/App.Tests.csproj', REQNROLL_CSPROJ);
-  return root;
-}
 
 afterAll(() => {
   for (const r of roots) fs.rmSync(r, { recursive: true, force: true });
 });
 
-describe('detectReqnroll', () => {
-  test('finds a PackageReference in a csproj and reports the relative path with forward slashes', () => {
-    expect(detectReqnroll(reqnrollRepo())).toBe('src/App.Tests/App.Tests.csproj');
+describe('the default is unchanged: BDD is on', () => {
+  test('with nothing set, it is on, and the message says how to opt out', () => {
+    expect(resolveBdd({ env: {} })).toEqual({ enabled: true, source: 'default', message: DEFAULT_MESSAGE });
   });
 
-  test.each([
-    ['Directory.Packages.props', '<Project><ItemGroup><PackageVersion Include="Reqnroll" Version="2.0.0" /></ItemGroup></Project>'],
-    ['Directory.Build.props', "<Project><ItemGroup><PackageReference Update='Reqnroll.Tools.MsBuild.Generation' /></ItemGroup></Project>"],
-    ['packages.config', '<packages><package id="Reqnroll" version="2.0.0" /></packages>'],
-    ['src/Lib/Lib.fsproj', '<Project><ItemGroup><PackageReference Include="Reqnroll.NUnit" /></ItemGroup></Project>'],
-  ])('recognises a reference in %s', (rel, text) => {
+  test('it does not depend on what the repo contains: a repo with no Reqnroll in it is still on', () => {
+    expect(resolveBdd({ env: {}, repoRoot: tmp() })).toMatchObject({ enabled: true, source: 'default' });
+  });
+
+  test('there is no repo detection left to get wrong', () => {
+    expect(bddMode.detectReqnroll).toBeUndefined();
+  });
+
+  test('an unstamped TRD, such as one written before this was configurable, is on', () => {
     const root = tmp();
-    write(root, rel, text);
-    expect(detectReqnroll(root)).toBe(rel);
-  });
-
-  test('is not fooled by prose, comments or look-alike package ids', () => {
-    const root = tmp();
-    write(root, 'A/A.csproj', '<Project><!-- we may adopt Reqnroll someday --></Project>');
-    write(root, 'B/B.csproj', '<Project><ItemGroup><PackageReference Include="NotReqnrollAtAll" /></ItemGroup></Project>');
-    write(root, 'C/notes.md', 'PackageReference Include="Reqnroll"');
-    expect(detectReqnroll(root)).toBeNull();
-  });
-
-  test.each(['node_modules', 'bin', 'obj', 'dist', '.git', '.claude'])('does not look inside %s', (dir) => {
-    const root = tmp();
-    write(root, `${dir}/Decoy.csproj`, REQNROLL_CSPROJ);
-    expect(detectReqnroll(root)).toBeNull();
-  });
-
-  test('returns null for an empty repo and for a root that does not exist, without throwing', () => {
-    expect(detectReqnroll(tmp())).toBeNull();
-    expect(detectReqnroll(path.join(os.tmpdir(), 'bdd-mode-does-not-exist-xyz'))).toBeNull();
+    expect(resolveBdd({ env: {}, trdPath: trdWith(root) })).toMatchObject({ enabled: true, source: 'default' });
   });
 });
 
-describe('resolveBdd precedence', () => {
-  test('default: off when nothing says otherwise', () => {
-    expect(resolveBdd({ env: {}, repoRoot: tmp() })).toEqual({
-      enabled: false,
-      source: 'default',
-      message: 'Test approach: standard [default]',
-    });
-  });
-
-  test('detected: on, with the manifest as evidence', () => {
-    expect(resolveBdd({ env: {}, repoRoot: reqnrollRepo() })).toEqual({
-      enabled: true,
-      source: 'detected',
-      evidence: 'src/App.Tests/App.Tests.csproj',
-      message: 'Test approach: BDD (Reqnroll) [detected: src/App.Tests/App.Tests.csproj]',
-    });
-  });
-
+describe('opting out', () => {
   test.each([
     ['bdd', true],
     ['no-bdd', false],
-  ])('flag %s beats env, the TRD stamp and detection', (flag, enabled) => {
-    const root = reqnrollRepo();
-    const trd = trdWith(root, enabled ? 'standard' : 'bdd-reqnroll');
+  ])('flag %s beats env and the TRD stamp', (flag, enabled) => {
+    const trd = trdWith(tmp(), enabled ? 'standard' : 'bdd-reqnroll');
     const env = { ENSEMBLE_BDD: enabled ? 'off' : 'on' };
-    expect(resolveBdd({ flag, env, trdPath: trd, repoRoot: root })).toMatchObject({ enabled, source: 'flag' });
+    expect(resolveBdd({ flag, env, trdPath: trd })).toMatchObject({ enabled, source: 'flag' });
   });
 
   test.each([
     ['1', true], ['true', true], ['ON', true], [' yes ', true],
     ['0', false], ['False', false], ['off', false], ['NO', false],
-  ])('env ENSEMBLE_BDD=%j -> %s, and beats the TRD stamp and detection', (value, enabled) => {
-    const root = reqnrollRepo();
-    const trd = trdWith(root, enabled ? 'standard' : 'bdd-reqnroll');
-    expect(resolveBdd({ env: { ENSEMBLE_BDD: value }, trdPath: trd, repoRoot: root })).toMatchObject({ enabled, source: 'env' });
-  });
-
-  test('an unrecognised ENSEMBLE_BDD is ignored with a warning rather than silently trusted', () => {
-    const out = resolveBdd({ env: { ENSEMBLE_BDD: 'maybe' }, repoRoot: tmp() });
-    expect(out).toMatchObject({ enabled: false, source: 'default' });
-    expect(out.warning).toContain("ENSEMBLE_BDD='maybe'");
-  });
-
-  test('an empty ENSEMBLE_BDD is simply unset: no warning', () => {
-    const out = resolveBdd({ env: { ENSEMBLE_BDD: '  ' }, repoRoot: tmp() });
-    expect(out).toMatchObject({ enabled: false, source: 'default' });
-    expect(out.warning).toBeUndefined();
-  });
-
-  test('message is the one line the commands print: the warning first, then the approach and its source', () => {
-    expect(resolveBdd({ flag: 'bdd', env: {} }).message).toBe('Test approach: BDD (Reqnroll) [flag]');
-    expect(resolveBdd({ flag: 'no-bdd', env: {} }).message).toBe('Test approach: standard [flag]');
-    expect(resolveBdd({ env: { ENSEMBLE_BDD: 'maybe' }, repoRoot: tmp() }).message).toBe(
-      "Warning: ENSEMBLE_BDD='maybe' is not one of 1/true/on/yes or 0/false/off/no; ignored\nTest approach: standard [default]"
-    );
+  ])('env ENSEMBLE_BDD=%j -> %s, and beats the TRD stamp', (value, enabled) => {
+    const trd = trdWith(tmp(), enabled ? 'standard' : 'bdd-reqnroll');
+    expect(resolveBdd({ env: { ENSEMBLE_BDD: value }, trdPath: trd })).toMatchObject({ enabled, source: 'env' });
   });
 
   test.each([
     ['bdd-reqnroll', true],
     ['standard', false],
     ['  BDD-Reqnroll ', true],
-  ])('TRD test_approach %j -> %s, and beats detection', (stamp, enabled) => {
-    const root = reqnrollRepo();
-    const trd = trdWith(root, stamp);
-    expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled, source: 'trd', evidence: trd.split(path.sep).join('/') });
-  });
-
-  test('a TRD stamped bdd-reqnroll stays on in a repo with no Reqnroll yet (the greenfield case)', () => {
-    const root = tmp();
-    expect(resolveBdd({ env: {}, trdPath: trdWith(root, 'bdd-reqnroll'), repoRoot: root })).toMatchObject({ enabled: true, source: 'trd' });
-  });
-
-  test('an unrecognised test_approach falls through to detection, with a warning', () => {
-    const root = reqnrollRepo();
-    const out = resolveBdd({ env: {}, trdPath: trdWith(root, 'cucumber'), repoRoot: root });
-    expect(out).toMatchObject({ enabled: true, source: 'detected' });
-    expect(out.warning).toContain("test_approach 'cucumber'");
+    ['STANDARD', false],
+  ])('TRD test_approach %j -> %s, with no flag or env needed (implement-trd-beads honours create-trd\'s opt-out)', (stamp, enabled) => {
+    const trd = trdWith(tmp(), stamp);
+    expect(resolveBdd({ env: {}, trdPath: trd })).toMatchObject({ enabled, source: 'trd', evidence: trd.split(path.sep).join('/') });
   });
 
   test('reads the stamp from a CRLF TRD (this repo\'s TRDs are often Windows-authored)', () => {
-    const root = tmp();
-    const trd = write(root, 'docs/TRD/crlf.md', '---\r\ndocument_id: TRD-2026-bbbbbbbb\r\ntest_approach: bdd-reqnroll\r\n---\r\n\r\n# TRD\r\n');
-    expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: true, source: 'trd' });
+    const trd = write(tmp(), 'docs/TRD/crlf.md', '---\r\ndocument_id: TRD-2026-bbbbbbbb\r\ntest_approach: standard\r\n---\r\n\r\n# TRD\r\n');
+    expect(resolveBdd({ env: {}, trdPath: trd })).toMatchObject({ enabled: false, source: 'trd' });
+  });
+});
+
+describe('bad input falls back to the default rather than silently opting out', () => {
+  test('an unrecognised ENSEMBLE_BDD is ignored with a warning', () => {
+    const out = resolveBdd({ env: { ENSEMBLE_BDD: 'maybe' } });
+    expect(out).toMatchObject({ enabled: true, source: 'default' });
+    expect(out.warning).toContain("ENSEMBLE_BDD='maybe'");
   });
 
-  test('a TRD without the key, or an unreadable TRD path, falls through to detection', () => {
-    const root = reqnrollRepo();
-    expect(resolveBdd({ env: {}, trdPath: trdWith(root), repoRoot: root })).toMatchObject({ source: 'detected' });
-    expect(resolveBdd({ env: {}, trdPath: path.join(root, 'nope.md'), repoRoot: root })).toMatchObject({ source: 'detected' });
+  test('an empty ENSEMBLE_BDD is simply unset: no warning', () => {
+    const out = resolveBdd({ env: { ENSEMBLE_BDD: '  ' } });
+    expect(out).toMatchObject({ enabled: true, source: 'default' });
+    expect(out.warning).toBeUndefined();
   });
 
-  describe('Reqnroll added to the repo after create-trd ran', () => {
-    // create-trd leaves test_approach out when BDD_MODE.source is `default`, so this is the TRD it writes then.
-    test('a TRD written on the bare default carries no stamp, so implement-trd-beads picks Reqnroll up once it exists', () => {
-      const root = tmp();
-      const trd = trdWith(root); // no test_approach
-      expect(resolveBdd({ env: {}, repoRoot: root })).toMatchObject({ enabled: false, source: 'default' }); // create-trd time
-      expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: false, source: 'default' });
+  test('an unrecognised test_approach falls through to the default, with a warning', () => {
+    const out = resolveBdd({ env: {}, trdPath: trdWith(tmp(), 'cucumber') });
+    expect(out).toMatchObject({ enabled: true, source: 'default' });
+    expect(out.warning).toContain("test_approach 'cucumber'");
+  });
 
-      write(root, 'tests/App.E2E/App.E2E.csproj', REQNROLL_CSPROJ); // the Reqnroll project is scaffolded afterwards
-      expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: true, source: 'detected' });
-    });
+  test('an unreadable TRD path falls through to the default', () => {
+    expect(resolveBdd({ env: {}, trdPath: path.join(tmp(), 'nope.md') })).toMatchObject({ enabled: true, source: 'default' });
+  });
+});
 
-    test('an explicit opt-out is stamped, and still wins over Reqnroll added later', () => {
-      const root = tmp();
-      const trd = trdWith(root, 'standard'); // what create-trd writes for --no-bdd or ENSEMBLE_BDD=0
-      write(root, 'tests/App.E2E/App.E2E.csproj', REQNROLL_CSPROJ);
-      expect(resolveBdd({ env: {}, trdPath: trd, repoRoot: root })).toMatchObject({ enabled: false, source: 'trd' });
-    });
+describe('message', () => {
+  test('is the one line the commands print: the warning first, then the approach and its source', () => {
+    expect(resolveBdd({ flag: 'bdd', env: {} }).message).toBe('Test approach: BDD (Reqnroll) [flag]');
+    expect(resolveBdd({ flag: 'no-bdd', env: {} }).message).toBe('Test approach: standard [flag]');
+    expect(resolveBdd({ env: { ENSEMBLE_BDD: '0' } }).message).toBe('Test approach: standard [env]');
+    expect(resolveBdd({ env: { ENSEMBLE_BDD: 'maybe' } }).message).toBe(
+      `Warning: ENSEMBLE_BDD='maybe' is not one of 1/true/on/yes or 0/false/off/no; ignored\n${DEFAULT_MESSAGE}`
+    );
   });
 });

@@ -2,7 +2,7 @@
 
 /**
  * Tests for `trd-cli resolve-bdd` (lib/trd-cli.js), the subcommand create-trd and
- * implement-trd-beads run to learn whether the Reqnroll/BDD path is on.
+ * implement-trd-beads run to learn whether the Reqnroll/BDD path is on. It is on unless opted out.
  */
 
 const fs = require('fs');
@@ -13,7 +13,7 @@ const { spawnSync } = require('child_process');
 const { runResolveBdd } = require('../lib/trd-cli');
 
 const CLI = path.join(__dirname, '..', 'lib', 'trd-cli.js');
-const REQNROLL_CSPROJ = '<Project><ItemGroup><PackageReference Include="Reqnroll.xUnit" /></ItemGroup></Project>\n';
+const DEFAULT_MESSAGE = 'Test approach: BDD (Reqnroll) [default; opt out with --no-bdd or ENSEMBLE_BDD=0]';
 
 const roots = [];
 function tmp() {
@@ -21,11 +21,10 @@ function tmp() {
   roots.push(dir);
   return dir;
 }
-function reqnrollRepo() {
-  const root = tmp();
-  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'src', 'T.csproj'), REQNROLL_CSPROJ);
-  return root;
+function trdWith(testApproach) {
+  const file = path.join(tmp(), 'TRD.md');
+  fs.writeFileSync(file, `---\ntest_approach: ${testApproach}\n---\n# TRD\n`);
+  return file;
 }
 // A child process must not inherit the developer's own ENSEMBLE_BDD.
 function cleanEnv(extra) {
@@ -44,8 +43,8 @@ afterAll(() => {
 
 describe('runResolveBdd (handler)', () => {
   test('--bdd and --no-bdd map to the flag source', () => {
-    expect(runResolveBdd(['--repo', tmp(), '--bdd'], {})).toMatchObject({ ok: true, enabled: true, source: 'flag' });
-    expect(runResolveBdd(['--repo', tmp(), '--no-bdd'], { ENSEMBLE_BDD: '1' })).toMatchObject({ ok: true, enabled: false, source: 'flag' });
+    expect(runResolveBdd(['--bdd'], {})).toMatchObject({ ok: true, enabled: true, source: 'flag' });
+    expect(runResolveBdd(['--no-bdd'], { ENSEMBLE_BDD: '1' })).toMatchObject({ ok: true, enabled: false, source: 'flag' });
   });
 
   test('both flags together is an error, not a silent pick', () => {
@@ -53,43 +52,29 @@ describe('runResolveBdd (handler)', () => {
   });
 
   test('reads ENSEMBLE_BDD from the env it is given, not from process.env', () => {
-    const repo = reqnrollRepo();
-    expect(runResolveBdd(['--repo', repo], { ENSEMBLE_BDD: 'off' })).toMatchObject({ enabled: false, source: 'env' });
-    expect(runResolveBdd(['--repo', repo], {})).toMatchObject({ enabled: true, source: 'detected' });
+    expect(runResolveBdd([], { ENSEMBLE_BDD: 'off' })).toMatchObject({ enabled: false, source: 'env' });
+    expect(runResolveBdd([], {})).toMatchObject({ enabled: true, source: 'default' });
   });
 
-  test('--repo selects where detection looks; a repo without Reqnroll is off (the BT3 case)', () => {
-    expect(runResolveBdd(['--repo', tmp()], {})).toEqual({
-      ok: true,
-      enabled: false,
-      source: 'default',
-      message: 'Test approach: standard [default]',
-    });
+  test('with nothing set it is on (unchanged), and the message says how to opt out', () => {
+    expect(runResolveBdd([], {})).toEqual({ ok: true, enabled: true, source: 'default', message: DEFAULT_MESSAGE });
   });
 
-  test('--trd feeds the TRD stamp into the resolution', () => {
-    const root = tmp();
-    const trd = path.join(root, 'TRD.md');
-    fs.writeFileSync(trd, '---\ntest_approach: bdd-reqnroll\n---\n# TRD\n');
-    expect(runResolveBdd(['--trd', trd, '--repo', root], {})).toMatchObject({ enabled: true, source: 'trd' });
+  test('--trd feeds the TRD stamp into the resolution, so an opt-out recorded by create-trd is honoured', () => {
+    expect(runResolveBdd(['--trd', trdWith('standard')], {})).toMatchObject({ enabled: false, source: 'trd' });
+    expect(runResolveBdd(['--trd', trdWith('bdd-reqnroll')], {})).toMatchObject({ enabled: true, source: 'trd' });
   });
 });
 
 describe('trd-cli resolve-bdd (process)', () => {
   test('prints one JSON object and exits 0', () => {
-    const { status, json } = cli(['--repo', reqnrollRepo()]);
+    const { status, json } = cli([]);
     expect(status).toBe(0);
-    expect(json).toEqual({
-      ok: true,
-      enabled: true,
-      source: 'detected',
-      evidence: 'src/T.csproj',
-      message: 'Test approach: BDD (Reqnroll) [detected: src/T.csproj]',
-    });
+    expect(json).toEqual({ ok: true, enabled: true, source: 'default', message: DEFAULT_MESSAGE });
   });
 
   test('ENSEMBLE_BDD in the process environment is honoured', () => {
-    expect(cli(['--repo', reqnrollRepo()], { ENSEMBLE_BDD: '0' }).json).toMatchObject({ enabled: false, source: 'env' });
+    expect(cli([], { ENSEMBLE_BDD: '0' }).json).toMatchObject({ enabled: false, source: 'env' });
   });
 
   test('conflicting flags print {error} and exit 1', () => {

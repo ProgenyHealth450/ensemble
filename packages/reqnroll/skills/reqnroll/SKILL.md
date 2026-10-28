@@ -123,15 +123,15 @@ expected starting state before bindings/implementation exist.
 
 ## TRD commands
 
-`create-trd` and `implement-trd-beads` take this path only when `BDD_MODE.enabled`: `--bdd` or
-`--no-bdd`, then `ENSEMBLE_BDD`, then the TRD's `test_approach`, then Reqnroll found in the
-repo, otherwise off. When off, neither command mentions or runs Reqnroll.
+`create-trd` and `implement-trd-beads` take this path whenever `BDD_MODE.enabled`, which is the
+default. A repo opts out with `--no-bdd`, `ENSEMBLE_BDD=0`, or a TRD's `test_approach: standard`
+(checked in that order). When off, neither command mentions or runs Reqnroll.
 
 - **create-trd:** every functional REQ-NNN needs at least 3 AC-NNN-M sub-items (happy path,
   edge, error); fewer is flagged as insufficient BDD coverage in the readiness scorecard.
   Each AC-NNN-M becomes one `- [ ] Scenario: <title> -- Given ..., When ..., Then ...` item
-  under its `-TEST` task's `Test AC:` label, so a test task carries at least 3. The TRD
-  records `test_approach: bdd-reqnroll`.
+  under its `-TEST` task's `Test AC:` label, so a test task carries at least 3. When BDD
+  was asked for explicitly (`--bdd` or `ENSEMBLE_BDD=1`) the TRD records `test_approach: bdd-reqnroll`.
 - **implement-trd-beads:** for an `isTest` bead, resolve `REQNROLL_CLI`
   (`packages/product/lib/reqnroll-cli.js`) and run
   `generate-bindings <PRD_PATH> --out tests --sut <SUT_CSPROJ>`, confirm **red**, fill the
