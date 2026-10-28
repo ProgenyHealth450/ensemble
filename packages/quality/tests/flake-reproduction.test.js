@@ -98,6 +98,20 @@ describe('red-run record (REQ-034)', () => {
     expect(json.cause).toHaveProperty('status');
   });
 
+  test('allows a re-run only for an infrastructure failure, only as a recorded operator action', () => {
+    const json = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(record)[1]);
+    expect(json).toHaveProperty('infra_rerun');
+    expect(record).toMatch(/Infrastructure re-run \(infrastructure only\)/);
+    expect(record).toMatch(/recorded operator action/);
+    expect(record).toMatch(/never automate|never automatic/i);
+    expect(record).toMatch(/after the test command started is never re-run/);
+    expect(record).toMatch(/may be set only when `class` is `infrastructure`/);
+    const skill = read(SKILL);
+    expect(skill).toMatch(/only as a recorded operator action/);
+    expect(skill).toMatch(/never re-run a job that failed after the test command started/);
+    expect(skill).toMatch(/Never automate it/);
+  });
+
   test('defines the three classes and names the guard for guard-only', () => {
     for (const cls of ['failing-test', 'guard-only', 'infrastructure']) expect(record).toContain(cls);
     expect(record).toMatch(/Guard \(guard-only only\)/);
@@ -116,6 +130,17 @@ describe('reachability from the shipped entry points (REQ-044)', () => {
     for (const f of ['SKILL.md', 'red-run-record.md', 'capture-loop.sh', 'recipes/elixir-mix.yaml', 'recipes/stack-template.yaml']) {
       expect(fs.existsSync(path.join(pi, f))).toBe(true);
     }
+  });
+
+  test('deep-debugger keeps the 3-attempt stop for every non-flaky failure', () => {
+    const src = read(path.join(REPO, 'packages/quality/agents/deep-debugger.yaml')).replace(/\s+/g, ' ');
+    const original = 'If it cannot be reproduced after 3 attempts, stop and escalate with what was tried.';
+    expect(src).toContain(original);
+    const after = src.slice(src.indexOf(original) + original.length);
+    const addition = after.slice(0, after.indexOf('- priority'));
+    expect(addition).toMatch(/Only for an intermittent, partition-dependent or order-dependent failure/);
+    expect(addition).toMatch(/Every other failure keeps the 3-attempt limit above/);
+    expect(addition).toMatch(/Never add a retry, quarantine, skip, wider timeout or weaker assertion/);
   });
 
   test('deep-debugger loads the skill for flaky failures, in source and in each generated copy', () => {

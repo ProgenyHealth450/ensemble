@@ -20,7 +20,8 @@ A flaky test is a bug in the test, the code or the environment. Fix it at the ro
 3. **Replay the logged handle before any bisection.** The handle is whatever the runner printed: a random seed, an order file or a shard id (see `red-run-record.md`).
 4. **Prove a cause by making it fail on demand** (control the order or the timing, or inject a delay), then show the fix passes the same way. Without that, the cause is `unproven`.
 5. **Say plainly what is unproven.** Never close a flake as fixed when only an inferred mechanism exists and the record does not say so.
-6. This skill is on demand, read-only and daemon-free: it runs in the operator's session, schedules nothing, retries nothing in the background and never embeds or prints a credential.
+6. The one permitted re-run is an operator re-running a required job that failed before the test command started (an infrastructure failure), and only as a recorded operator action with the record's `infra_rerun` fields filled in. Never automate it, and never re-run a job that failed after the test command started: that is a defect to reproduce and fix, not to retry.
+7. This skill is on demand, read-only and daemon-free: it runs in the operator's session, schedules nothing, retries nothing in the background and never embeds or prints a credential.
 
 ## Defaults (edit here)
 
@@ -35,7 +36,7 @@ A flaky test is a bug in the test, the code or the environment. Fix it at the ro
 
 ## Steps
 
-1. **Read the red run.** Take the run id or URL, the job, the commit, the printed handle, the partition or shard, the failing test names and the first assertion. Write them into a record now (`red-run-record.md`). Classify the run: failing test, guard-only (every test passed and the run still exited non-zero), or infrastructure (it failed before the test command started).
+1. **Read the red run.** Take the run id or URL, the job, the commit, the printed handle, the partition or shard, the failing test names and the first assertion. Write them into a record now (`red-run-record.md`). Classify the run: failing test, guard-only (every test passed and the run still exited non-zero), or infrastructure (it failed before the test command started; only this class may be re-run, by an operator, as a recorded action).
 2. **Check for a guard that already says what to do.** A suite-end hygiene guard names the offender: it lists ids, processes or files and the module that left them. Fix that module (mint unique ids, reset in teardown) and explain why it was intermittent. A guard-only run is not a flake until the guard's message is read.
 3. **Reproduce CI-shaped, on the failing commit.** Use the CI command line, including partitioning, the handle and the warning flags. Partition membership shifts when test files are added or removed, so run against the failing commit's test tree in a scratch worktree at that commit, never today's tree. Stack commands: the recipe files listed under Files.
 4. **Isolate the run.** Give each run its own private database (a name derived from the run id or partition) and every concurrent run its own ports and temp directories, so runs cannot see each other's state. Bound the pool: a fixed number of connections and workers, a fixed number of CPU burners, one full suite at a time. Unbounded load turns the investigation into the flake.

@@ -6,7 +6,7 @@ Write one record per red required run. Put it in the hand-off report and in the 
 
 - `failing-test`: at least one test failed.
 - `guard-only`: the run exited non-zero after every test passed (a suite-end leak guard, a coverage gate, a warnings gate). Name the guard that raised and quote its first line.
-- `infrastructure`: the run failed before the test command started (checkout, dependency fetch, service start). Re-running is a recorded operator action, never automatic. Whether an operator may re-run a required job after such a failure is still an open question in PRD-2026-bd69b524 (OQ-4).
+- `infrastructure`: the run failed before the test command started (checkout, dependency fetch, service start). An operator MAY re-run the required job once the cause is fixed or has cleared, but only as a recorded operator action: fill in the re-run fields below, and never automate it. A failure after the test command started is never re-run to see whether it passes: it is a failing test or guard-only run and gets the full recipe.
 
 ## Replay handle
 
@@ -31,6 +31,7 @@ The handle is what the runner printed so the run can be repeated: a random seed,
 - Cause: <one sentence> [proven | unproven]
 - Evidence for the cause: <deterministic reproduction command and result, or "none: inferred only">
 - Tests audited (run or read in full): <list>   Only skimmed: <list>
+- Infrastructure re-run (infrastructure only): <operator> at <UTC time>, failed before the test command started because <reason>, re-run as <new run id or URL> | none
 - Fix: <PR URL or "none yet">   Decision at time box: continue | park | escalate | n/a
 ```
 
@@ -54,16 +55,18 @@ The handle is what the runner printed so the run can be repeated: a random seed,
   "cause": { "text": "", "status": "unproven", "evidence": null },
   "audited": [],
   "skimmed": [],
+  "infra_rerun": null,
   "fix_pr": null,
   "decision": null
 }
 ```
 
-Allowed values: `class` is `failing-test`, `guard-only` or `infrastructure`; `replay_result` is `reproduced`, `not reproduced` or `not attempted`; `cause.status` is `proven` or `unproven`; `decision` is `continue`, `park`, `escalate` or `null`.
+Allowed values: `class` is `failing-test`, `guard-only` or `infrastructure`; `replay_result` is `reproduced`, `not reproduced` or `not attempted`; `cause.status` is `proven` or `unproven`; `decision` is `continue`, `park`, `escalate` or `null`. `infra_rerun` is `null` or `{ "operator": "", "at": "", "reason": "", "rerun": "" }` and may be set only when `class` is `infrastructure`.
 
 ## Rules for filling it in
 
 - A cause is `proven` only when you made the failure happen on demand and the fix removed it. An inferred mechanism is `unproven` and is written as such.
 - A captured failure outranks a theory: if they disagree, rewrite the theory.
 - Replay the handle on the single failing file and record the result before bisecting.
+- A re-run is recorded or it did not happen: an infrastructure re-run without the `infra_rerun` fields is a retry, and a re-run of a job that failed after the test command started is never allowed.
 - A bead is not closed as fixed with `unproven` and no stated reason; close it with the label visible or leave it open.
