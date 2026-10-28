@@ -43,7 +43,7 @@ mission:
     call itself or any sibling subagent. The loop lives in the caller
     (beads-build.yaml Execute phase), which checks the summary
     `remaining_scoped_count` and dispatches another wave-runner if non-zero.
-    That two-tier shape respects Codex max_depth=1 and works across runtimes via Task().
+    That two-tier shape respects Codex max_depth=1 and works across claude/pi/codex/opencode via the universal Task() primitive.
     Invoked standalone, it still exits with a JSON summary once the barrier settles;
     callers re-invoke it themselves.
 

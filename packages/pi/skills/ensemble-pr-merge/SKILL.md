@@ -4,7 +4,7 @@ description: >-
   Take an open PR from red to merged in the fewest rounds. Each failing/pending
   CI check and unresolved change-request thread is one finding, routed to the
   owning agent and fixed in parallel, then re-verified against live state until
-  green, then merged once the review merge gate agrees.
+  green, then merged once the review gate agrees.
 disable-model-invocation: true
 ---
 <!-- Command: ensemble-pr-merge | Version: 2.2.0 -->
@@ -13,15 +13,15 @@ disable-model-invocation: true
 
 # ensemble-pr-merge
 
-> **Mission:** Take an open PR from red to merged in the fewest rounds. Each failing/pending CI check and unresolved change-request thread is one finding, routed to the owning agent and fixed in parallel, then re-verified against live state until green, then merged once the review merge gate agrees.
+> **Mission:** Take an open PR from red to merged in the fewest rounds. Each failing/pending CI check and unresolved change-request thread is one finding, routed to the owning agent and fixed in parallel, then re-verified against live state until green, then merged once the review gate agrees.
 
 > **Constraints:**
 > - NEVER delete, skip, xfail, disable, or weaken a test to make a check pass. Every dispatched subagent inherits this constraint verbatim in its payload. Failing tests, compiler warnings, and build failures MUST be fixed at the root cause. If a test is genuinely obsolete, the subagent MUST HALT and escalate it in the round report for human confirmation.
 > - NEVER force-push over commits you did not author in this run, and NEVER bypass branch protection, required reviews, or required status checks.
 > - NEVER merge without a verified passing local CI status bound to the exact head SHA, as reported by the local-ci-gate skill; hosted CI is NOT waited for. Refuse to merge while a HUMAN reviewer's latest decisive review is CHANGES_REQUESTED, or while the gate reports no run, a failed run, or a stale run (head moved since the verified run). A bot account's CHANGES_REQUESTED review or unresolved bot threads are NOT a refusal. Classify reviewers by the GitHub account type field (Bot vs User), never by account name. If review state cannot be read through the host adapter (host.change-request-reviews unavailable or ok:false), refuse to merge and escalate to a human; never treat it as no reviews.
-> - NEVER merge until the pr-review-cycle skill, invoked with MODE=gate, returns mergeable:true for the CURRENT head. That gate is the authority on open Important findings, open security-lane findings, the risk tier and the human approvals bound to this commit; this command adds the local-ci-gate verdict and the human-reviewer condition on top of it and never substitutes them for it. Re-run the gate against freshly read state immediately before merging, never reuse an earlier round's result, and never accept a subagent's or this session's own report that review passed in place of the gate's answer. Invoke the skill, never pr-review-cli.js directly.
-> - When the gate reports that the base branch's protection does not require the approvals the PR's tier needs, report that server-side enforcement is absent and recommend the branch-protection rule in the final report. Ensemble cannot enforce it: this command refuses to merge without the approvals, but only the host repository's branch protection stops someone else from merging without them. Never treat a missing or unreadable protection setting as if protection were present.
-> - Bound remediation to the repository's SHARED round cap: read it through the pr-review-cycle skill (the policy block in the base branch's REVIEW.md, 1-5, default 3) and keep no private number here. --max-rounds=N may only LOWER that cap for one run; a larger value is ignored and the policy cap applies. Exceeding the bound is a HALT-and-escalate outcome: the final report MUST list every still-open finding, its last known owner and the next action (step back and reconsider the approach with the author).
+> - NEVER merge until the pr-review-cycle skill, invoked with MODE=gate, returns mergeable:true for the CURRENT head. That gate owns open Important and security-lane findings, the risk tier and the commit-bound human approvals; this command adds the local-ci-gate verdict and the human-reviewer condition on top of it and never substitutes them for it. Re-run the gate against freshly read state immediately before merging, never reuse an earlier round's result. Invoke the skill, never pr-review-cli.js directly.
+> - When the gate reports that the base branch's protection does not require the approvals the PR's tier needs, report that server-side enforcement is absent and recommend the branch-protection rule in the final report, carrying the gate's notice verbatim. Ensemble cannot enforce it. Never treat a missing or unreadable protection setting as if protection were present.
+> - Bound remediation to the repository's SHARED round cap, read through the pr-review-cycle skill (REVIEW.md policy block, 1-5, default 3); keep no private number here. --max-rounds=N may only LOWER that cap for one run. Exceeding it is a HALT-and-escalate outcome: the final report MUST list every still-open finding, its last known owner and the next action (step back and reconsider the approach with the author).
 > - Each round dispatches ALL findings concurrently (one subagent per finding) and waits for every dispatch to settle before re-checking.
 > - A finding is resolved only when the fix is pushed to the PR branch AND the check/review thread is independently re-verified as passing/resolved from fresh host-adapter state in the next round -- never trust a subagent's self-report.
 
@@ -88,29 +88,24 @@ Assign exactly one owner per finding; first matching row wins, never dual-route.
 2. Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
 3. Manifest empty: proceed to Merge and Report.
 4. Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
-5. Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation.
-6. Here the round cap is the lower of the policy cap from the pr-review-cycle skill and any supplied value; at the cap ask the author to step back and reconsider the approach rather than opening another round.
+5. Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation. The round cap is the lower of the pr-review-cycle policy cap and --max-rounds; at the cap ask the author to step back and reconsider the approach rather than opening another round.
 
 ## Phase 5: Merge and Report
 
 ### Step 1: Review Merge Gate
 
-Ask the one gate that owns merge readiness for review reasons -- open findings,
-the security lane, the risk tier and the human approvals bound to this exact
-commit -- before any merge is attempted. A green local CI verdict says nothing
-about any of that, and this command never decides it for itself.
+The one gate that owns review merge readiness; green local CI says nothing about it.
 
 **Actions:**
-1. Re-read the head first: git fetch origin <headBranch>, HEAD_SHA = git rev-parse origin/<headBranch>, read now -- never a SHA carried over from an earlier round (it is the head the local-ci-gate verdict is bound to).
-2. Invoke the pr-review-cycle skill (packages/development/skills/pr-review-cycle/SKILL.md) with MODE=gate, BASE_SHA/HEAD_SHA for this PR's range, PR_NUMBER, PR_ID, PR_BODY, AGENT_AUTHORED and DIRECTED_BY (the body's 'Directed by:' line when an agent wrote it). The skill runs the change classifier, the second 'needs another person' assessment and the security lane, reads approvals and reviews itself, and returns the gate result. Never call pr-review-cli.js from this command.
-3. MODE=gate with no recorded review for this head must never be given an empty ledger: when the review-state report for HEAD_SHA is missing (or was discarded because it belongs to another head), the ledger is UNAVAILABLE, the gate answers review-data-unavailable and blocks. Do not substitute []; tell the user to run pr-review-cycle MODE=local/remote for this head first, then re-run the gate.
-4. Read mergeable from that result. mergeable:true is REQUIRED to proceed; it is not advisory and no other evidence substitutes for it. If mergeable:false, do not merge: report every blocker by its message and nextAction (an open Important finding is named, an open security finding is named, unsatisfied approvals state how many of how many are bound to the current commit, review-data-unavailable names exactly what could not be read), then fall back to another Verification and Round Loop pass or HALT at the round cap.
-5. Never accept a self-report in place of this gate: a subagent's, an author's or this session's own claim that review passed, that a finding was fixed, or that someone approved is not evidence. Only the gate's result, computed from reads taken in this run, counts.
-6. If the gate reports SERVER-SIDE ENFORCEMENT ABSENT for the base branch, carry that notice and its recommended branch-protection rule into the Final Report verbatim. It never blocks the merge this command performs, and it is never omitted because the merge succeeded.
+1. Re-read the head first: git fetch origin <headBranch>, HEAD_SHA = git rev-parse origin/<headBranch>, read now -- never a SHA carried over from an earlier round.
+2. Invoke the pr-review-cycle skill (packages/development/skills/pr-review-cycle/SKILL.md) with MODE=gate, BASE_SHA/HEAD_SHA for this PR's range, PR_NUMBER, PR_ID, PR_BODY, AGENT_AUTHORED and DIRECTED_BY (the body's 'Directed by:' line when an agent wrote it). It reads approvals and reviews itself. Never call pr-review-cli.js from this command.
+3. MODE=gate with no recorded review for this head must never be given an empty ledger: when the review-state report for HEAD_SHA is missing or belongs to another head, the ledger is UNAVAILABLE and the gate blocks with review-data-unavailable. Do not substitute []; tell the user to run pr-review-cycle MODE=local/remote for this head first, then re-run the gate.
+4. mergeable:true is REQUIRED to proceed; no other evidence substitutes. If mergeable:false, do not merge: report every blocker by its message and nextAction, then run another Verification and Round Loop pass or HALT at the round cap. The Final Report includes the gate's mergeable value and every blocker.
+5. Never accept a self-report in place of this gate: a subagent's, an author's or this session's own claim that review passed, a finding was fixed, or someone approved is not evidence; only the gate's result, from reads taken in this run, counts.
 
 ### Step 2: Merge
 
-Delegate to git-workflow once the review merge gate returns mergeable:true.
+Delegate to git-workflow.
 
 **Actions:**
 1. Run the local-ci-gate skill for the current head, passing the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef; do not restate or reimplement its logic. If it reports no run, a failed run, or a stale run, abort and run another verification round.
@@ -118,12 +113,11 @@ Delegate to git-workflow once the review merge gate returns mergeable:true.
 3. Run the sweep BEFORE merging: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
 4. Merge only when ALL hold on this head: the Review Merge Gate returned mergeable:true for the same HEAD_SHA this step is merging (if the head moved since, re-run the Review Merge Gate step against the new head and require mergeable:true again), the local-ci-gate verdict is a verified pass, and the fresh review read shows mergeable and no human CHANGES_REQUESTED. Any one alone is not enough.
 5. If --dry-run: stop and report merge-readiness without merging.
-6. In that report include the review merge gate's mergeable value and every blocker it named.
-7. Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
-8. Merge: run node "$TOOLCHAIN_CLI" run host.change-request-merge --run-id "$RUN_ID" --arg id=<PR_NUMBER> [--arg method=<METHOD> when --method was supplied; omit entirely otherwise so the host adapter's own default (squash) applies] --json [add --non-interactive when --foreman is present] (an explicit --method not supported by the resolved host adapter fails closed with NOT_ALLOWED -- report it and HALT rather than retrying with a different method); do NOT delete the source branch in this step.
-9. Run the sweep AFTER merging and BEFORE deleting the source branch: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
-10. Only after the post-merge sweep has run, delete the source branch unless it is long-lived.
-11. Comment on the PR summarizing each remediated finding, its owner, and the round count.
+6. Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
+7. Merge: run node "$TOOLCHAIN_CLI" run host.change-request-merge --run-id "$RUN_ID" --arg id=<PR_NUMBER> [--arg method=<METHOD> when --method was supplied; omit entirely otherwise so the host adapter's own default (squash) applies] --json [add --non-interactive when --foreman is present] (an explicit --method not supported by the resolved host adapter fails closed with NOT_ALLOWED -- report it and HALT rather than retrying with a different method); do NOT delete the source branch in this step.
+8. Run the sweep AFTER merging and BEFORE deleting the source branch: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
+9. Only after the post-merge sweep has run, delete the source branch unless it is long-lived.
+10. Comment on the PR summarizing each remediated finding, its owner, and the round count.
 
 ### Step 3: Final Report
 

@@ -104,7 +104,7 @@ confirmer unless they are the owner and said so.
 
 ### Step A3 — Pin the rules the case was confirmed against
 
-Record the area rules file (else root `REVIEW.md`) and its `git hash-object`,
+Record the area rules file (else root `REVIEW.md`) and its git hash-object value,
 so `eval-stale` can tell later that the rules moved (snippet in the reference).
 Do not guess a rules file, and never record a hash you did not compute from the
 file you named — a mismatched hash makes every later staleness answer a lie.
