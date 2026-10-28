@@ -36,6 +36,7 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -44,7 +45,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const LIB_DIR = path.join(__dirname, '..', 'lib');
 const CLI = path.join(LIB_DIR, 'pr-review-cli.js');
 const SKILL_PATH = path.join(__dirname, '..', 'skills', 'pr-review-cycle', 'SKILL.md');
-const SKILL = fs.readFileSync(SKILL_PATH, 'utf8');
+const SKILL = readSkillBundle();
 
 /** The bot login a host repository configures in BOT_LOGINS. */
 const BOT = 'coderabbitai[bot]';

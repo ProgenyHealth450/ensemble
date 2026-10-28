@@ -22,13 +22,14 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const SKILL_PATH = path.join(__dirname, '..', 'skills', 'pr-review-cycle', 'SKILL.md');
 const CLI = path.join(__dirname, '..', 'lib', 'pr-review-cli.js');
 
-const text = fs.readFileSync(SKILL_PATH, 'utf8');
+const text = readSkillBundle();
 const flat = text.replace(/\s+/g, ' ');
 
 const indexOfStep = (label) => {

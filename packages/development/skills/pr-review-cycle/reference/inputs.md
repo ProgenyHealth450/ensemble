@@ -1,0 +1,23 @@
+# PR Review Cycle -- Inputs (full table)
+
+Companion to `SKILL.md`; the variable names and rules here are normative.
+
+| Variable | Type | Description |
+|---|---|---|
+| `MODE` | `'local'` \| `'remote'` \| `'gate'` | `local`: run the pre-publication steps (1-6) only. `remote`: the PR already exists; run the post-publication steps (7-9) using the local-phase facts recorded by the prior `local` invocation. `gate`: answer "may this PR merge?" for a caller about to merge (Step 10) -- it runs no reviewer dispatch and fixes nothing. Steps 1 and 1b (scope and guidance) run in every mode: every phase reviews the same range under the same base-commit guidance. |
+| `BASE_SHA` / `HEAD_SHA` | string | Already-resolved commit SHAs for the diff under review (never a bare ref). |
+| `REVIEWED_TREE_SHA` | string (optional) | `MODE=local`: the tree of the head this review validates -- the post-fix head's tree id -- re-resolved after the batch fix exactly as the head is (Step 6). Passed as `reviewedTreeSha` and recorded in the state report, so a later `MODE=remote` run can tell the PR-creation commit holds the reviewed content. Leave it out when not computed. |
+| `HEAD_TREE_SHA` | string (optional) | `MODE=remote`: the tree of `HEAD_SHA` -- its tree id. Passed as `headTreeSha` to `status` and as `treeSha` to `state-read`. Leave it out when not computed. |
+| `MERGE_BASE_SHA`, `PR_BASE_SHA`, `PARENT_PHASE_TIP_SHA` | string (optional) | Passed through to CLI `scope`; Step 1 says which of them (and `BASE_SHA`) becomes the base. |
+| `PR_ID` | string | Stable per-PR key (e.g. `<repo-slug>-pr-<number>` or `<repo-slug>-<branch>`) used to address the review-state report. |
+| `PR_URL` | string (optional) | Known only once the PR is published; required for `MODE=remote`. |
+| `TEST_COMMAND` | string | The fastest relevant test command discovered from the repository. |
+| `SKIP_TESTS` | boolean | `--skip-tests` passthrough. When true the broad test gate is not run: record `tests.skipped = true` plus the command that would have run; status is then never `REVIEW_COMPLETE`, but `REVIEW_PENDING` with reason `tests skipped`. |
+| `FOREMAN` | boolean | When true, the interactive wait (Step 7) is never entered; see Foreman-mode rules below. |
+| `BOT_LOGINS` | string[] | Configured review-bot usernames passed through to CLI `remote`. |
+| `PR_BODY` | string (optional) | The PR description this cycle grades: in `MODE=local` the body the caller is about to publish, in `MODE=remote` the published one. Passed as `body` to CLI `description` (Step 1b). Callers get this check through the skill and never run the CLI themselves. |
+| `AGENT_AUTHORED` | boolean | True when an agent drafted `PR_BODY`. Passed as `agentAuthored` to CLI `description`: an agent-authored body must also name the person accountable for it on a `Directed by:` line. Anything other than an explicit `false` is read as true, so an unreadable claim never relaxes the check. |
+| `PR_NUMBER` | string \| number | `MODE=gate`: the PR whose approvals and reviews are read from the host. |
+| `DIRECTED_BY` | string (optional) | `MODE=gate`: the login of the person who directed an agent-authored PR, read from the body's `Directed by:` line. Passed as `directedBy` to CLI `approvals`, where it counts as one of the required reviewers (AC-014-3) only when `AGENT_AUTHORED` is true. |
+| `PROPOSED_TIER` | string (optional) | `MODE=gate`: a tier an agent or the author proposed. Passed to CLI `tier` as `proposedTier`; it can only ever raise (AC-013-2). |
+| `CODE_OWNER_DECISION` | object (optional) | `MODE=gate`: `{ login, isCodeOwner }` for a proposal, checked against CODEOWNERS by the caller. Passed as `proposedBy`; only a code owner's decision can lower a tier. |

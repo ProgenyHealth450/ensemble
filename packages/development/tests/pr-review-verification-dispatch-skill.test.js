@@ -12,13 +12,14 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const path = require('path');
 
 const { tallyVotes } = require('../lib/pr-review-votes');
 const { HANDLERS } = require('../lib/pr-review-cli');
 
 const SKILL_PATH = path.join(__dirname, '..', 'skills', 'pr-review-cycle', 'SKILL.md');
-const TEXT = fs.readFileSync(SKILL_PATH, 'utf8');
+const TEXT = readSkillBundle();
 const FLAT = TEXT.replace(/\s+/g, ' ');
 
 const sectionIndex = (label) => {

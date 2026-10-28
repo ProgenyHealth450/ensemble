@@ -33,6 +33,7 @@
  */
 
 const { execFileSync, spawnSync } = require('child_process');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -284,7 +285,7 @@ const pathsFor = (guidance, declaration) =>
  */
 const tiedToBase = (guidance, repo) => guidance.rootText.replace(repo.seedSha, guidance.baseSha);
 
-const skillText = fs.readFileSync(SKILL_PATH, 'utf8');
+const skillText = readSkillBundle();
 const skillFlat = skillText.replace(/\s+/g, ' ');
 
 let repo;

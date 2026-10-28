@@ -38,6 +38,7 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
@@ -48,7 +49,7 @@ const { sortFindings } = require('../lib/pr-review-ledger');
 const CLI = path.join(__dirname, '..', 'lib', 'pr-review-cli.js');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SKILL_PATH = path.join(__dirname, '..', 'skills', 'pr-review-cycle', 'SKILL.md');
-const SKILL = fs.readFileSync(SKILL_PATH, 'utf8');
+const SKILL = readSkillBundle();
 const SKILL_FLAT = SKILL.replace(/\s+/g, ' ');
 
 /** Run the real CLI the way the skill does: one JSON payload in, one JSON object out. */

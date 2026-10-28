@@ -34,10 +34,13 @@ const path = require('path');
 const { assignTier, KINDS, TIERS } = require('../lib/pr-review-tier');
 const { evaluateGate, BLOCKER_CODES, SECURITY_STATUSES, SECURITY_REQUIRED_TIERS } = require('../lib/pr-review-gate');
 const { HANDLERS } = require('../lib/pr-review-cli');
+const { readSkillBundle, readSkillReference } = require('./helpers/pr-review-cycle-skill');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SKILL_PATH = path.join(__dirname, '..', 'skills', 'pr-review-cycle', 'SKILL.md');
-const SKILL = fs.readFileSync(SKILL_PATH, 'utf8');
+const SKILL_MAIN = fs.readFileSync(SKILL_PATH, 'utf8');
+// SKILL.md plus the merge-gate companion it names; Safety rules stay in SKILL.md alone.
+const SKILL = readSkillBundle();
 const FLAT = SKILL.replace(/\s+/g, ' ');
 
 const PR_MERGE_YAML = fs.readFileSync(path.join(REPO_ROOT, 'packages/git/commands/pr-merge.yaml'), 'utf8');
@@ -59,7 +62,10 @@ const sectionIndex = (label) => {
 };
 
 /** Step 10's own text, so a promise made elsewhere cannot satisfy a Step 10 check. */
-const STEP_10 = SKILL.slice(sectionIndex('### Step 10 -- Merge gate'), sectionIndex('## Safety rules'));
+const STEP_10 =
+  SKILL_MAIN.slice(SKILL_MAIN.indexOf('### Step 10 -- Merge gate'), SKILL_MAIN.indexOf('## Safety rules')) +
+  '\n' +
+  readSkillReference('merge-gate.md');
 const STEP_10_FLAT = STEP_10.replace(/\s+/g, ' ');
 /** The same text with the blockquote markers of the editable prompts removed. */
 const STEP_10_PROMPTS = STEP_10.split('\n').map((line) => line.replace(/^>\s?/, '')).join(' ').replace(/\s+/g, ' ');
@@ -263,7 +269,7 @@ describe('TRD-027: gh reads happen in this run, are retried once, and never beco
     expect(STEP_10_FLAT).toContain('No claim by this session, a subagent, a commit message or the PR body');
     expect(STEP_10_FLAT).toContain('read fresh from the host in this run, or computed by `pr-review-cli.js` from such a read');
 
-    const safety = SKILL.slice(sectionIndex('## Safety rules')).replace(/\s+/g, ' ');
+    const safety = SKILL_MAIN.slice(SKILL_MAIN.indexOf('## Safety rules')).replace(/\s+/g, ' ');
     expect(safety).toContain('A merge gate is never answered from a self-report');
     expect(safety).toContain('`mergeable:false` is never re-graded into a pass');
   });

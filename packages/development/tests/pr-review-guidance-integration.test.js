@@ -22,6 +22,7 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
@@ -41,7 +42,7 @@ const {
 const BASE_SHA = '8b87a6d71146cd2e36e09c4fc265b6bb336f8798';
 const OTHER_SHA = 'b8fe66aeb70b304237e584311a2b481a3c990f91';
 
-const skillText = fs.readFileSync(SKILL_PATH, 'utf8');
+const skillText = readSkillBundle();
 const skillFlat = skillText.replace(/\s+/g, ' ');
 
 const run = (subcommand, payload) => {

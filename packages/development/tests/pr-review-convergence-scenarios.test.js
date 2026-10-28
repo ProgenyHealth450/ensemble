@@ -45,6 +45,7 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -214,7 +215,7 @@ describe('Scenario AC-007-3: a maintainer edits the severity definitions and the
   });
 
   test('the skill reads the definitions from the base commit, and says so', () => {
-    const skill = fs.readFileSync(SKILL, 'utf8');
+    const skill = readSkillBundle();
     expect(skill).toMatch(/read from the \*\*base commit\*\*/);
     expect(skill).toMatch(/never from the PR head/);
   });
@@ -269,7 +270,7 @@ describe('Scenario AC-009-1: at the round cap the loop stops and asks the author
   });
 
   test('the skill documents the stop, not a private round budget', () => {
-    const skill = fs.readFileSync(SKILL, 'utf8');
+    const skill = readSkillBundle();
     expect(skill).toMatch(/reconsider-approach-with-author/);
     expect(skill).toMatch(/`REVIEW_COMPLETE` is never reachable at the cap/);
     expect(skill).toMatch(/Never keep a\nprivate number here or in a calling command/);
@@ -354,7 +355,7 @@ describe('Scenario AC-010-1: a round after the first examines only the changes s
   });
 
   test('the skill wires round 2 onward to review-range, fed by the prior round\'s recorded head', () => {
-    const skill = fs.readFileSync(SKILL, 'utf8');
+    const skill = readSkillBundle();
     expect(skill).toMatch(/review-range/);
     expect(skill).toMatch(/`lastReviewedSha` is the `reviewedHeadSha` the\nprior round recorded in the state report/);
   });
@@ -416,7 +417,7 @@ describe('Scenario AC-011-1: a class finding names the class and lists every ins
   });
 
   test('the skill tells the reviewer to report classes by name with every instance, so the batch fix covers all of them', () => {
-    const skill = fs.readFileSync(SKILL, 'utf8');
+    const skill = readSkillBundle();
     expect(skill).toMatch(/`classes` by naming the class and listing every instance found/);
     expect(skill).toMatch(/recordRound/);
   });

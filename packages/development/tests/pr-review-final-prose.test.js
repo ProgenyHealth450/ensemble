@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
+const { readSkillReference } = require('./helpers/pr-review-cycle-skill');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
@@ -10,8 +11,7 @@ const json = (...p) => JSON.parse(read(...p));
 
 describe('final review prose and versions', () => {
   test('cycle gate step treats a missing ledger as unavailable, never []', () => {
-    const skill = read('packages/development/skills/pr-review-cycle/SKILL.md');
-    const step = skill.slice(skill.indexOf('### Step 10'));
+    const step = readSkillReference('merge-gate.md');
     expect(step).toMatch(/missing ledger is unavailable, never empty/i);
     expect(step).toMatch(/review-data-unavailable/);
     expect(step).toMatch(/Do not pass\s+`\[\]`/);
@@ -25,7 +25,9 @@ describe('final review prose and versions', () => {
 
   test('cycle Step 4 uses the closed severity vocabulary', () => {
     const skill = read('packages/development/skills/pr-review-cycle/SKILL.md');
-    const step4 = skill.slice(skill.indexOf('### Step 4'), skill.indexOf('### Step 5'));
+    const step4 =
+      skill.slice(skill.indexOf('### Step 4'), skill.indexOf('### Step 5')) +
+      readSkillReference('triage-fix-reverify.md').split('### Step 5')[0];
     expect(step4).not.toMatch(/Critical|Major|Minor/);
     expect(step4).toMatch(/Important/);
   });

@@ -20,6 +20,7 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const path = require('path');
 
 const {
@@ -48,7 +49,7 @@ const skillRecords = (base) =>
   SKILL_IDS.filter((id) => exists(`${base}/${id}/SKILL.md`)).map((id) => ({
     id,
     path: `${base}/${id}/SKILL.md`,
-    text: read(`${base}/${id}/SKILL.md`),
+    text: id === 'pr-review-cycle' && base === 'packages/development/skills' ? readSkillBundle() : read(`${base}/${id}/SKILL.md`),
   }));
 
 // ---------------------------------------------------------------------------

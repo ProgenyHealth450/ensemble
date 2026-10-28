@@ -10,6 +10,7 @@
  */
 
 const fs = require('fs');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const path = require('path');
 
 const SKILL_PATH = path.join(
@@ -25,7 +26,7 @@ const LIB_DIR = path.join(__dirname, '..', 'lib');
 const { LOCAL_PHASES } = require('../lib/pr-review-status');
 
 describe('pr-review-cycle SKILL.md', () => {
-  const text = fs.readFileSync(SKILL_PATH, 'utf8');
+  const text = readSkillBundle();
   // Markdown prose wraps at ~80 columns; flatten newlines to spaces so
   // substring assertions aren't sensitive to where a line happens to break.
   const flat = text.replace(/\s+/g, ' ');
@@ -189,7 +190,7 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
   const { LEDGER_ACTIONS } = require('../lib/pr-review-cli');
 
   const CLI = path.join(LIB_DIR, 'pr-review-cli.js');
-  const text = fs.readFileSync(SKILL_PATH, 'utf8');
+  const text = readSkillBundle();
   const flat = text.replace(/\s+/g, ' ');
 
   const BASE_SHA = '8b87a6d71146cd2e36e09c4fc265b6bb336f8798';
@@ -480,6 +481,30 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
       const given = order.slice(rung);
       const result = run('scope', { headSha: HEAD_SHA, ...Object.fromEntries(given.map((name) => [name, VALUES[name]])) }).out;
       expect([given.join('+'), result.ok, result.baseSha]).toEqual([given.join('+'), true, VALUES[order[rung]]]);
+    }
+  });
+});
+
+describe('pr-review-cycle SKILL.md: companion files', () => {
+  const { readSkillMain, SKILL_DIR } = require('./helpers/pr-review-cycle-skill');
+  const main = readSkillMain();
+  const refs = fs.readdirSync(path.join(SKILL_DIR, 'reference')).filter((f) => f.endsWith('.md'));
+
+  test.each(refs)('SKILL.md names reference/%s by relative path, so the Pi copier ships it', (file) => {
+    expect(main).toContain(`reference/${file}`);
+  });
+
+  test('the gating rules that must not be skipped stay in SKILL.md itself', () => {
+    for (const rule of [
+      'at most 10 minutes',
+      'LOCAL_REVIEW_COMPLETE',
+      'policy.roundCap',
+      'never from prose judgment',
+      '`violations` is binding',
+      'A missing ledger is unavailable, never',
+      'Never a self-report',
+    ]) {
+      expect([rule, main.replace(/\s+/g, ' ').replace('**', '').includes(rule.replace('**', ''))]).toEqual([rule, true]);
     }
   });
 });

@@ -47,6 +47,7 @@
  */
 
 const crypto = require('crypto');
+const { readSkillBundle } = require('./helpers/pr-review-cycle-skill');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -475,7 +476,7 @@ describe('AC-003-1: an owner-declared sensitive path is sensitive everywhere', (
     const review = reviewAt(repo, sha, { changedPaths });
 
     // 1. The declaration the skill documents building is the one used here.
-    const skill = fs.readFileSync(SKILL_PATH, 'utf8').replace(/\s+/g, ' ');
+    const skill = readSkillBundle().replace(/\s+/g, ' ');
     expect(skill).toContain('`declaration` is `{ sourceSha: <baseSha>, sensitive: <policy.sensitivePaths>, high: <policy.highPaths> }`');
     expect(review.declaration).toEqual({
       sourceSha: sha,
