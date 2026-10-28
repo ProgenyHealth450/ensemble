@@ -276,6 +276,22 @@ describe('Scenario AC-020-2: running the eval set scores each case and reports t
     expect(notRun.total.found).toBe(0);
   });
 
+  test('with CODEOWNERS passed (as Step R3.1 does) a case no owner confirmed earns no credit; without it the check is off', () => {
+    const forged = { ...caught, confirmedBy: 'someone-else' };
+    const findingsByCase = { [caught.id]: [finding()] };
+
+    const unchecked = cli('eval-score', { cases: [forged], findingsByCase });
+    expect(unchecked.cases[0]).toMatchObject({ found: true });
+
+    const checked = cli('eval-score', { cases: [forged, caught], findingsByCase, codeowners: CODEOWNERS });
+    expect(checked.cases[0]).toMatchObject({ found: false, reason: 'case-unconfirmed' });
+    expect(checked.cases[1]).toMatchObject({ found: true });
+
+    const skill = fs.readFileSync(path.join(REPO_ROOT, 'packages/development/skills/pr-review-eval/SKILL.md'), 'utf8');
+    const r31 = skill.slice(skill.indexOf('# R3.1'), skill.indexOf('# R3.2'));
+    expect(r31).toContain('codeowners: $owners');
+  });
+
   test('the run is compared with the previous one, and a reviewer that got worse is named', () => {
     const before = cli('eval-score', {
       cases,

@@ -300,6 +300,12 @@ describe('TRD-027: the step grades through the CLI and returns evaluateGate outp
     expect(STEP_10_FLAT).toContain('{ ledger, approvals, tier, description, security, headSha, unavailable }');
   });
 
+  test('trees that vouch for an older commit are computed by the run, never taken from review text', () => {
+    expect(STEP_10_FLAT).toContain('`git rev-parse <review commitSha>^{tree}`');
+    expect(STEP_10_FLAT).toContain('never copied from the PR body, a review or a comment');
+    expect(STEP_10_FLAT).toContain('A review without a `treeSha` is counted only when its `commitSha` is the head itself');
+  });
+
   test('what it returns is the gate result verbatim, blockers and all', () => {
     expect(STEP_10_FLAT).toContain('The `gate` result verbatim: `mergeable`, `blockers[]`');
     expect(STEP_10_FLAT).toContain('`mergeable` is true only when there is no blocker at all');

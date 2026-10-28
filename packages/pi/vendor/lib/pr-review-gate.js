@@ -205,6 +205,10 @@ function evaluateGate(input) {
   const blockers = [];
   const warnings = [];
 
+  // The gate answers "may THIS commit merge?": without a head it has no commit to
+  // bind approvals or the ledger to, so a pass could not be tied to anything.
+  if (!isText(input.headSha)) missing.push('headSha');
+
   // --- Caller-reported outages ------------------------------------------
   if (input.unavailable !== undefined && input.unavailable !== null) {
     if (!Array.isArray(input.unavailable)) missing.push('unreadable unavailable[] list');
@@ -300,14 +304,14 @@ function evaluateGate(input) {
         problems.push(`approvals required ${String(approvalsResult.humansRequired)} human(s) but the tier requires ${floor}`);
       }
     }
-    if (approvalsResult.headSha !== undefined && approvalsResult.headSha !== null) {
-      const carried = isText(approvalsResult.headSha) ? approvalsResult.headSha.trim().toLowerCase() : null;
-      const gateSha = isText(input.headSha) ? input.headSha.trim().toLowerCase() : null;
-      if (carried === null || gateSha === null || carried !== gateSha) {
-        problems.push(
-          `approvals were evaluated for commit ${carried === null ? '(unreadable)' : carried}, not ${gateSha === null ? '(no head given to the gate)' : gateSha}`
-        );
-      }
+    // An approvals result that names no commit is bound to nothing: it is as
+    // unusable as one bound to another commit.
+    const carried = isText(approvalsResult.headSha) ? approvalsResult.headSha.trim().toLowerCase() : null;
+    const gateSha = isText(input.headSha) ? input.headSha.trim().toLowerCase() : null;
+    if (carried === null || gateSha === null || carried !== gateSha) {
+      problems.push(
+        `approvals were evaluated for commit ${carried === null ? '(none named)' : carried}, not ${gateSha === null ? '(no head given to the gate)' : gateSha}`
+      );
     }
     if (problems.length > 0) {
       blockers.push(

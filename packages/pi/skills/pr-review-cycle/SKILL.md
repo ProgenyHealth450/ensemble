@@ -758,7 +758,13 @@ subcommands in this order, each one JSON payload in, one JSON object out:
    `author`, `state` and `commitSha`), `tier` the `tier` result's effective
    tier. A bot approval never counts, an approval bound to another commit
    never counts, and on an agent-authored PR the `directedBy` person counts as
-   one of the required reviewers (AC-014-3).
+   one of the required reviewers (AC-014-3). `headTreeSha` is `git rev-parse
+   <headSha>^{tree}` and any review `treeSha` is `git rev-parse
+   <review commitSha>^{tree}`, both computed in this run from the local
+   object database -- never copied from the PR body, a review or a comment.
+   A review without a `treeSha` is counted only when its `commitSha` is the
+   head itself; `gh` supplies no tree, so an unverified claim never vouches
+   for an older commit.
 3. `node "$PR_REVIEW_CLI" gate` with
    `{ ledger, approvals, tier, description, security, headSha, unavailable }`
    -- `ledger` the findings carried in the review-state report for this head

@@ -64,7 +64,9 @@
  *                    `metrics` result or a committed baseline file; answers
  *                    the per-target comparison and the revert/incident
  *                    guardrail (AC-019-3, AC-019-4)
- *   eval-score       { cases[], findingsByCase{} }
+ *   eval-score       { cases[], findingsByCase{}, codeowners?, evalCasesDir? } -- with
+ *                    `codeowners` (the base commit's CODEOWNERS text) a case no owner
+ *                    confirmed scores `case-unconfirmed`; without it the check is off
  *   eval-compare     { previous, current } -- each an `eval-score` result
  *   eval-stale       { cases[], rulesHashes{} }
  *

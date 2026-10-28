@@ -34,6 +34,7 @@ function finding(overrides = {}) {
 function approvals(overrides = {}) {
   return {
     ok: true,
+    headSha: HEAD,
     satisfied: true,
     reason: 'required-approvals-present',
     tier: 'medium',
@@ -334,5 +335,24 @@ describe('approvals must match the gate tier floor and head (fail closed)', () =
     expect(codesOf(stale)).toContain('approvals-tier-mismatch');
     const fresh = evaluateGate(cleanInput({ approvals: approvals({ headSha: HEAD }) }));
     expect(fresh.mergeable).toBe(true);
+  });
+});
+
+describe('gate head binding (final-gate F17): no head, no pass', () => {
+  test('a gate asked without a head SHA reports review data unavailable, never mergeable', () => {
+    const input = cleanInput();
+    delete input.headSha;
+    const result = evaluateGate(input);
+    expect(result.mergeable).toBe(false);
+    expect(codesOf(result)).toContain(BLOCKER_CODES.REVIEW_DATA_UNAVAILABLE);
+    expect(blockerOf(result, BLOCKER_CODES.REVIEW_DATA_UNAVAILABLE).missing).toContain('headSha');
+  });
+
+  test('an approvals result that names no commit is refused even when the gate has a head', () => {
+    const unbound = approvals();
+    delete unbound.headSha;
+    const result = evaluateGate(cleanInput({ approvals: unbound }));
+    expect(result.mergeable).toBe(false);
+    expect(codesOf(result)).toContain('approvals-tier-mismatch');
   });
 });

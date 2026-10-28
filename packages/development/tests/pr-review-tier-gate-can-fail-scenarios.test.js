@@ -151,6 +151,7 @@ const description = () => ({
 
 const approvalsResult = () => ({
   ok: true,
+  headSha: HEAD,
   satisfied: true,
   reason: 'required-approvals-present',
   tier: 'medium',

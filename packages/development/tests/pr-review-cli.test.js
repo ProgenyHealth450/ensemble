@@ -289,6 +289,21 @@ describe('pr-review-cli: delegation to the matching module (handler functions)',
     expect(read.ok).toBe(false);
     expect(read.reason).toBe('corrupt');
   });
+
+  test('a hostile targetPath is refused by state-write and state-read through the CLI handlers, and nothing is written', () => {
+    const cwd = tmpCwd();
+    const outside = path.join(cwd, 'evil.json');
+    for (const targetPath of [outside, '../evil.json', '.ensemble/pr-review/../../evil.json']) {
+      const written = runStateWrite({ targetPath, cwd, state: { headSha: 'h1', ledger: [] } });
+      expect(written.ok).toBe(false);
+      expect(written.reason).toBe('path outside .ensemble/pr-review/');
+      expect(fs.existsSync(path.join(cwd, 'evil.json'))).toBe(false);
+    }
+    fs.writeFileSync(outside, JSON.stringify({ headSha: 'h1', ledger: [] }));
+    const read = runStateRead({ targetPath: outside, cwd, headSha: 'h1' });
+    expect(read.ok).toBe(false);
+    expect(read.reason).toBe('path outside .ensemble/pr-review/');
+  });
 });
 
 describe('pr-review-cli: main() dispatch, stdin parsing and error contract', () => {

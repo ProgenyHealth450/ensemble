@@ -218,9 +218,11 @@ produced), do not invent a review: leave that case out of `findingsByCase` —
 ### Step R3 — Score, compare, and report regressions
 
 ```bash
-# R3.1 Score this run.
+# R3.1 Score this run. CODEOWNERS is read from the base commit and passed so a
+# case no owner confirmed scores `case-unconfirmed`, never as evidence (AC-020-1).
 jq -n --slurpfile cases /tmp/eval-cases.json --slurpfile findings /tmp/eval-findings.json \
-  '{cases: $cases[0], findingsByCase: $findings[0]}' \
+  --arg owners "$(git show "$BASE_SHA:CODEOWNERS" 2>/dev/null)" \
+  '{cases: $cases[0], findingsByCase: $findings[0], codeowners: $owners}' \
   | node packages/development/lib/pr-review-cli.js eval-score > /tmp/eval-run-today.json
 
 # R3.2 Compare with the previous run; a lower total is a regression, by name.

@@ -20,6 +20,10 @@ const DEFAULT_MODEL = 'gpt-5.1-codex';
 // Codex targets OpenAI models, so any Anthropic-family tier alias coming from
 // the source frontmatter (opus/sonnet/haiku) maps to the OpenAI DEFAULT_MODEL.
 const ANTHROPIC_ALIASES = new Set(['opus', 'sonnet', 'haiku']);
+// Agents whose source declares them READ-ONLY (they record findings and change nothing).
+// Their Codex agent file gets the read-only sandbox, so the mirror enforces what the
+// source documents instead of defaulting to workspace-write like every other agent.
+const READ_ONLY_AGENTS = new Set(['code-reviewer']);
 const AVAILABLE_SKILLS = new Set(['react', 'nestjs', 'rails', 'phoenix', 'blazor', 'dotnet', 'jest', 'pytest', 'rspec', 'xunit', 'exunit', 'reqnroll']);
 // Framework skills are named after their technology (skills/react/, skills/nestjs/, ...).
 // A bare `skills/<name>/` path is rewritten to the Codex location; the lookbehind leaves
@@ -374,6 +378,11 @@ function generateCommandSkills({ dryRun, verbose }) {
   return count;
 }
 
+/** The Codex sandbox an agent's file declares: read-only for READ_ONLY_AGENTS, workspace-write otherwise. */
+function sandboxModeFor(agentName) {
+  return READ_ONLY_AGENTS.has(agentName) ? 'read-only' : 'workspace-write';
+}
+
 function generateAgents({ dryRun, verbose }) {
   const agentYamlFiles = globSync(toGlobPattern(path.join(PACKAGES_DIR, '*/agents/*.yaml'))).sort();
   const agents = [];
@@ -401,7 +410,7 @@ function generateAgents({ dryRun, verbose }) {
       `name = ${tomlString(name)}`,
       `description = ${tomlString(description)}`,
       `model = ${tomlString(model)}`,
-      'sandbox_mode = "workspace-write"',
+      `sandbox_mode = ${tomlString(sandboxModeFor(name))}`,
       'model_reasoning_effort = "medium"',
       ...(skills.length > 0 ? [`skills = [${skills.map((skill) => tomlString(skill)).join(', ')}]`] : []),
       '',
@@ -469,4 +478,5 @@ module.exports = {
   normalizeLineEndings,
   generateCodexSubcommandsSection,
   generateCommandSkills,
+  sandboxModeFor,
 };

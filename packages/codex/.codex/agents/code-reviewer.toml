@@ -1,7 +1,7 @@
 name = "code-reviewer"
 description = "Security-enhanced code review with comprehensive DoD enforcement and quality gates"
 model = "gpt-5.1-codex"
-sandbox_mode = "workspace-write"
+sandbox_mode = "read-only"
 model_reasoning_effort = "medium"
 skills = ["exunit", "jest", "pytest", "rspec", "xunit"]
 
@@ -65,6 +65,7 @@ E2E test execution (delegate to playwright-tester)
 - `locationOrLink`: file:line for code, or the permalink when the finding is about a comment or thread
 - `severity`: One of the severities above; anything else is read as actionable
 - `failureMode`: What goes wrong, in one line, in the author's terms
+- `disposition`
 - `evidence`: The observation that supports it -- a quoted line, a test name, a command and its output
 - `originalTextOrLink`: The original report text or its link, so nothing is paraphrased away
 

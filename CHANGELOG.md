@@ -113,6 +113,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `code-reviewer` output contract lists `disposition`. Versions:
   ensemble-pi 1.6.18, ensemble-full 7.0.1.
 
+- **packages/development, packages/codex (local review gate, PRs 2-6):** the
+  merge gate now answers `review-data-unavailable` when it is not given a head
+  SHA and refuses an approvals result that names no commit; the eval run
+  (`pr-review-eval` Step R3.1) passes CODEOWNERS to `eval-score` so a case no
+  owner confirmed earns no credit; `pr-review-cycle` Step 10e says review and
+  head trees are computed by the run, never read from review text; and the
+  generated Codex `code-reviewer` agent is `sandbox_mode = "read-only"` like
+  its source declares.
+
 ### Documentation
 
 - **User guide section 11, "Code review process":** the whole process in one
