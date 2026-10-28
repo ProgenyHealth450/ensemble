@@ -88,7 +88,8 @@ Assign exactly one owner per finding; first matching row wins, never dual-route.
 2. Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
 3. Manifest empty: proceed to Merge and Report.
 4. Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
-5. Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation. The round cap is the lower of the pr-review-cycle policy cap and --max-rounds; at the cap ask the author to step back and reconsider the approach rather than opening another round.
+5. Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation.
+6. The cap is the lower of the policy cap and the flag value; at it, ask the author to step back and reconsider the approach rather than opening another round.
 
 ## Phase 5: Merge and Report
 

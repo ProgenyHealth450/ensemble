@@ -76,7 +76,8 @@ parallel, then re-verified against live state until green, then merged once the 
 - Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
 - Manifest empty: proceed to Merge and Report.
 - Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
-- Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation. The round cap is the lower of the pr-review-cycle policy cap and --max-rounds; at the cap ask the author to step back and reconsider the approach rather than opening another round.
+- Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation.
+- The cap is the lower of the policy cap and the flag value; at it, ask the author to step back and reconsider the approach rather than opening another round.
 
 ### Phase 5: Merge and Report
 
