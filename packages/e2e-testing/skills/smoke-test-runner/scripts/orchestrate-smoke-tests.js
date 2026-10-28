@@ -1,336 +1,180 @@
 /**
- * Smoke Test Runner - Orchestration Script
+ * Smoke Test Runner - runs every smoke category in order against a project-supplied
+ * smoke-tests.json|yaml. A category that is not configured is reported NOT CONFIGURED
+ * and can never count as a pass; the overall verdict is only 'passed' when every
+ * REQUIRED category actually executed and passed.
  *
- * Orchestrates execution of all smoke test categories in sequential order
- * with early exit on failure.
- *
- * @module orchestrate-smoke-tests
- * @version 1.0.0
+ * CLI: node orchestrate-smoke-tests.js [--config smoke-tests.json] [--environment staging] [--no-stop]
+ * Exit code 0 only when the verdict is passed.
  */
-
 const { performance } = require('perf_hooks');
 const { SmokeTestAPI } = require('./execute-health-checks.js');
 const { SmokeTestDatabase } = require('./test-connectivity.js');
 const { SmokeTestExternalServices } = require('./test-integrations.js');
 const { SmokeTestAuth } = require('./test-auth-flows.js');
 const { SmokeTestCriticalPaths } = require('./execute-journeys.js');
+const { notConfigured, loadSmokeConfig } = require('./smoke-util.js');
 
-/**
- * Smoke test categories in execution order
- */
+/** Execution order; targets are advisory (exceeding one only warns). Total target <= 15 min. */
 const SMOKE_TEST_CATEGORIES = [
-  {
-    id: 'api',
-    name: 'API Health',
-    skill: 'smoke-test-runner#api',
-    target: 180000,  // 3 minutes
-    timeout: 300000, // 5 minutes
-    order: 1
-  },
-  {
-    id: 'database',
-    name: 'Database',
-    skill: 'smoke-test-runner#database',
-    target: 120000,  // 2 minutes
-    timeout: 300000, // 5 minutes
-    order: 2
-  },
-  {
-    id: 'externalServices',
-    name: 'External Services',
-    skill: 'smoke-test-runner#external-services',
-    target: 180000,  // 3 minutes
-    timeout: 300000, // 5 minutes
-    order: 3
-  },
-  {
-    id: 'auth',
-    name: 'Auth',
-    skill: 'smoke-test-runner#auth',
-    target: 120000,  // 2 minutes
-    timeout: 300000, // 5 minutes
-    order: 4
-  },
-  {
-    id: 'criticalPaths',
-    name: 'Critical Paths',
-    skill: 'smoke-test-runner#critical-paths',
-    target: 300000,  // 5 minutes
-    timeout: 600000, // 10 minutes
-    order: 5
-  }
+  { id: 'api', name: 'API Health', skill: 'smoke-test-runner#api', configKey: 'api', target: 180000, order: 1 },
+  { id: 'database', name: 'Database', skill: 'smoke-test-runner#database', configKey: 'database', target: 120000, order: 2 },
+  { id: 'externalServices', name: 'External Services', skill: 'smoke-test-runner#external-services', configKey: 'externalServices', target: 180000, order: 3 },
+  { id: 'auth', name: 'Auth', skill: 'smoke-test-runner#auth', configKey: 'auth', target: 120000, order: 4 },
+  { id: 'criticalPaths', name: 'Critical Paths', skill: 'smoke-test-runner#critical-paths', configKey: 'criticalPaths', target: 300000, order: 5 }
 ];
 
-/**
- * Smoke Test Runner Orchestrator
- */
 class SmokeTestRunner {
+  /**
+   * @param {Object} config { environment, stopOnFirstFailure, categories, required, smokeConfig, configPath }
+   *   smokeConfig: parsed smoke-tests.json (else loaded from configPath or ./smoke-tests.{json,yaml,yml}).
+   *   required: category ids that must execute and pass (default: all categories run).
+   */
   constructor(config = {}) {
     this.config = {
       environment: config.environment || 'staging',
       stopOnFirstFailure: config.stopOnFirstFailure !== false,
-      categories: config.categories || SMOKE_TEST_CATEGORIES.map(c => c.id),
-      ...config
+      categories: config.categories || SMOKE_TEST_CATEGORIES.map(c => c.id)
     };
-
+    this.smokeConfig = config.smokeConfig || loadSmokeConfig(config.configPath) || {};
+    this.required = config.required || this.smokeConfig.required || this.config.categories;
     this.results = {};
-    this.totalDuration = 0;
   }
 
-  /**
-   * Execute all smoke test categories
-   *
-   * @returns {Promise<Object>} Execution results
-   */
   async executeAll() {
-    console.log('🚀 Starting smoke test orchestration...');
-    console.log(`📦 Environment: ${this.config.environment}`);
-    console.log(`🎯 Categories: ${this.config.categories.join(', ')}`);
-    console.log('');
-
-    const startTime = performance.now();
-
-    const categoriesToExecute = SMOKE_TEST_CATEGORIES.filter(c =>
-      this.config.categories.includes(c.id)
-    );
-
-    for (const category of categoriesToExecute) {
-      console.log(`[${category.order}/${categoriesToExecute.length}] Executing ${category.name}...`);
-
+    const start = performance.now();
+    const selected = SMOKE_TEST_CATEGORIES.filter(c => this.config.categories.includes(c.id));
+    console.log(`[RUN] Smoke tests (${this.config.environment}): ${selected.map(c => c.id).join(', ')}`);
+    let stopped = false;
+    for (const category of selected) {
+      if (stopped) {
+        this.results[category.id] = { category: category.id, name: category.name, passed: false, status: 'not-run', duration: 0, reason: 'NOT RUN: earlier category failed' };
+        continue;
+      }
       const result = await this.executeCategory(category);
       this.results[category.id] = result;
-
-      // Display result
-      if (result.passed) {
-        console.log(`✅ ${category.name} passed (${result.duration}ms)`);
-      } else {
-        console.log(`❌ ${category.name} failed (${result.duration}ms)`);
-        console.log(`   Reason: ${result.reason}`);
-      }
-      console.log('');
-
-      // Early exit on failure
-      if (!result.passed && this.config.stopOnFirstFailure) {
-        const totalDuration = performance.now() - startTime;
-        return this.buildFailureResult(category, result, totalDuration, categoriesToExecute.length);
-      }
+      const label = { passed: 'OK', failed: 'FAIL', 'not-configured': 'NOT CONFIGURED' }[result.status] || result.status;
+      console.log(`[${label}] ${category.name} (${result.duration}ms)${result.status === 'passed' ? '' : ': ' + result.reason}`);
+      if (result.status === 'failed' && this.config.stopOnFirstFailure) stopped = true;
     }
-
-    const totalDuration = performance.now() - startTime;
-    return this.buildSuccessResult(totalDuration, categoriesToExecute.length);
+    return this.buildVerdict(Math.round(performance.now() - start), selected);
   }
 
-  /**
-   * Execute a single smoke test category
-   *
-   * @param {Object} category - Category configuration
-   * @returns {Promise<Object>} Category execution result
-   */
   async executeCategory(category) {
-    const startTime = performance.now();
-
+    const start = performance.now();
+    let result;
     try {
-      let result;
-
-      // In production, would use Skill tool to invoke the specific smoke test skill
-      // For now, execute directly via require'd modules
-      switch (category.id) {
-        case 'api':
-          result = await this.executeAPITests();
-          break;
-        case 'database':
-          result = await this.executeDatabaseTests();
-          break;
-        case 'externalServices':
-          result = await this.executeExternalServicesTests();
-          break;
-        case 'auth':
-          result = await this.executeAuthTests();
-          break;
-        case 'criticalPaths':
-          result = await this.executeCriticalPathsTests();
-          break;
-        default:
-          throw new Error(`Unknown category: ${category.id}`);
-      }
-
-      const duration = Math.round(performance.now() - startTime);
-
-      // Check if execution exceeded target
-      if (duration > category.target) {
-        console.warn(`⚠️  ${category.name} exceeded target (${duration}ms > ${category.target}ms)`);
-      }
-
-      return {
-        category: category.id,
-        name: category.name,
-        passed: result.passed,
-        duration,
-        target: category.target,
-        reason: result.reason,
-        details: result.details
-      };
-
+      const cfg = this.smokeConfig[category.configKey];
+      result = cfg ? await this.runCategory(category, cfg) : notConfigured(category.name, `no "${category.configKey}" section in smoke-tests.json`);
     } catch (error) {
-      const duration = Math.round(performance.now() - startTime);
-
-      return {
-        category: category.id,
-        name: category.name,
-        passed: false,
-        duration,
-        target: category.target,
-        reason: error.message,
-        error: error.stack
-      };
+      result = { passed: false, status: 'failed', reason: `Execution error: ${error.message}`, details: {}, results: [] };
     }
-  }
-
-  /**
-   * Execute API smoke tests
-   */
-  async executeAPITests() {
-    const tester = new SmokeTestAPI({
-      baseUrl: process.env.BASE_URL || 'http://localhost:3000'
-    });
-
-    return tester.executeHealthChecks({
-      environment: this.config.environment,
-      endpoints: [
-        { path: '/health', method: 'GET', expectedStatus: 200, sla: 100 }
-      ]
-    });
-  }
-
-  /**
-   * Execute database smoke tests
-   */
-  async executeDatabaseTests() {
-    const tester = new SmokeTestDatabase({
-      type: 'postgresql',
-      host: process.env.DB_HOST || 'localhost'
-    });
-
-    return tester.executeTests({
-      environment: this.config.environment,
-      tests: ['connectivity', 'query-performance']
-    });
-  }
-
-  /**
-   * Execute external services smoke tests
-   */
-  async executeExternalServicesTests() {
-    const tester = new SmokeTestExternalServices({
-      services: []  // Would be configured per environment
-    });
-
-    return tester.executeTests({
-      environment: this.config.environment,
-      tests: ['connectivity', 'authentication']
-    });
-  }
-
-  /**
-   * Execute auth smoke tests
-   */
-  async executeAuthTests() {
-    const tester = new SmokeTestAuth({
-      baseUrl: process.env.BASE_URL || 'http://localhost:3000'
-    });
-
-    return tester.executeTests({
-      environment: this.config.environment,
-      tests: ['login', 'token-validation']
-    });
-  }
-
-  /**
-   * Execute critical paths smoke tests
-   */
-  async executeCriticalPathsTests() {
-    const tester = new SmokeTestCriticalPaths({
-      baseUrl: process.env.BASE_URL || 'http://localhost:3000',
-      journeys: ['registration', 'checkout']
-    });
-
-    return tester.executeTests({
-      environment: this.config.environment
-    });
-  }
-
-  /**
-   * Build success result
-   *
-   * @param {number} totalDuration - Total execution time
-   * @param {number} totalCategories - Total categories executed
-   * @returns {Object} Success result
-   */
-  buildSuccessResult(totalDuration, totalCategories) {
+    const duration = Math.round(performance.now() - start);
+    if (duration > category.target) console.warn(`[WARN] ${category.name} exceeded target (${duration}ms > ${category.target}ms)`);
     return {
-      status: 'success',
-      passed: true,
-      totalDuration: Math.round(totalDuration),
-      targetDuration: SMOKE_TEST_CATEGORIES.reduce((sum, c) => sum + c.target, 0),
-      categoriesExecuted: totalCategories,
-      categoriesPassed: totalCategories,
-      categoriesFailed: 0,
-      results: this.results
+      category: category.id,
+      name: category.name,
+      passed: result.status === 'passed',
+      status: result.status || (result.passed ? 'passed' : 'failed'),
+      duration,
+      target: category.target,
+      reason: result.reason,
+      details: result.details,
+      results: result.results
     };
   }
 
-  /**
-   * Build failure result
-   *
-   * @param {Object} failedCategory - Category that failed
-   * @param {Object} failedResult - Failed category result
-   * @param {number} totalDuration - Total execution time
-   * @param {number} totalCategories - Total categories
-   * @returns {Object} Failure result
-   */
-  buildFailureResult(failedCategory, failedResult, totalDuration, totalCategories) {
-    const categoriesExecuted = Object.keys(this.results).length;
+  async runCategory(category, rawCfg) {
+    if (typeof rawCfg !== 'object' || Array.isArray(rawCfg)) {
+      return { passed: false, status: 'failed', reason: `"${category.configKey}" section in smoke-tests.json must be an object`, details: {}, results: [] };
+    }
+    // top-level includeOutput applies to every category unless the category sets its own
+    const cfg = { includeOutput: this.smokeConfig.includeOutput, ...rawCfg };
+    const context = { environment: this.config.environment };
+    switch (category.id) {
+      case 'api': {
+        const endpoints = cfg.endpoints || [];
+        if (!cfg.baseUrl || !endpoints.length) return notConfigured('API Health', 'set api.baseUrl and api.endpoints[] in smoke-tests.json');
+        const r = await new SmokeTestAPI(cfg).executeHealthChecks({ ...context, endpoints });
+        return { ...r, status: r.passed ? 'passed' : 'failed' };
+      }
+      case 'database': return new SmokeTestDatabase(cfg).executeTests(context);
+      case 'externalServices': return new SmokeTestExternalServices(cfg).executeTests(context);
+      case 'auth': return new SmokeTestAuth(cfg).executeTests(context);
+      case 'criticalPaths': return new SmokeTestCriticalPaths(cfg).executeTests(context);
+      default: throw new Error(`Unknown category: ${category.id}`);
+    }
+  }
 
+  /**
+   * Verdict: 'passed' only if every required category executed and passed.
+   * 'failed' if any executed category failed; 'incomplete' if no failure but a
+   * required category was NOT CONFIGURED or not run. passed === (status === 'passed').
+   */
+  buildVerdict(totalDuration, selected) {
+    const entries = selected.map(c => this.results[c.id]);
+    const failed = entries.filter(r => r.status === 'failed');
+    const missingRequired = entries.filter(r => this.required.includes(r.category) && (r.status === 'not-configured' || r.status === 'not-run'));
+    const executedPassed = entries.filter(r => r.status === 'passed');
+    const unrunRequired = this.required.filter(id => !selected.some(c => c.id === id));
+    let status = 'passed';
+    let reason = `All ${executedPassed.length} executed categories passed`;
+    if (failed.length) {
+      status = 'failed';
+      reason = failed.map(f => `${f.name}: ${f.reason}`).join(' | ');
+    } else if (missingRequired.length || unrunRequired.length) {
+      status = 'incomplete';
+      reason = [...missingRequired.map(m => `${m.name}: ${m.reason}`), ...unrunRequired.map(id => `${id}: required but not selected`)].join(' | ');
+    } else if (!executedPassed.length) {
+      status = 'incomplete';
+      reason = 'No smoke test category executed';
+    }
     return {
-      status: 'failure',
-      passed: false,
-      failedCategory: failedCategory.id,
-      failedCategoryName: failedCategory.name,
-      failureReason: failedResult.reason,
-      totalDuration: Math.round(totalDuration),
-      categoriesExecuted,
-      categoriesPassed: categoriesExecuted - 1,
-      categoriesFailed: 1,
+      status,
+      passed: status === 'passed',
+      reason,
+      totalDuration,
+      categoriesExecuted: entries.filter(r => r.status === 'passed' || r.status === 'failed').length,
+      categoriesPassed: executedPassed.length,
+      categoriesFailed: failed.length,
+      categoriesNotConfigured: entries.filter(r => r.status === 'not-configured').length,
       results: this.results
     };
   }
 }
 
-/**
- * Export runner and configuration
- */
-module.exports = {
-  SmokeTestRunner,
-  SMOKE_TEST_CATEGORIES
-};
+/** Standard verdict envelope for a config that could not be loaded (no stack trace, no categories run). */
+function configFailureVerdict(message) {
+  return {
+    status: 'failed',
+    passed: false,
+    reason: message,
+    totalDuration: 0,
+    categoriesExecuted: 0,
+    categoriesPassed: 0,
+    categoriesFailed: 0,
+    categoriesNotConfigured: 0,
+    results: {}
+  };
+}
 
-/**
- * CLI usage example:
- *
- * const { SmokeTestRunner } = require('./orchestrate-smoke-tests.js');
- *
- * const runner = new SmokeTestRunner({
- *   environment: 'staging',
- *   stopOnFirstFailure: true
- * });
- *
- * const result = await runner.executeAll();
- *
- * if (result.passed) {
- *   console.log('✅ All smoke tests passed!');
- *   console.log(`Total time: ${result.totalDuration}ms`);
- * } else {
- *   console.error(`❌ Smoke tests failed: ${result.failedCategoryName}`);
- *   console.error(`Reason: ${result.failureReason}`);
- * }
- */
+module.exports = { SmokeTestRunner, SMOKE_TEST_CATEGORIES, configFailureVerdict };
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const opt = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+  const emit = r => {
+    console.log(JSON.stringify(r, null, 2));
+    console.log(r.passed ? '[OK] Smoke tests passed' : `[${r.status.toUpperCase()}] ${r.reason}`);
+    process.exit(r.passed ? 0 : 1);
+  };
+  let runner;
+  try {
+    runner = new SmokeTestRunner({ configPath: opt('--config'), environment: opt('--environment'), stopOnFirstFailure: !args.includes('--no-stop') });
+  } catch (e) {
+    emit(configFailureVerdict(e.message));
+  }
+  runner.executeAll()
+    .then(emit)
+    .catch(e => { console.error(e.message); process.exit(2); });
+}

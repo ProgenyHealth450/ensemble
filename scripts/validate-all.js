@@ -7,6 +7,11 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { checkFrontmatter } = require('./lib/frontmatter-check');
+const promptBudget = require('./lib/prompt-budget');
+const { checkStepKeys } = require('./lib/step-keys-check');
+const { loadValidCapabilityIds, checkCapabilityIds, checkCapabilityInvocationDrift } = require('./lib/capability-ids-check');
+const { checkDefaultOnly, RESTRICTED_CATEGORIES } = require('./lib/default-only-check');
+const yamlLib = require('js-yaml');
 
 const PACKAGES_DIR = path.join(__dirname, '..', 'packages');
 
@@ -87,7 +92,7 @@ function validateFullLibMirror() {
 /**
  * Parse a packages/full/skills/<entry> symlink target into the source package
  * it mirrors wholesale (`../../git/skills` -> `git`), or null for a per-skill
- * link like `../../development/skills/developing-with-flutter`.
+ * link like `../../development/skills/staleness-gate`.
  *
  * Separators are normalized because fs.readlinkSync returns the target in the
  * platform's own form: `../../git/skills` on POSIX but `..\..\git\skills` on
@@ -111,8 +116,8 @@ function wholeDirMirrorTarget(target) {
 /**
  * Ensure every skill under packages/<pkg>/skills/<skill>/ (excluding pi and
  * full themselves) is reachable from packages/full/skills/. packages/full
- * mirrors source packages either per-skill (e.g. `developing-with-flutter ->
- * ../../development/skills/developing-with-flutter`) or via a whole-package
+ * mirrors source packages either per-skill (e.g. `staleness-gate ->
+ * ../../development/skills/staleness-gate`) or via a whole-package
  * symlink (e.g. `git -> ../../git/skills`, which implicitly covers every
  * skill underneath it, like `git/git-town`). A skill reachable through
  * neither shape means packages/full silently lacks something a command
@@ -261,6 +266,102 @@ function findDeSymlinkedMirrors() {
   return found.sort();
 }
 
+/**
+ * Every command YAML step may carry only keys the command transformer renders.
+ * Source packages only: pi/codex/opencode are generated output.
+ *
+ * @returns {string[]} One message per unrendered step key
+ */
+function validateStepKeys() {
+  const failures = [];
+  let checked = 0;
+  for (const pkg of fs.readdirSync(PACKAGES_DIR)) {
+    if (pkg === 'pi' || pkg === 'codex' || pkg === 'opencode') continue;
+    const dir = path.join(PACKAGES_DIR, pkg, 'commands');
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.yaml'))) {
+      const rel = path.join('packages', pkg, 'commands', file);
+      failures.push(...checkStepKeys(yamlLib.load(fs.readFileSync(path.join(dir, file), 'utf8')), rel));
+      checked++;
+    }
+  }
+  console.log(`  ✓ ${checked} command YAML file(s) checked for unrendered step keys`);
+  return failures;
+}
+
+/**
+ * Every command YAML's `metadata.capabilities.{required,optional}` entries must
+ * be ids a real packages/development/toolchain/categories/*.yaml declares.
+ * Source packages only: pi/codex/opencode are generated output.
+ *
+ * @returns {string[]} One message per unknown capability id
+ */
+function validateCapabilityIds() {
+  const categoriesDir = path.join(__dirname, '..', 'packages', 'development', 'toolchain', 'categories');
+  const validIds = loadValidCapabilityIds(categoriesDir);
+  const failures = [];
+  let checked = 0;
+  for (const pkg of fs.readdirSync(PACKAGES_DIR)) {
+    if (pkg === 'pi' || pkg === 'codex' || pkg === 'opencode') continue;
+    const dir = path.join(PACKAGES_DIR, pkg, 'commands');
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.yaml'))) {
+      const rel = path.join('packages', pkg, 'commands', file);
+      const commandData = yamlLib.load(fs.readFileSync(path.join(dir, file), 'utf8'));
+      failures.push(...checkCapabilityIds(commandData, rel, validIds));
+      checked++;
+    }
+  }
+  console.log(`  ✓ ${checked} command YAML file(s) checked for valid capability ids`);
+  return failures;
+}
+
+/**
+ * Every one of the ten "default-only" toolchain categories (TRD-046; see
+ * `./lib/default-only-check.js`'s own doc for exactly which ten and why) must have exactly one
+ * shipped adapter and its own category contract file. `host`/`tracker`/`workflow`/`work-graph`
+ * are intentionally not checked here.
+ *
+ * @returns {string[]} One message per category that is missing its contract file, has zero
+ *   shipped adapters, or has two or more
+ */
+function validateDefaultOnly() {
+  const categoriesDir = path.join(__dirname, '..', 'packages', 'development', 'toolchain', 'categories');
+  const result = checkDefaultOnly(categoriesDir, PACKAGES_DIR);
+  if (result.ok) {
+    console.log(`  ✓ ${RESTRICTED_CATEGORIES.length}/${RESTRICTED_CATEGORIES.length} restricted categories have exactly one shipped adapter`);
+  }
+  return result.errors;
+}
+
+/**
+ * Every command YAML's body prose (`run <id>`, `preflight --require <id>`, `confirm-status
+ * <id>`) must only reference capability ids that file's own `metadata.capabilities.{required,
+ * optional}` declares (PR 7 independent review item 7). Source packages only: pi/codex/
+ * opencode are generated output and would only reflect the same drift their source already
+ * has.
+ *
+ * @returns {string[]} One message per invoked-but-undeclared capability id
+ */
+function validateCapabilityInvocationDrift() {
+  const failures = [];
+  let checked = 0;
+  for (const pkg of fs.readdirSync(PACKAGES_DIR)) {
+    if (pkg === 'pi' || pkg === 'codex' || pkg === 'opencode') continue;
+    const dir = path.join(PACKAGES_DIR, pkg, 'commands');
+    if (!fs.existsSync(dir)) continue;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.yaml'))) {
+      const rel = path.join('packages', pkg, 'commands', file);
+      const rawText = fs.readFileSync(path.join(dir, file), 'utf8');
+      const commandData = yamlLib.load(rawText);
+      failures.push(...checkCapabilityInvocationDrift(commandData, rel, rawText));
+      checked++;
+    }
+  }
+  console.log(`  ✓ ${checked} command YAML file(s) checked for capability declaration/invocation drift`);
+  return failures;
+}
+
 function safeLstatExists(p) {
   try {
     fs.lstatSync(p);
@@ -287,7 +388,7 @@ function validatePlugin(pluginDir) {
       { cwd: path.join(__dirname, '..'), stdio: 'inherit' }
     );
   } catch (error) {
-    throw new Error(`Invalid plugin.json for ${pluginName}`);
+    throw new Error(`Invalid plugin.json for ${pluginName}`, { cause: error });
   }
 
   // Check package.json exists
@@ -315,7 +416,7 @@ function validatePlugin(pluginDir) {
         });
         console.log(`  ✓ Valid YAML: ${yamlFile}`);
       } catch (error) {
-        throw new Error(`Invalid YAML: ${yamlPath}`);
+        throw new Error(`Invalid YAML: ${yamlPath}`, { cause: error });
       }
     });
   }
@@ -451,6 +552,43 @@ function main() {
     console.log('  ✓ packages/full/ mirrors resolve to real content');
   }
 
+  console.log('\nValidating command step keys are rendered...');
+  validateStepKeys().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
+  console.log('\nValidating command capability ids...');
+  validateCapabilityIds().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
+  console.log('\nValidating command capability declaration/invocation drift...');
+  validateCapabilityInvocationDrift().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
+  console.log('\nValidating default-only toolchain categories...');
+  validateDefaultOnly().forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+
+  // Prompt word-budget ratchet (see scripts/lib/prompt-budget.js)
+  console.log('\nValidating prompt word budgets...');
+  const sizes = promptBudget.collectSizes(PACKAGES_DIR);
+  const budget = promptBudget.checkBudgets(sizes, promptBudget.loadBaseline());
+  budget.advisories.forEach(message => console.warn(`⚠ ${message}`));
+  budget.failures.forEach(message => {
+    console.error(`✗ ${message}`);
+    errors++;
+  });
+  if (budget.failures.length === 0) {
+    console.log(`  ✓ ${Object.keys(sizes).length} prompt file(s) within word budgets`);
+  }
+
   if (errors > 0) {
     console.error(`\n✗ Validation failed with ${errors} error(s)`);
     process.exit(1);
@@ -461,7 +599,13 @@ function main() {
 
 // Guarded so scripts/tests can require this module without running validation.
 if (require.main === module) {
-  main();
+  if (process.argv.includes('--update-prompt-baseline')) {
+    const baseline = promptBudget.buildBaseline(promptBudget.collectSizes(PACKAGES_DIR));
+    promptBudget.writeBaseline(baseline);
+    console.log(`Wrote ${Object.keys(baseline).length} entries to scripts/prompt-budget-baseline.json`);
+  } else {
+    main();
+  }
 }
 
 module.exports = {
@@ -471,4 +615,8 @@ module.exports = {
   findDeSymlinkedMirrors,
   validateFullSkillsMirror,
   validateFullLibMirror,
+  validateStepKeys,
+  validateCapabilityIds,
+  validateCapabilityInvocationDrift,
+  validateDefaultOnly,
 };

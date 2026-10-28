@@ -307,6 +307,36 @@ describe('runResolveSdlc', () => {
     expect(out.consolidatedMessage).toContain('PR backend resolution needed');
   });
 
+  test('TRD-037 AC-1: ENSEMBLE_PR_BACKEND=ado with no toolchain config -> host azure-devops via env-compat, legacy prBackend unchanged', () => {
+    const out = runResolveSdlc(
+      ['--git-town-exit-code', '0', '--remote-url', githubUrl],
+      { ENSEMBLE_PR_BACKEND: 'ado' }
+    );
+    expect(out.ok).toBe(true);
+    expect(out.host).toEqual({ adapter: 'azure-devops', source: 'env-compat' });
+    expect(out.prBackend).toEqual({ backend: 'ado', source: 'env', needsResolution: false });
+  });
+
+  test('TRD-037 AC-2: no env, no project toolchain config -> host resolves to the shipped default/detected github, workflow to git-town or plain-git, legacy fields untouched', () => {
+    const out = runResolveSdlc(
+      ['--git-town-exit-code', '0', '--remote-url', githubUrl],
+      {}
+    );
+    expect(out.ok).toBe(true);
+    expect(out.host.adapter).toBe('github');
+    expect(['detection', 'default']).toContain(out.host.source);
+    expect(['git-town', 'plain-git']).toContain(out.workflow.adapter);
+    expect(['detection', 'default']).toContain(out.workflow.source);
+    // Legacy fields unaffected by the new toolchain delegation (AC-037-2/3).
+    expect(out.branchingStrategy).toEqual({
+      strategy: 'git-town',
+      source: 'auto-detect',
+      action: 'proceed',
+      message: null,
+    });
+    expect(out.prBackend).toEqual({ backend: 'gh', source: 'auto-detect', needsResolution: false });
+  });
+
   test('missing --git-town-exit-code throws', () => {
     expect(() => runResolveSdlc(['--remote-url', githubUrl], {})).toThrow(
       /Missing required --git-town-exit-code/
@@ -530,14 +560,21 @@ describe('executable smoke test (child_process)', () => {
 // "extractDesignReadinessScore is not a function" on every call.
 describe('list and status read the design readiness score', () => {
   let dir;
+  const originalCwd = process.cwd();
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trd-cli-list-'));
     fs.writeFileSync(
       path.join(dir, 'TRD-2026-aaaaaaaa-demo.md'),
       '---\ndesign_readiness_score: 9\n---\n# Demo\n'
     );
+    // `list` and `status` ask `br` for bead counts in process.cwd(). Run from the throwaway dir so `br` finds no
+    // workspace (NOT_INITIALIZED, counted as zero) instead of creating .beads/ runtime state in the repository.
+    process.chdir(dir);
   });
-  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterAll(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   test('runList returns the score from frontmatter', () => {
     const res = runList(['--type', 'trd', '--dir', dir]);

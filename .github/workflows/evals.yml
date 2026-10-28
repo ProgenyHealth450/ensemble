@@ -1,0 +1,45 @@
+name: Evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Scenario id (blank = all)
+        required: false
+        default: ''
+      model:
+        description: Model id
+        required: false
+        default: sonnet
+      max_usd:
+        description: Total spend cap in USD
+        required: false
+        default: '3'
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: npx jest evals
+      - name: Run evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_MODEL: ${{ inputs.model }}
+          EVAL_MAX_USD: ${{ inputs.max_usd }}
+          EVAL_SCENARIO: ${{ inputs.scenario }}
+        run: |
+          ARGS=(--model "$EVAL_MODEL" --max-usd "$EVAL_MAX_USD")
+          if [ -n "$EVAL_SCENARIO" ]; then ARGS+=(--scenario "$EVAL_SCENARIO"); fi
+          node evals/run.js "${ARGS[@]}"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: eval-results
+          path: evals/results/

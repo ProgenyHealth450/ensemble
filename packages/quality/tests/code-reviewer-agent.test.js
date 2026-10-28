@@ -68,9 +68,9 @@ describe('TRD-020 AC-004-3: the reviewer is read-only', () => {
   });
 
   test('no success metric still promises code patches: a read-only reviewer describes the fix, it does not apply it', () => {
-    const actionability = JSON.stringify(agent.qualityStandards.successMetrics).toLowerCase();
-    expect(actionability).not.toMatch(/with code patches/);
-    expect(actionability).toMatch(/findings include/);
+    // The 4.0.0 agent is trimmed to responsibilities (no qualityStandards block): the claim lives in prose.
+    expect(prose).not.toMatch(/with code patches/);
+    expect(prose).toMatch(/fix described in the finding \(never applied by this agent\)/);
   });
 });
 
@@ -114,8 +114,8 @@ describe('TRD-020 AC-004-2: findings are structured and sourced', () => {
 
 describe('TRD-020: coverage thresholds match the constitution', () => {
   test('60% unit and 50% integration', () => {
-    expect(agent.qualityStandards.testing.unit.minimum).toBe(60);
-    expect(agent.qualityStandards.testing.integration.minimum).toBe(50);
+    // The trimmed agent states the canonical thresholds in its Coverage Thresholds responsibility.
+    expect(prose).toMatch(/unit >= 60%, integration >= 50%/);
   });
 
   test('no prose still claims the old 80/70 thresholds', () => {

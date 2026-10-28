@@ -18,9 +18,10 @@
   "commands": "./commands",
   "skills": "./skills",
   "agents": [
-    "./agents/api-documentation-specialist.md",
+    "./agents/advisor.md",
     "./agents/beads-build-wave.md",
     "./agents/beads-scaffold-specialist.md",
+    "./agents/architect.md",
     "./agents/backend-developer.md",
     "./agents/documentation-specialist.md",
     "./agents/frontend-developer.md",

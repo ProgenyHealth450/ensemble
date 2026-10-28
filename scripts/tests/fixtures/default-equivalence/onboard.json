@@ -1,0 +1,16 @@
+{
+  "command": "onboard",
+  "path": "packages/development/commands/onboard.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-028",
+  "sequence": [
+    [
+      "git",
+      "log"
+    ],
+    [
+      "br",
+      "create"
+    ]
+  ]
+}

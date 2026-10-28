@@ -40,7 +40,7 @@ standard a PR finding is.
 | Variable | Type | Description |
 |---|---|---|
 | `SCOPE` | string[] | What to sweep: repository-relative paths, directories or globs. `['.']` sweeps the whole repository. An empty or unreadable scope is an error, never "everything by default". |
-| `SWEEP_SHA` | string | The commit being swept -- a full 40- or 64-hex object id (`git rev-parse HEAD` on the branch under review), never a bare ref. Guidance is read from THIS commit: a sweep reviews merged code, so the merged tree is also the guidance in force (REQ-024). |
+| `SWEEP_SHA` | string | The commit being swept -- a full 40- or 64-hex object id (the HEAD commit id of the branch under review), never a bare ref. Guidance is read from THIS commit: a sweep reviews merged code, so the merged tree is also the guidance in force (REQ-024). |
 | `REQUESTED_BY` | string | Who asked: a maintainer's login, or the host automation's identity (for example `github-actions[bot]` from the repository's own workflow). Recorded in the report; it never changes what is reviewed. |
 | `TIER` | `'low'` \| `'medium'` \| `'high'` (optional) | The depth this sweep is run at. Absent means `high` -- a sweep nobody bounded gets the deepest review, never the cheapest. |
 | `MAX_PATHS` | number (optional) | A ceiling on how many paths this run examines, so a large repository can be swept in parts. The report names what was left for the next run; a truncated sweep is never reported as a complete one. |
@@ -82,9 +82,8 @@ never a retry with guessed input.
 
 ### Step 1 -- Resolve what will be swept
 
-List the files under `SCOPE` at `SWEEP_SHA` with
-`git ls-tree -r --name-only <SWEEP_SHA> -- <scope...>`, and their sizes with
-`git ls-tree -r --long`. That list is the sweep set. A path that does not exist
+List the files under `SCOPE` at `SWEEP_SHA` from that commit's tree listing
+(paths, and their sizes from the long form of the same listing). That list is the sweep set. A path that does not exist
 at `SWEEP_SHA` is reported as not found, never silently dropped.
 
 ### Step 2 -- Resolve guidance from the swept commit (CLI `policy`, `rules`, `paths`)
@@ -92,12 +91,12 @@ at `SWEEP_SHA` is reported as not found, never silently dropped.
 Read the same guidance a PR review reads, from `SWEEP_SHA`:
 
 - `node "$PR_REVIEW_CLI" policy` with `{ text, baseSha }`, where `text` is
-  `git show <SWEEP_SHA>:REVIEW.md` (pass `null` when there is none -- the CLI
+  the content of `REVIEW.md` at `SWEEP_SHA` (pass `null` when there is none -- the CLI
   then answers with the strict defaults, which is not the same as no policy);
 - `node "$PR_REVIEW_CLI" rules` with
   `{ changedPaths, ruleFiles, rulesFileName, baseSha, sourceSha }`, where
   `changedPaths` is the sweep set and `ruleFiles` every `REVIEW.md` present at
-  `SWEEP_SHA` (`git ls-tree -r --name-only <SWEEP_SHA>`), `baseSha` and
+  `SWEEP_SHA` (from the tree listing of `SWEEP_SHA`), `baseSha` and
   `sourceSha` both `SWEEP_SHA`;
 - `node "$PR_REVIEW_CLI" paths` with
   `{ changedPaths, declaration, codeowners, baseSha }`, where `declaration`
@@ -234,7 +233,7 @@ moment it lands: its cron, its runner, its credentials.
   its own automation.
 - The **core review path needs no new CI secret at all**: `pr-review-cycle`,
   `pr-merge` and this skill run inside a session a maintainer already
-  authenticated, with the `gh` CLI that is already logged in. The sweep
+  authenticated, with the host CLI that is already logged in. The sweep
   workflow is an optional convenience, not a dependency of the review process.
 
 Ensemble ships no `schedule:` trigger of its own, and adding one here would
@@ -256,7 +255,7 @@ take ownership of recurrence away from the host repository and from Foreman
   what it left; it never reports a partial sweep as a complete one.
 - Verification is not optional. A candidate nobody verified is reported as
   `unverified`, never as a defect the repository must fix, and never dropped.
-- Guidance is the swept commit's copy, read with `git show <SWEEP_SHA>:<path>`,
+- Guidance is the swept commit's copy, read from `SWEEP_SHA` itself (the file's content at that commit),
   never the working tree's.
 - This skill never schedules, polls, waits for a trigger or recovers
   unattended. It is invoked, it runs, it reports, it ends.

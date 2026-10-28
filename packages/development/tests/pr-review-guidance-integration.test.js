@@ -33,7 +33,8 @@ const { NO_AREA_RULES_NOTE } = require('../lib/pr-review-rules');
 const {
   CALLER_PATHS,
   EXPECTED_BODY_COUNT,
-  bodiesIn,
+  bodiesInText,
+  callerText,
   filled,
 } = require('./helpers/caller-pr-bodies');
 
@@ -170,7 +171,7 @@ describe('pr-review-cycle SKILL.md: guidance is resolved from the base commit (T
 
   test('scenario: every guidance file is read from the base commit, never from the PR head (AC-024-1)', () => {
     const flat = guidance().replace(/\s+/g, ' ');
-    expect(flat).toContain('git show <baseSha>:<path>');
+    expect(flat).toContain('reading `<path>` as it is at `<baseSha>`');
     expect(flat).toMatch(/never from the PR head/i);
     expect(flat).toContain('REVIEW.md');
   });
@@ -251,8 +252,7 @@ describe('pr-review-cycle SKILL.md: guidance is resolved from the base commit (T
 
 const CALLERS = CALLER_PATHS;
 
-const SKILL_REFERENCE =
-  '"$(git rev-parse --show-toplevel 2>/dev/null)/packages/development/skills/pr-review-cycle/SKILL.md"';
+const SKILL_REFERENCE = 'packages/development/skills/pr-review-cycle/SKILL.md (via tool-path-resolution)';
 
 describe.each(Object.keys(CALLERS))('%s builds a PR body the real checker accepts (TRD-006)', (name) => {
   const text = fs.readFileSync(CALLERS[name], 'utf8');
@@ -262,7 +262,7 @@ describe.each(Object.keys(CALLERS))('%s builds a PR body the real checker accept
   const EXPECTED_BODIES = EXPECTED_BODY_COUNT;
 
   test('scenario: the PR body it generates carries Testing, Risk and How-to-revert and names who directed it', () => {
-    const bodies = bodiesIn(text);
+    const bodies = bodiesInText(callerText(name));
     expect(bodies.length).toBe(EXPECTED_BODIES[name]);
     for (const body of bodies) {
       const { out } = run('description', { body: filled(body), agentAuthored: true });

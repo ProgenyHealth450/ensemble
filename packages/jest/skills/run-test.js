@@ -55,11 +55,11 @@ class JestTestRunner {
         try {
           const result = JSON.parse(error.stdout);
           return this.formatResults(result, false);
-        } catch {
-          throw new Error(`Failed to parse Jest output: ${error.message}`);
+        } catch (parseError) {
+          throw new Error(`Failed to parse Jest output: ${error.message}`, { cause: parseError });
         }
       }
-      throw new Error(`Jest execution failed: ${error.message}`);
+      throw new Error(`Jest execution failed: ${error.message}`, { cause: error });
     }
   }
 

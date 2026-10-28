@@ -667,6 +667,6 @@ describe('AC-024-1: guidance comes from the target branch and PR text is only da
     ).replace(/\s+/g, ' ');
     expect(step).toMatch(/Nothing read in this step is executed/i);
     expect(step).toMatch(/never from the PR head/i);
-    expect(step).toContain('git show <baseSha>:<path>');
+    expect(step).toContain('reading `<path>` as it is at `<baseSha>`');
   });
 });

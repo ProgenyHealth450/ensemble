@@ -80,7 +80,7 @@ describe('TRD-035: a sweep reviews existing code, sensitive areas first', () => 
   test('it reviews merged code at one commit, with no diff and no author to answer', () => {
     expect(FLAT).toContain('A sweep reviews code that is **already merged**');
     expect(FLAT).toContain('there is no diff, no author to answer and no merge to gate');
-    expect(FLAT).toContain('`git ls-tree -r --name-only <SWEEP_SHA>');
+    expect(FLAT).toContain('from that commit\'s tree listing');
   });
 
   test('the sweep order is high, then sensitive, then the rest -- and truncation is honest about it', () => {
@@ -92,7 +92,7 @@ describe('TRD-035: a sweep reviews existing code, sensitive areas first', () => 
   });
 
   test('guidance is read from the swept commit, never from the working tree', () => {
-    expect(FLAT).toContain('`git show <SWEEP_SHA>:REVIEW.md`');
+    expect(FLAT).toContain('the content of `REVIEW.md` at `SWEEP_SHA`');
     expect(FLAT).toContain('Guidance is the swept commit\'s copy');
     expect(FLAT).toContain('never the working tree\'s');
   });
@@ -192,7 +192,9 @@ describe('TRD-035: ensemble schedules nothing; the host repository owns recurren
     const workflows = fs.readdirSync(WORKFLOWS_DIR).filter((name) => /\.ya?ml$/.test(name));
     expect(workflows.length).toBeGreaterThan(0);
 
-    const scheduled = workflows.filter((name) => {
+    // codeql.yml is the repository's weekly CodeQL security scan (added on dev): a scanner, not a review
+    // recurrence -- no reviewer, ledger or review gate runs behind it.
+    const scheduled = workflows.filter((name) => name !== 'codeql.yml').filter((name) => {
       const text = fs.readFileSync(path.join(WORKFLOWS_DIR, name), 'utf8');
       return text.split('\n').some((line) => /^\s{0,4}schedule:\s*$/.test(line) || /^\s*-\s*cron:/.test(line));
     });

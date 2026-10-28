@@ -162,8 +162,6 @@ describe('validateCommandYaml — missing required fields', () => {
       content,
       'utf-8'
     );
-    // Create a minimal CLAUDE.md so generateAgentsMd doesn't fail
-    fs.writeFileSync(path.join(tempSrcDir, 'CLAUDE.md'), '## Agent Mesh\n\nContent.\n', 'utf-8');
   }
 
   it('throws with "Missing required field: metadata.name" when name is absent', async () => {
@@ -397,15 +395,15 @@ describe('generate() error handling', () => {
     }
   });
 
-  it('throws a meaningful error when sourceRoot is missing CLAUDE.md (for AGENTS.md step)', async () => {
+  it('writes AGENTS.md from inventory even when sourceRoot has no CLAUDE.md', async () => {
     const tempSrc = createTempDir();
     const tempOut = createTempDir();
-    // Create packages dir but NO CLAUDE.md
     fs.mkdirSync(path.join(tempSrc, 'packages'), { recursive: true });
 
     try {
       const opts = makeOptions({ sourceRoot: tempSrc, outputRoot: tempOut, dryRun: false });
-      await expect(generate(opts)).rejects.toThrow();
+      await generate(opts);
+      expect(fs.readFileSync(path.join(tempOut, 'AGENTS.md'), 'utf-8')).toContain('## Agent Mesh');
     } finally {
       rmrf(tempSrc);
       rmrf(tempOut);

@@ -14,4 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tool abstraction layer: `adapter-e2e-quality-playwright`, the default `e2e-quality` adapter. See `docs/guides/adapter-authoring.md`.
+
 - Plugin extraction and population (in progress)

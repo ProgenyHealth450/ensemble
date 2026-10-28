@@ -17,6 +17,18 @@ const yaml = require('js-yaml');
 
 const DEV_ROOT = path.join(__dirname, '..', '..');
 
+/**
+ * Where a caller's PR body templates live when the command defers them: the
+ * thin `implement-trd-beads.yaml` orchestrator points at "reference section 3"
+ * of the `implement-trd-beads-reference` skill, which owns the phase and
+ * completion body templates.
+ */
+const BODY_COMPANIONS = Object.freeze({
+  'implement-trd-beads.yaml': [
+    path.join(DEV_ROOT, 'skills', 'implement-trd-beads-reference', 'SKILL.md'),
+  ],
+});
+
 /** The command documents that publish a PR body (TRD-006). */
 const CALLER_PATHS = Object.freeze({
   'fix-issue.yaml': path.join(DEV_ROOT, 'commands', 'fix-issue.yaml'),
@@ -60,8 +72,9 @@ const prose = (raw) => {
  * markdown. A body ends at the `Directed by:` line it must carry: that is the last thing
  * in it, so anchoring there extracts the body and nothing of the prose around it.
  */
-const bodiesIn = (raw) => {
-  const text = prose(raw);
+const bodiesIn = (raw) => bodiesInText(prose(raw));
+
+const bodiesInText = (text) => {
   const bodies = [];
   // fix-issue: a fenced ```markdown template inside the instructions.
   for (const [, fenced] of text.matchAll(/```markdown\n([\s\S]*?)\n *```/g)) {
@@ -75,6 +88,14 @@ const bodiesIn = (raw) => {
     bodies.push(assigned.replace(/^</, '').replace(/\\n/g, '\n'));
   }
   return bodies;
+};
+
+/** Every string a caller's command document and its body-template companions carry. */
+const callerText = (name) => {
+  const file = CALLER_PATHS[name];
+  if (file === undefined) throw new Error(`unknown caller: ${name}`);
+  const companions = (BODY_COMPANIONS[name] || []).map((f) => fs.readFileSync(f, 'utf8'));
+  return [prose(fs.readFileSync(file, 'utf8')), ...companions].join('\n');
 };
 
 /**
@@ -94,13 +115,15 @@ const filled = (body, value = 'ldangelo') => {
 const callerBodies = (name, value) => {
   const file = CALLER_PATHS[name];
   if (file === undefined) throw new Error(`unknown caller: ${name}`);
-  return bodiesIn(fs.readFileSync(file, 'utf8')).map((body) => filled(body, value));
+  return bodiesInText(callerText(name)).map((body) => filled(body, value));
 };
 
 module.exports = {
   CALLER_PATHS,
   EXPECTED_BODY_COUNT,
   bodiesIn,
+  bodiesInText,
   callerBodies,
+  callerText,
   filled,
 };

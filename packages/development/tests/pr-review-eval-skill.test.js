@@ -57,7 +57,7 @@ describe('pr-review-eval SKILL.md', () => {
   test('AC-020-1: the code-owner confirmation is checked against CODEOWNERS, not asserted', () => {
     const step = text.slice(sectionIndex('### Step A2'), sectionIndex('### Step A3'));
     const flatStep = step.replace(/\s+/g, ' ');
-    expect(flatStep).toContain('pr-review-cli.js paths');
+    expect(flatStep).toContain('$PR_REVIEW_CLI" paths');
     expect(flatStep).toContain('.paths[0].owners');
     // Each refusal the module can produce is named, so the skill and the
     // library cannot disagree about why a case was rejected.
@@ -85,7 +85,7 @@ describe('pr-review-eval SKILL.md', () => {
   });
 
   test('evalCasesDir comes from the policy, with the library default when it cannot be read', () => {
-    expect(flat).toContain('pr-review-cli.js policy');
+    expect(flat).toContain('$PR_REVIEW_CLI" policy');
     expect(flat).toContain('.policy.evalCasesDir');
     expect(flat).toContain(DEFAULT_EVAL_CASES_DIR);
     expect(flat).toContain('a missing policy never means "put the case anywhere"');

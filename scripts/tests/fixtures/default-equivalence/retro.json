@@ -1,0 +1,59 @@
+{
+  "command": "retro",
+  "path": "packages/development/commands/retro.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-028",
+  "sequence": [
+    [
+      "git",
+      "log"
+    ],
+    [
+      "gh",
+      "pr list"
+    ],
+    [
+      "br",
+      "list"
+    ],
+    [
+      "gh",
+      "issue list"
+    ],
+    [
+      "br",
+      "create"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "git",
+      "log"
+    ],
+    [
+      "gh",
+      "pr list"
+    ],
+    [
+      "br",
+      "list"
+    ],
+    [
+      "br",
+      "create"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "gh",
+          "issue list"
+        ]
+      ],
+      "trd": "TRD-047 lint contract (I1)",
+      "justification": "retro is not a named lint source but `gh issue list --search created:>=` had no host capability (host.yaml has only change-request-* operations); the step now states the intent with a documented HOST-SPECIFIC EXCEPTION on the resolved github host instead of a literal command (see retro.yaml Collect Incidents)."
+    }
+  ]
+}

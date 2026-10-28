@@ -199,7 +199,7 @@ The following changes require explicit user approval before implementation:
 When delegating implementation work:
 1. Use framework-specific specialists when available (e.g., `rails-backend-expert`, `react-component-architect`)
 2. Fall back to general specialists (`backend-developer`, `frontend-developer`)
-3. Use `general-purpose` only for research, not implementation
+3. Use generic built-in agents only for research, not implementation
 
 ### Quality Validation
 Every implementation must pass through:
@@ -292,7 +292,7 @@ Written at the repository root. The fenced `ensemble-review-policy` block is
 the **only** place policy keys are read from, and only the copy on the base
 branch is read — a pull request cannot relax its own review by editing it.
 Set `sourceSha` to the commit the policy takes effect from
-(`git rev-parse HEAD` after the file lands); while it does not match a
+(the HEAD commit id after the file lands); while it does not match a
 review's base commit, the strict defaults apply.
 
 ````markdown

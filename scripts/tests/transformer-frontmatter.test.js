@@ -171,3 +171,30 @@ describe('command frontmatter: metadata.visibility', () => {
   });
 });
 
+describe('command frontmatter: metadata.capabilities', () => {
+  test('emits capabilities-required and capabilities-optional as comma-joined strings', () => {
+    const parsed = parse(generateCommandFrontmatter({
+      metadata: {
+        name: 'ensemble:x',
+        description: 'd',
+        capabilities: { required: ['tracker.show'], optional: ['work-graph.ready', 'lint.run'] }
+      }
+    }));
+    expect(parsed['capabilities-required']).toBe('tracker.show');
+    expect(parsed['capabilities-optional']).toBe('work-graph.ready, lint.run');
+  });
+
+  test('a command without metadata.capabilities generates byte-identical frontmatter to before', () => {
+    const before = generateCommandFrontmatter({ metadata: { name: 'ensemble:x', description: 'd' } });
+    expect(before).not.toContain('capabilities');
+    expect(before).toBe('---\nname: "ensemble:x"\ndescription: "d"\n---');
+  });
+
+  test('an empty required/optional array emits neither key', () => {
+    const frontmatter = generateCommandFrontmatter({
+      metadata: { name: 'ensemble:x', description: 'd', capabilities: { required: [], optional: [] } }
+    });
+    expect(frontmatter).not.toContain('capabilities');
+  });
+});
+

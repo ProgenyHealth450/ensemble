@@ -84,9 +84,9 @@ skills to synthesize those findings into executive-ready documents.
 assess-repo ──▶ per-dimension findings (architecture, code quality, testing,
 │               security, CI/CD, AI readiness) under docs/assessment/
 │
-assess-team ──▶ per-dimension team findings (commit volume, commit message
-│               quality, code quality, test coverage, AI adoption,
-│               documentation, incidents, code review) under docs/assessment/
+assess-team ──▶ per-dimension team findings (commit messages, code quality,
+│               test coverage, AI adoption, documentation, code review)
+│               under docs/assessment/, team-level by default
 │
 architecture-overview-report ──▶ portfolio-level architecture synthesis
 │                                  with validated Mermaid diagrams
@@ -113,13 +113,13 @@ issues before finalizing any of the above reports.
   synthesize the combined report. Each dispatch is a thin task block ("load the leaf skill and follow
   it") plus the run's own rules (output path, evidence citations, summary only).
 - **Leaf skills** (`assess-purpose`, `assess-architect`, `assess-code-quality`, `assess-testing`,
-  `assess-security`, `assess-cicd`, `assess-ai-readiness`, and the eight `assess-team-*` skills) are
+  `assess-security`, `assess-cicd`, `assess-ai-readiness`, and `assess-team-dimension`, which holds one section per team dimension) are
   the single source for one dimension each: what to analyze, the output structure, scoring, and the
   return summary. The orchestrators never duplicate that text.
 - **Run a single dimension** by invoking its leaf directly (for example `/skill:assess-security`).
   When the caller supplies no output path or `REPORT_PREFIX`, a leaf reports its findings in the
   response and saves them to `docs/assessment/<dimension>.md` (`docs/assessment/team-<dimension>.md`
-  for the `assess-team-*` leaves) only if asked.
+  for `assess-team-dimension`) only if asked.
 - **Scoring is shared:** every score is `<1.0-5.0> / <Letter>`, with the letter derived from the
   Scoring Scale in `assessment-report-suite`.
 - If a runtime cannot load a skill by name for a subagent, the orchestrator reads the leaf's
@@ -140,14 +140,7 @@ issues before finalizing any of the above reports.
 | `assess-ai-readiness` | Evaluate repository AI agent compatibility |
 | `architecture-overview-report` | Synthesize per-repo architecture assessments into a portfolio-level overview with validated Mermaid diagrams |
 | `assess-team` | Orchestrate a comprehensive team assessment using parallel specialist analysis |
-| `assess-team-commit-volume` | Analyze git commit volume and patterns by developer |
-| `assess-team-commit-messages` | Analyze commit message quality and standards compliance |
-| `assess-team-code-quality` | Assess code quality contributions by developer |
-| `assess-team-test-coverage` | Assess test coverage contributions and patterns by developer |
-| `assess-team-ai-adoption` | Assess AI tool adoption and usage patterns by developer |
-| `assess-team-documentation` | Analyze documentation contributions and patterns by developer |
-| `assess-team-incidents` | Analyze incident response patterns and production contributions by developer |
-| `assess-team-code-review` | Analyze code review participation and quality by developer |
+| `assess-team-dimension` | Analyze one team dimension (commit messages, code quality, test coverage, AI adoption, documentation, code review) from git; team-level by default, individual results only on request |
 | `ai-readiness-diagnostic-report` | Generate a scored AI Readiness Diagnostic Excel report from assess-repo outputs |
 | `assessment-report-suite` | End-to-end assessment package: orchestrates assess-repo/assess-team, the Excel workbook, a markdown executive summary, and a PowerPoint brief |
 | `assessment-scoring-conflation-audit` | Detect conflated assessment dimensions and cross-entity score-calibration issues before finalizing a report |

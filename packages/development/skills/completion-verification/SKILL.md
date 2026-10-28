@@ -1,3 +1,8 @@
+---
+name: completion-verification
+description: Independently re-verify a TRD's completion against code, tests and docs, blocking "done" claims until gaps are fixed or explicitly overridden. Use before declaring a TRD complete; not for unfinished work.
+---
+
 # TRD Completion Verification Gate
 
 Independently re-verify a TRD's completion state before any calling command is

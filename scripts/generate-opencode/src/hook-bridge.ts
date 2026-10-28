@@ -2,10 +2,10 @@
  * HookBridge - Adapts Ensemble hooks to OpenCode's typed hook API
  *
  * Build-time component that discovers and parses hooks.json files from
- * packages/*/hooks/ and produces a summary for the runtime bridge module.
+ * packages/<pkg>/hooks/ and produces a summary for the runtime bridge module.
  *
  * Responsibilities:
- *   - Parse hooks.json files from packages/*/hooks/
+ *   - Parse hooks.json files from packages/<pkg>/hooks/
  *   - Map PreToolUse -> tool.execute.before
  *   - Map PostToolUse -> tool.execute.after
  *   - Bridge environment variables (TOOL_NAME, TOOL_INPUT)

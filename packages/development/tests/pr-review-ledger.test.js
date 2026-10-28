@@ -41,6 +41,25 @@ describe('pr-review-ledger: validateLedger', () => {
   });
 });
 
+describe('pr-review-ledger: stopping rule defers non-blocking Major', () => {
+  const deferred = { disposition: 'deferred', reason: 'opt-in heuristic, bead filed' };
+  test('Major with blocking:false deferred with a reason is not actionable', () => {
+    expect(isActionable(finding({ severity: 'major', blocking: false, ...deferred }))).toBe(false);
+  });
+  test.each([
+    ['no blocking marker', { severity: 'major', ...deferred }],
+    ['blocking as string', { severity: 'major', blocking: 'false', ...deferred }],
+    ['blocking true', { severity: 'major', blocking: true, ...deferred }],
+    ['blank reason', { severity: 'major', blocking: false, disposition: 'deferred', reason: ' ' }],
+    ['not deferred', { severity: 'major', blocking: false, disposition: 'fix' }],
+    ['critical marked non-blocking', { severity: 'critical', blocking: false, ...deferred }],
+    ['open thread', { severity: 'major', blocking: false, unresolvedThread: true, ...deferred }],
+    ['uncertain', { severity: 'major', blocking: false, uncertain: true, ...deferred }],
+  ])('stays actionable: %s', (_n, f) => {
+    expect(isActionable(finding(f))).toBe(true);
+  });
+});
+
 describe('pr-review-ledger: isActionable', () => {
   test('unresolved thread is actionable regardless of severity', () => {
     expect(isActionable(finding({ severity: 'minor', unresolvedThread: true, disposition: 'deferred', reason: 'cosmetic' }))).toBe(true);

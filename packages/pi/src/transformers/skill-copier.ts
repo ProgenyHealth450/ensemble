@@ -1,34 +1,54 @@
 /**
  * Skill Copier
  *
- * Propagates SKILL.md (and REFERENCE.md) files from Ensemble framework
- * skill packages into packages/pi/skills/ for consumption by the Pi runtime.
+ * Propagates Ensemble skills into packages/pi/skills/ for the Pi runtime. Pi ships a lean
+ * runtime copy of every skill, not the authoring tree. A skill ships exactly:
+ *
+ *   1. its SKILL.md (always), and
+ *   2. every file that a shipped file refers to by relative path, transitively, and
+ *   3. for a shipped script, the sibling modules it requires and the data directories it
+ *      names by string literal (e.g. `path.join(__dirname, 'patterns')`).
+ *
+ * Nothing else is copied: an unreferenced REFERENCE.md, README.md, VALIDATION.md, examples/,
+ * templates/, tests or benchmarks are authoring artifacts and stay out of the install.
+ * A skill's scripts are therefore shipped when (and only when) a shipped file names them.
+ *
+ * Reference detection (see referencedPaths): in a shipped text file, every token that looks
+ * like a file name or relative path (`REFERENCE.md`, `scripts/run.js`, `[x](./templates/a.md)`,
+ * inside backticks, code fences or prose) is resolved against the referencing file's directory,
+ * then the skill root, then, for the plugin-style `skills/<skill>/<file>` form, the skill
+ * root. A token ships only if it resolves to a regular file inside the skill directory,
+ * outside any nested skill and outside `__tests__` / `node_modules`. Tokens that resolve
+ * to nothing (URLs, user-project files like `package.json`, dangling names) are ignored and
+ * never fail generation.
  *
  * Discovery pattern:
- *   - packages/*\/skills\/<subdir>\/{SKILL,REFERENCE}.md  (subdirectory layout)
- *   - packages/*\/skills\/{SKILL,REFERENCE}.md            (top-level layout, e.g. blazor, nestjs)
+ *   - packages/*\/skills\/<subdir>\/SKILL.md  (subdirectory layout)
+ *   - packages/*\/skills\/SKILL.md            (top-level layout, e.g. blazor, nestjs)
  *
  * Output layout:
- *   - Subdirectory layout: packages/pi/skills/<subdir>/<filename>
- *   - Top-level layout:    packages/pi/skills/<package-name>/<filename>
+ *   - Subdirectory layout: packages/pi/skills/<subdir>/<relative path>
+ *   - Top-level layout:    packages/pi/skills/<package-name>/<relative path>
  *
  * Packages named in EXCLUDED_PACKAGES are not scanned: `pi` (the output target, avoids
  * self-referential copies), `full` (symlink mirror of other packages' skills) and every
  * self-contained Pi package (SELF_CONTAINED_PI_PACKAGES, currently `assessment`), which is
  * distributed as its own Pi package and not bundled into ensemble-pi.
  * Symlinks (e.g. packages/full/skills/) are resolved before copying; if two paths
- * resolve to the same real file, the second is skipped.
+ * resolve to the same real SKILL.md, the second skill is skipped.
  *
- * Every copied file starts with the generated marker (../generated-marker.ts), on its first
- * line or right after the frontmatter: it is how a later generator run recognises a stale
- * copy of a removed or renamed skill as its own output and prunes it (see generator.ts).
+ * Every copied markdown file starts with the generated marker (../generated-marker.ts), on its
+ * first line or right after the frontmatter: it is how a later generator run recognises a stale
+ * copy of a removed or renamed skill as its own output and prunes it (see generator.ts, which
+ * only inspects markdown directly inside a skill directory). Non-markdown files (scripts, data)
+ * are copied byte for byte, with their file mode.
  *
  * SKILL.md files are normalized for Pi compatibility:
  *   - `name` is always overridden with the output skill directory name
  *   - `description` is added if missing, extracted from body or generated from the name
  *
- * REFERENCE.md files are copied as they are, apart from the generated marker, CRLF -> LF
- * and the ensemble:<cmd> -> ensemble-<cmd> rewrite that applies to every copied file.
+ * Other markdown is copied as it is, apart from the generated marker, CRLF -> LF
+ * and the ensemble:<cmd> -> ensemble-<cmd> rewrite that applies to every copied markdown file.
  *
  * @module ensemble-pi/transformers/skill-copier
  */
@@ -44,8 +64,16 @@ import { withGeneratedMarker } from '../generated-marker';
 // Constants
 // ---------------------------------------------------------------------------
 
-/** File names to copy from each skill directory. */
-const SKILL_FILES = ['SKILL.md', 'REFERENCE.md'];
+/** Directories never shipped, however they are referenced. */
+const NEVER_SHIPPED_DIRS = new Set(['__tests__', 'node_modules']);
+
+/** Shipped files with these extensions are scanned for further references. */
+const SCANNED_EXTENSIONS = new Set([
+  '.md', '.js', '.mjs', '.cjs', '.ts', '.sh', '.py', '.rb', '.exs', '.cs', '.json', '.yaml', '.yml', '.txt',
+]);
+
+/** Shipped scripts: also scanned for required modules and data directory literals. */
+const SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.sh', '.py', '.rb', '.exs']);
 
 /** Maximum length for auto-extracted description. */
 const DESC_MAX_LEN = 200;
@@ -151,8 +179,8 @@ interface SkillFileEntry {
   srcPath: string;
   /** Skill directory name to use in the output path. */
   skillDirName: string;
-  /** File name (SKILL.md or REFERENCE.md). */
-  fileName: string;
+  /** Path relative to the skill directory, `/`-separated (SKILL.md, scripts/run.js). */
+  relPath: string;
   /**
    * Where the file was discovered, as a path relative to the monorepo root built from names
    * alone (never from realpath, which differs per machine when a checkout sits behind a
@@ -162,11 +190,158 @@ interface SkillFileEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Reference detection
+// ---------------------------------------------------------------------------
+
+/** A file-like token: optional `../` / `./` / dir segments, then name.ext. */
+const FILE_TOKEN = /[\w@.-]+(?:\/[\w@.-]+)*\.[A-Za-z][A-Za-z0-9]{0,5}(?![\w/])/g;
+/** Node-style relative requires/imports, which may omit the extension. */
+const REQUIRE_TOKEN = /(?:require\(|from\s+|import\s+)['"](\.{1,2}\/[^'"]+)['"]/g;
+/** A quoted path-ish literal; in a script it may name a data directory beside it. */
+const LITERAL_TOKEN = /['"`]([\w@.-]+(?:\/[\w@.-]+)*)['"`]/g;
+
+function isShippable(rel: string): boolean {
+  return !rel.split('/').some((seg) => NEVER_SHIPPED_DIRS.has(seg));
+}
+
+function isFile(p: string): boolean {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDir(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** True when `rel` (inside `root`) sits within a nested skill, i.e. below a dir with SKILL.md. */
+function inNestedSkill(root: string, rel: string): boolean {
+  const segs = rel.split('/').slice(0, -1);
+  let cur = root;
+  for (const seg of segs) {
+    cur = path.join(cur, seg);
+    if (isFile(path.join(cur, 'SKILL.md'))) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve `token`, written in the file at `fromRel`, to skill-relative paths of existing
+ * files (several for a data directory). Empty when it resolves to nothing inside the skill.
+ */
+function resolveToken(
+  root: string,
+  dirName: string,
+  fromRel: string,
+  token: string,
+  probeExtensions: boolean
+): string[] {
+  const clean = token.replace(/[?#].*$/, '');
+  if (!clean || clean.includes('://')) return [];
+  const fromDir = path.posix.dirname(fromRel);
+  const trimmed = clean.replace(/^\/+/, '');
+  const pluginForm = new RegExp(`(?:^|/)skills/${dirName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(.+)$`).exec(
+    trimmed
+  );
+  const bases = [path.posix.join(fromDir, trimmed), path.posix.normalize(trimmed)];
+  if (pluginForm) bases.push(pluginForm[1]);
+
+  const suffixes = probeExtensions ? ['', '.js', '.json', '.mjs', '.cjs'] : [''];
+  for (const base of bases) {
+    if (base.startsWith('..') || path.posix.isAbsolute(base)) continue;
+    for (const suffix of suffixes) {
+      const rel = base + suffix;
+      if (isShippable(rel) && isFile(path.join(root, rel)) && !inNestedSkill(root, rel)) {
+        return [rel];
+      }
+    }
+  }
+  return [];
+}
+
+/** Files below a directory literal, skill-relative; never crosses into nested skills. */
+function filesUnder(root: string, relDir: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string): void => {
+    if (!isShippable(rel + '/x') || isFile(path.join(root, rel, 'SKILL.md'))) return;
+    let ents: fs.Dirent[];
+    try {
+      ents = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of ents) {
+      const child = `${rel}/${e.name}`;
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory()) walk(child);
+      else if (isFile(path.join(root, child))) out.push(child);
+    }
+  };
+  walk(relDir);
+  return out;
+}
+
+/**
+ * Skill-relative paths of the files that the text of the file at `fromRel` refers to.
+ * Pure over the skill directory on disk; unresolvable tokens are ignored.
+ */
+export function referencedPaths(root: string, dirName: string, fromRel: string, text: string): string[] {
+  const found = new Set<string>();
+  const ext = path.posix.extname(fromRel).toLowerCase();
+
+  for (const m of text.matchAll(FILE_TOKEN)) {
+    for (const rel of resolveToken(root, dirName, fromRel, m[0], false)) found.add(rel);
+  }
+
+  if (SCRIPT_EXTENSIONS.has(ext)) {
+    for (const m of text.matchAll(REQUIRE_TOKEN)) {
+      for (const rel of resolveToken(root, dirName, fromRel, m[1], true)) found.add(rel);
+    }
+    for (const m of text.matchAll(LITERAL_TOKEN)) {
+      const rel = path.posix.join(path.posix.dirname(fromRel), m[1]);
+      if (!rel.startsWith('..') && isDir(path.join(root, rel))) {
+        for (const f of filesUnder(root, rel)) found.add(f);
+      }
+    }
+  }
+  return [...found];
+}
+
+/** SKILL.md plus everything it (transitively) references; sorted, `/`-separated. */
+function shippedFiles(root: string, dirName: string): string[] {
+  const shipped = new Set<string>(['SKILL.md']);
+  const queue = ['SKILL.md'];
+  while (queue.length > 0) {
+    const rel = queue.pop() as string;
+    if (!SCANNED_EXTENSIONS.has(path.posix.extname(rel).toLowerCase())) continue;
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(root, rel), 'utf-8');
+    } catch {
+      continue;
+    }
+    for (const ref of referencedPaths(root, dirName, rel, text)) {
+      if (!shipped.has(ref)) {
+        shipped.add(ref);
+        queue.push(ref);
+      }
+    }
+  }
+  return [...shipped].sort();
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Discover skill files across all packages.
+ * Discover the files to ship for every skill across all packages.
  *
  * Handles two layouts:
  *   1. Subdirectory layout: packages/<pkg>/skills/<subdir>/SKILL.md
@@ -178,6 +353,36 @@ interface SkillFileEntry {
  */
 function discoverSkillFiles(packagesDir: string): SkillFileEntry[] {
   const entries: SkillFileEntry[] = [];
+  const seenSkills = new Set<string>();
+
+  const addSkill = (skillRoot: string, dirName: string, labelDir: string): void => {
+    const skillMd = path.join(skillRoot, 'SKILL.md');
+    let realSkillMd: string;
+    try {
+      realSkillMd = fs.realpathSync(skillMd);
+    } catch {
+      return;
+    }
+    if (seenSkills.has(realSkillMd)) return;
+    seenSkills.add(realSkillMd);
+
+    const realRoot = fs.realpathSync(skillRoot);
+    for (const relPath of shippedFiles(realRoot, dirName)) {
+      let realSrcPath: string;
+      try {
+        realSrcPath = fs.realpathSync(path.join(realRoot, relPath));
+      } catch {
+        continue;
+      }
+      entries.push({
+        realSrcPath,
+        srcPath: path.join(skillRoot, relPath),
+        skillDirName: dirName,
+        relPath,
+        sourceLabel: `${labelDir}/${relPath}`,
+      });
+    }
+  };
 
   if (!fs.existsSync(packagesDir)) {
     return entries;
@@ -206,65 +411,14 @@ function discoverSkillFiles(packagesDir: string): SkillFileEntry[] {
       continue;
     }
 
-    // Check for top-level SKILL.md / REFERENCE.md directly in skills/
-    for (const fileName of SKILL_FILES) {
-      const topLevelFile = path.join(skillsDir, fileName);
-      if (fs.existsSync(topLevelFile)) {
-        let realSrcPath: string;
-        try {
-          realSrcPath = fs.realpathSync(topLevelFile);
-        } catch {
-          continue;
-        }
-        entries.push({
-          realSrcPath,
-          srcPath: topLevelFile,
-          skillDirName: pkgName,
-          fileName,
-          sourceLabel: `packages/${pkgName}/skills/${fileName}`,
-        });
-      }
-    }
+    // Top-level layout: skills/SKILL.md
+    addSkill(skillsDir, pkgName, `packages/${pkgName}/skills`);
 
-    // Check each subdirectory entry for SKILL.md / REFERENCE.md
+    // Subdirectory layout: skills/<name>/SKILL.md (directories, including symlinked ones)
     for (const skillDirent of skillDirents) {
-      // Only look at directories (including symlinked dirs)
       const subPath = path.join(skillsDir, skillDirent.name);
-
-      let resolvedSubPath: string;
-      try {
-        resolvedSubPath = fs.realpathSync(subPath);
-      } catch {
-        continue;
-      }
-
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(resolvedSubPath);
-      } catch {
-        continue;
-      }
-
-      if (!stat.isDirectory()) continue;
-
-      for (const fileName of SKILL_FILES) {
-        const filePath = path.join(resolvedSubPath, fileName);
-        if (fs.existsSync(filePath)) {
-          let realSrcPath: string;
-          try {
-            realSrcPath = fs.realpathSync(filePath);
-          } catch {
-            continue;
-          }
-          entries.push({
-            realSrcPath,
-            srcPath: filePath,
-            skillDirName: skillDirent.name,
-            fileName,
-            sourceLabel: `packages/${pkgName}/skills/${skillDirent.name}/${fileName}`,
-          });
-        }
-      }
+      if (!isDir(subPath)) continue;
+      addSkill(subPath, skillDirent.name, `packages/${pkgName}/skills/${skillDirent.name}`);
     }
   }
 
@@ -276,14 +430,14 @@ function discoverSkillFiles(packagesDir: string): SkillFileEntry[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Copy SKILL.md and REFERENCE.md files from all Ensemble skill packages
- * into the Pi output root under `skills/<skill-name>/`.
+ * Copy each Ensemble skill's runtime files (see the module header for the rule) into the
+ * Pi output root under `skills/<skill-name>/`.
  *
  * SKILL.md files are normalised for Pi compatibility (name + description fields).
- * REFERENCE.md files are copied byte-for-byte.
+ * Other markdown is copied as is apart from the marker; other files byte for byte.
  *
- * Deduplication: if two paths resolve to the same real file (common when
- * packages/full uses symlinks), only the first occurrence is copied.
+ * Deduplication: if two paths resolve to the same real SKILL.md (common when
+ * packages/full uses symlinks), only the first skill is copied.
  *
  * @param sourceRoot  Monorepo root (contains packages/ directory)
  * @param outputRoot  Pi package root (packages/pi) — output goes to outputRoot/skills/
@@ -307,30 +461,18 @@ export async function copySkills(
   const skillEntries = discoverSkillFiles(packagesDir);
 
   if (verbose) {
-    process.stdout.write(
-      `skill-copier: found ${skillEntries.length} skill file(s) before dedup\n`
-    );
+    process.stdout.write(`skill-copier: ${skillEntries.length} skill file(s) to ship\n`);
   }
 
-  // Deduplicate by resolved (real) path to avoid double-copying symlinked skills
-  const seen = new Set<string>();
   const results: TransformResult[] = [];
 
   for (const entry of skillEntries) {
-    if (seen.has(entry.realSrcPath)) {
-      if (verbose) {
-        process.stdout.write(`  skill-copier: skipping duplicate ${entry.srcPath}\n`);
-      }
-      continue;
-    }
-    seen.add(entry.realSrcPath);
+    const outputPath = path.join(skillsOutputDir, entry.skillDirName, ...entry.relPath.split('/'));
+    const isMarkdown = entry.relPath.toLowerCase().endsWith('.md');
 
-    const outputPath = path.join(skillsOutputDir, entry.skillDirName, entry.fileName);
-
-    // Read file content
-    let rawContent: string;
+    let raw: Buffer;
     try {
-      rawContent = fs.readFileSync(entry.realSrcPath, 'utf-8');
+      raw = fs.readFileSync(entry.realSrcPath);
     } catch (err) {
       process.stderr.write(
         `  skill-copier: warning — cannot read ${entry.srcPath}: ${(err as Error).message}\n`
@@ -338,22 +480,31 @@ export async function copySkills(
       continue;
     }
 
-    // Normalise SKILL.md frontmatter for Pi compatibility; normalize CRLF for all files
-    const normalizedContent =
-      entry.fileName === 'SKILL.md'
-        ? normalizeSkillMd(rawContent, entry.skillDirName)
-        : rawContent.replace(/\r\n/g, '\n');
+    let content: string;
+    let toWrite: string | Buffer;
+    if (isMarkdown) {
+      const rawContent = raw.toString('utf-8');
+      // Normalise SKILL.md frontmatter for Pi compatibility; normalize CRLF for all markdown
+      const normalizedContent =
+        entry.relPath === 'SKILL.md'
+          ? normalizeSkillMd(rawContent, entry.skillDirName)
+          : rawContent.replace(/\r\n/g, '\n');
 
-    // Rewrite Claude-style command references (ensemble:<cmd>) to the Pi
-    // invocation form (ensemble-<cmd>). Pi commands are emitted as
-    // prompts/ensemble-<cmd>.md and invoked as /ensemble-<cmd>; skill bodies
-    // that point at ensemble:<cmd> would otherwise reference names that do not
-    // resolve in Pi. Source stays authored in the Claude-canonical colon form.
-    // The generated marker goes on last, so it never feeds description extraction above.
-    const content = withGeneratedMarker(
-      normalizedContent.replace(/ensemble:([a-z0-9-]+)/g, 'ensemble-$1'),
-      entry.sourceLabel
-    );
+      // Rewrite Claude-style command references (ensemble:<cmd>) to the Pi
+      // invocation form (ensemble-<cmd>). Pi commands are emitted as
+      // prompts/ensemble-<cmd>.md and invoked as /ensemble-<cmd>; skill bodies
+      // that point at ensemble:<cmd> would otherwise reference names that do not
+      // resolve in Pi. Source stays authored in the Claude-canonical colon form.
+      // The generated marker goes on last, so it never feeds description extraction above.
+      content = withGeneratedMarker(
+        normalizedContent.replace(/ensemble:([a-z0-9-]+)/g, 'ensemble-$1'),
+        entry.sourceLabel
+      );
+      toWrite = content;
+    } else {
+      content = raw.toString('utf-8');
+      toWrite = raw;
+    }
 
     const result: TransformResult = {
       sourcePath: entry.srcPath,
@@ -363,11 +514,15 @@ export async function copySkills(
     };
 
     if (!dryRun) {
-      const outDir = path.dirname(outputPath);
-      if (!fs.existsSync(outDir)) {
-        fs.mkdirSync(outDir, { recursive: true });
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.writeFileSync(outputPath, toWrite);
+      if (!isMarkdown) {
+        try {
+          fs.chmodSync(outputPath, fs.statSync(entry.realSrcPath).mode & 0o777);
+        } catch {
+          // mode is best effort
+        }
       }
-      fs.writeFileSync(outputPath, content, 'utf-8');
     }
 
     if (verbose) {

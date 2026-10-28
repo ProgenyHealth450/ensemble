@@ -172,6 +172,10 @@ function isUnsettled(flag) {
  * Fail closed: a finding that is not an object, an unrecognised severity, a
  * flag that is not exactly false or absent, a `cleared` that is not exactly
  * `true`, or a resolution with no text reason, all stay actionable.
+ *
+ * Stopping rule: a finding recorded with the legacy word `major` and
+ * `blocking: false` (exactly), deferred with a text reason, does not block.
+ * Critical, and the canonical `important`, are never deferrable this way.
  */
 function isActionable(finding) {
   if (!isObject(finding)) return true;
@@ -181,7 +185,15 @@ function isActionable(finding) {
   if (isUnsettled(finding.unresolvedThread) || isUnsettled(finding.uncertain)) return true;
   if (finding.cleared === true) return false;
   if (isObject(finding.resolution) && isText(finding.resolution.reason)) return false;
-  if (severity === 'important') return true;
+  if (severity === 'important') {
+    // Stopping rule: only a legacy Major the triager marked `blocking: false` may be deferred, with a text reason. Critical never.
+    const deferredNonBlockingMajor =
+      finding.severity.toLowerCase() === 'major' &&
+      finding.blocking === false &&
+      finding.disposition === 'deferred' &&
+      isText(finding.reason);
+    return !deferredNonBlockingMajor;
+  }
   if (severity === 'nit') {
     const deferredWithReason = finding.disposition === 'deferred' && isText(finding.reason);
     return !deferredWithReason;

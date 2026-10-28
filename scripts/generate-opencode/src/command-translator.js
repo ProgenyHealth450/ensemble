@@ -35,7 +35,6 @@ const ARGUMENT_PLACEHOLDERS = {
   'ensemble:release': '$VERSION',
   'ensemble:refine-prd': '$PRD_PATH',
   'ensemble:refine-trd': '$TRD_PATH',
-  'ensemble:analyze-product': '$PRODUCT_DESCRIPTION',
 };
 
 // ---------------------------------------------------------------------------
@@ -228,6 +227,20 @@ class CommandTranslator {
       lines.push('');
       for (const constraint of parsed.constraints) {
         lines.push(`- ${constraint}`);
+      }
+      lines.push('');
+    }
+
+    // --- Capabilities (optional) ---
+    const capabilities = parsed.metadata.capabilities;
+    if (capabilities && ((capabilities.required && capabilities.required.length > 0) || (capabilities.optional && capabilities.optional.length > 0))) {
+      lines.push('## Capabilities');
+      lines.push('');
+      if (capabilities.required && capabilities.required.length > 0) {
+        lines.push(`**Required:** ${capabilities.required.join(', ')}`);
+      }
+      if (capabilities.optional && capabilities.optional.length > 0) {
+        lines.push(`**Optional:** ${capabilities.optional.join(', ')}`);
       }
       lines.push('');
     }

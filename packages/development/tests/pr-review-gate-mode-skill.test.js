@@ -228,8 +228,8 @@ describe('TRD-027: the security lane runs in gate mode and blocks what it should
 
 describe('TRD-027: gh reads happen in this run, are retried once, and never become a guess', () => {
   test('the reads that feed the gate are named', () => {
-    expect(STEP_10_FLAT).toContain('gh pr view <PR_NUMBER> --json reviews,latestReviews,reviewDecision,author,headRefOid,mergeable,mergeStateStatus');
-    expect(STEP_10_FLAT).toContain('gh api repos/{owner}/{repo}/branches/<base>/protection');
+    expect(STEP_10_FLAT).toContain('the PR\'s reviews, latest reviews and `reviewDecision`, `author`, `headRefOid`, `mergeable` and `mergeStateStatus`');
+    expect(STEP_10_FLAT).toContain('`GET /repos/{owner}/{repo}/branches/<base>/protection` on the host');
   });
 
   test('one retry, in the same run, with no waiting loop and no scheduling', () => {
@@ -261,7 +261,7 @@ describe('TRD-027: gh reads happen in this run, are retried once, and never beco
   test('a self-report is never evidence in gate mode', () => {
     expect(STEP_10_FLAT).toContain('**Never a self-report.**');
     expect(STEP_10_FLAT).toContain('No claim by this session, a subagent, a commit message or the PR body');
-    expect(STEP_10_FLAT).toContain('read fresh from `gh` in this run, or computed by `pr-review-cli.js` from such a read');
+    expect(STEP_10_FLAT).toContain('read fresh from the host in this run, or computed by `pr-review-cli.js` from such a read');
 
     const safety = SKILL.slice(sectionIndex('## Safety rules')).replace(/\s+/g, ' ');
     expect(safety).toContain('A merge gate is never answered from a self-report');
@@ -356,25 +356,25 @@ describe('TRD-027: the step grades through the CLI and returns evaluateGate outp
 describe('TRD-027: pr-merge requires mergeable:true from the gate, on freshly read state', () => {
   test('the constraint makes the gate mandatory and additive to the existing checks', () => {
     expect(PR_MERGE_FLAT).toContain('NEVER merge until the pr-review-cycle skill, invoked with MODE=gate, returns mergeable:true for the CURRENT head');
-    expect(PR_MERGE_FLAT).toContain('this command adds its CI and reviewDecision conditions on top of it and never substitutes them for it');
+    expect(PR_MERGE_FLAT).toContain('this command adds the local-ci-gate verdict and the human-reviewer condition on top of it and never substitutes them for it');
     // The pre-existing conditions are still there: the gate adds to them.
-    expect(PR_MERGE_FLAT).toContain('Only merge when gh pr view reports every required check SUCCESS and reviewDecision is APPROVED');
+    expect(PR_MERGE_FLAT).toContain('NEVER merge without a verified passing local CI status bound to the exact head SHA');
   });
 
-  test('the merge step requires BOTH the gate and the fresh GitHub read', () => {
-    expect(PR_MERGE_FLAT).toContain('Merge only when BOTH hold on this head: the gate returned mergeable:true, and this fresh read shows mergeable == MERGEABLE with reviewDecision != CHANGES_REQUESTED. Either one alone is not enough.');
-    expect(PR_MERGE_FLAT).toContain('gh pr view <PR_NUMBER> --json headRefOid,mergeable,mergeStateStatus,reviewDecision');
-    expect(PR_MERGE_FLAT).toContain('If headRefOid changed since the Review Merge Gate step read it');
+  test('the merge step requires the gate, the local CI verdict and the fresh review read', () => {
+    expect(PR_MERGE_FLAT).toContain('Merge only when ALL hold on this head: the Review Merge Gate returned mergeable:true for the same HEAD_SHA this step is merging');
+    expect(PR_MERGE_FLAT).toContain('and the fresh review read shows mergeable and no human CHANGES_REQUESTED. Any one alone is not enough.');
+    expect(PR_MERGE_FLAT).toContain('if the head moved since, re-run the Review Merge Gate step against the new head and require mergeable:true again');
   });
 
   test('a self-report never stands in for the gate, and the gate is re-run per head', () => {
     expect(PR_MERGE_FLAT).toContain('Never accept a self-report in place of this gate');
-    expect(PR_MERGE_FLAT).toContain('Re-run the gate against freshly read GitHub state immediately before merging, never reuse an earlier round\'s result');
-    expect(PR_MERGE_FLAT).toContain('HEAD_SHA is that headRefOid, read now -- never a SHA carried over from an earlier round');
+    expect(PR_MERGE_FLAT).toContain('Re-run the gate against freshly read state immediately before merging, never reuse an earlier round\'s result');
+    expect(PR_MERGE_FLAT).toContain('HEAD_SHA = git rev-parse origin/<headBranch>, read now -- never a SHA carried over from an earlier round');
   });
 
   test('the shortcut that skips remediation does not skip the gate', () => {
-    expect(PR_MERGE_FLAT).toContain('Skipping remediation never skips the merge gate');
+    expect(PR_MERGE_FLAT).toContain('skipping remediation never skips the Review Merge Gate');
   });
 
   test('absent server-side enforcement is reported and recommended by the command too', () => {

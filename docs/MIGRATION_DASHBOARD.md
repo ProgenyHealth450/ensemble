@@ -1,5 +1,7 @@
 # Ensemble Plugin Migration Dashboard
 
+> **Historical snapshot (Dec 2025).** This document is frozen and no longer tracks the repository; components it lists (e.g. the metrics and router packages, several generic agents and skills) have since been removed. See the README and the wiki for current inventory.
+
 **Version**: 2.0.0
 **Last Updated**: 2025-12-10
 **Status**: ✅ COMPLETE - All 20 Plugins Extracted

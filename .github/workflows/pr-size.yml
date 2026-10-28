@@ -1,0 +1,32 @@
+name: PR Size (advisory)
+
+# Advisory only: never add this as a required check. The script exits 0 unless --strict.
+on:
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: pr-size-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Check PR size
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/pr-size.js --base "$BASE_SHA" --head "$HEAD_SHA"

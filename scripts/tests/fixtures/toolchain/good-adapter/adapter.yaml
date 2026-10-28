@@ -1,0 +1,49 @@
+adapter: fixture-good-tracker
+version: "1.0.0"
+categories:
+  - tracker
+contract:
+  tracker: "1.0"
+binaries:
+  - fixture-tool
+allowlist:
+  - bin: fixture-tool
+    sub:
+      - show
+      - create
+      - update
+      - close
+env: []
+health: []
+detect: []
+capabilities:
+  tracker.show:
+    run: ["fixture-tool", "show", "--id", "${id}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
+        title: "$.title"
+  tracker.create:
+    run: ["fixture-tool", "create", "--title", "${title}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
+  tracker.update:
+    run: ["fixture-tool", "update", "--id", "${id}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
+  tracker.close:
+    run: ["fixture-tool", "close", "--id", "${id}"]
+    parse:
+      format: json
+      root: "$"
+      map:
+        id: "$.id"
+        status: "$.status"

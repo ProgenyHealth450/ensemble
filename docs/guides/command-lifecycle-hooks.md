@@ -2,7 +2,7 @@
 
 Command lifecycle hooks run your own code when an Ensemble command starts and when it ends. A project opts in with one file, `.ensemble/hooks.yaml`; a project without that file sees no change.
 
-**Pi is the only supported harness.** Nothing runs in Claude Code, Codex or OpenCode: there is no adapter for them (see [Per-harness capabilities](#per-harness-capabilities)). The first release was proven in Pi 1.2.0, and every Pi behavior stated below was measured there.
+**Pi has full support; Claude Code is supported through the separate `ensemble-lifecycle` plugin.** Pi is the only harness with the full feature and the only one with an adapter in the capability table below; every Pi behavior stated in this guide was measured in Pi 1.2.0. The Claude Code plugin runs the same two events from the same hooks file with shell handlers only (see [Claude Code](#claude-code) for what differs). Codex and OpenCode have nothing: there is no adapter for them (see [Per-harness capabilities](#per-harness-capabilities)).
 
 ## Table of Contents
 
@@ -18,9 +18,10 @@ Command lifecycle hooks run your own code when an Ensemble command starts and wh
 10. [Trust](#trust)
 11. [When a command ends, and what you see](#when-a-command-ends-and-what-you-see)
 12. [Per-harness capabilities](#per-harness-capabilities)
-13. [The status check](#the-status-check)
-14. [How this differs from pi-yaml-hooks](#how-this-differs-from-pi-yaml-hooks)
-15. [Known limits](#known-limits)
+13. [Claude Code](#claude-code)
+14. [The status check](#the-status-check)
+15. [How this differs from pi-yaml-hooks](#how-this-differs-from-pi-yaml-hooks)
+16. [Known limits](#known-limits)
 
 ---
 
@@ -357,7 +358,7 @@ Redaction is pattern-based. It is a safety net, not a guarantee that no secret l
 A hooks file runs code with your permissions, so two conditions must both hold before any handler runs:
 
 1. **The host trusts the project.** Pi reports `true` for this by default in every mode, so on its own this blocks almost nothing. If you have told Pi not to trust a project, hooks do not run there.
-2. **You have trusted these hooks.** Run `/ensemble-lifecycle-trust` in an interactive Pi session. It validates the file, lists every handler's exact executable and arguments or prompt file, and records your trust only after you confirm. In a session with no UI to show a confirmation (for example print mode) it refuses and records nothing; no argument skips the confirmation.
+2. **You have trusted these hooks.** Run `/ensemble-lifecycle-trust` in an interactive Pi session. It validates the file, lists every handler's exact executable and arguments or prompt file, and records your trust only after you confirm. In a session with no UI to show a confirmation (for example print mode) it refuses and records nothing; no argument skips the confirmation. For Claude Code, see [Claude Code](#claude-code): trust is recorded from a terminal into the same store.
 
 Where trust is kept, and what it is bound to:
 
@@ -411,9 +412,38 @@ This table is the capability data in `packages/agent-core/src/lifecycle-hooks/ca
 
 Lifecycle hooks are not active in claude-code, codex, opencode: there is no adapter, so no code of this project runs there and nothing is shown when a command runs. A hooks file in such a project is simply ignored.
 
+That table describes the Pi extension's own adapters. The Claude Code row means the Pi extension has no adapter for it; Claude Code is served by the separate `ensemble-lifecycle` plugin, described in [Claude Code](#claude-code).
+
 ### The best-effort path
 
 A team in a harness with no adapter can still write instructions into a command's own text that ask the model to do something at the start or end. That is a **best-effort** path. It depends entirely on the model choosing to follow the instruction: it may be skipped, it has no payload, no redaction, no timeout, no trust check and no block, and it is not lifecycle hook execution. This feature does not generate such instructions for any harness; the one instruction the Pi adapter adds is the per-turn completion reminder, and it applies only to Pi runs that have hooks.
+
+---
+
+## Claude Code
+
+Install the `ensemble-lifecycle` plugin (`packages/lifecycle-claude`) and a project that has `.ensemble/hooks.yaml` gets the same `command.start` and `command.end` events, with the same payload, redaction, timeouts, output bound and serial dispatch: the plugin bundles the same `agent-core` code Pi uses. A project without the file sees no change. The plugin registers hooks for four Claude Code events:
+
+| Claude Code event | What the plugin does |
+| --- | --- |
+| `UserPromptSubmit` | A prompt that starts with `/ensemble:<name>` is a command start. Dispatchers such as `/ensemble:prd create foo` resolve to their target, as in Pi. The `start` handlers run before Claude sees the prompt |
+| `Stop` | Ends the run in flight for the session as `succeeded`; the `end` handlers run once |
+| `StopFailure` | Ends it as `failed` |
+| `SessionEnd` | Ends a run still in flight as `cancelled` |
+
+A new Ensemble command while one is in flight ends the earlier run as `cancelled`, as in Pi. The in-flight run is kept in `.ensemble/lifecycle-state/<session_id>.json`, which holds a `.gitignore` of `*`, so each start has exactly one end. `Stop` never blocks or continues the turn, so `stop_hook_active` cannot cause a loop.
+
+How it differs from Pi:
+
+- **Shell handlers only.** A prompt handler needs a model call, which a Claude Code hook cannot make. It is reported as failed ("run only in Pi") and follows its `on_error` policy: `continue` goes on, `block` blocks.
+- **A blocking start handler** (`on_error: block`, failed) returns a `block` decision, so Claude Code drops the prompt and shows the reason; the run ends `failed` and its end handlers run.
+- **End means the turn ended.** Claude Code has no command-finished signal and there is no `ensemble_command_complete` tool. `Stop` is reported as `succeeded` even when the command is waiting for your reply or did not reach its goal, and the payload has no `summary` or `artifacts`. A user interrupt fires no `Stop`, so that run ends `cancelled` at the next command or at `SessionEnd`.
+- **The host-trust condition is Claude Code's own.** Claude Code has no per-project trust query for plugins, so the plugin treats a workspace in which Claude Code runs plugin hooks as host-trusted. Your own digest-bound trust (below) is checked exactly as in Pi.
+- **Trust is granted from a terminal**, not a slash command: run `node <plugin directory>/bundle/lifecycle.cjs trust` inside the project. It validates the file, lists every handler, and asks you to type `yes`. It refuses without a terminal and records nothing. It writes the same `~/.ensemble/trusted-hooks.json` record Pi reads, so trust given in one harness holds in the other.
+- **Failures are shown** as a Claude Code system message listing each handler that did not succeed; a hooks file that is invalid or untrusted says so once per command.
+- **Fail open.** Any internal error or malformed event input exits 0 and changes nothing.
+
+The bundle `bundle/lifecycle.cjs` is committed, because a plugin is installed without a build. After changing the `agent-core` lifecycle-hooks code or the Pi gate, run `npm run build` in `packages/lifecycle-claude` (needs bun); its test fails when the committed bundle is stale.
 
 ---
 
@@ -449,7 +479,9 @@ The two share nothing: a project can use either, both or neither, and one does n
 
 ## Known limits
 
-- **Only Pi.** Nothing runs in Claude Code, Codex or OpenCode, and this guide does not claim otherwise.
+- **Only Pi has an adapter.** Nothing runs in Claude Code, Codex or OpenCode from the Pi extension, and this guide does not claim otherwise. Claude Code is served only by the separate `ensemble-lifecycle` plugin, with the reduced behavior listed in [Claude Code](#claude-code); Codex and OpenCode have nothing.
+- **Claude Code: end is the turn end.** There is no completion signal, no prompt handler support, and no `summary` or `artifacts`; an interrupted turn ends `cancelled` only at the next command or session end.
+- **Claude Code: trust is a file you own too.** The `trust` command needs a terminal, which a model's Bash tool does not have, but the caveat in [Trust](#trust) about a model with general file tools writing a record applies equally.
 - **The end signal depends on the model.** A command ends as `succeeded` or `failed` only if the model calls `ensemble_command_complete`. A model that forgets leaves the run in flight until the next hook-selected command or session shutdown ends it `cancelled`. Hooks never treat a quiet settle as success.
 - **An abort is read at the settle.** Pi 1.2.0 fires no pre-settle event for an abort, so a `cancelled` end arrives when the loop settles.
 - **A process killed by SIGINT in RPC mode runs no handler at all**, so a command still running then gets no `command.end`.

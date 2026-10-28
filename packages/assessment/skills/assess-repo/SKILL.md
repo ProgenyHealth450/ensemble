@@ -3,17 +3,13 @@ name: assess-repo
 description: orchestrate comprehensive repository assessment using parallel specialist analysis
 ---
 
-# Soul
+# Role
 
-You are a senior CTO orchestrating a comprehensive repository assessment. You launch parallel analysis tasks, save each agent's findings to files, then synthesize the findings into a cohesive report that references the agent outputs.
+Orchestrate a repository assessment: launch parallel specialist tasks, save each task's findings to files, then synthesize one report that references the outputs.
 
 # Tool Guidance
 
-**Avoid:** `find ... -exec ...`, `xargs ...`, `wc -l | sort | head`, and other complex shell
-pipelines; many coding-agent runtimes restrict these.
-
-**Prefer:** your runtime's dedicated file-discovery, read, structural-code-search (e.g. ast-grep
-or equivalent), text-search, and language-server/code-intelligence capabilities where available.
+Avoid `find ... -exec ...`, `xargs ...`, `wc -l | sort | head` and other complex shell pipelines (many runtimes restrict them); prefer dedicated file-discovery, read, structural-search, text-search and code-intelligence tools.
 
 # Data Source Constraints
 
@@ -35,16 +31,9 @@ When data not available:
 
 ---
 
-# Token Optimization Rules
+# Token Optimization
 
-**For All Agents:**
-1. **Cite specific file:line, not summarize** — `AuthorizationLogic.cs:3738` is better than "many async calls"
-2. **Use tables over paragraphs** — Tables are scannable and compress better in context
-3. **One-line rationale for scores** — "C+ due to 78 duplicate files and 15K line god class"
-4. **Skip common knowledge** — Don't explain what a REST API is; get to findings
-5. **Be specific with numbers** — "127 raw Exception throws" not "many exceptions"
-6. **Truncate verbose output** — If a pattern appears 50 times, cite 3 examples and state "47 more similar"
-7. **No filler prose** — "Key Finding:" not "Upon careful analysis of the codebase, one key finding emerges..."
+Specialist reports: cite `file:line` and specific numbers, use tables, one-line score rationales, cap repeated patterns at 3 examples plus "N more similar", no filler.
 
 # Orchestration Flow
 
@@ -78,11 +67,8 @@ Run-specific rules:
 ```
 
 ## Phase 3: Parallel Analysis
-Launch 7 parallel `task` agents. Each agent:
-1. Analyzes its domain deeply
-2. Saves detailed findings to its output file
-3. Returns a summary (not full findings) to reduce context
-Pass this context to all tasks:
+
+Launch 7 parallel `task` agents (see Specialist Tasks); each saves detailed findings to its output file and returns a summary only. Pass this context to all tasks:
 ```
 REPO_ROOT: {cwd}
 SCOPE: src/, tests/, configs/, docs/
@@ -196,7 +182,7 @@ Generate the comprehensive report that references agent outputs.
 | Overall | <1.0-5.0> | <Letter> |
 | AI Readiness | <1.0-5.0> | <Letter> |
 
-**Scoring Rubric:** Always assign a numeric score first (1.0-5.0), then derive the letter mechanically — never assign a bare letter without an underlying number. Anchors: 5=A, 4=B, 3=C, 2=D, 1=F, with `+`/`-` thirds subdividing each band (A and F are terminal, unsplit) — see `skill://assessment-report-suite`'s "Scoring Scale" section for the exact range table. Never invent an alternate numeric-to-letter mapping, and never calibrate one repo's dimension score by analogy to a different repo's or a portfolio composite's score — score strictly from this repo's own evidence.
+**Scoring:** numeric first (1.0-5.0), letter derived per the Scoring Scale in `skill://assessment-report-suite`; never a bare letter or an alternate mapping.
 
 ---
 

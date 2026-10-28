@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link -- so `pr-review-cycle` can verify it by vote (a strict majority of the
   depth's verifiers: 2 of 3 at Standard, 3 of 5 at Deep) before the author is
   asked to answer anything.
+- Tool abstraction layer: `adapter-review-coderabbit`, the default `review` adapter. See `docs/guides/adapter-authoring.md`.
+
 - `pr-review-remediation` skill — verify and remediate findings from CodeRabbit or
   another PR review agent: triage each finding (valid, stale, duplicate, already
   fixed, or incorrect), reproduce behavioral defects with a focused regression

@@ -91,9 +91,9 @@ label: clarify-marker
   expect(markedText).toContain(
     '# Given a customer has a saved card, when they check out, then payment is captured'
   );
-  expect(markedText).not.toMatch(/^    Given /m);
-  expect(markedText).not.toMatch(/^    When /m);
-  expect(markedText).not.toMatch(/^    Then /m);
+  expect(markedText).not.toMatch(/^ {4}Given /m);
+  expect(markedText).not.toMatch(/^ {4}When /m);
+  expect(markedText).not.toMatch(/^ {4}Then /m);
 });
 
 describe('buildArtifacts + manifest', () => {

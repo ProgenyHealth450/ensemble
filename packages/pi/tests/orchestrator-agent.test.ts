@@ -32,7 +32,7 @@ function extractTools(parsed: matter.GrayMatterFile<string>): string[] {
   // YAML inline arrays come through as arrays via gray-matter; handle string fallback
   if (typeof raw === 'string') {
     return raw
-      .replace(/[\[\]]/g, '')
+      .replace(/[[\]]/g, '')
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);

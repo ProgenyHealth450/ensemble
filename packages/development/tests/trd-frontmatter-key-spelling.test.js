@@ -85,6 +85,7 @@ describe('getFrontmatterField', () => {
 
 describe('trd-cli list and status accept Title-Case frontmatter keys', () => {
   let dir;
+  const originalCwd = process.cwd();
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trd-cli-titlecase-'));
     fs.writeFileSync(
@@ -96,8 +97,14 @@ describe('trd-cli list and status accept Title-Case frontmatter keys', () => {
         'Status: Approved',
       ])
     );
+    // `list` and `status` ask `br` for bead counts in process.cwd(). Run from the throwaway dir so `br` finds no
+    // workspace (NOT_INITIALIZED, counted as zero) instead of creating .beads/ runtime state in the repository.
+    process.chdir(dir);
   });
-  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterAll(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   test('runList reports id, version, prd_reference and status', () => {
     const [item] = runList(['--type', 'trd', '--dir', dir]).items;

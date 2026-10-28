@@ -97,7 +97,7 @@ module's behaviour depends on a sibling it requires, read that sibling too and
 add it to the derived-from list; do not describe a dependency you did not read.
 
 Record, per file: its repo-relative path and the revision the tree is at
-(`git rev-parse --short HEAD`, plus `-dirty` when the file has uncommitted
+(the abbreviated HEAD commit id, plus `-dirty` when the file has uncommitted
 changes). That pair is what makes "reflects the code as it is now" checkable.
 
 ## Step 4 -- Write the explainer

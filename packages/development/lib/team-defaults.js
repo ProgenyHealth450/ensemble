@@ -86,7 +86,7 @@ function resolveDefaultTeamRoles(input = {}) {
       owns: ['code-review'],
     },
     qa: {
-      agents: [defaults.qa || defaults.qa_fallback || 'qa-orchestrator'],
+      agents: [defaults.qa || 'test-runner'],
       owns: ['quality-assurance'],
     },
     advisor: {

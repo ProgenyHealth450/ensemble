@@ -12,17 +12,10 @@
   "keywords": [
     "orchestration",
     "core",
-    "ensemble",
-    "framework-detection"
+    "ensemble"
   ],
   "commands": "./commands",
-  "skills": "./skills",
   "agents": [
-    "./agents/agent-meta-engineer.md",
-    "./agents/context-fetcher.md",
-    "./agents/directory-monitor.md",
-    "./agents/ensemble-orchestrator.md",
-    "./agents/file-creator.md",
-    "./agents/general-purpose.md"
+    "./agents/ensemble-orchestrator.md"
   ]
 }

@@ -1,5 +1,7 @@
 # Ensemble Component Inventory
 
+> **Historical snapshot (Dec 2025).** This document is frozen and no longer tracks the repository; components it lists (e.g. the metrics and router packages, several generic agents and skills) have since been removed. See the README and the wiki for current inventory.
+
 **Version**: 1.0.0
 **Date**: 2025-12-10
 **Purpose**: Comprehensive inventory of all Ensemble components for plugin modularization

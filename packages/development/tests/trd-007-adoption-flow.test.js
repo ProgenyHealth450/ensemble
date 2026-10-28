@@ -275,9 +275,15 @@ function reviewAt(repo, baseSha, { changedPaths, body, agentAuthored = false, re
 /** The sha256 of every shipped library file: the code a review runs. */
 function libDigest() {
   const hash = crypto.createHash('sha256');
-  for (const file of fs.readdirSync(LIB_DIR).sort()) {
-    hash.update(file).update(fs.readFileSync(path.join(LIB_DIR, file)));
-  }
+  // lib/ now also holds sub-directories (lib/toolchain/ ...): digest every file in them too.
+  const walk = (dir, prefix) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((x, y) => (x.name < y.name ? -1 : 1))) {
+      const rel = prefix + entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel + '/');
+      else hash.update(rel).update(fs.readFileSync(path.join(dir, entry.name)));
+    }
+  };
+  walk(LIB_DIR, '');
   return hash.digest('hex');
 }
 

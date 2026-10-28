@@ -25,7 +25,10 @@ Two jobs, one procedure (REQ-020, AC-020-1, AC-020-2):
 This skill owns editable prose only (Constitution Rule 8): the case-gathering
 interview, what a maintainer is asked to confirm and how a run is reported.
 Every judgement that grades a claim is made by `pr-review-cli.js`, which is the
-only thing here that decides anything (Rule 7). Recurrence is the host
+only thing here that decides anything (Rule 7). Resolve `PR_REVIEW_CLI` for
+`packages/development/lib/pr-review-cli.js` per the tool-path-resolution skill
+(`packages/development/skills/tool-path-resolution/SKILL.md`) before running any
+command below. Recurrence is the host
 repository's (Rule 4): this skill runs when it is invoked and holds no timer,
 no schedule and no watcher.
 
@@ -46,7 +49,7 @@ maintainer who moved the directory does not have to tell this skill twice.
 
 ```bash
 # The policy block of the root REVIEW.md, read from the base commit (REQ-024).
-node packages/development/lib/pr-review-cli.js policy <<< "$(jq -n \
+node "$PR_REVIEW_CLI" policy <<< "$(jq -n \
   --arg text "$(git show "$BASE_SHA:REVIEW.md" 2>/dev/null)" --arg base "$BASE_SHA" \
   '{text: $text, baseSha: $base}')"
 ```
@@ -99,7 +102,7 @@ A maintainer's say-so is not the confirmation. Resolve the owners of
 `location.path` from CODEOWNERS and require `confirmedBy` to be one of them:
 
 ```bash
-node packages/development/lib/pr-review-cli.js paths <<< "$(jq -n \
+node "$PR_REVIEW_CLI" paths <<< "$(jq -n \
   --arg p "$CASE_PATH" --arg owners "$(git show "$BASE_SHA:CODEOWNERS" 2>/dev/null)" --arg base "$BASE_SHA" \
   '{changedPaths: [$p], codeowners: $owners, baseSha: $base}')"
 ```
@@ -176,7 +179,7 @@ a case whose review recorded no findings:
 ```bash
 jq -n --slurpfile c "<evalCasesDir>/<id>.json" \
   '{cases: $c, findingsByCase: ($c[0].id | {(.): []})}' \
-  | node packages/development/lib/pr-review-cli.js eval-score
+  | node "$PR_REVIEW_CLI" eval-score
 ```
 
 `cases[0].reason` must be `no-important-finding-at-location` — that proves the
@@ -223,20 +226,20 @@ produced), do not invent a review: leave that case out of `findingsByCase` —
 jq -n --slurpfile cases /tmp/eval-cases.json --slurpfile findings /tmp/eval-findings.json \
   --arg owners "$(git show "$BASE_SHA:CODEOWNERS" 2>/dev/null)" \
   '{cases: $cases[0], findingsByCase: $findings[0], codeowners: $owners}' \
-  | node packages/development/lib/pr-review-cli.js eval-score > /tmp/eval-run-today.json
+  | node "$PR_REVIEW_CLI" eval-score > /tmp/eval-run-today.json
 
 # R3.2 Compare with the previous run; a lower total is a regression, by name.
 jq -n --slurpfile previous "$PREVIOUS_RUN" --slurpfile current /tmp/eval-run-today.json \
   '{previous: $previous[0], current: $current[0]}' \
-  | node packages/development/lib/pr-review-cli.js eval-compare
+  | node "$PR_REVIEW_CLI" eval-compare
 
 # R3.3 Which cases need owner re-review because their rules file moved.
 jq -n --slurpfile cases /tmp/eval-cases.json \
   --argjson hashes "$(jq -n '{}')" '{cases: $cases[0], rulesHashes: $hashes}' \
-  | node packages/development/lib/pr-review-cli.js eval-stale
+  | node "$PR_REVIEW_CLI" eval-stale
 ```
 
-Build `rulesHashes` by running `git hash-object` over every distinct
+Build `rulesHashes` by computing the git blob hash of every distinct
 `rulesFile` the cases name, keyed by that path. A rules file left out of the
 map makes its cases stale, which is the intended direction: an unknown rules
 state is never "unchanged".

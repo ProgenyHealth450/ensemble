@@ -39,7 +39,7 @@ describe('pr-review-explainer SKILL.md', () => {
     const flatRead = read.replace(/\s+/g, ' ');
     expect(flatRead).toContain('from the working tree as it is now');
     expect(flatRead).toContain('not from a base commit');
-    expect(flatRead).toContain('git rev-parse --short HEAD');
+    expect(flatRead).toContain('the abbreviated HEAD commit id');
     // Resolution happens before any prose is written.
     expect(sectionIndex('## Step 1 -- Resolve `MODULE` to files')).toBeLessThan(
       sectionIndex('## Step 4 -- Write the explainer')

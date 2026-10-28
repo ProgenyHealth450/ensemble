@@ -77,6 +77,7 @@ class SmokeTestAPI {
 
       return {
         passed: false,
+        status: 'failed',
         reason: `API smoke tests failed: ${error.message}`,
         error: error.stack,
         details: this.metrics,
@@ -97,10 +98,10 @@ class SmokeTestAPI {
 
       if (result.passed) {
         this.metrics.passed++;
-        console.log(`✅ ${endpoint.name || endpoint.path}: ${result.status} (${result.responseTime}ms)`);
+        console.log(`✅ ${result.name}: ${result.status} (${result.responseTime}ms)`);
       } else {
         this.metrics.failed++;
-        console.log(`❌ ${endpoint.name || endpoint.path}: ${result.reason}`);
+        console.log(`❌ ${result.name}: ${result.reason}`);
 
         if (this.config.stopOnFirstFailure) {
           throw new Error(`Endpoint failed: ${endpoint.path}`);
@@ -125,16 +126,15 @@ class SmokeTestAPI {
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
-        const endpoint = batch[i];
 
         this.results.push(result);
 
         if (result.passed) {
           this.metrics.passed++;
-          console.log(`✅ ${endpoint.name || endpoint.path}: ${result.status} (${result.responseTime}ms)`);
+          console.log(`✅ ${result.name}: ${result.status} (${result.responseTime}ms)`);
         } else {
           this.metrics.failed++;
-          console.log(`❌ ${endpoint.name || endpoint.path}: ${result.reason}`);
+          console.log(`❌ ${result.name}: ${result.reason}`);
         }
 
         this.metrics.responseTimes.push(result.responseTime);
@@ -150,6 +150,10 @@ class SmokeTestAPI {
    */
   async testEndpoint(endpoint) {
     const startTime = performance.now();
+
+    if (endpoint === null || typeof endpoint !== 'object' || Array.isArray(endpoint)) {
+      return { endpoint: null, name: 'invalid endpoint', passed: false, responseTime: 0, reason: 'endpoint entry is not an object' };
+    }
 
     try {
       const response = await this.makeRequest(endpoint);
@@ -423,6 +427,7 @@ class SmokeTestAPI {
 
     return {
       passed: allPassed,
+      status: allPassed ? 'passed' : 'failed',
       details: {
         totalEndpoints: this.metrics.totalEndpoints,
         passed: this.metrics.passed,

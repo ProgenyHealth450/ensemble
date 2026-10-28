@@ -50,7 +50,11 @@ function buildFakeMonorepo(root: string): void {
   // alpha — top-level skill files
   const alphaSkills = path.join(root, 'packages', 'alpha', 'skills');
   fs.mkdirSync(alphaSkills, { recursive: true });
-  fs.writeFileSync(path.join(alphaSkills, 'SKILL.md'), '# Alpha Skill\nContent here.\n', 'utf-8');
+  fs.writeFileSync(
+    path.join(alphaSkills, 'SKILL.md'),
+    '# Alpha Skill\nContent here.\n\nSee REFERENCE.md.\n',
+    'utf-8'
+  );
   fs.writeFileSync(
     path.join(alphaSkills, 'REFERENCE.md'),
     '# Alpha Reference\nRef content.\n',
@@ -173,7 +177,7 @@ describe('copySkills', () => {
 
     expect(alpha!.content.startsWith('---\n')).toBe(true);
     const body = matter(alpha!.content).content;
-    expect(body).toBe(`${generatedMarker('packages/alpha/skills/SKILL.md')}\n# Alpha Skill\nContent here.\n`);
+    expect(body).toBe(`${generatedMarker('packages/alpha/skills/SKILL.md')}\n# Alpha Skill\nContent here.\n\nSee REFERENCE.md.\n`);
   });
 
   it('does not let the marker become the description of a skill that has none', async () => {

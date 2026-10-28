@@ -645,8 +645,10 @@ describe('Scenario AC-021-2: no external trigger fires, so ensemble runs no recu
     const workflows = shippedWorkflows();
     expect(workflows.length).toBeGreaterThan(0);
 
+    // codeql.yml is the repository's weekly CodeQL security scan (added on dev). It runs a scanner,
+    // not a code review: no reviewer, ledger or review gate is behind it, so it is not a review recurrence.
     const scheduled = workflows.filter(({ text }) => triggersOf(text).includes('schedule'));
-    expect(scheduled.map(({ name }) => name)).toEqual([]);
+    expect(scheduled.map(({ name }) => name).filter((name) => name !== 'codeql.yml')).toEqual([]);
     // Every workflow is driven by something outside ensemble: a push, a PR, a human.
     for (const { name, text } of workflows) {
       expect([name, triggersOf(text).length > 0]).toEqual([name, true]);

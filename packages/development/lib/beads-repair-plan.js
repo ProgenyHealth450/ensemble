@@ -1,5 +1,26 @@
 'use strict';
 
+/**
+ * Repair-plan builder for `/ensemble:refine-beads` (packages/development/commands/
+ * refine-beads.yaml, via `beads-refine-cli.js`'s `plan` subcommand).
+ *
+ * PR 7 independent review item 8: every `fix.commands[]` entry below is a literal `br ...`
+ * string (e.g. `br comments add <id> --message '...'`, `br dep add <child> <parent> --type
+ * parent-child`). This is DISPLAY-ONLY text -- a human-readable rendering of what the proposed
+ * repair would do -- never a string this module or its one caller `execFile`s/`spawn`s/
+ * `execFileSync`s (grepped: neither file, nor `beads-refine-cli.js`, calls any `child_process`
+ * function; `requiresDependencyConfirmation` above even regex-matches against these same
+ * strings for a UI confirmation gate, not to decide what to run). The real mutation, when a
+ * user approves a fix, is ALWAYS applied by refine-beads.yaml's own Apply Approved Repairs
+ * phase, which runs the EQUIVALENT toolchain-cli capability (`tracker.comment`/
+ * `tracker.dep-add`/`tracker.update`/`tracker.dep-remove`, matching this module's own
+ * finding-type-to-capability mapping) via `node "$TOOLCHAIN_CLI" run <capability> ...` --
+ * never the literal `br` string this module generated for display. Do not wire `fix.commands`
+ * to an executor: if the repair plan's capability mapping ever needs to change, change the
+ * `fix(...)` calls in `planFixForFinding` below AND refine-beads.yaml's own "Supported
+ * mutations" list together, since they must stay in sync by convention, not by shared code.
+ */
+
 function fix(id, finding, commands, verify, extra = {}) {
   return Object.assign({
     id,

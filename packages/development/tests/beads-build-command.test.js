@@ -28,9 +28,11 @@ describe('beads-build clean-tree gate', () => {
     // --all and --limit 0 both decide whether CLOSED_COUNT can be non-zero.
     // `br list --help`: -a/--all is "Include closed issues (default excludes
     // closed)" and --limit is "Maximum number of results (0 = unlimited,
-    // default: 50)". Drop either and the count reads 0 on a real database,
-    // which HALTs the resume this change exists to let through.
-    expect(text).toContain('br list --all --status=closed --limit 0 --json');
+    // default: 50)". The tracker.list capability's default-adapter mapping
+    // (packages/development/skills/adapter-tracker-beads/adapter.yaml) runs
+    // exactly `br list --all --limit 0 --json`, preserving that guarantee.
+    expect(text).toContain('run tracker.list');
+    expect(text).toContain('filter to status=="closed"');
     expect(text).not.toContain('If IN_PROGRESS_COUNT == 0 — this is a fresh run');
     expect(text).not.toContain('If IN_PROGRESS_COUNT > 0 and WORKTREE_STATUS is non-empty');
   });
@@ -49,7 +51,8 @@ describe('beads-build clean-tree gate', () => {
 
   test('preflight step 3 captures the status without deciding on it', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toContain('capture the output as WORKTREE_STATUS');
+    expect(text).toContain('run workflow.status');
+    expect(text).toContain('as WORKTREE_STATUS');
     expect(text).not.toContain('git status --porcelain — HALT if output non-empty');
   });
 });
@@ -87,43 +90,27 @@ describe('beads-build Preflight resolve-sdlc rewiring (TRD-013)', () => {
     expect(stepBlock).toMatch(/INTERACTIVE=false, or INTERACTIVE detection is itself uncertain[\s\S]*HALT/);
   });
 
-  test('behavioral equivalence with implement-trd-beads.yaml TRD-008 Preflight pattern', () => {
+  test('beads-build and the implement-trd-beads reference skill consume the same resolve-sdlc contract', () => {
     const beadsBuildText = fs.readFileSync(yamlPath, 'utf8');
-    const implPath = path.join(__dirname, '../commands/implement-trd-beads.yaml');
-    const implText = fs.readFileSync(implPath, 'utf8');
+    const implText = fs.readFileSync(
+      path.join(__dirname, '../skills/implement-trd-beads-reference/SKILL.md'),
+      'utf8'
+    );
+    const beadsBuildStep = beadsBuildText
+      .slice(
+        beadsBuildText.indexOf('title: Git-Town and Working Directory Verification'),
+        beadsBuildText.indexOf('title: Epic Discovery')
+      )
+      .replace(/''/g, "'");
 
-    const extractStep = (text, startMarker, endMarker) => {
-      const s = text.indexOf(startMarker);
-      const e = text.indexOf(endMarker);
-      return text.slice(s, e);
-    };
-
-    // Normalize YAML single-quote escaping (''->') so markers compare equally
-    // regardless of which file's quoting style (single- vs double-quoted scalars) is used.
-    const normalize = (s) => s.replace(/''/g, "'");
-
-    const beadsBuildStep = normalize(extractStep(
-      beadsBuildText,
-      'title: Git-Town and Working Directory Verification',
-      'title: Epic Discovery'
-    ));
-    const implStep = normalize(extractStep(
-      implText,
-      'title: Git-Town and Working Directory Verification',
-      'title: TRD Selection and Validation'
-    ));
-
-    // Same resolution logic markers present in both — same HALT/prompt/consolidated-message shape.
-    for (const marker of [
-      'resolve-sdlc --git-town-exit-code',
-      'RESOLVE_SDLC_RESULT',
-      "branchingStrategy.action == 'halt'",
-      'prBackend.needsResolution == true',
-      'prBackend.needsResolution == false',
-      'consolidatedMessage',
+    for (const [buildMarker, implMarker] of [
+      ['resolve-sdlc --git-town-exit-code', 'resolve-sdlc --git-town-exit-code'],
+      ["branchingStrategy.action == 'halt'", "branchingStrategy.action=='halt'"],
+      ['prBackend.needsResolution == false', 'prBackend.needsResolution==false'],
+      ['consolidatedMessage', 'consolidatedMessage'],
     ]) {
-      expect(beadsBuildStep).toContain(marker);
-      expect(implStep).toContain(marker);
+      expect(beadsBuildStep).toContain(buildMarker);
+      expect(implText).toContain(implMarker);
     }
   });
 
@@ -142,15 +129,10 @@ describe('beads-build Preflight resolve-sdlc rewiring (TRD-013)', () => {
 describe('beads-build has no branch-creation logic of its own (TRD-014)', () => {
   const yamlPath = path.join(__dirname, '../commands/beads-build.yaml');
 
-  test('explicit REQ-004 note documents the file never issues branch-mutation commands', () => {
+  test('states that it never creates or switches branches itself', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    const noteIdx = text.indexOf('Plain-git branch creation (TRD-014):');
-    expect(noteIdx).toBeGreaterThan(-1);
-    expect(text).toContain('this command drives an existing bead hierarchy on whatever branch is already checked out');
-    expect(text).toContain('unlike implement-trd-beads.yaml, it never creates or switches branches itself');
-    expect(text).toContain('there is zero `git town` command anywhere in this file to make config-driven');
-    expect(text).toContain('the plain-git contract (REQ-004: zero git town commands issued when BRANCHING_STRATEGY==plain-git) is satisfied automatically');
-    expect(text).toContain('by this file never issuing branch-mutation commands of any kind, git-town or otherwise');
+    expect(text).toContain('This command never creates or switches branches');
+    expect(text).toContain('it issues no branching-tool command under any BRANCHING_STRATEGY');
   });
 
   test('zero real git-town branch-creation invocations anywhere in the file (git town hack/append/propose)', () => {
@@ -166,7 +148,6 @@ describe('beads-build has no branch-creation logic of its own (TRD-014)', () => 
   test('BRANCHING_STRATEGY is still resolved (for consistency with the other two consumer commands) even though unused for mutation', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toContain('Set BRANCHING_STRATEGY=RESOLVE_SDLC_RESULT.branchingStrategy.strategy');
-    expect(text).toContain('BRANCHING_STRATEGY is still resolved above for consistency with the other two consumer commands');
   });
 });
 
@@ -189,14 +170,15 @@ describe('beads-build backend-aware completion reminder (TRD-015)', () => {
     expect(stepBlock).toContain('this command never auto-creates a PR regardless of PR_BACKEND');
     expect(stepBlock).toContain("mirroring TRD-010's three backend behaviors, minus the ado MCP-tool-preferred attempt");
 
-    // gh: distinct reminder text
-    expect(stepBlock).toContain("If PR_BACKEND=='gh': remind user: git diff main...<branch>; gh pr create;");
-    // ado: distinct reminder text (az CLI + portal, no MCP attempt)
-    expect(stepBlock).toContain("If PR_BACKEND=='ado': remind user: git push -u origin <branch>; az repos pr create --source-branch <branch> --target-branch main");
-    expect(stepBlock).toContain('or via the portal: Repos > Pull Requests > New Pull Request');
+    // gh: distinct reminder text (workflow.diff, then the host change-request capability)
+    expect(stepBlock).toContain("If PR_BACKEND=='gh': remind user: node \"$TOOLCHAIN_CLI\" run workflow.diff --arg ref=main...<branch>; then node \"$TOOLCHAIN_CLI\" run host.change-request-create");
+    // ado: distinct reminder text (workflow.push + host adapter, portal fallback, no MCP attempt)
+    expect(stepBlock).toContain("If PR_BACKEND=='ado': remind user: node \"$TOOLCHAIN_CLI\" run workflow.push --arg branch=<branch>; then node \"$TOOLCHAIN_CLI\" run host.change-request-create");
+    expect(stepBlock).toContain('resolves through the configured Azure DevOps host adapter');
+    expect(stepBlock).toContain('use the portal instead: Repos > Pull Requests > New Pull Request');
     // manual: distinct reminder text
-    expect(stepBlock).toContain("If PR_BACKEND=='manual': remind user: git push -u origin <branch>; then create the PR yourself via gh pr create --base main");
-    expect(stepBlock).toContain('or the ADO CLI/portal equivalent if the remote is Azure DevOps');
+    expect(stepBlock).toContain("If PR_BACKEND=='manual': remind user: node \"$TOOLCHAIN_CLI\" run workflow.push --arg branch=<branch>; then node \"$TOOLCHAIN_CLI\" run host.change-request-create");
+    expect(stepBlock).toContain('resolves through whichever host adapter is configured');
 
     // Never auto-creates, regardless of which backend was resolved
     expect(stepBlock).toContain('Do NOT auto-create PR — user must create it manually per the PR_BACKEND-specific reminder above');
@@ -223,7 +205,7 @@ describe('beads-build team-roles delegation contract', () => {
   test('Argument Parsing accepts --team-roles and keeps deprecated --builder fallback', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     const stepStart = text.indexOf('title: Argument Parsing');
-    const stepEnd = text.indexOf('title: Tool Availability Check');
+    const stepEnd = text.indexOf('title: Tool Capability Preflight');
     expect(stepStart).toBeGreaterThan(-1);
     expect(stepEnd).toBeGreaterThan(stepStart);
     const stepBlock = text.slice(stepStart, stepEnd);

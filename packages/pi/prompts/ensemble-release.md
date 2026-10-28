@@ -40,7 +40,7 @@ Create release branch via git-workflow
 
 ### Step 4: Changelog Generation
 
-Generate changelog from git history
+Generate changelog from git history (use the changelog-generator skill)
 
 **Actions:**
 1. Parse commits since last release
@@ -92,12 +92,13 @@ Execute integration test suite via test-runner
 
 ### Step 5: Pre-Release Smoke Tests
 
-Execute smoke test suite before deployment
+Execute smoke test suite before deployment (use the smoke-test-runner skill)
 
 **Actions:**
-1. Execute 5-category smoke test suite - API Health - Database connectivity - External services - Authentication - Critical paths
-2. Use pre-release environment configuration
-3. Block on any smoke test failure
+1. Execute 5-category smoke test suite against the project's smoke-tests.json (up to 15 minutes)
+2. Proceed only when the runner verdict is passed; failed or incomplete (a required category NOT CONFIGURED) blocks - API Health - Database connectivity - External services - Authentication - Critical paths
+3. Use pre-release environment configuration
+4. Block on any smoke test failure
 
 ### Step 6: E2E Test Execution
 
@@ -122,13 +123,13 @@ Deploy release to staging environment
 
 ### Step 2: Post-Staging Smoke Tests
 
-Verify staging deployment with smoke tests
+Verify staging deployment with smoke tests (use the smoke-test-runner skill)
 
 **Actions:**
 1. Execute full 5-category smoke test suite
 2. Use staging-specific configuration
-3. Verify all smoke tests pass
-4. Block on any smoke test failure
+3. Proceed only when the runner verdict is passed (every required category executed and passed)
+4. Block on a failed or incomplete verdict (a required category NOT CONFIGURED is a block, not a pass)
 
 ## Phase 4: Production Deployment
 
@@ -139,7 +140,7 @@ Deploy to production using canary strategy
 **Actions:**
 1. Deploy to canary infrastructure
 2. Route 5% traffic to canary
-3. Execute canary smoke tests (smoke-test-runner skill)
+3. Execute canary smoke tests (smoke-test-runner skill); promote only on a passed verdict
 4. Monitor error rate for 2 minutes
 5. If pass: Route 25% traffic, execute smoke tests
 6. If pass: Route 100% traffic, execute final smoke tests
@@ -147,19 +148,19 @@ Deploy to production using canary strategy
 
 ### Step 2: Post-Production Smoke Tests
 
-Final verification of production deployment
+Final verification of production deployment (use the smoke-test-runner skill)
 
 **Actions:**
 1. Execute full 5-category smoke test suite
 2. Use production-specific configuration
 3. Monitor error rate for 5 minutes
-4. Trigger rollback on smoke test failure or error rate >5%
+4. Trigger rollback on a failed or incomplete smoke verdict or error rate >5%
 
 ## Phase 5: Release Completion
 
 ### Step 1: Create Pull Request
 
-Create release PR via github-specialist
+Create release PR via git-workflow
 
 **Actions:**
 1. Create PR with changelog in description
@@ -206,16 +207,6 @@ Update Linear/Jira tickets with release info
 3. Link to PR and GitHub release
 4. Add deployment timestamp
 
-### Step 6: Send Release Metrics
-
-Report metrics to manager-dashboard-agent
-
-**Actions:**
-1. Send cycle time metric
-2. Send success/failure status
-3. Send test execution metrics
-4. Send deployment duration
-
 ## Phase 6: Rollback (On Failure)
 
 ### Step 1: Trigger Rollback
@@ -238,7 +229,7 @@ Route traffic to previous version
 
 ### Step 3: Post-Rollback Smoke Tests
 
-Verify rollback success with smoke tests
+Verify rollback success with smoke tests (use the smoke-test-runner skill)
 
 **Actions:**
 1. Execute full 5-category smoke test suite
