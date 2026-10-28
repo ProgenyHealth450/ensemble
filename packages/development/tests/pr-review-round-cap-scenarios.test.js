@@ -73,7 +73,7 @@ function factsWithOpenFinding(overrides = {}) {
     headSha: HEAD_SHA,
     reviewedHeadSha: HEAD_SHA,
     findingCounts: { total: 1, actionable: 1, deferred: 0 },
-    tests: { passed: true, skipped: false, command: 'npm test' },
+    tests: { exitCode: 0, skipped: false, command: 'npm test' },
     ...overrides,
   };
 }

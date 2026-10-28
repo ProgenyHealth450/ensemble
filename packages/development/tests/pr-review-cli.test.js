@@ -64,7 +64,7 @@ function completeStatusFacts(overrides = {}) {
     headSha: HEAD_SHA,
     reviewedHeadSha: HEAD_SHA,
     findingCounts: { total: 0, actionable: 0, deferred: 0 },
-    tests: { passed: true, skipped: false, command: 'npm test' },
+    tests: { exitCode: 0, skipped: false, command: 'npm test' },
     remotePhase: 'REMOTE_REVIEW_COMPLETE',
     ...overrides,
   };

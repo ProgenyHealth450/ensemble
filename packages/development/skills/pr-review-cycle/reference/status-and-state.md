@@ -6,7 +6,7 @@ Companion to `SKILL.md`; every rule here is normative.
 
 Run `node "$PR_REVIEW_CLI" status` with the accumulated facts: `{ baseSha,
 headSha, reviewedHeadSha, reviewedTreeSha, headTreeSha,
-findingCounts:{total, actionable, deferred}, tests:{passed, skipped, command},
+findingCounts:{total, actionable, deferred}, tests:{exitCode, skipped, command},
 remotePhase, roundsUsed, roundCap, access, prUrl, reportPath }`. `baseSha`, `headSha` and
 `reviewedHeadSha` (full 40- or 64-hex
 object ids, never a bare ref) and `findingCounts` (`total`, `actionable` and
@@ -15,8 +15,12 @@ required, `roundsUsed`, when given, is a non-negative integer, `roundCap`,
 when given, is the policy's integer 1-5 (absent means the strict default of
 3, and a value outside the range is refused with the default applied), and
 `tests`,
-when given, carries boolean `passed` / `skipped` flags (leave `tests` out and
-the tests count as never run): the grader fails closed, so a missing or invalid
+when given, carries the test command's integer `exitCode` (required unless
+`skipped: true`; `passed` is derived, never supplied, and a contradicting `passed`
+is refused; leave `tests` out and the tests count as never run). A nonzero exit
+is `failed test` unless `preExistingOnly: true` and `knownFailures:[{name,
+evidence}]` is non-empty: then tests are settled, reason `tests: pre-existing
+failures` stays visible: the grader fails closed, so a missing or invalid
 fact is never defaulted to a passing value -- it yields `LOCAL_REVIEW_BLOCKED`
 naming the missing facts. The result is exactly one of
 `REVIEW_COMPLETE` / `REVIEW_PENDING` / `REVIEW_BLOCKED` plus `localPhase`,

@@ -34,7 +34,7 @@ state and never silently skips remediation.
 ### Step 6 -- Verify once, then re-review the diff
 
 After the batch fix returns, run the focused regression tests first, then
-run the broad test gate **once** (`TEST_COMMAND`, unless `SKIP_TESTS`, in
+run the broad test gate **once** and record its real exit code as `tests.exitCode` (`TEST_COMMAND`, unless `SKIP_TESTS`, in
 which case record `tests.skipped = true` and the command that would have
 run). Then re-review the diff against the same `range` (base-correct) to confirm the batch actually resolved what
 it claims and introduced nothing new. This closes the local phase.

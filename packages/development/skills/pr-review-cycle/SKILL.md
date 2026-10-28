@@ -66,8 +66,7 @@ Full table with every description: `reference/inputs.md`. Names:
   `PR_BASE_SHA`, `PARENT_PHASE_TIP_SHA` go to CLI `scope`.
 * `REVIEWED_TREE_SHA` (local) / `HEAD_TREE_SHA` (remote) -- optional tree ids; leave out when not computed.
 * `PR_ID` (state-report key), `PR_URL` (required for remote), `PR_NUMBER` (gate).
-* `TEST_COMMAND`; `SKIP_TESTS` -- record `tests.skipped = true` plus the command that
-  would have run; status is then `REVIEW_PENDING` (`tests skipped`), never `REVIEW_COMPLETE`.
+* `TEST_COMMAND` -- record the real `tests.exitCode`; never type a pass. `SKIP_TESTS` -- record `tests.skipped = true` plus the command; status is then `REVIEW_PENDING` (`tests skipped`), never `REVIEW_COMPLETE`.
 * `FOREMAN` -- true: never enter the interactive wait. `BOT_LOGINS` -- review-bot logins for CLI `remote`.
 * `PR_BODY`, `AGENT_AUTHORED` -- graded by CLI `description`; anything but an explicit
   `false` reads as true, and an agent-authored body names the accountable person on a `Directed by:` line.
@@ -224,9 +223,8 @@ decision: `REVIEW_BLOCKED` stating the decision -- never dismiss it to force com
 
 Detail: `reference/status-and-state.md`. Run `status` with `{ baseSha, headSha,
 reviewedHeadSha, reviewedTreeSha, headTreeSha, findingCounts:{total, actionable,
-deferred}, tests:{passed, skipped, command}, remotePhase, roundsUsed, roundCap, access,
-prUrl, reportPath }`. The grader fails closed: a missing or invalid fact is never
-defaulted to a pass. Result: exactly one of `REVIEW_COMPLETE` / `REVIEW_PENDING` /
+deferred}, tests:{exitCode, skipped, command}, remotePhase, roundsUsed, roundCap, access,
+prUrl, reportPath }`. The grader fails closed on missing or invalid facts. Result: exactly one of `REVIEW_COMPLETE` / `REVIEW_PENDING` /
 `REVIEW_BLOCKED` plus `localPhase`, `remotePhase`, `reasons`. `REVIEW_COMPLETE` requires
 `LOCAL_REVIEW_COMPLETE` **and** `REMOTE_REVIEW_COMPLETE` -- never from prose judgment.
 The review is fresh only when `reviewedHeadSha` equals `headSha` or both tree ids are

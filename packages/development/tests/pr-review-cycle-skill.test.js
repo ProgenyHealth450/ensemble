@@ -238,7 +238,7 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
     reviewedTreeSha: () => TREE,
     headTreeSha: () => TREE,
     findingCounts: () => ({ total: 0, actionable: 0, deferred: 0 }),
-    tests: () => ({ passed: true, skipped: false, command: 'npm test' }),
+    tests: () => ({ exitCode: 0, skipped: false, command: 'npm test' }),
     remotePhase: () => 'REMOTE_REVIEW_COMPLETE',
     roundsUsed: () => 0,
     roundCap: () => 3,

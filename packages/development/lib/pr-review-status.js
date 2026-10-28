@@ -86,8 +86,11 @@ function isCount(value) {
  *   needs BOTH; head equality alone is enough without them.
  * @param {{total:number, actionable:number, deferred:number}} facts.findingCounts  REQUIRED. All three counts must be
  *   non-negative integers, and `total` must be at least `actionable + deferred`.
- * @param {{passed:boolean, skipped:boolean, command:string}} [facts.tests]  Absent (or null) means the tests never ran; a
- *   recorded value must be an object whose `passed` and `skipped`, when present, are booleans.
+ * @param {{exitCode:number, skipped:boolean, command:string, preExistingOnly:boolean,
+ *   knownFailures:{name:string, evidence:string}[]}} [facts.tests]  Absent (or null) means the tests never ran. A recorded
+ *   value is an object with an integer `exitCode` (REQUIRED unless `skipped` is true); `passed` is derived (exitCode 0)
+ *   and a caller-supplied `passed` that disagrees is refused. A nonzero exit is settled only when `preExistingOnly` is
+ *   true AND `knownFailures` is a non-empty list of {name, evidence}; the result still says `tests: pre-existing failures`.
  * @param {string} [facts.prUrl]
  * @param {number} [facts.roundsUsed]  A non-negative integer; absent means no automatic round has been used yet.
  * @param {number} [facts.roundCap]  The repository's round cap from `loadPolicy` (an integer 1-5). Absent means the
@@ -105,6 +108,20 @@ function isCount(value) {
  *   not a full object id is echoed as null (and named in `reasons`), so a blocked result can still be recorded.
  *   `status`, `localPhase` and `remotePhase` are always members of STATUSES, LOCAL_PHASES and REMOTE_PHASES.
  */
+function isKnownFailure(value) {
+  return isObject(value) && isNonEmptyString(value.name) && isNonEmptyString(value.evidence);
+}
+
+/**
+ * Tests are evidence, not an assertion: `passed` is derived from `exitCode` (0 => true), never taken from the caller.
+ * Skipped tests never pass. Absent/non-object tests never ran.
+ */
+function deriveTests(raw) {
+  if (!isObject(raw)) return { passed: false, skipped: false, command: null };
+  const passed = raw.skipped !== true && Number.isInteger(raw.exitCode) && raw.exitCode === 0;
+  return { ...raw, passed };
+}
+
 function deriveStatus(facts = {}) {
   const input = isObject(facts) ? facts : {};
   const {
@@ -121,7 +138,8 @@ function deriveStatus(facts = {}) {
   // Echoed as supplied: a missing findingCounts is reported as null, never as fabricated zero counts.
   const findingCounts = input.findingCounts === undefined ? null : input.findingCounts;
   // Tests nobody recorded are tests that never ran.
-  const tests = isObject(input.tests) ? input.tests : { passed: false, skipped: false, command: null };
+  // `passed` is never read from the caller: it is derived from the recorded exit code (see deriveTests).
+  const tests = deriveTests(input.tests);
   // Only an explicit COMPLETE completes; absent, misspelled or unrecognised values are still pending.
   const remotePhase = input.remotePhase === 'REMOTE_REVIEW_COMPLETE' ? 'REMOTE_REVIEW_COMPLETE' : 'REMOTE_REVIEW_PENDING';
   // The cap every procedure shares, validated here so a bad fact can only shrink the budget, never grow it.
@@ -187,8 +205,19 @@ function deriveStatus(facts = {}) {
     if (!isObject(input.tests)) {
       missingFacts.push('tests');
     } else {
-      for (const flag of ['passed', 'skipped']) {
-        if (input.tests[flag] !== undefined && typeof input.tests[flag] !== 'boolean') missingFacts.push(`tests.${flag}`);
+      const t = input.tests;
+      for (const flag of ['passed', 'skipped', 'preExistingOnly']) {
+        if (t[flag] !== undefined && typeof t[flag] !== 'boolean') missingFacts.push(`tests.${flag}`);
+      }
+      if (t.exitCode !== undefined && !Number.isInteger(t.exitCode)) {
+        missingFacts.push('tests.exitCode (not an integer)');
+      } else if (t.exitCode === undefined && t.skipped !== true) {
+        missingFacts.push('tests.exitCode (required unless tests.skipped)');
+      } else if (typeof t.passed === 'boolean' && t.skipped !== true && t.passed !== (t.exitCode === 0)) {
+        missingFacts.push('tests.passed (contradicts tests.exitCode)');
+      }
+      if (t.knownFailures !== undefined && !(Array.isArray(t.knownFailures) && t.knownFailures.every(isKnownFailure))) {
+        missingFacts.push('tests.knownFailures (each needs a name and evidence)');
       }
     }
   }
@@ -212,7 +241,14 @@ function deriveStatus(facts = {}) {
   const sameHead = reviewedHeadSha === headSha;
   const sameTree = reviewedTreeSha !== null && headTreeSha !== null && reviewedTreeSha === headTreeSha;
   const isStale = !(sameHead || sameTree);
-  const testsSettled = tests.passed === true || tests.skipped === true;
+  // A nonzero exit is settled only when the caller says every failure is pre-existing AND names each with evidence.
+  const preExistingFailures =
+    tests.skipped !== true &&
+    !tests.passed &&
+    tests.preExistingOnly === true &&
+    Array.isArray(tests.knownFailures) &&
+    tests.knownFailures.length > 0;
+  const testsSettled = tests.passed === true || tests.skipped === true || preExistingFailures;
   const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;
 
   if (actionableCount > 0) reasons.push('unresolved actionable finding');
@@ -230,6 +266,8 @@ function deriveStatus(facts = {}) {
 
   if (tests.skipped === true) {
     reasons.push('tests skipped');
+  } else if (preExistingFailures) {
+    reasons.push('tests: pre-existing failures');
   } else if (tests.passed !== true) {
     reasons.push('failed test');
   }
@@ -239,7 +277,7 @@ function deriveStatus(facts = {}) {
   const fullyComplete =
     localPhase === 'LOCAL_REVIEW_COMPLETE' &&
     remotePhase === 'REMOTE_REVIEW_COMPLETE' &&
-    tests.passed === true &&
+    (tests.passed === true || preExistingFailures) &&
     tests.skipped !== true;
 
   const runTests = isNonEmptyString(tests.command) ? `run-tests:${tests.command}` : 'run-tests';
@@ -258,7 +296,7 @@ function deriveStatus(facts = {}) {
   } else if (tests.skipped === true) {
     status = 'REVIEW_PENDING';
     next = runTests;
-  } else if (tests.passed !== true) {
+  } else if (tests.passed !== true && !preExistingFailures) {
     status = 'REVIEW_PENDING';
     next = runTests;
   } else if (remotePhase !== 'REMOTE_REVIEW_COMPLETE') {
