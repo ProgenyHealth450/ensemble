@@ -75,6 +75,16 @@ function isCount(value) {
 }
 
 /**
+ * Tests are evidence, not an assertion: `passed` is derived from `exitCode` (0 => true), never taken from the caller.
+ * Skipped tests never pass. Absent/non-object tests never ran.
+ */
+function deriveTests(raw) {
+  if (!isObject(raw)) return { passed: false, skipped: false, command: null };
+  const passed = raw.skipped !== true && Number.isInteger(raw.exitCode) && raw.exitCode === 0;
+  return { ...raw, passed };
+}
+
+/**
  * @param {Object} facts  Every REQUIRED fact must be supplied; none defaults to a passing value.
  * @param {string} facts.baseSha          REQUIRED. A full hex object id (40 hex, or 64 for SHA-256); never a ref.
  * @param {string} facts.headSha          REQUIRED. A full hex object id; the head the PR will publish.
@@ -86,11 +96,9 @@ function isCount(value) {
  *   needs BOTH; head equality alone is enough without them.
  * @param {{total:number, actionable:number, deferred:number}} facts.findingCounts  REQUIRED. All three counts must be
  *   non-negative integers, and `total` must be at least `actionable + deferred`.
- * @param {{exitCode:number, skipped:boolean, command:string, preExistingOnly:boolean,
- *   knownFailures:{name:string, evidence:string}[]}} [facts.tests]  Absent (or null) means the tests never ran. A recorded
- *   value is an object with an integer `exitCode` (REQUIRED unless `skipped` is true); `passed` is derived (exitCode 0)
- *   and a caller-supplied `passed` that disagrees is refused. A nonzero exit is settled only when `preExistingOnly` is
- *   true AND `knownFailures` is a non-empty list of {name, evidence}; the result still says `tests: pre-existing failures`.
+ * @param {{exitCode:number, skipped:boolean, command:string}} [facts.tests]  Absent (or null) means the tests never ran. A
+ *   recorded value is an object with an integer `exitCode` (REQUIRED unless `skipped` is true); `passed` is derived
+ *   (exitCode 0) and a caller-supplied `passed` that disagrees is refused. A nonzero exit is `failed test`.
  * @param {string} [facts.prUrl]
  * @param {number} [facts.roundsUsed]  A non-negative integer; absent means no automatic round has been used yet.
  * @param {number} [facts.roundCap]  The repository's round cap from `loadPolicy` (an integer 1-5). Absent means the
@@ -108,20 +116,6 @@ function isCount(value) {
  *   not a full object id is echoed as null (and named in `reasons`), so a blocked result can still be recorded.
  *   `status`, `localPhase` and `remotePhase` are always members of STATUSES, LOCAL_PHASES and REMOTE_PHASES.
  */
-function isKnownFailure(value) {
-  return isObject(value) && isNonEmptyString(value.name) && isNonEmptyString(value.evidence);
-}
-
-/**
- * Tests are evidence, not an assertion: `passed` is derived from `exitCode` (0 => true), never taken from the caller.
- * Skipped tests never pass. Absent/non-object tests never ran.
- */
-function deriveTests(raw) {
-  if (!isObject(raw)) return { passed: false, skipped: false, command: null };
-  const passed = raw.skipped !== true && Number.isInteger(raw.exitCode) && raw.exitCode === 0;
-  return { ...raw, passed };
-}
-
 function deriveStatus(facts = {}) {
   const input = isObject(facts) ? facts : {};
   const {
@@ -206,7 +200,7 @@ function deriveStatus(facts = {}) {
       missingFacts.push('tests');
     } else {
       const t = input.tests;
-      for (const flag of ['passed', 'skipped', 'preExistingOnly']) {
+      for (const flag of ['passed', 'skipped']) {
         if (t[flag] !== undefined && typeof t[flag] !== 'boolean') missingFacts.push(`tests.${flag}`);
       }
       if (t.exitCode !== undefined && !Number.isInteger(t.exitCode)) {
@@ -215,9 +209,6 @@ function deriveStatus(facts = {}) {
         missingFacts.push('tests.exitCode (required unless tests.skipped)');
       } else if (typeof t.passed === 'boolean' && t.skipped !== true && t.passed !== (t.exitCode === 0)) {
         missingFacts.push('tests.passed (contradicts tests.exitCode)');
-      }
-      if (t.knownFailures !== undefined && !(Array.isArray(t.knownFailures) && t.knownFailures.every(isKnownFailure))) {
-        missingFacts.push('tests.knownFailures (each needs a name and evidence)');
       }
     }
   }
@@ -241,14 +232,7 @@ function deriveStatus(facts = {}) {
   const sameHead = reviewedHeadSha === headSha;
   const sameTree = reviewedTreeSha !== null && headTreeSha !== null && reviewedTreeSha === headTreeSha;
   const isStale = !(sameHead || sameTree);
-  // A nonzero exit is settled only when the caller says every failure is pre-existing AND names each with evidence.
-  const preExistingFailures =
-    tests.skipped !== true &&
-    !tests.passed &&
-    tests.preExistingOnly === true &&
-    Array.isArray(tests.knownFailures) &&
-    tests.knownFailures.length > 0;
-  const testsSettled = tests.passed === true || tests.skipped === true || preExistingFailures;
+  const testsSettled = tests.passed === true || tests.skipped === true;
   const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;
 
   if (actionableCount > 0) reasons.push('unresolved actionable finding');
@@ -266,8 +250,6 @@ function deriveStatus(facts = {}) {
 
   if (tests.skipped === true) {
     reasons.push('tests skipped');
-  } else if (preExistingFailures) {
-    reasons.push('tests: pre-existing failures');
   } else if (tests.passed !== true) {
     reasons.push('failed test');
   }
@@ -277,7 +259,7 @@ function deriveStatus(facts = {}) {
   const fullyComplete =
     localPhase === 'LOCAL_REVIEW_COMPLETE' &&
     remotePhase === 'REMOTE_REVIEW_COMPLETE' &&
-    (tests.passed === true || preExistingFailures) &&
+    tests.passed === true &&
     tests.skipped !== true;
 
   const runTests = isNonEmptyString(tests.command) ? `run-tests:${tests.command}` : 'run-tests';
@@ -296,7 +278,7 @@ function deriveStatus(facts = {}) {
   } else if (tests.skipped === true) {
     status = 'REVIEW_PENDING';
     next = runTests;
-  } else if (tests.passed !== true && !preExistingFailures) {
+  } else if (tests.passed !== true) {
     status = 'REVIEW_PENDING';
     next = runTests;
   } else if (remotePhase !== 'REMOTE_REVIEW_COMPLETE') {

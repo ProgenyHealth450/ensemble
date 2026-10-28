@@ -584,7 +584,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
     (facts.roundsUsed === undefined || isCount(facts.roundsUsed)) &&
     (facts.access === undefined || facts.access === null || (isObject(facts.access) && facts.access.ok === true)) &&
     isObject(facts.tests) &&
-    ['passed', 'skipped', 'preExistingOnly'].every((flag) => facts.tests[flag] === undefined || typeof facts.tests[flag] === 'boolean') &&
+    ['passed', 'skipped'].every((flag) => facts.tests[flag] === undefined || typeof facts.tests[flag] === 'boolean') &&
     (facts.tests.exitCode === undefined || Number.isInteger(facts.tests.exitCode)) &&
     (facts.tests.exitCode === 0 || facts.tests.skipped === true);
 
@@ -626,7 +626,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
 
   test.each([
     ['findingCounts', ['actionable', 'total', 'deferred']],
-    ['tests', ['exitCode', 'skipped', 'command', 'preExistingOnly']],
+    ['tests', ['exitCode', 'skipped', 'command']],
     ['access', ['ok', 'reason']],
   ])('wrong %s members complete only while the preconditions still hold', (key, members) => {
     for (const member of members) {
@@ -893,7 +893,6 @@ describe('pr-review-status: freshness sweep -- complete exactly when the head ma
 // persisted or trusted by automation.
 describe('pr-review-status: tests are evidence -- passed is derived from exitCode', () => {
   const T = (tests) => deriveStatus(baseFacts({ tests: { command: 'npm test', ...tests } }));
-  const KNOWN = [{ name: 'suite > flaky timing', evidence: 'fails identically on dev @ abc1234' }];
 
   test('passed:true with a nonzero exitCode is a contradiction: blocked, naming tests.passed', () => {
     const result = T({ passed: true, exitCode: 1 });
@@ -922,38 +921,10 @@ describe('pr-review-status: tests are evidence -- passed is derived from exitCod
     expect(result.tests.passed).toBe(true);
   });
 
-  test('a nonzero exitCode without known failures is REVIEW_PENDING with the reason "failed test"', () => {
+  test('a nonzero exitCode is REVIEW_PENDING with the reason "failed test"', () => {
     const result = T({ exitCode: 1 });
     expect([result.status, result.localPhase]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_PENDING']);
     expect(result.reasons).toContain('failed test');
-    expect(result.tests.passed).toBe(false);
-  });
-
-  test.each([
-    ['knownFailures without preExistingOnly', { exitCode: 1, knownFailures: KNOWN }],
-    ['preExistingOnly without knownFailures', { exitCode: 1, preExistingOnly: true }],
-    ['preExistingOnly with an empty knownFailures', { exitCode: 1, preExistingOnly: true, knownFailures: [] }],
-  ])('%s does not settle a failing run', (_label, tests) => {
-    const result = T(tests);
-    expect(result.status).toBe('REVIEW_PENDING');
-    expect(result.reasons).toContain('failed test');
-  });
-
-  test.each([[['just a name']], [[{ name: 'x' }]], [[{ name: '', evidence: 'e' }]], ['x']])(
-    'malformed knownFailures (%j) are rejected',
-    (knownFailures) => {
-      const result = T({ exitCode: 1, preExistingOnly: true, knownFailures });
-      expect(result.status).toBe('REVIEW_BLOCKED');
-      expect(result.reasons.join(' ')).toMatch(/tests\.knownFailures/);
-    }
-  );
-
-  test('pre-existing failures settle the tests but the reason stays visible, even when complete', () => {
-    const result = T({ exitCode: 1, preExistingOnly: true, knownFailures: KNOWN });
-    expect(result.localPhase).toBe('LOCAL_REVIEW_COMPLETE');
-    expect(result.reasons).toContain('tests: pre-existing failures');
-    expect(result.reasons).not.toContain('failed test');
-    expect(result.tests.knownFailures).toEqual(KNOWN);
     expect(result.tests.passed).toBe(false);
   });
 

@@ -468,7 +468,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     testTitle: 'a single local blocker keeps the local phase pending, not complete: failed test',
     // Failed tests are also kept out of REVIEW_COMPLETE by fullyComplete, so that second layer is not the guard under
     // proof: callers publish on localPhase alone, which is what a failed test must keep out of LOCAL_REVIEW_COMPLETE.
-    mutate: (text, a) => a.replace(text, 'tests.passed === true || tests.skipped === true || preExistingFailures', 'true'),
+    mutate: (text, a) => a.replace(text, 'tests.passed === true || tests.skipped === true', 'true'),
   });
 
   proveGuardMutationIsCaught({
@@ -480,7 +480,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'each blocker alone prevents completion: pending review',
     mutate: (text, a) =>
-      a.replace(text, "remotePhase === 'REMOTE_REVIEW_COMPLETE' &&\n    (tests.passed === true || preExistingFailures) &&", '(tests.passed === true || preExistingFailures) &&'),
+      a.replace(text, "remotePhase === 'REMOTE_REVIEW_COMPLETE' &&\n    tests.passed === true &&", 'tests.passed === true &&'),
   });
 
   proveGuardMutationIsCaught({
