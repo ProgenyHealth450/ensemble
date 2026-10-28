@@ -80,7 +80,12 @@ function isCount(value) {
  */
 function deriveTests(raw) {
   if (!isObject(raw)) return { passed: false, skipped: false, command: null };
-  const passed = raw.skipped !== true && Number.isInteger(raw.exitCode) && raw.exitCode === 0;
+  // Fail closed: an invalid companion flag (non-boolean skipped/passed, or a passed that contradicts the exit code) is
+  // never echoed as a pass, even though the status for such a fact is REVIEW_BLOCKED anyway.
+  const flagsValid =
+    (raw.skipped === undefined || typeof raw.skipped === 'boolean') &&
+    (raw.passed === undefined || (typeof raw.passed === 'boolean' && raw.passed === (raw.exitCode === 0)));
+  const passed = flagsValid && raw.skipped !== true && Number.isInteger(raw.exitCode) && raw.exitCode === 0;
   return { ...raw, passed };
 }
 

@@ -928,6 +928,22 @@ describe('pr-review-status: tests are evidence -- passed is derived from exitCod
     expect(result.tests.passed).toBe(false);
   });
 
+  test.each([
+    ['passed:false with exitCode 0', { passed: false, exitCode: 0 }],
+    ['passed:true with exitCode 1', { passed: true, exitCode: 1 }],
+    ['a string skipped', { skipped: 'true', exitCode: 0 }],
+  ])('an invalid fact (%s) is blocked and never echoes tests.passed as true', (_name, tests) => {
+    const result = T(tests);
+    expect(result.status).toBe('REVIEW_BLOCKED');
+    expect(result.tests.passed).toBe(false);
+  });
+
+  test('skipped:true with exitCode 0 is never a pass', () => {
+    const result = T({ skipped: true, exitCode: 0 });
+    expect(result.status).toBe('REVIEW_PENDING');
+    expect(result.tests.passed).toBe(false);
+  });
+
   test('the skipped path is unchanged: no exitCode needed, never complete', () => {
     const result = T({ skipped: true });
     expect([result.status, result.localPhase]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE']);
