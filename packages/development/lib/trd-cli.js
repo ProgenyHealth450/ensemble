@@ -19,6 +19,7 @@
  * Subcommands:
  *   parse        <trd-path>
  *   scaffold-plan <trd-path>
+ *   bead-context --bead <bead-id> [--trd <path>] [--issue-json <file>]   (read by the bead executors before ANY work)
  *   phase-status <trd-path> [--closed a,b,c]
  *   next-task    <trd-path> --ready a,b [--closed a,b] [--max N]
  *   pr-plan      <trd-path> [--stacked]
@@ -30,10 +31,15 @@
  *   beads-stage --match <title-substring> [--label <l>] [--check] [--dry-run]
  *   quickstart <trd-path> --out <path> [--json]
  *   resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>
+ *   validate     <trd-path> [--prd path]
+ *   analyze      <trd-path> [--prd path]
+ *   req-status   <trd-path> [--prd path] [--issues-json file] [--verified REQ-001,...] [--comments-json file]
+ *   verify       <trd-path> [--prd path] [--mode m] [--beads-evidence file] [--run-tests] [--report-path p]
  */
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 let yaml = null;
 try { yaml = require('js-yaml'); } catch { yaml = null; }
@@ -52,7 +58,15 @@ const {
   isPhaseComplete,
   selectNextTasks,
 } = require('./phase-tracker');
+const { validateTrd, analyzeTrd, requirementStatus, evidenceFromComments, isChecked } = require('./trd-checks');
+const { buildChain } = require('./verify-requirements-evidence');
 const { buildScaffoldPlan } = require('./scaffold-planner');
+const {
+  parseReferencesBlock,
+  parseTitlePrefix,
+  kindFromRefs,
+  UNRESOLVED_SUFFIX,
+} = require('./bead-refs');
 const { buildWorkstreamPlan, validateWorkstream } = require('./workstream-planner');
 const { resolveCrossTrdDeps } = require('./cross-trd-deps');
 const { summarizeWorkstream } = require('./workstream-status');
@@ -68,6 +82,10 @@ const {
 const { buildQuickstart } = require('./quickstart-generator');
 const { ensureLabel } = require('./beads-label');
 const { stageBeadsExport, checkStagedExport } = require('./beads-stage');
+const { resolveCategory } = require('./toolchain/config');
+const { loadAdapter } = require('./toolchain/adapters');
+const { detectAdapter } = require('./toolchain/detect');
+const { runCapabilitySync } = require('./toolchain/runner');
 
 // ---------------------------------------------------------------------------
 // Small utilities
@@ -171,16 +189,47 @@ function resolvePrd(prdRef, trdPath) {
   const candidates = [
     prdRef,                                             // as-given from cwd
     path.join(path.dirname(path.resolve(trdPath)), prdRef), // relative to TRD dir
+    path.resolve(repoRoot(), prdRef),                   // relative to the repo root
   ];
   for (const c of candidates) {
     try {
       fs.accessSync(c, fs.constants.R_OK);
-      return c;
+      if (fs.statSync(c).isFile()) return c;
     } catch {
       // try next candidate
     }
   }
   return null;
+}
+
+/** Forward-slash a path. */
+function toPosix(p) {
+  return String(p == null ? '' : p).replace(/\\/g, '/');
+}
+
+/** `git rev-parse --show-toplevel` of the cwd, falling back to the cwd (not a git repo / no git). */
+function repoRoot() {
+  try {
+    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (out) return out;
+  } catch {
+    // fall through
+  }
+  return process.cwd();
+}
+
+/** Repo-root-relative forward-slash form of `p`; stays absolute if `p` lies outside the repo. */
+function toRepoRelative(p, root) {
+  const real = (x) => {
+    try { return fs.realpathSync(x); } catch { return x; }
+  };
+  const abs = real(path.resolve(String(p || '')));
+  const rel = path.relative(real(root), abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return toPosix(abs);
+  return toPosix(rel);
 }
 
 function readTrd(trdPath) {
@@ -231,6 +280,22 @@ function runParse(argv) {
 }
 
 /**
+ * Repo-root-relative reference paths for a TRD, as written into every bead's References block:
+ * { trdFilePath, prdFilePath, prdUnresolved }. prdFilePath is the raw reference when unresolved
+ * and '' when the TRD names no PRD.
+ */
+function referencePaths(trdPath, parsed) {
+  const root = repoRoot();
+  const prdRef = (parsed && parsed.prdReference) || '';
+  const prdAbs = resolvePrd(prdRef, trdPath);
+  return {
+    trdFilePath: toRepoRelative(trdPath, root),
+    prdFilePath: prdAbs ? toRepoRelative(prdAbs, root) : toPosix(prdRef),
+    prdUnresolved: !!prdRef && !prdAbs,
+  };
+}
+
+/**
  * `scaffold-plan <trd-path>` -> { ok:true, slug, plan }
  */
 function runScaffoldPlan(argv) {
@@ -239,11 +304,224 @@ function runScaffoldPlan(argv) {
   const { slug, parsed, prdContext } = loadParsed(trdPath);
   const plan = buildScaffoldPlan(parsed, {
     trdSlug: slug,
-    trdFilePath: trdPath,
-    prdFilePath: parsed.prdReference || '',
+    ...referencePaths(trdPath, parsed),
     prdContext,
   });
   return { ok: true, slug, plan };
+}
+
+/**
+ * Resolve and load the adapter manifest for the `tracker` category through the same
+ * `resolveCategory`/`loadAdapter` pipeline `toolchain-cli.js#run` uses for every other
+ * capability call (TRD-2026-8d825f54 TRD-025, PRD AC-016-2) -- never `br`/`bv` directly.
+ * Confirmation/ledger/preflight gating (TRD-014/015/017) governs only the shell-invoked
+ * `toolchain-cli run` surface; this in-process CLI routing intentionally omits it, matching
+ * every capability this file calls (`tracker.show`, `tracker.list`), neither of which
+ * `tracker.yaml` declares `sideEffect:true`.
+ *
+ * @returns {{manifest: object, source: string}}
+ * @throws {Error} whatever `resolveCategory`/`loadAdapter` throws -- never caught here, so a
+ *   caller decides whether an unresolved tracker is fatal (`bead-context`) or swallowed
+ *   (`getBeadCounts`).
+ */
+function resolveTrackerAdapter() {
+  const projectRoot = process.cwd();
+  const env = process.env;
+  const resolved = resolveCategory('tracker', { projectRoot, env, detect: detectAdapter });
+  const loaded = loadAdapter(resolved.value, { projectRoot, env, interactive: false });
+  return { manifest: loaded.manifest, source: resolved.source };
+}
+
+/**
+ * `bead-context --bead <id> [--trd <path>] [--issue-json <file>]`
+ *
+ * Resolves a bead's `## References` block (or, for legacy beads without one, its title
+ * prefix + `--trd`), re-reads the referenced TRD task / PRD requirements LIVE and returns
+ * them. `ok:false` (and exit 1) when anything referenced cannot be resolved, with every
+ * problem listed in `missing`.
+ */
+function runBeadContext(argv) {
+  const { flags } = parseArgs(argv, new Set(['bead', 'trd', 'issue-json']));
+  const beadId = flags.bead && flags.bead !== true ? String(flags.bead) : '';
+  if (!beadId) throw new Error('Missing required --bead <bead-id> argument');
+  const root = repoRoot();
+  const missing = [];
+  const out = {
+    ok: false,
+    beadId,
+    source: null,
+    kind: null,
+    references: { trd: null, trdTask: null, prd: null, prdRequirements: [], prdAcs: [] },
+    context: { trdTask: null, prdRequirements: [], architectureDecision: null, keyTechnicalDecisions: [] },
+    missing,
+  };
+
+  // ---- load the bead -------------------------------------------------------
+  let issue = null;
+  try {
+    if (flags['issue-json'] && flags['issue-json'] !== true) {
+      const raw = fs.readFileSync(String(flags['issue-json']), 'utf8');
+      const data = JSON.parse(raw);
+      issue = Array.isArray(data) ? data[0] : data;
+    } else {
+      const { manifest } = resolveTrackerAdapter();
+      // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+      // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here
+      // since `tracker.show` is a short, one-shot `br` read.
+      const result = runCapabilitySync(manifest, 'tracker.show', { id: beadId }, {
+        execFileOptions: { cwd: process.cwd() },
+      });
+      if (!result.ok) {
+        const err = new Error(result.error.message);
+        err.code = result.error.code;
+        throw err;
+      }
+      issue = result.data;
+    }
+  } catch (err) {
+    missing.push(`bead ${beadId} could not be loaded: ${err && err.message ? err.message.split('\n')[0] : err}`);
+    return out;
+  }
+  if (!issue || typeof issue !== 'object') {
+    missing.push(`bead ${beadId} not found`);
+    return out;
+  }
+  const title = String(issue.title || '');
+  const description = String(issue.description || '');
+  const titleInfo = parseTitlePrefix(title);
+  const block = parseReferencesBlock(description);
+  const trdFlag = flags.trd && flags.trd !== true ? String(flags.trd) : '';
+
+  // ---- resolve references (description block, else legacy fallback) -----------
+  let trdRel = '';
+  let trdTaskId = '';
+  let prdRel = '';
+  let prdRawUnresolved = false;
+  let reqIds = [];
+  let acIds = [];
+  let prdFallback = false;
+
+  if (block) {
+    out.source = 'description';
+    trdRel = block.trd;
+    trdTaskId = block.trdTask ? block.trdTask.id : '';
+    prdRel = block.prd;
+    prdRawUnresolved = block.prdUnresolved;
+    reqIds = block.prdRequirements.map((r) => r.id);
+    acIds = block.prdAcs.slice();
+    if (!trdRel) missing.push('References block has no TRD line');
+    out.kind = (titleInfo && titleInfo.kind) || kindFromRefs(block);
+  } else {
+    out.source = 'fallback';
+    if (!titleInfo) {
+      missing.push(`bead has no ## References block and its title has no [trd:<slug>...] prefix: '${title}'`);
+    }
+    if (!trdFlag) {
+      missing.push('bead has no ## References block and no --trd <path> was given to fall back on');
+    }
+    if (missing.length) return out;
+    out.kind = titleInfo.kind;
+    const trdFound = [trdFlag, path.resolve(root, trdFlag)].find((c) => {
+      try { return fs.statSync(c).isFile(); } catch { return false; }
+    });
+    trdRel = toRepoRelative(trdFound || trdFlag, root);
+    trdTaskId = titleInfo.taskId || '';
+    prdFallback = true;
+  }
+  out.references.trd = trdRel || null;
+  if (!trdRel) return out;
+
+  // ---- TRD -------------------------------------------------------------------
+  const trdAbs = path.resolve(root, trdRel);
+  let parsed = null;
+  try {
+    parsed = parseTRD(fs.readFileSync(trdAbs, 'utf8'));
+  } catch (err) {
+    missing.push(`TRD file ${trdRel} cannot be read: ${err.code || err.message}`);
+  }
+
+  let task = null;
+  if (parsed && trdTaskId) {
+    const key = Object.keys(parsed.tasksById || {}).find((k) => k.toLowerCase() === trdTaskId.toLowerCase());
+    task = key ? parsed.tasksById[key] : null;
+    if (!task) missing.push(`TRD task ${trdTaskId} not found in ${trdRel}`);
+  }
+  if (trdTaskId) {
+    out.references.trdTask = `${trdRel}#${trdTaskId.toLowerCase()}`;
+  }
+  if (task) {
+    out.context.trdTask = {
+      id: task.id,
+      description: task.description,
+      targetFiles: task.targetFiles || [],
+      actions: task.actions || [],
+      implementationAc: task.implementationAc || [],
+      testAc: task.testAc || [],
+      dependsOn: task.dependsOn || [],
+    };
+    if (out.kind === 'task' && task.isTest) out.kind = 'test';
+  }
+  if (parsed) {
+    out.context.architectureDecision = parsed.architectureDecision || null;
+    out.context.keyTechnicalDecisions = parsed.keyTechnicalDecisions || [];
+  }
+
+  // ---- PRD -------------------------------------------------------------------
+  if (prdFallback) {
+    const ref = parsed ? parsed.prdReference || '' : '';
+    if (ref) {
+      const abs = resolvePrd(ref, trdAbs);
+      if (abs) prdRel = toRepoRelative(abs, root);
+      else { prdRel = toPosix(ref); prdRawUnresolved = true; }
+    }
+    if (task) {
+      reqIds = (task.satisfies || []).filter((s) => !/^(INFRA|ARCH)$/i.test(String(s).trim())).map((s) => String(s).trim());
+      acIds = (task.validatesAcs || []).map((a) => String(a).trim());
+    }
+  }
+  out.references.prd = prdRel ? `${prdRel}${prdRawUnresolved ? UNRESOLVED_SUFFIX : ''}` : null;
+  out.references.prdRequirements = reqIds;
+  out.references.prdAcs = acIds;
+
+  if (prdRawUnresolved) {
+    missing.push(`PRD ${prdRel} is UNRESOLVED (the TRD names a PRD that could not be found)`);
+  } else if (prdRel) {
+    let prdCtx = null;
+    try {
+      prdCtx = extractPrdContext(fs.readFileSync(path.resolve(root, prdRel), 'utf8'));
+    } catch (err) {
+      missing.push(`PRD file ${prdRel} cannot be read: ${err.code || err.message}`);
+    }
+    if (prdCtx) {
+      // Anchors are lower-cased in the block, so recover ids case-insensitively against the PRD.
+      const ciKey = (map, id) => Object.keys(map).find((k) => k.toLowerCase() === String(id).toLowerCase());
+      const resolvedReqIds = [];
+      for (const id of reqIds) {
+        const reqKey = ciKey(prdCtx.requirements, id);
+        if (!reqKey) {
+          resolvedReqIds.push(id.toUpperCase());
+          missing.push(`PRD requirement ${id.toUpperCase()} not found in ${prdRel}`);
+          continue;
+        }
+        const req = prdCtx.requirements[reqKey];
+        resolvedReqIds.push(req.id);
+        // The ACs the bead lists that belong to THIS requirement; when it lists none of its own
+        // (e.g. a secondary REQ of a multi-REQ task), fall back to all of the requirement's ACs.
+        const owned = (req.acIds || []).map((a) => String(a));
+        const listed = acIds.map((a) => ciKey(prdCtx.acs, a)).filter((k) => k && prdCtx.acs[k].reqId === req.id);
+        const acs = (listed.length ? listed : owned.map((a) => ciKey(prdCtx.acs, a)).filter(Boolean))
+          .map((k) => prdCtx.acs[k])
+          .map((ac) => ({ id: ac.id, given: ac.given, when: ac.when, then: ac.then, text: ac.text }));
+        out.context.prdRequirements.push({ id: req.id, title: req.title, text: req.text, acs });
+      }
+      out.references.prdRequirements = resolvedReqIds;
+    }
+  } else if (reqIds.length) {
+    missing.push(`bead references PRD requirement(s) ${reqIds.join(', ')} but no PRD is referenced`);
+  }
+
+  out.ok = missing.length === 0;
+  return out;
 }
 
 /**
@@ -339,16 +617,6 @@ function runPrPlan(argv, env) {
 // a malformed/unexpected value the CLI should reject rather than pass through.
 const VALID_GIT_TOWN_EXIT_CODES = new Set([0, 1, 2, 3, 4]);
 
-/**
- * `resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>`
- *   -> { ok:true, branchingStrategy, prBackend, consolidatedMessage }
- *
- * Thin CLI adapter over pr-strategy.js's resolveBranchingStrategy /
- * resolvePrBackend / buildConsolidatedResolutionMessage (TRD §1.1-1.4).
- * Reads ENSEMBLE_BRANCHING_STRATEGY / ENSEMBLE_PR_BACKEND from the `env`
- * param rather than process.env directly, matching runPrPlan/runNextTask's
- * pattern for testability.
- */
 function runQuickstart(argv) {
   const { positionals, flags } = parseArgs(argv, new Set(['out']));
   const trdPath = positionals[0];
@@ -376,6 +644,42 @@ function runQuickstart(argv) {
   };
 }
 
+// Legacy `ENSEMBLE_PR_BACKEND` values (pr-strategy.js's `gh`/`ado`/`manual`, REQ-006) predate
+// the toolchain resolver's adapter-name vocabulary (TRD-036 `github`, TRD-040 `azure-devops`).
+// `workflow`'s legacy `ENSEMBLE_BRANCHING_STRATEGY` vocabulary (`git-town`/`plain-git`) already
+// matches adapter names 1:1, so only `host` needs this translation. Applied to a CLONE of `env`
+// BEFORE calling `resolveCategory('host', ...)` so config.js's generic, category-agnostic
+// ENV_COMPAT precedence step (TRD-003) keeps reading `ENSEMBLE_PR_BACKEND` verbatim and still
+// reports `source: 'env-compat'` -- config.js itself must never special-case host's legacy
+// spelling (TRD-037).
+const LEGACY_HOST_BACKEND_TO_ADAPTER = { gh: 'github', ado: 'azure-devops', manual: 'manual' };
+
+function translateHostEnvCompat(env) {
+  const raw = (env || {}).ENSEMBLE_PR_BACKEND;
+  const adapterName = raw != null ? LEGACY_HOST_BACKEND_TO_ADAPTER[raw] : undefined;
+  if (adapterName == null) return env || {};
+  return { ...(env || {}), ENSEMBLE_PR_BACKEND: adapterName };
+}
+
+/**
+ * `resolve-sdlc --git-town-exit-code <0-4> --remote-url <url>`
+ *   -> { ok:true, branchingStrategy, prBackend, consolidatedMessage, host, workflow }
+ *
+ * Thin CLI adapter over pr-strategy.js's resolveBranchingStrategy / resolvePrBackend /
+ * buildConsolidatedResolutionMessage (TRD §1.1-1.4) for the pre-existing `branchingStrategy` /
+ * `prBackend` / `consolidatedMessage` fields -- kept byte-for-byte so every existing caller of
+ * this command is unchanged (TRD-037, AC-037-2/3). Reads ENSEMBLE_BRANCHING_STRATEGY /
+ * ENSEMBLE_PR_BACKEND from the `env` param rather than process.env directly, matching
+ * runPrPlan/runNextTask's pattern for testability.
+ *
+ * Additionally delegates host/workflow resolution to the toolchain resolver
+ * (`./toolchain/config.js#resolveCategory`, TRD-003/TRD-036), through the SAME
+ * resolveCategory/detectAdapter pipeline `resolveTrackerAdapter` above uses, surfacing the
+ * result as new `host`/`workflow` fields (TRD-037, AC-037-1). `ENSEMBLE_PR_BACKEND`'s legacy
+ * `gh`/`ado`/`manual` vocabulary is translated to the toolchain's adapter-name vocabulary
+ * before that call (see `translateHostEnvCompat` above); `ENSEMBLE_BRANCHING_STRATEGY` needs no
+ * translation since its legacy `git-town`/`plain-git` values already are adapter names.
+ */
 function runResolveSdlc(argv, env) {
   const { flags } = parseArgs(argv, new Set(['git-town-exit-code', 'remote-url']));
 
@@ -397,7 +701,22 @@ function runResolveSdlc(argv, env) {
   const prBackend = resolvePrBackend(env || {}, remoteUrl);
   const consolidatedMessage = buildConsolidatedResolutionMessage(branchingStrategy, prBackend);
 
-  return { ok: true, branchingStrategy, prBackend, consolidatedMessage };
+  const projectRoot = process.cwd();
+  const hostResolved = resolveCategory('host', {
+    projectRoot,
+    env: translateHostEnvCompat(env),
+    detect: detectAdapter,
+  });
+  const workflowResolved = resolveCategory('workflow', { projectRoot, env: env || {}, detect: detectAdapter });
+
+  return {
+    ok: true,
+    branchingStrategy,
+    prBackend,
+    consolidatedMessage,
+    host: { adapter: hostResolved.value, source: hostResolved.source },
+    workflow: { adapter: workflowResolved.value, source: workflowResolved.source },
+  };
 }
 
 /** Load all TRD paths for combined workstream helpers. */
@@ -405,7 +724,7 @@ function loadWorkstreamItems(trdPaths) {
   const paths = Array.isArray(trdPaths) ? trdPaths : [];
   return paths.map((trdPath) => {
     const { slug, parsed, prdContext } = loadParsed(trdPath);
-    return { trdPath, slug, parsed, prdContext };
+    return { trdPath, slug, parsed, prdContext, refs: referencePaths(trdPath, parsed) };
   });
 }
 
@@ -593,24 +912,49 @@ function inferStatus(frontmatter, slug, beadCounts) {
 }
 
 /**
- * Run `br list --all --json` and return counts for beads whose title
- * contains the given slug prefix.
+ * Run `tracker.list` (via the resolved tracker adapter, TRD-025) and return counts for beads
+ * whose title contains the given slug prefix.
+ *
+ * By contract (TRD-025 AC), EVERY failure -- adapter resolution, the runner call itself
+ * (`TOOL_FAILED`/`TIMEOUT`/any other `runCapabilitySync` error code), a non-JSON or
+ * unexpectedly-shaped `raw` -- is swallowed to the same `{total:0, open:0, in_progress:0,
+ * closed:0}` zero envelope, never thrown or logged; this function intentionally has no way to
+ * tell a caller "zero real matches" apart from "the read itself failed" -- that distinction is
+ * only ever visible by calling `runCapabilitySync` directly (as this function does internally)
+ * and inspecting its own `{ok:false, error:{code, message}}` envelope, never through this
+ * function's return value. Do not change this swallow-to-zeros behavior: callers (CLI status
+ * output, TRD staleness inference) were built around it.
+ *
  * @param {string} slug
  * @returns {Object} {total, open, in_progress, closed}
  */
 function getBeadCounts(slug) {
   try {
-    const { execSync } = require('child_process');
     const needle = `[trd:${slug}:`;
     let raw;
     try {
-      raw = execSync('br list --all --json', { cwd: process.cwd(), timeout: 10000 });
+      const { manifest } = resolveTrackerAdapter();
+      // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+      // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here
+      // since `tracker.list` is a short, one-shot `br` read; its real ~MB-scale output (TRD-024
+      // reviewer round 2, P2) is handled by this same runner's 64 MiB default `maxBuffer`, not
+      // by anything in this function.
+      const result = runCapabilitySync(manifest, 'tracker.list', {}, {
+        timeoutMs: 10000,
+        execFileOptions: { cwd: process.cwd() },
+      });
+      if (!result.ok) return { total: 0, open: 0, in_progress: 0, closed: 0 };
+      raw = result.data;
     } catch {
       return { total: 0, open: 0, in_progress: 0, closed: 0 };
     }
-    // br 0.2.x wraps list output as { issues: [...] }; older versions print a bare array.
-    const parsed = JSON.parse(raw.toString('utf8'));
-    const beads = Array.isArray(parsed) ? parsed : (parsed && parsed.issues) || [];
+    // br 0.2.x wraps list output as { issues: [...] }; older versions print a bare array;
+    // jira/azure-boards (PR 8 independent review item 5 / finding 5) declare a tracker.list
+    // `parse` block, so `raw` for them is already the mapped `{items: [...]}` OBJECT, never a
+    // JSON string -- `JSON.parse` would throw on a non-string. Branch on typeof first, then
+    // apply the same issues-or-items unwrap either way.
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const beads = Array.isArray(parsed) ? parsed : (parsed && (parsed.issues || parsed.items)) || [];
     const matches = beads.filter((b) => (b.title || '').includes(needle));
     return {
       total: matches.length,
@@ -979,7 +1323,226 @@ function runChoicesWrite(argv) {
 }
 
 // ---------------------------------------------------------------------------
-// CLI dispatch
+// Requirement checks: validate / analyze / req-status / verify
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the TRD and its PRD. `--prd <path>` wins over the TRD's own PRD
+ * reference; an explicit `--prd` that cannot be read is an error, an
+ * unresolvable TRD reference degrades to "no PRD" (prdPath null).
+ */
+function loadWithPrd(positionals, flags) {
+  const trdPath = positionals[0];
+  const markdown = readTrd(trdPath);
+  const parsed = parseTRD(markdown);
+  let prdPath = null;
+  if (flags.prd) {
+    prdPath = resolvePrd(String(flags.prd), trdPath);
+    if (!prdPath) throw new Error(`PRD file not found: ${flags.prd}`);
+  } else if (parsed.prdReference) {
+    prdPath = resolvePrd(parsed.prdReference, trdPath);
+  }
+  const prdMarkdown = prdPath ? fs.readFileSync(prdPath, 'utf8') : '';
+  const prdContext = prdPath
+    ? extractPrdContext(prdMarkdown)
+    : { requirements: {}, acs: {} };
+  return { trdPath, slug: deriveSlug(trdPath), parsed, prdPath, prdMarkdown, prdContext };
+}
+
+/**
+ * `validate <trd-path> [--prd <path>]` -> { ok, errors[], warnings[], passed[], skipped[], stats }
+ * `ok` is false when any error exists (callers translate that to a CI exit).
+ */
+function runValidate(argv) {
+  const { positionals, flags } = parseArgs(argv, new Set(['prd']));
+  const { slug, parsed, prdPath, prdContext } = loadWithPrd(positionals, flags);
+  return Object.assign({ slug, prdPath }, validateTrd(parsed, prdContext));
+}
+
+/**
+ * `analyze <trd-path> [--prd <path>]` -> consistency/coverage statistics + verdict.
+ */
+function runAnalyze(argv) {
+  const { positionals, flags } = parseArgs(argv, new Set(['prd']));
+  const { slug, parsed, prdPath, prdMarkdown, prdContext } = loadWithPrd(positionals, flags);
+  return Object.assign({ ok: true, slug, prdPath }, analyzeTrd(parsed, prdContext, prdMarkdown));
+}
+
+/** Read a `br list --json` result (bare array or {issues:[...]}) into task id -> status. */
+function beadStatusFromIssuesJson(file, slug) {
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new Error(`Cannot read issues JSON '${file}': ${err.message}`);
+  }
+  const issues = Array.isArray(data) ? data : data && Array.isArray(data.issues) ? data.issues : null;
+  if (!issues) throw new Error(`Issues JSON '${file}' is neither an array nor an object with an "issues" array`);
+  const out = {};
+  const byBead = {};
+  const re = new RegExp(`\\[trd:${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:task:([^\\]]+)\\]`);
+  for (const issue of issues) {
+    const m = String(issue.title || '').match(re);
+    if (m) {
+      out[m[1]] = String(issue.status || 'open');
+      if (issue.id) byBead[issue.id] = m[1];
+    }
+  }
+  Object.defineProperty(out, 'taskIdByBead', { value: byBead, enumerable: false });
+  return out;
+}
+
+/**
+ * `req-status <trd-path> [--prd <path>] [--issues-json <file>] [--verified REQ-001,REQ-002]`
+ *   -> { checklist:{total,done,pct,phases[]}, requirements[], summary }
+ * Checkbox state is the baseline; bead statuses from --issues-json (merged
+ * `br list --json` output) override it per task. `--verified` is the list of
+ * REQ ids that carry a req-verified comment token. `--comments-json` is a
+ * map/array of bead comments (`br comment list <id> --json` per bead); with it
+ * a closed test bead counts only with a `verdict:passed` comment and
+ * `ac-proven` tokens fill `acsProven` (output `evidence: verdict-verified`;
+ * without it `evidence: closed-only`).
+ */
+function runReqStatus(argv) {
+  const { positionals, flags } = parseArgs(argv, new Set(['prd', 'issues-json', 'verified', 'comments-json']));
+  const { slug, parsed, prdContext } = loadWithPrd(positionals, flags);
+  const beadStatusByTask = flags['issues-json'] ? beadStatusFromIssuesJson(flags['issues-json'], slug) : {};
+  let verifiedReqs = flags.verified !== undefined ? splitList(flags.verified) : null;
+  let evidence = null;
+  if (flags['comments-json']) {
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(flags['comments-json'], 'utf8'));
+    } catch (err) {
+      throw new Error(`Cannot read comments JSON '${flags['comments-json']}': ${err.message}`);
+    }
+    evidence = evidenceFromComments(data, beadStatusByTask.taskIdByBead);
+    if (verifiedReqs) verifiedReqs = [...new Set([...verifiedReqs, ...evidence.verifiedReqs])];
+  }
+  return Object.assign(
+    { ok: true, slug, beadsConsulted: Boolean(flags['issues-json']) },
+    requirementStatus(parsed, { prdContext, beadStatusByTask, verifiedReqs, evidence })
+  );
+}
+
+function gitLines(args, cwd) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * `verify <trd-path> [--prd <path>] [--mode auto|beads|checkbox|both] [--beads-evidence <file>]
+ *   [--run-tests] [--report-path <path>]`
+ * Builds the REQ->AC->code chain: checkbox leg (TRD checkboxes + git log +
+ * target-file existence) and optional beads leg (JSON map task id ->
+ * {status, verdict, req_satisfied, acs_proven, qa_agent, commit_sha} collected
+ * by the caller). Writes a markdown report only when --report-path is given.
+ */
+function runVerify(argv) {
+  const { positionals, flags } = parseArgs(
+    argv,
+    new Set(['prd', 'mode', 'beads-evidence', 'report-path'])
+  );
+  const { trdPath, slug, parsed, prdPath, prdContext } = loadWithPrd(positionals, flags);
+  if (parsed.warnings.includes('No tasks found in the TRD')) {
+    throw new Error('TRD parse failed: no tasks found');
+  }
+
+  const beadsEvidence = flags['beads-evidence']
+    ? JSON.parse(fs.readFileSync(flags['beads-evidence'], 'utf8'))
+    : {};
+  const hasBeads = Object.keys(beadsEvidence).length > 0;
+  const mode = flags.mode || 'auto';
+  if (!['auto', 'beads', 'checkbox', 'both'].includes(mode)) {
+    throw new Error(`Invalid --mode '${mode}' (expected auto|beads|checkbox|both)`);
+  }
+  if (mode === 'beads' && !hasBeads) throw new Error('--mode beads requires --beads-evidence with data');
+  const modeEffective = mode === 'auto' ? (hasBeads ? 'both' : 'checkbox') : mode;
+
+  const cwd = process.cwd();
+  const checkboxEvidence = {};
+  if (modeEffective !== 'beads') {
+    for (const t of Object.values(parsed.tasksById)) {
+      if (t.syntheticKind) continue;
+      const commits = gitLines(
+        ['log', '--all', '--fixed-strings', '--pretty=format:%H\t%s\t%aI', `--grep=feat(${slug}): ${t.id}`],
+        cwd
+      ).map((l) => {
+        const [sha, subject, date] = l.split('\t');
+        return { sha, subject, date };
+      });
+      const files = t.targetFiles.map((p) => {
+        const [sha, date] = (gitLines(['log', '-1', '--pretty=format:%H\t%aI', '--', p], cwd)[0] || '').split('\t');
+        return {
+          path: p,
+          exists: fs.existsSync(path.resolve(cwd, p)),
+          commit_sha: sha || null,
+          commit_date: date || null,
+        };
+      });
+      checkboxEvidence[t.id] = {
+        complete: isChecked(t),
+        file_evidence: files,
+        commit_evidence: commits,
+      };
+    }
+  }
+
+  const prdRequirements = Object.keys(prdContext.requirements).length
+    ? Object.fromEntries(
+        Object.values(prdContext.requirements).map((r) => [r.id, { description: r.title, acs: r.acIds }])
+      )
+    : null;
+
+  const result = buildChain({
+    trd_path: trdPath,
+    trd_slug: slug,
+    prd_path: prdPath,
+    mode,
+    mode_effective: modeEffective,
+    parsed_trd_json: { ok: true, trd: Object.assign({}, parsed, { slug }) },
+    prd_requirements: prdRequirements,
+    checkbox_evidence: checkboxEvidence,
+    beads_evidence: beadsEvidence,
+    helper_options: { run_tests: Boolean(flags['run-tests']), cwd },
+  });
+
+  let reportPath = null;
+  if (flags['report-path']) {
+    reportPath = path.resolve(String(flags['report-path']));
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, renderVerifyReport(result, { slug, modeEffective, prdPath }), 'utf8');
+  }
+  return Object.assign({ prdPath, warnings: parsed.warnings, reportPath }, result);
+}
+
+function renderVerifyReport(result, meta) {
+  const lines = [
+    `# Requirement Traceability: ${meta.slug}`,
+    '',
+    `Generated: ${new Date().toISOString()}`,
+    `Mode: ${meta.modeEffective}`,
+    `PRD: ${meta.prdPath || 'none'}`,
+    '',
+    `**Overall verdict: ${result.verdict}**`,
+    '',
+    '| REQ | Status | Impl | Test | Files | Commits | Tests |',
+    '|-----|--------|------|------|-------|---------|-------|',
+  ];
+  for (const c of result.chain) {
+    lines.push(
+      `| ${c.req_id} | ${c.status_icon} | ${c.primary_impl_task_id || '-'} | ${c.primary_test_task_id || '-'} | ${c.target_files.length} | ${c.commit_evidence.length} | ${c.test_result} |`
+    );
+  }
+  lines.push('', '## Summary', '', '```json', JSON.stringify(result.summary, null, 2), '```', '');
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // CLI dispatch
 // ---------------------------------------------------------------------------
@@ -987,6 +1550,7 @@ function runChoicesWrite(argv) {
 const HANDLERS = {
   parse: (argv) => runParse(argv),
   'scaffold-plan': (argv) => runScaffoldPlan(argv),
+  'bead-context': (argv) => runBeadContext(argv),
   'phase-status': (argv) => runPhaseStatus(argv),
   'next-task': (argv) => runNextTask(argv, process.env),
   'pr-plan': (argv) => runPrPlan(argv, process.env),
@@ -1003,6 +1567,10 @@ const HANDLERS = {
   list: (argv) => runList(argv),
   status: (argv) => runStatus(argv),
   'migrate-frontmatter': (argv) => runMigrateFrontmatter(argv),
+  validate: (argv) => runValidate(argv),
+  analyze: (argv) => runAnalyze(argv),
+  'req-status': (argv) => runReqStatus(argv),
+  verify: (argv) => runVerify(argv),
 };
 
 /**
@@ -1022,7 +1590,7 @@ function main(argv) {
     process.stdout.write(
       JSON.stringify({
         error:
-          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|phase-status|next-task|pr-plan|resolve-sdlc|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|beads-label|beads-stage|quickstart|list|status|migrate-frontmatter|choices-read|choices-write> <trd-path> [...]',
+          'Missing subcommand. Usage: trd-cli <parse|scaffold-plan|bead-context|phase-status|next-task|pr-plan|resolve-sdlc|validate-workstream|create-workstream-trd|workstream-plan|workstream-status|beads-label|beads-stage|quickstart|list|status|migrate-frontmatter|choices-read|choices-write|validate|analyze|req-status|verify> <trd-path> [...]   (bead-context takes --bead <id> [--trd <path>] [--issue-json <file>] instead of <trd-path>)',
       }) + '\n'
     );
     return 1;
@@ -1044,7 +1612,9 @@ function main(argv) {
       throw new Error('Result was not JSON-serializable');
     }
     process.stdout.write(json + '\n');
-    return 0;
+    // `bead-context` reports an unusable bead as a full JSON object with ok:false; that must
+    // also fail the process so shell callers (`|| stop`) cannot miss it.
+    return subcommand === 'bead-context' && result && result.ok === false ? 1 : 0;
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
     process.stdout.write(JSON.stringify({ error: message }) + '\n');
@@ -1054,6 +1624,7 @@ function main(argv) {
 
 module.exports = {
   runParse,
+  runBeadContext,
   runScaffoldPlan,
   runPhaseStatus,
   runNextTask,
@@ -1072,6 +1643,10 @@ module.exports = {
   runList,
   runStatus,
   runMigrateFrontmatter,
+  runValidate,
+  runAnalyze,
+  runReqStatus,
+  runVerify,
   // exported for unit testing of the helpers
   deriveSlug,
   parseArgs,

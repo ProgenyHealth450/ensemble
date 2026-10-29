@@ -44,7 +44,7 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
    Base and target branches, release version
 
 **4. Changelog Generation**
-   Generate changelog from git history
+   Generate changelog from git history (use the changelog-generator skill)
 
 - Parse commits since last release
 - Categorize changes (breaking, new, enhancement, bugfix)
@@ -98,9 +98,10 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
    Release branch, integration tests operation
 
 **5. Pre-Release Smoke Tests**
-   Execute smoke test suite before deployment
+   Execute smoke test suite before deployment (use the smoke-test-runner skill)
 
-- Execute 5-category smoke test suite - API Health - Database connectivity - External services - Authentication - Critical paths
+- Execute 5-category smoke test suite against the project's smoke-tests.json (up to 15 minutes)
+- Proceed only when the runner verdict is passed; failed or incomplete (a required category NOT CONFIGURED) blocks - API Health - Database connectivity - External services - Authentication - Critical paths
 - Use pre-release environment configuration
 - Block on any smoke test failure
 
@@ -128,12 +129,12 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
    Release version, staging environment, deployment strategy
 
 **2. Post-Staging Smoke Tests**
-   Verify staging deployment with smoke tests
+   Verify staging deployment with smoke tests (use the smoke-test-runner skill)
 
 - Execute full 5-category smoke test suite
 - Use staging-specific configuration
-- Verify all smoke tests pass
-- Block on any smoke test failure
+- Proceed only when the runner verdict is passed (every required category executed and passed)
+- Block on a failed or incomplete verdict (a required category NOT CONFIGURED is a block, not a pass)
 
 ### Phase 4: Production Deployment
 
@@ -142,7 +143,7 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
 
 - Deploy to canary infrastructure
 - Route 5% traffic to canary
-- Execute canary smoke tests (smoke-test-runner skill)
+- Execute canary smoke tests (smoke-test-runner skill); promote only on a passed verdict
 - Monitor error rate for 2 minutes
 - If pass: Route 25% traffic, execute smoke tests
 - If pass: Route 100% traffic, execute final smoke tests
@@ -152,24 +153,24 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
    Release version, production environment, canary strategy
 
 **2. Post-Production Smoke Tests**
-   Final verification of production deployment
+   Final verification of production deployment (use the smoke-test-runner skill)
 
 - Execute full 5-category smoke test suite
 - Use production-specific configuration
 - Monitor error rate for 5 minutes
-- Trigger rollback on smoke test failure or error rate >5%
+- Trigger rollback on a failed or incomplete smoke verdict or error rate >5%
 
 ### Phase 5: Release Completion
 
 **1. Create Pull Request**
-   Create release PR via github-specialist
+   Create release PR via git-workflow
 
 - Create PR with changelog in description
 - Add labels (release, version)
 - Request reviews from tech-lead
 - Link to release artifacts
 
-   **Delegation:** @github-specialist
+   **Delegation:** @git-workflow
    Release branch, main branch, changelog
 
 **2. Create GitHub Release**
@@ -179,7 +180,7 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
 - Attach release notes
 - Mark as draft if --draft flag provided
 
-   **Delegation:** @github-specialist
+   **Delegation:** @git-workflow
    Release version, changelog, release notes
 
 **3. Generate Release Report**
@@ -206,17 +207,6 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
 - Link to PR and GitHub release
 - Add deployment timestamp
 
-**6. Send Release Metrics**
-   Report metrics to manager-dashboard-agent
-
-- Send cycle time metric
-- Send success/failure status
-- Send test execution metrics
-- Send deployment duration
-
-   **Delegation:** @manager-dashboard-agent
-   Release metrics, cycle time, success rate
-
 ### Phase 6: Rollback (On Failure)
 
 **1. Trigger Rollback**
@@ -237,7 +227,7 @@ to ensure safe, reliable releases with comprehensive smoke test coverage and aut
    Rollback operation, previous version
 
 **3. Post-Rollback Smoke Tests**
-   Verify rollback success with smoke tests
+   Verify rollback success with smoke tests (use the smoke-test-runner skill)
 
 - Execute full 5-category smoke test suite
 - Verify error rate normalized

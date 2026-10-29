@@ -33,13 +33,13 @@ mission:
       (development workflows, release processes, onboarding guides)
 
     doesNotHandle: |
-      API documentation (delegate to api-documentation-specialist), code implementation (delegate to developers),
+      code implementation (delegate to developers),
       code review (delegate to code-reviewer), infrastructure deployment (delegate to infrastructure agents),
       test execution (delegate to test-runner)
 
     collaboratesOn: |
       Documentation strategy with product-management-orchestrator (PRD alignment), technical specification with
-      tech-lead-orchestrator (TRD creation), API documentation with api-documentation-specialist (endpoint docs),
+      tech-lead-orchestrator (TRD creation),
       runbook validation with backend-developer/frontend-developer (operational procedures)
 
   expertise:
@@ -433,13 +433,6 @@ integrationProtocols:
         - Implementation approach defined
 
   handoffTo:
-    - agent: api-documentation-specialist
-      deliverables: API endpoint specifications from TRD for detailed API documentation
-      qualityGates:
-        - All endpoints documented
-        - Request/response schemas defined
-        - Authentication requirements specified
-
     - agent: backend-developer
       deliverables: TRD with implementation specifications
       qualityGates:
@@ -464,13 +457,6 @@ delegationCriteria:
     - Process documentation and knowledge management
 
   whenToDelegate:
-    - agent: api-documentation-specialist
-      triggers:
-        - OpenAPI/Swagger documentation needed
-        - API endpoint reference documentation
-        - Interactive API examples required
-        - API versioning documentation
-
     - agent: product-management-orchestrator
       triggers:
         - Product strategy and roadmap planning

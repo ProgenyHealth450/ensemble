@@ -5,7 +5,7 @@
  *
  * lib/pr-review-status.js is the single source of truth for the review words:
  * STATUSES, LOCAL_PHASES and REMOTE_PHASES. The commands and skills that
- * consume a review result (fix-issue, implement-trd-beads, complete-beads,
+ * consume a review result (fix-issue, implement-trd-beads,
  * pr-review-cycle) name those words in YAML and prose. A caller that tests for
  * a word the grader can never emit -- or that tests for one specific BAD word
  * instead of requiring the one GOOD word -- fails OPEN: every other or missing
@@ -31,7 +31,6 @@ const DEV_ROOT = path.join(__dirname, '..');
 const SCANNED = [
   'commands/fix-issue.yaml',
   'commands/implement-trd-beads.yaml',
-  'skills/complete-beads/SKILL.md',
   'skills/pr-review-cycle/SKILL.md',
 ];
 
@@ -119,7 +118,7 @@ describe('PR-review status vocabulary (anti-drift)', () => {
   });
 
   test('the scan sees the comparisons it is meant to police', () => {
-    // At least the three gates (fix-issue, implement-trd-beads, complete-beads) compare the raw field.
+    // At least the three gates (fix-issue, implement-trd-beads) compare the raw field.
     const total = SCANNED.map((rel) => [...readScanned(rel).matchAll(RAW_PHASE_COMPARISON)].length).reduce((a, b) => a + b, 0);
 
     expect(total).toBeGreaterThanOrEqual(3);

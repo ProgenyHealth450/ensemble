@@ -2,11 +2,24 @@
 
 const { checkPrState, checkPrStateAdo, detectRepoHost, isAdoStatusActive, NO_OPEN_PR_MESSAGE } = require('../lib/pr-state');
 
-describe('checkPrState (AC-001-1: no open PR halts)', () => {
-  test('empty array from gh -> hasOpenPr: false', () => {
-    const exec = jest.fn(() => '[]');
-    const result = checkPrState('feature/x', { exec });
-    expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
+describe('checkPrState (AC-038-3: explicit error, not silently conflated with "no PR found")', () => {
+  test('exec() throwing (toolchain-cli missing, adapter not installed, non-zero exit, etc.) propagates as a thrown error', () => {
+    const exec = jest.fn(() => {
+      throw new Error('spawn toolchain-cli.js ENOENT');
+    });
+    expect(() => checkPrState('feature/x', { exec })).toThrow('spawn toolchain-cli.js ENOENT');
+  });
+
+  test('malformed/non-JSON toolchain-cli stdout throws, rather than returning hasOpenPr: false', () => {
+    const exec = jest.fn(() => 'not json at all');
+    expect(() => checkPrState('feature/x', { exec })).toThrow(/non-JSON output/);
+  });
+
+  test('a {ok:false} toolchain-cli envelope throws, naming the envelope error message', () => {
+    const exec = jest.fn(() =>
+      JSON.stringify({ ok: false, error: { code: 'NOT_INSTALLED', message: 'gh is not installed' } })
+    );
+    expect(() => checkPrState('feature/x', { exec })).toThrow(/gh is not installed/);
   });
 
   test('NO_OPEN_PR_MESSAGE documents the halt instruction', () => {
@@ -14,25 +27,35 @@ describe('checkPrState (AC-001-1: no open PR halts)', () => {
     expect(NO_OPEN_PR_MESSAGE).toMatch(/No open PR/i);
   });
 
-  test('gh throws (missing/unauthenticated/network failure) -> hasOpenPr: false', () => {
-    const exec = jest.fn(() => {
-      throw new Error('gh: command not found');
-    });
+  test('an {ok:true} envelope with an empty items array -> hasOpenPr: false (legitimate "no PR", does not throw)', () => {
+    const exec = jest.fn(() => JSON.stringify({ ok: true, data: { items: [] } }));
     const result = checkPrState('feature/x', { exec });
     expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 
-  test('malformed/non-JSON gh output -> hasOpenPr: false', () => {
-    const exec = jest.fn(() => 'not json at all');
+  test('an {ok:true} envelope whose items list has no item for this branch -> hasOpenPr: false', () => {
+    const exec = jest.fn(() =>
+      JSON.stringify({
+        ok: true,
+        data: { items: [{ id: '7', url: 'https://x/7', state: 'OPEN', baseBranch: 'main', headBranch: 'some-other-branch' }] },
+      })
+    );
     const result = checkPrState('feature/x', { exec });
     expect(result).toEqual({ hasOpenPr: false, state: null, url: null, number: null, baseBranch: null });
   });
 });
 
-describe('checkPrState (AC-001-2: open PR is detected and surfaced)', () => {
-  test('valid PR JSON -> hasOpenPr: true with state/url/number surfaced', () => {
+describe('checkPrState (AC-038-3/AC-001-2: open PR is detected and surfaced via host.change-request-list)', () => {
+  test('matching item -> hasOpenPr: true with state/url/number surfaced', () => {
     const exec = jest.fn(() =>
-      JSON.stringify([{ number: 42, state: 'OPEN', url: 'https://github.com/org/repo/pull/42' }])
+      JSON.stringify({
+        ok: true,
+        data: {
+          items: [
+            { id: '42', url: 'https://github.com/org/repo/pull/42', state: 'OPEN', baseBranch: null, headBranch: 'feature/trd-003' },
+          ],
+        },
+      })
     );
     const result = checkPrState('feature/trd-003', { exec });
     expect(result).toEqual({
@@ -44,31 +67,49 @@ describe('checkPrState (AC-001-2: open PR is detected and surfaced)', () => {
     });
   });
 
-  test('valid PR JSON with baseRefName -> baseBranch surfaced for grounding to diff against', () => {
+  test('matching item with baseBranch -> baseBranch surfaced for grounding to diff against', () => {
     const exec = jest.fn(() =>
-      JSON.stringify([
-        { number: 42, state: 'OPEN', url: 'https://github.com/org/repo/pull/42', baseRefName: 'develop' },
-      ])
+      JSON.stringify({
+        ok: true,
+        data: {
+          items: [
+            { id: '42', url: 'https://github.com/org/repo/pull/42', state: 'OPEN', baseBranch: 'develop', headBranch: 'feature/trd-003' },
+          ],
+        },
+      })
     );
     const result = checkPrState('feature/trd-003', { exec });
     expect(result.baseBranch).toBe('develop');
   });
+
+  test('two open change requests, one matching this branch -> hasOpenPr: true for the match only', () => {
+    const exec = jest.fn(() =>
+      JSON.stringify({
+        ok: true,
+        data: {
+          items: [
+            { id: '10', url: 'https://github.com/org/repo/pull/10', state: 'OPEN', baseBranch: 'main', headBranch: 'feature/other' },
+            { id: '11', url: 'https://github.com/org/repo/pull/11', state: 'OPEN', baseBranch: 'main', headBranch: 'feature/trd-038' },
+          ],
+        },
+      })
+    );
+    const result = checkPrState('feature/trd-038', { exec });
+    expect(result).toEqual({
+      hasOpenPr: true,
+      state: 'OPEN',
+      url: 'https://github.com/org/repo/pull/11',
+      number: 11,
+      baseBranch: 'main',
+    });
+  });
 });
 
-describe('checkPrState (argv safety)', () => {
-  test('branch name is passed as a discrete argv element, not string-interpolated', () => {
-    const exec = jest.fn(() => '[]');
+describe('checkPrState (routing)', () => {
+  test('invokes exec with the discrete, fixed host.change-request-list argv, never string-interpolating the branch into argv', () => {
+    const exec = jest.fn(() => JSON.stringify({ ok: true, data: { items: [] } }));
     checkPrState('feature/some-branch; rm -rf /', { exec });
-    expect(exec).toHaveBeenCalledWith([
-      'pr',
-      'list',
-      '--head',
-      'feature/some-branch; rm -rf /',
-      '--state',
-      'open',
-      '--json',
-      'number,state,url,baseRefName',
-    ]);
+    expect(exec).toHaveBeenCalledWith(['run', 'host.change-request-list', '--json']);
   });
 });
 

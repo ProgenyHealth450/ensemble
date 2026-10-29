@@ -35,13 +35,13 @@ a task you believe shipped a shortcut).
 ### Does Not Handle
 
 Code review for style/quality (delegate to code-reviewer), test execution
-(delegate to test-runner or qa-orchestrator), design work (delegate to architect),
+(delegate to test-runner), design work (delegate to architect),
 requirement clarification (delegate to pm), final ship/no-ship decision
 (delegate to lead).
 
 ### Collaborates On
 
-Code-reviewer for review-pass handoff, qa-orchestrator for approval handoff,
+Code-reviewer for review-pass handoff, test-runner for approval handoff,
 architect for design-drift detection, pm for scope clarification when a
 shortcut was taken in the name of "the requirement is ambiguous."
 

@@ -1,0 +1,19 @@
+# Minimal tool inventory for scripts/tests/fixtures/provider-refs/violation: this fixture
+# root has no real adapter directories of its own, so the lint's known-binary set would
+# otherwise be empty. `gh` is declared here purely so `lintRoot` has a known binary to
+# match against the deliberate violation in `packages/bad/commands/bad.yaml`.
+host:
+  - gh
+workflow: []
+worktree: []
+tracker: []
+work-graph: []
+ci-local: []
+review: []
+lint: []
+test-runner: []
+e2e-quality: []
+container-deploy: []
+iac: []
+platform-cloud: []
+package-runner: []

@@ -362,7 +362,7 @@ describe('transformAgent › frontmatter is always parseable YAML', () => {
     ['bracket group with trailing content', '[a-path] [--flag] extra'],
     ['embedded newlines', 'First line,\n\nsecond line.\n'],
     ['embedded double quote', 'He said "hi" then left'],
-    ['embedded backslash', 'a \ backslash'],
+    ['embedded backslash', 'a \\ backslash'],
     ['leading YAML indicators', '*anchor #comment | > % & !'],
     ['non-ASCII', 'emoji ✓ and unicode é']
   ];

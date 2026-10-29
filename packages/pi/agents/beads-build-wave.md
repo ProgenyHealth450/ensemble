@@ -73,7 +73,7 @@ Do not reimplement or paraphrase the wave procedure from this file. Load the ens
 
 ### Fail Loudly, Not Silently (medium)
 
-bv is the only scheduler and is required; a missing bv, a non-zero bv --robot-plan exit, malformed TOON, or an unresolvable command definition are all hard failures. Report them through terminal_state="blocked" with next_action_hint="stop_blocked" so the parent halts and surfaces the problem. Never fall back to br ready, and never read .beads/*.jsonl to make scheduling decisions.
+bv is optional: when it is missing or fails, the command falls back to br ready. An unresolvable command definition or a scope-check failure is a hard failure. Report it through terminal_state="blocked" with next_action_hint="stop_blocked" so the parent halts and surfaces the problem. Never read .beads/*.jsonl to make scheduling decisions.
 
 ## When To Use
 

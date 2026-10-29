@@ -137,7 +137,7 @@ function isUserFacingCommit(commit) {
 
   const userFacingScopes = [
     'core', 'product', 'development', 'quality', 'infrastructure', 'git',
-    'e2e-testing', 'metrics', 'pi', 'opencode', 'codex', 'router', 'permitter',
+    'e2e-testing', 'pi', 'opencode', 'codex', 'permitter',
     'react', 'nestjs', 'rails', 'phoenix', 'blazor', 'jest', 'pytest', 'rspec', 'xunit', 'exunit',
     'commands', 'skills', 'agents', 'release', 'generator'
   ];

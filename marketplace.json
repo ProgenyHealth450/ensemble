@@ -155,22 +155,6 @@
       }
     },
     {
-      "name": "ensemble-metrics",
-      "version": "6.0.0",
-      "source": "./packages/metrics",
-      "description": "Development metrics and analytics",
-      "category": "utilities",
-      "tags": [
-        "metrics",
-        "analytics",
-        "productivity"
-      ],
-      "author": {
-        "name": "Sunstone Partners",
-        "url": "https://github.com/Sunstone-Partners"
-      }
-    },
-    {
       "name": "ensemble-react",
       "version": "6.0.0",
       "source": "./packages/react",
@@ -385,24 +369,6 @@
       }
     },
     {
-      "name": "ensemble-router",
-      "version": "5.2.3",
-      "source": "./packages/router",
-      "description": "UserPromptSubmit routing hook for intelligent agent delegation and skill invocation",
-      "category": "core",
-      "tags": [
-        "router",
-        "hooks",
-        "delegation",
-        "orchestration",
-        "agent-routing"
-      ],
-      "author": {
-        "name": "Sunstone Partners",
-        "url": "https://github.com/Sunstone-Partners"
-      }
-    },
-    {
       "name": "ensemble-full",
       "version": "7.0.0",
       "source": "./packages/full",
@@ -437,6 +403,56 @@
       }
     },
     {
+      "name": "ensemble-lifecycle",
+      "version": "7.0.0",
+      "source": "./packages/lifecycle-claude",
+      "description": "Run .ensemble/hooks.yaml command.start / command.end lifecycle hooks in Claude Code",
+      "category": "utilities",
+      "tags": [
+        "lifecycle",
+        "hooks",
+        "command"
+      ],
+      "author": {
+        "name": "Sunstone Partners",
+        "url": "https://github.com/Sunstone-Partners"
+      }
+    },
+    {
+      "name": "ensemble-telemetry",
+      "version": "5.2.1",
+      "source": "./packages/telemetry",
+      "description": "Local, opt-in usage telemetry for Ensemble commands, skills and agents",
+      "category": "utilities",
+      "tags": [
+        "telemetry",
+        "usage",
+        "hooks",
+        "local"
+      ],
+      "author": {
+        "name": "Sunstone Partners",
+        "url": "https://github.com/Sunstone-Partners"
+      }
+    },
+    {
+      "name": "ensemble-guards",
+      "version": "5.2.1",
+      "source": "./packages/guards",
+      "description": "Enforcement hooks: protected-branch, bypass-flag and br-close-evidence guards plus opt-in DoD stop gate",
+      "category": "utilities",
+      "tags": [
+        "guards",
+        "hooks",
+        "enforcement",
+        "git"
+      ],
+      "author": {
+        "name": "Sunstone Partners",
+        "url": "https://github.com/Sunstone-Partners"
+      }
+    },
+    {
       "name": "ensemble-opencode",
       "version": "5.3.1",
       "source": "./packages/opencode",
@@ -455,7 +471,7 @@
     },
     {
       "name": "ensemble-pi",
-      "version": "1.6.16",
+      "version": "1.6.17",
       "source": "./packages/pi",
       "description": "Pi runtime support — translates ensemble artifacts for Pi coding agent",
       "category": "core",

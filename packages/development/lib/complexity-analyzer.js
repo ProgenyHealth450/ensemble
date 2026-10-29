@@ -4,13 +4,25 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { resolveCategory } = require('./toolchain/config');
+const { loadAdapter } = require('./toolchain/adapters');
+const { detectAdapter } = require('./toolchain/detect');
+// `./toolchain/runner` is required LAZILY, inside `loadBead` below, not here: `runner.js`
+// itself requires `../complexity-analyzer` at its own top level (for `redactSecrets`), so a
+// require here would be circular -- whichever of the two modules loads first would see the
+// OTHER'S `module.exports` only partially populated (verified empirically: a top-level
+// require here makes `redactSecrets` resolve to `undefined` inside `runner.js` whenever this
+// file is require()'d before `runner.js` is, which is the common case, e.g.
+// `complexity-analyzer.test.js` requires this file directly). A lazy require inside a
+// function body runs long after both modules have finished their own top-level execution, so
+// the cycle never observes a half-initialized `module.exports` on either side.
 
 const ROUTES = ['simple', 'medium', 'complex'];
 const SECRET_PATTERNS = [
   { name: 'aws-access-key', pattern: /\bAKIA[0-9A-Z]{16}\b/g },
   { name: 'github-token', pattern: /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g },
   { name: 'bearer-token', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi },
-  { name: 'key-value-secret', pattern: /\b(api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?[^\s'\"]{8,}/gi },
+  { name: 'key-value-secret', pattern: /\b[A-Za-z0-9_-]*(?:api[_-]?key|token|secret|password)[A-Za-z0-9_-]*\s*[:=]\s*['\"]?[^\s'\"]{8,}/gi },
 ];
 
 function clamp(n, min, max) {
@@ -279,11 +291,32 @@ function collectRepoFacts(text, repoRoot, exec = defaultExec) {
   return facts;
 }
 
-/** Reads a bead through the br CLI. Returns null when it cannot be read. */
-function loadBead(id, cwd, exec = defaultExec) {
+/**
+ * Resolve and load the `tracker` category's adapter (TRD-2026-8d825f54 TRD-025, PRD AC-016-2),
+ * the same `resolveCategory`/`loadAdapter` pipeline `toolchain-cli.js#run` uses -- never `br`
+ * directly.
+ * @param {string} cwd
+ * @returns {{manifest: object}}
+ */
+function resolveTrackerAdapter(cwd) {
+  const env = process.env;
+  const resolved = resolveCategory('tracker', { projectRoot: cwd, env, detect: detectAdapter });
+  const loaded = loadAdapter(resolved.value, { projectRoot: cwd, env, interactive: false });
+  return { manifest: loaded.manifest };
+}
+
+/** Reads a bead through the tracker runner's `tracker.show` capability. Returns null when it cannot be read. */
+function loadBead(id, cwd) {
   try {
-    const parsed = JSON.parse(exec('br', ['show', id, '--json'], cwd));
-    const bead = Array.isArray(parsed) ? parsed[0] : parsed;
+    // Lazy require: see the top-of-file comment next to the other `./toolchain/*` requires.
+    const { runCapabilitySync } = require('./toolchain/runner');
+    const { manifest } = resolveTrackerAdapter(cwd);
+    // Synchronous: killed-on-timeout containment is direct-child-only, never a detached
+    // descendant (runner.js's "## runCapabilitySync" header section) -- acceptable here since
+    // `tracker.show` is a short, one-shot `br` read.
+    const result = runCapabilitySync(manifest, 'tracker.show', { id }, { execFileOptions: { cwd } });
+    if (!result.ok) return null;
+    const bead = result.data;
     return bead && bead.id ? bead : null;
   } catch {
     return null;

@@ -17,6 +17,15 @@ const { yamlScalar } = require('./yaml-scalar');
 const path = require('path');
 
 /**
+ * The ONLY workflow step keys transformCommandToMarkdown renders: `order`
+ * (sorting/numbering), `title`, `description`, `actions`, `delegation`
+ * (agent + context) and `mcp_tool`. Any other step key is silently dropped from
+ * the generated command, so scripts/lib/step-keys-check.js rejects it. Add a key
+ * here only together with the rendering code below.
+ */
+const RENDERED_STEP_KEYS = ['order', 'title', 'description', 'actions', 'delegation', 'mcp_tool'];
+
+/**
  * Generate the DO NOT EDIT header
  * @param {string} sourceFile - Source YAML filename
  * @returns {string}
@@ -76,6 +85,16 @@ function generateCommandFrontmatter(data) {
   // quote the joined value as a whole. Bracketing it would promote it to a list.
   if (meta.allowed_tools && meta.allowed_tools.length > 0) {
     lines.push(`allowed-tools: ${yamlScalar(meta.allowed_tools.join(', '))}`);
+  }
+
+  // Capabilities (optional). Comma-joined STRINGS, mirroring allowed-tools
+  // above, each emitted only when the corresponding array is non-empty so a
+  // command without the field produces byte-identical frontmatter to before.
+  if (meta.capabilities && meta.capabilities.required && meta.capabilities.required.length > 0) {
+    lines.push(`capabilities-required: ${yamlScalar(meta.capabilities.required.join(', '))}`);
+  }
+  if (meta.capabilities && meta.capabilities.optional && meta.capabilities.optional.length > 0) {
+    lines.push(`capabilities-optional: ${yamlScalar(meta.capabilities.optional.join(', '))}`);
   }
 
   // Argument hint (optional)
@@ -300,6 +319,7 @@ function transformCommandToMarkdown(commandData, sourceYamlPath, commandPathsByR
 }
 
 module.exports = {
+  RENDERED_STEP_KEYS,
   transformCommandToMarkdown,
   generateCommandFrontmatter,
   generateDoNotEditHeader,

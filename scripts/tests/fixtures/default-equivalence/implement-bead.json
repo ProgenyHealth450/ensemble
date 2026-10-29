@@ -1,0 +1,232 @@
+{
+  "command": "implement-bead",
+  "path": "packages/development/commands/implement-bead.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-029/TRD-039",
+  "sequence": [
+    [
+      "br",
+      "list"
+    ],
+    [
+      "br",
+      "show"
+    ],
+    [
+      "git",
+      "remote"
+    ],
+    [
+      "git",
+      "status"
+    ],
+    [
+      "git",
+      "symbolic-ref"
+    ],
+    [
+      "git",
+      "switch"
+    ],
+    [
+      "git",
+      "checkout"
+    ],
+    [
+      "br",
+      "update"
+    ],
+    [
+      "br",
+      "comments add"
+    ],
+    [
+      "git",
+      "add"
+    ],
+    [
+      "br",
+      "sync"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr create"
+    ],
+    [
+      "az",
+      "repos pr create"
+    ],
+    [
+      "git",
+      "commit"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "br",
+      "show"
+    ],
+    [
+      "git",
+      "status"
+    ],
+    [
+      "git",
+      "switch"
+    ],
+    [
+      "br",
+      "update"
+    ],
+    [
+      "br",
+      "comments add"
+    ],
+    [
+      "git",
+      "commit"
+    ],
+    [
+      "br",
+      "close"
+    ],
+    [
+      "br",
+      "sync"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "gh",
+      "pr create"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "br",
+          "list"
+        ]
+      ],
+      "trd": "TRD-029/TRD-039",
+      "justification": "The which-br / `br list --status=open` install-verification probe is deleted; tracker availability is now checked by `toolchain-cli preflight --require`, an availability probe resolved separately and not an execution step. The remaining `br list` calls are the tracker.list reads."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "remote"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Reads of repository state (current branch, default branch, repo toplevel, remote URL, branch existence) are reworded to state their intent without a literal git command because no workflow.* capability exposes them; for the backend/remote the TRD-039 resolver detection (`toolchain-cli explain`/`resolve`) is the source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "symbolic-ref"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Reads of repository state (current branch, default branch, repo toplevel, remote URL, branch existence) are reworded to state their intent without a literal git command because no workflow.* capability exposes them; for the backend/remote the TRD-039 resolver detection (`toolchain-cli explain`/`resolve`) is the source."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "checkout"
+        ]
+      ],
+      "trd": "I1",
+      "justification": "Plain git operations are workflow.* capabilities of the default `plain-git` workflow adapter (branch creation is `git switch -c` via workflow.branch-create, `git switch` already in the sequence); `git checkout -b` and `git town ...` are the non-default git-town path, not part of the unconfigured sequence."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "add"
+        ]
+      ],
+      "trd": "TRD-047 lint contract (I1)",
+      "justification": "No workflow.* capability stages files (plain-git workflow.commit is `git commit -m` only), so the source now states the staging intent (\"stage exactly that path\") without a literal `git add`; the agent still stages the same explicit paths before workflow.commit."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "az",
+          "repos pr create"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "`az repos pr create` was the Azure DevOps branch of the PR-creation backend switch; the default host adapter is `github` (toolchain.default.yaml), so the unconfigured sequence opens the change request with `gh pr create` only; the ADO step now lives in the azure-devops adapter behind host.change-request-create."
+    },
+    {
+      "type": "added",
+      "steps": [
+        [
+          "br",
+          "close"
+        ]
+      ],
+      "trd": "TRD-029",
+      "justification": "The pre-refactor closing step was `br update --status=closed` (deduplicated under `br update`); TRD-029 replaces it with tracker.close, whose default template is `br close`."
+    },
+    {
+      "type": "reordered",
+      "steps": [
+        [
+          "br",
+          "show"
+        ],
+        [
+          "git",
+          "status"
+        ],
+        [
+          "git",
+          "switch"
+        ],
+        [
+          "br",
+          "update"
+        ],
+        [
+          "br",
+          "comments add"
+        ],
+        [
+          "git",
+          "commit"
+        ],
+        [
+          "br",
+          "sync"
+        ],
+        [
+          "git",
+          "push"
+        ],
+        [
+          "gh",
+          "pr create"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "Pre-refactor `git commit` was only mentioned in the constraints block (prohibiting `commit -a`), i.e. after the workflow steps; the workflow stated the commit in prose. The refactor invokes workflow.commit (`git commit`) at the commit step (after the bead comment, before tracker.sync/close), the position the commit actually occurs in the pre-refactor workflow too."
+    }
+  ]
+}

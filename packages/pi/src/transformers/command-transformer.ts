@@ -30,13 +30,18 @@ import { commandHeaderLine, generatedMarker } from '../generated-marker';
  * and command-wrapper recognition key on them, so they are built there.
  */
 function renderHeader(commandYaml: CommandYaml, sourcePath: string): string {
-  const { name, version, description } = commandYaml.metadata;
+  const { name, version, description, capabilities } = commandYaml.metadata;
   const sourceFile = path.basename(sourcePath);
   const lines: string[] = [
     generatedMarker(sourceFile),
     commandHeaderLine(name, version),
     `<!-- Description: ${description} -->`,
   ];
+  const required = capabilities?.required ?? [];
+  const optional = capabilities?.optional ?? [];
+  if (required.length > 0 || optional.length > 0) {
+    lines.push(`<!-- Capabilities: required=[${required.join(', ')}], optional=[${optional.join(', ')}] -->`);
+  }
   return lines.join('\n');
 }
 

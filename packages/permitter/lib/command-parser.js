@@ -20,7 +20,12 @@ const WRAPPER_COMMANDS = new Set(['timeout', 'time', 'nice', 'nohup', 'env']);
 const SKIP_COMMANDS = new Set(['export', 'set', 'unset', 'local', 'declare', 'typeset']);
 
 // Operators that split commands
-const OPERATORS = new Set(['&&', '||', ';', '|']);
+// '&' (background) and '|&' (pipe stdout+stderr) also start a new command.
+const OPERATORS = new Set(['&&', '||', ';', '|', '&', '|&']);
+
+// Redirection operators whose target is a file path. Only /dev/null targets are
+// considered safe (see checkRedirections).
+const REDIRECT_OPERATORS = new Set(['>', '>>', '<', '&>', '&>>']);
 
 // Tokenizer states
 const State = {
@@ -71,6 +76,17 @@ function tokenize(command) {
           // Escape next character
           prevState = state;
           state = State.ESCAPE;
+        } else if (char === '\n' || char === '\r') {
+          // Newline is a command separator, exactly like ';'
+          if (current || inQuotedSection) {
+            tokens.push(current);
+            current = '';
+            inQuotedSection = false;
+          }
+          tokens.push(';');
+        } else if (char === '(' || char === ')') {
+          // Subshell, grouping, arithmetic, function definitions
+          throw new Error('Subshell/grouping not supported');
         } else if (/\s/.test(char)) {
           // Whitespace ends current token
           if (current || inQuotedSection) {
@@ -78,6 +94,40 @@ function tokenize(command) {
             current = '';
             inQuotedSection = false;
           }
+        } else if ((char === '>' || char === '<') && /^(>>?|<)&(\d+|-)/.test(command.slice(i))) {
+          // fd duplication/close such as 2>&1, >&2, <&0, 2>&-: no file involved
+          const m = /^(>>?|<)&(\d+|-)/.exec(command.slice(i));
+          if (m[2] !== '-' && !/^[012]$/.test(m[2])) {
+            // fd N>2 may be an inherited open file; its target is not analyzable
+            throw new Error('Redirection to an arbitrary file descriptor not supported');
+          }
+          const prefix = /^\d+$/.test(current) ? current : '';
+          if (current && !prefix) {
+            tokens.push(current);
+          }
+          current = '';
+          tokens.push(prefix + m[0]);
+          i += m[0].length - 1;
+        } else if (char === '&' && nextChar === '>') {
+          // &> and &>> redirect stdout+stderr to a file
+          if (current) {
+            tokens.push(current);
+            current = '';
+          }
+          if (command[i + 2] === '>') {
+            tokens.push('&>>');
+            i += 2;
+          } else {
+            tokens.push('&>');
+            i++;
+          }
+        } else if (char === '|' && nextChar === '&') {
+          if (current) {
+            tokens.push(current);
+            current = '';
+          }
+          tokens.push('|&');
+          i++;
         } else if (char === '&' && nextChar === '&') {
           // && operator
           if (current) {
@@ -212,6 +262,30 @@ function checkUnsafe(command) {
   // Process substitution: <() and >()
   if (/<\(/.test(command) || />\(/.test(command)) {
     throw new Error('Process substitution not supported');
+  }
+}
+
+/**
+ * Reject redirections the parser cannot analyze safely.
+ *
+ * Redirection targets are stripped from segments during normalization, so an
+ * allowlisted command could otherwise write to / read from arbitrary paths.
+ * Allowed: fd duplication (2>&1, >&2, 2>&-) and targets of exactly /dev/null.
+ * Anything else (including a redirection with no literal target) throws, which
+ * makes the hook fall through to the normal permission dialog.
+ *
+ * @param {string[]} tokens - Tokens from tokenize()
+ * @throws {Error} If an unsafe redirection is present
+ */
+function checkRedirections(tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    if (!REDIRECT_OPERATORS.has(tokens[i])) {
+      continue;
+    }
+    const target = tokens[i + 1];
+    if (target !== '/dev/null') {
+      throw new Error('Redirection to a path not supported');
+    }
   }
 }
 
@@ -451,6 +525,8 @@ function parseCommand(command) {
     return [];
   }
 
+  checkRedirections(tokens);
+
   // Split by operators into segments
   const segments = splitByOperators(tokens);
 
@@ -472,6 +548,7 @@ module.exports = {
   splitByOperators,
   normalizeSegment,
   checkUnsafe,
+  checkRedirections,
   // Export constants for testing
   WRAPPER_COMMANDS,
   SKIP_COMMANDS,

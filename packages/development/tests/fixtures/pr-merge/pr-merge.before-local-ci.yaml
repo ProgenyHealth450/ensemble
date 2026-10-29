@@ -1,0 +1,136 @@
+metadata:
+  name: ensemble:pr-merge
+  description: Drive an open PR to green and merged by dispatching one subagent per failing CI check and unresolved review thread, routed through the correct orchestrator
+  version: 2.0.0
+  lastUpdated: "2026-10-20"
+  category: git
+  output_path: ensemble/pr-merge.md
+  source: sunstone
+  model: high
+  argument_hint: "[pr-number-or-url] [--max-rounds=N] [--dry-run]"
+  allowed_tools:
+    - Read
+    - Bash
+    - Task
+    - Grep
+    - Glob
+    - TodoWrite
+
+constraints:
+  - "NEVER delete, skip, xfail, disable, or weaken a test to make a check pass. Every dispatched subagent inherits this constraint verbatim in its payload. Failing tests, compiler warnings, and build failures MUST be fixed at the root cause. If a test is genuinely obsolete, the subagent MUST HALT and escalate it in the round report for human confirmation."
+  - "NEVER force-push over commits you did not author in this run, and NEVER bypass branch protection, required reviews, or required status checks."
+  - "NEVER merge while any required check is failing/pending or any review thread has CHANGES_REQUESTED outstanding. Merge only when gh pr view reports every required check SUCCESS and reviewDecision is APPROVED (or no review is required by branch protection)."
+  - "Bound remediation to --max-rounds (default 5). Exceeding it is a HALT-and-escalate outcome: the final report MUST list every still-open finding and its last known owner."
+  - "Each round dispatches ALL findings concurrently (one subagent per finding) and waits for every dispatch to settle before re-checking."
+  - "A finding is resolved only when the fix is pushed to the PR branch AND the check/review thread is independently re-verified as passing/resolved from fresh gh state in the next round -- never trust a subagent's self-report."
+
+mission:
+  summary: |
+    Take an open PR from red to merged in the fewest rounds. Each failing/pending CI check and
+    unresolved change-request thread is one finding, routed to the owning agent and fixed in
+    parallel, then re-verified against live state until green, then merged.
+  boundaries:
+    handles: "Reading PR/CI/review state, routing findings, concurrent remediation dispatch, re-verification loop, merge."
+    doesNotHandle: "Writing code/test/config fixes -- always delegated to a specialist agent."
+
+workflow:
+  phases:
+    - name: PR Discovery
+      order: 1
+      steps:
+        - order: 1
+          title: Resolve Target PR
+          description: Delegate to git-workflow.
+          delegation:
+            agent: git-workflow
+            context: "Resolve --pr (number or URL) or, if omitted, the PR for the current branch via gh pr view --json number,url,state,headRefName,baseRefName,mergeable,mergeStateStatus,reviewDecision,isDraft"
+          actions:
+            - "HALT if no PR is found, it is MERGED/CLOSED, or isDraft is true (mark ready for review first; do not operate on drafts)."
+            - "Record PR_NUMBER, PR_URL, HEAD_REF, BASE_REF."
+        - order: 2
+          title: Baseline Findings Manifest
+          description: Same manifest shape is rebuilt at the top of every round.
+          actions:
+            - "Checks: gh pr checks <PR_NUMBER> --json name,state,bucket,workflow,link,description. Include every check in FAILURE, ERROR, CANCELLED, TIMED_OUT, or PENDING (pending ones must be watched to a terminal state before merge)."
+            - "Reviews: gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews; for CHANGES_REQUESTED fetch unresolved threads via gh api graphql (reviewThreads, isResolved:false) -- one entry per thread."
+            - "If nothing is failing/pending and reviewDecision is not CHANGES_REQUESTED and mergeable == MERGEABLE: skip to Merge and Report."
+            - "Otherwise write a numbered manifest of { finding_id, kind: check|review_thread, name, raw_log_excerpt_or_comment_body, link }."
+
+    - name: Classification and Routing
+      order: 2
+      steps:
+        - order: 1
+          title: Route Every Finding
+          description: Assign exactly one owner per finding; first matching row wins, never dual-route.
+          actions:
+            - "1. Missing/incorrect test, coverage regression, flaky test, or BDD scenario gap -> test-runner."
+            - "2. Test-runner job failing for a reason other than the test itself (code under test is broken) -> test-runner triages first and re-routes to tech-lead-orchestrator via a follow-up finding next round if root cause is implementation code."
+            - "3. Build/codegen/lint/typecheck/validate pipeline failure, or a review comment on implementation correctness, architecture, or a compiler warning -> tech-lead-orchestrator."
+            - "4. CI/CD pipeline infrastructure itself (artifact packaging, dependency resolution, build-system config unrelated to the PR's code) -> build-orchestrator."
+            - "5. Cloud infrastructure, IaC, deployment, environment config -> infrastructure-orchestrator."
+            - "6. Merge conflicts, stale branch, missing approvals, branch protection, commit-message/PR-metadata issues -> git-workflow."
+
+    - name: Parallel Remediation Dispatch
+      order: 3
+      steps:
+        - order: 1
+          title: Build Payloads
+          actions:
+            - "One self-contained payload per finding (the subagent has no conversation history): { PR_NUMBER, PR_URL, HEAD_REF, finding_id, kind, name, raw_log_excerpt_or_comment_body, link, round_number, hard_constraints (this command's constraints verbatim), push_instructions: 'commit and git push to HEAD_REF directly; do not open a new PR' }."
+        - order: 2
+          title: Concurrent Dispatch and Barrier
+          actions:
+            - "Launch every finding's Task (subagent_type=<ROUTE_AGENT>, prompt=<payload>) before waiting on any; then wait for the whole round to settle. One hung or failed subagent does not cancel siblings."
+            - "A subagent that reports success without a pushed commit leaves the finding open for re-verification."
+
+    - name: Verification and Round Loop
+      order: 4
+      steps:
+        - order: 1
+          title: Re-Verify Against Live State
+          actions:
+            - "Rebuild the manifest from scratch (never reuse the pre-round one): gh pr checks and gh pr view --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus."
+            - "Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix)."
+            - "Manifest empty and mergeable == MERGEABLE: proceed to Merge and Report."
+            - "Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch."
+            - "Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation."
+
+    - name: Merge and Report
+      order: 5
+      steps:
+        - order: 1
+          title: Merge
+          description: Delegate to git-workflow.
+          delegation:
+            agent: git-workflow
+            context: "PR is fully green and approved: merge per repo convention and clean up the branch."
+          actions:
+            - "Immediately before merging re-check gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision; if not MERGEABLE or CHANGES_REQUESTED, abort and run another verification round."
+            - "If --dry-run: stop and report merge-readiness without merging."
+            - "Merge with gh pr merge using the repo's configured merge method (check branch protection/repo settings; do not assume); delete the source branch unless it is long-lived."
+            - "Comment on the PR summarizing each remediated finding, its owner, and the round count."
+        - order: 2
+          title: Final Report
+          actions:
+            - "Last line of stdout, valid JSON, no prose after it: { pr_number, pr_url, rounds_executed, findings_total, findings_resolved, findings_escalated, merged (bool), halted_reason (string|null) }"
+
+expectedInput:
+  format: PR reference plus optional flags
+  sections:
+    - name: PR Reference
+      required: false
+      description: "PR number or URL; if omitted, resolves the PR for the current branch"
+    - name: Max Rounds
+      required: false
+      description: "--max-rounds=N caps remediation rounds before HALT-and-escalate (default 5)"
+    - name: Dry Run
+      required: false
+      description: "--dry-run stops before the actual merge and reports merge-readiness only"
+
+expectedOutput:
+  format: Progress narration per round, then a single JSON summary line
+  structure:
+    - name: Round Narration
+      description: "Per round: findings manifest, routing decisions, dispatch/barrier confirmation, re-verification diff"
+    - name: JSON Summary
+      description: "One line of valid JSON describing the final outcome: merged, escalated findings, and round count"

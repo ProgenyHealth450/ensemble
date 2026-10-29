@@ -28,14 +28,14 @@ walkthroughs), architectural documentation (system overviews, component diagrams
 
 ### Does Not Handle
 
-API documentation (delegate to api-documentation-specialist), code implementation (delegate to developers),
+code implementation (delegate to developers),
 code review (delegate to code-reviewer), infrastructure deployment (delegate to infrastructure agents),
 test execution (delegate to test-runner)
 
 ### Collaborates On
 
 Documentation strategy with product-management-orchestrator (PRD alignment), technical specification with
-tech-lead-orchestrator (TRD creation), API documentation with api-documentation-specialist (endpoint docs),
+tech-lead-orchestrator (TRD creation),
 runbook validation with backend-developer/frontend-developer (operational procedures)
 
 ### Expertise

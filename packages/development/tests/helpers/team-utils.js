@@ -23,7 +23,7 @@ const { parseSubState } = require('../../lib/parse-sub-state');
  *   - builder      (REQUIRED)  - backend/frontend/infra/etc. developers
  *   - architect    (REQUIRED)  - per-task design (architect agent)
  *   - reviewer     (optional)  - code-reviewer
- *   - qa           (optional)  - qa-orchestrator
+ *   - qa           (optional)  - test-runner
  *   - advisor      (optional)  - cross-cutting solution quality review
  *   - pm           (optional)  - in-pipeline requirement clarification
  *   - documentation (REQUIRED) - documentation-specialist (PR-boundary doc hook)

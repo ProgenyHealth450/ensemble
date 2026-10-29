@@ -285,11 +285,11 @@ describe('Integration Tests - Full Flow', () => {
       os.homedir = jest.fn(() => mockHome);
 
       jest.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
-        return mockFs.hasOwnProperty(filePath);
+        return Object.hasOwn(mockFs, filePath);
       });
 
       jest.spyOn(fs, 'readFileSync').mockImplementation((filePath, encoding) => {
-        if (mockFs.hasOwnProperty(filePath)) {
+        if (Object.hasOwn(mockFs, filePath)) {
           return mockFs[filePath];
         }
         throw new Error(`ENOENT: no such file or directory`);
@@ -511,24 +511,26 @@ describe('Integration Tests - Full Flow', () => {
     const allowlist = ['Bash(npm test:*)'];
     const denylist = [];
 
-    test('output redirect should be stripped', () => {
-      const result = checkPermission('npm test > output.log', allowlist, denylist);
-      expect(result.allowed).toBe(true);
+    test('output redirect to a path is not auto-allowed', () => {
+      expect(checkPermission('npm test > output.log', allowlist, denylist).allowed).toBe(false);
     });
 
-    test('stderr redirect should be stripped', () => {
-      const result = checkPermission('npm test 2> errors.log', allowlist, denylist);
-      expect(result.allowed).toBe(true);
+    test('stderr redirect to a path is not auto-allowed', () => {
+      expect(checkPermission('npm test 2> errors.log', allowlist, denylist).allowed).toBe(false);
     });
 
-    test('combined redirect should be stripped', () => {
-      const result = checkPermission('npm test > output.log 2>&1', allowlist, denylist);
-      expect(result.allowed).toBe(true);
+    test('path redirect combined with 2>&1 is not auto-allowed', () => {
+      expect(checkPermission('npm test > output.log 2>&1', allowlist, denylist).allowed).toBe(false);
     });
 
-    test('append redirect should be stripped', () => {
-      const result = checkPermission('npm test >> output.log', allowlist, denylist);
-      expect(result.allowed).toBe(true);
+    test('append redirect to a path is not auto-allowed', () => {
+      expect(checkPermission('npm test >> output.log', allowlist, denylist).allowed).toBe(false);
     });
+
+    test('/dev/null and fd-merge redirects are still allowed', () => {
+      expect(checkPermission('npm test > /dev/null 2>&1', allowlist, denylist).allowed).toBe(true);
+      expect(checkPermission('npm test 2>/dev/null', allowlist, denylist).allowed).toBe(true);
+    });
+
   });
 });

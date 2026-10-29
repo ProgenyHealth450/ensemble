@@ -1,0 +1,250 @@
+{
+  "command": "beads-build",
+  "path": "packages/development/commands/beads-build.yaml",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "refactoredBy": "TRD-030",
+  "sequence": [
+    [
+      "br",
+      "show"
+    ],
+    [
+      "br",
+      "list"
+    ],
+    [
+      "git",
+      "remote"
+    ],
+    [
+      "git",
+      "status"
+    ],
+    [
+      "bv",
+      "--robot-plan"
+    ],
+    [
+      "br",
+      "sync"
+    ],
+    [
+      "bv",
+      "--robot-insights"
+    ],
+    [
+      "br",
+      "comments add"
+    ],
+    [
+      "br",
+      "close"
+    ],
+    [
+      "git",
+      "commit"
+    ],
+    [
+      "git",
+      "add"
+    ],
+    [
+      "br",
+      "comments list"
+    ],
+    [
+      "bv",
+      "--robot-triage"
+    ],
+    [
+      "git",
+      "diff"
+    ],
+    [
+      "gh",
+      "pr create"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "az",
+      "repos pr create"
+    ],
+    [
+      "br",
+      "ready"
+    ]
+  ],
+  "expectedPost": [
+    [
+      "br",
+      "show"
+    ],
+    [
+      "git",
+      "remote"
+    ],
+    [
+      "git",
+      "status"
+    ],
+    [
+      "br",
+      "list"
+    ],
+    [
+      "br",
+      "sync"
+    ],
+    [
+      "br",
+      "comments add"
+    ],
+    [
+      "br",
+      "close"
+    ],
+    [
+      "git",
+      "commit"
+    ],
+    [
+      "br",
+      "comments list"
+    ],
+    [
+      "git",
+      "diff"
+    ],
+    [
+      "gh",
+      "pr create"
+    ],
+    [
+      "git",
+      "push"
+    ],
+    [
+      "bv",
+      "--robot-plan"
+    ]
+  ],
+  "deviations": [
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "bv",
+          "--robot-insights"
+        ]
+      ],
+      "trd": "TRD-030",
+      "justification": "The BV_AVAILABLE prose that issued `bv --robot-insights` for graph details is deleted (TRD-030); beads-build declares only work-graph.plan as optional (no graph-health)."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "git",
+          "add"
+        ]
+      ],
+      "trd": "TRD-047 lint contract (I1)",
+      "justification": "No workflow.* capability stages files (plain-git workflow.commit is `git commit -m` only), so the source now states the staging intent (\"stage exactly that path\") without a literal `git add`; the agent still stages the same explicit paths before workflow.commit."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "bv",
+          "--robot-triage"
+        ]
+      ],
+      "trd": "TRD-030",
+      "justification": "The final-progress `bv --robot-triage --format toon` call is replaced by work-graph.ready (default template `bv --robot-plan`); the work-graph contract has no triage capability."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "az",
+          "repos pr create"
+        ]
+      ],
+      "trd": "TRD-039",
+      "justification": "`az repos pr create` was the Azure DevOps branch of the PR-creation backend switch; the default host adapter is `github` (toolchain.default.yaml), so the unconfigured sequence opens the change request with `gh pr create` only; the ADO step now lives in the azure-devops adapter behind host.change-request-create."
+    },
+    {
+      "type": "removed",
+      "steps": [
+        [
+          "br",
+          "ready"
+        ]
+      ],
+      "trd": "TRD-029/TRD-030",
+      "justification": "`br ready` was the fallback scheduler when bv is absent; scheduling is now work-graph.ready/work-graph.plan whose default adapter template is `bv --robot-plan` (the beads manifest declares no `br ready`) with a built-in links fallback, so `br ready` is no longer a default-toolchain step."
+    },
+    {
+      "type": "reordered",
+      "steps": [
+        [
+          "br",
+          "show"
+        ],
+        [
+          "git",
+          "remote"
+        ],
+        [
+          "git",
+          "status"
+        ],
+        [
+          "br",
+          "list"
+        ],
+        [
+          "br",
+          "sync"
+        ],
+        [
+          "br",
+          "comments add"
+        ],
+        [
+          "br",
+          "close"
+        ],
+        [
+          "git",
+          "commit"
+        ],
+        [
+          "br",
+          "comments list"
+        ],
+        [
+          "git",
+          "diff"
+        ],
+        [
+          "gh",
+          "pr create"
+        ],
+        [
+          "git",
+          "push"
+        ],
+        [
+          "bv",
+          "--robot-plan"
+        ]
+      ],
+      "trd": "TRD-030",
+      "justification": "Two first-mention moves with no step added/removed: (1) the first pre-refactor `br list` was the br availability probe, deleted in favor of preflight; (2) the pre-refactor `bv --robot-plan` first appeared in the description of the wave-runner (scheduling is delegated to beads-build-wave in both versions), while the refactor invokes work-graph.ready (same `bv --robot-plan` template) once, in the final progress step, replacing the `bv --robot-triage` summary."
+    }
+  ]
+}

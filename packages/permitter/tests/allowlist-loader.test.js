@@ -39,11 +39,11 @@ describe('allowlist-loader', () => {
 
     // Mock fs.existsSync and fs.readFileSync
     jest.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
-      return mockFs.hasOwnProperty(filePath);
+      return Object.hasOwn(mockFs, filePath);
     });
 
     jest.spyOn(fs, 'readFileSync').mockImplementation((filePath, encoding) => {
-      if (mockFs.hasOwnProperty(filePath)) {
+      if (Object.hasOwn(mockFs, filePath)) {
         return mockFs[filePath];
       }
       throw new Error(`ENOENT: no such file or directory, open '${filePath}'`);

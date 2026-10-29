@@ -18,7 +18,6 @@
   "commands": "./commands",
   "skills": "./skills",
   "agents": [
-    "./agents/git-workflow.md",
-    "./agents/github-specialist.md"
+    "./agents/git-workflow.md"
   ]
 }

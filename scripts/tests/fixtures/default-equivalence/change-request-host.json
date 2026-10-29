@@ -1,0 +1,22 @@
+{
+  "description": "Default-host (github) change-request lifecycle: a command opens the change request, pr-merge then views and merges it. Order is the pre-refactor order (implement-bead opens with `gh pr create`; pr-merge views, then merges).",
+  "baseRef": "881381c6119176c48d44e0fc91c90d5cec8d02b1",
+  "derivedFrom": {
+    "open": "implement-bead",
+    "followUp": "pr-merge"
+  },
+  "sequence": [
+    [
+      "gh",
+      "pr create"
+    ],
+    [
+      "gh",
+      "pr view"
+    ],
+    [
+      "gh",
+      "pr merge"
+    ]
+  ]
+}

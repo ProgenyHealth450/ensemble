@@ -903,12 +903,213 @@ describe('OC-S1-SK: real packages integration', () => {
 
       const result = await copier.execute();
 
-      // We know there are at least 10 SKILL.md files and 7 REFERENCE.md files
+      // Real packages still ship many SKILL.md files; lean framework skills no longer carry REFERENCE.md
       expect(result.skillsCopied).toBeGreaterThanOrEqual(10);
-      expect(result.referencesConverted).toBeGreaterThanOrEqual(7);
+      expect(result.referencesConverted).toBeGreaterThanOrEqual(1);
       expect(result.errors).toHaveLength(0);
 
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   );
+});
+
+describe('OC-S1-SK adapter directories (TRD-020, PRD REQ-021)', () => {
+  let tmpDir;
+
+  // Build a `packages/<pkg>/skills/adapter-<name>/{SKILL.md,adapter.yaml}` layout one level
+  // deeper than createTempPackages's flat `skills/SKILL.md` layout.
+  function createAdapterPackage(root, pkgName, adapterDirName, files) {
+    const adapterDir = path.join(root, 'packages', pkgName, 'skills', adapterDirName);
+    fs.mkdirSync(adapterDir, { recursive: true });
+    for (const [fileName, content] of Object.entries(files)) {
+      fs.writeFileSync(path.join(adapterDir, fileName), content, 'utf-8');
+    }
+    return adapterDir;
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-copier-adapter-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('discovers an adapter-*/SKILL.md directory and copies adapter.yaml alongside it, keyed by the adapter directory name', async () => {
+    const packagesDir = path.join(tmpDir, 'packages');
+    createAdapterPackage(tmpDir, 'fixturepkg', 'adapter-fixture-tracker', {
+      'SKILL.md': '# Fixture Tracker Adapter\n\nFixture adapter for tests.',
+      'adapter.yaml': 'adapter: fixture-tracker\nversion: "1.0.0"\ncategories:\n  - tracker\n',
+    });
+
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const copier = new SkillCopier({
+      packagesDir,
+      outputDir,
+      injectFrontmatter: true,
+      dryRun: false,
+      verbose: false,
+    });
+
+    const result = await copier.execute();
+    expect(result.errors).toHaveLength(0);
+    expect(result.skillsCopied).toBe(1);
+
+    const adapterOutDir = path.join(outputDir, 'adapter-fixture-tracker');
+    expect(fs.existsSync(path.join(adapterOutDir, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(adapterOutDir, 'adapter.yaml'))).toBe(true);
+
+    // adapter.yaml is copied byte-for-byte, never rewritten through the frontmatter path.
+    const sourceYaml = fs.readFileSync(
+      path.join(packagesDir, 'fixturepkg', 'skills', 'adapter-fixture-tracker', 'adapter.yaml')
+    );
+    const destYaml = fs.readFileSync(path.join(adapterOutDir, 'adapter.yaml'));
+    expect(destYaml.equals(sourceYaml)).toBe(true);
+  });
+
+  it('keys two adapters sharing one owning package by their own directory names, not the package name', async () => {
+    const packagesDir = path.join(tmpDir, 'packages');
+    createAdapterPackage(tmpDir, 'multipkg', 'adapter-jira', {
+      'SKILL.md': '# Jira adapter',
+      'adapter.yaml': 'adapter: jira\n',
+    });
+    createAdapterPackage(tmpDir, 'multipkg', 'adapter-linear', {
+      'SKILL.md': '# Linear adapter',
+      'adapter.yaml': 'adapter: linear\n',
+    });
+
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const copier = new SkillCopier({
+      packagesDir,
+      outputDir,
+      injectFrontmatter: true,
+      dryRun: false,
+      verbose: false,
+    });
+
+    const result = await copier.execute();
+    expect(result.errors).toHaveLength(0);
+    expect(result.skillsCopied).toBe(2);
+    expect(fs.existsSync(path.join(outputDir, 'adapter-jira', 'adapter.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(outputDir, 'adapter-linear', 'adapter.yaml'))).toBe(true);
+  });
+
+  it('a plain skills/SKILL.md with no adapter subdirectory is byte-identical before and after this feature (no adapter.yaml spuriously appears)', async () => {
+    const packagesDir = createTempPackages(tmpDir, {
+      plainpkg: { 'SKILL.md': '# Plain skill\n\nNo adapters here.' },
+    });
+
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const copier = new SkillCopier({
+      packagesDir,
+      outputDir,
+      injectFrontmatter: true,
+      dryRun: false,
+      verbose: false,
+    });
+
+    const result = await copier.execute();
+    expect(result.skillsCopied).toBe(1);
+    expect(fs.existsSync(path.join(outputDir, 'plainpkg', 'adapter.yaml'))).toBe(false);
+  });
+
+  it('mutation proof: an adapter directory whose SKILL.md is missing is skipped (adapter.yaml is never copied without a SKILL.md)', async () => {
+    const packagesDir = path.join(tmpDir, 'packages');
+    const adapterDir = path.join(packagesDir, 'fixturepkg', 'skills', 'adapter-incomplete');
+    fs.mkdirSync(adapterDir, { recursive: true });
+    fs.writeFileSync(path.join(adapterDir, 'adapter.yaml'), 'adapter: incomplete\n');
+    // No SKILL.md written for this adapter directory.
+
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const copier = new SkillCopier({
+      packagesDir,
+      outputDir,
+      injectFrontmatter: true,
+      dryRun: false,
+      verbose: false,
+    });
+
+    const result = await copier.execute();
+    expect(result.skillsCopied).toBe(0);
+    expect(fs.existsSync(path.join(outputDir, 'adapter-incomplete'))).toBe(false);
+  });
+
+  it('two different packages shipping an adapter dir with the same basename is a hard failure reported via result.errors, naming both colliding source paths, and writes nothing for that name', async () => {
+    const packagesDir = path.join(tmpDir, 'packages');
+    const adapterDirA = createAdapterPackage(tmpDir, 'collisionpkg-a', 'adapter-collision', {
+      'SKILL.md': '# Package A Collision Adapter',
+      'adapter.yaml': 'adapter: collision-a\n',
+    });
+    const adapterDirB = createAdapterPackage(tmpDir, 'collisionpkg-b', 'adapter-collision', {
+      'SKILL.md': '# Package B Collision Adapter',
+      'adapter.yaml': 'adapter: collision-b\n',
+    });
+
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const copier = new SkillCopier({
+      packagesDir,
+      outputDir,
+      injectFrontmatter: true,
+      dryRun: false,
+      verbose: false,
+    });
+
+    // Mutation-proof target: with the pre-fix behavior (no collision check), this would
+    // silently succeed with result.errors empty and last-writer-wins one of the two
+    // adapter.yaml files into outputDir/adapter-collision/.
+    const result = await copier.execute();
+
+    expect(result.errors.length).toBeGreaterThanOrEqual(1);
+    const collisionError = result.errors.find((e) => e.file === 'adapter-collision');
+    expect(collisionError).toBeDefined();
+    expect(collisionError.error).toContain(adapterDirA);
+    expect(collisionError.error).toContain(adapterDirB);
+
+    // Fails before writing anything for the colliding name -- no last-writer-wins partial
+    // output silently left behind.
+    expect(fs.existsSync(path.join(outputDir, 'adapter-collision'))).toBe(false);
+  });
+
+  it('a stale adapter-* output directory whose source was removed is pruned on the next run (TRD-020 P2 fix: no resetOutput() equivalent, so output is otherwise additive-only)', async () => {
+    const packagesDir = path.join(tmpDir, 'packages');
+    createAdapterPackage(tmpDir, 'staletestpkg', 'adapter-will-be-removed', {
+      'SKILL.md': '# Will be removed',
+      'adapter.yaml': 'adapter: will-be-removed\n',
+    });
+
+    const outputDir = path.join(tmpDir, 'out');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const copier = new SkillCopier({
+      packagesDir,
+      outputDir,
+      injectFrontmatter: true,
+      dryRun: false,
+      verbose: false,
+    });
+
+    const firstRun = await copier.execute();
+    expect(firstRun.skillsCopied).toBe(1);
+    expect(fs.existsSync(path.join(outputDir, 'adapter-will-be-removed', 'SKILL.md'))).toBe(true);
+
+    // Remove the SOURCE adapter directory entirely (not just its content) and regenerate.
+    fs.rmSync(path.join(packagesDir, 'staletestpkg'), { recursive: true, force: true });
+
+    const secondRun = await copier.execute();
+    expect(secondRun.skillsCopied).toBe(0);
+    expect(secondRun.prunedAdapters).toContain('adapter-will-be-removed');
+    // Mutation-proof target: pre-fix, this directory remains fully resolver-visible forever
+    // even though its source no longer exists.
+    expect(fs.existsSync(path.join(outputDir, 'adapter-will-be-removed'))).toBe(false);
+  });
 });

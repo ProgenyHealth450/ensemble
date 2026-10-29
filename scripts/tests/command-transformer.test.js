@@ -130,3 +130,42 @@ describe('transformCommandToMarkdown — workflow step actions', () => {
     expect(markdown).not.toMatch(/^ +- (First|Second) action\./m);
   });
 });
+
+describe('transformCommandToMarkdown — capabilities frontmatter length-gating (TRD-022, PR 5 review P3)', () => {
+  function capabilitiesCommand(capabilities) {
+    const command = dispatcherCommand([]);
+    delete command.dispatch;
+    if (capabilities) {
+      command.metadata.capabilities = capabilities;
+    }
+    return command;
+  }
+
+  function renderFrontmatter(capabilities) {
+    return transformCommandToMarkdown(
+      capabilitiesCommand(capabilities),
+      path.join(REPO_ROOT, 'packages/development/commands/issue.yaml')
+    );
+  }
+
+  test('both capabilities-required and capabilities-optional lines render when both lists are non-empty', () => {
+    const markdown = renderFrontmatter({ required: ['tracker.show'], optional: ['work-graph.ready'] });
+    expect(markdown).toContain('capabilities-required: "tracker.show"');
+    expect(markdown).toContain('capabilities-optional: "work-graph.ready"');
+  });
+
+  test('omits both lines when metadata.capabilities is absent', () => {
+    expect(renderFrontmatter(undefined)).not.toContain('capabilities-');
+  });
+
+  // TRD-2026-8d825f54 PR 5 review P3: a present-but-empty `capabilities: {required: [],
+  // optional: []}` declaration (the schema's own default shape) must render nothing, exactly
+  // like the absent case -- matching Pi/OpenCode's own length-gating and the Codex fix this
+  // review introduced.
+  test('omits both lines when capabilities is present but both lists are empty, byte-identical to the absent case', () => {
+    const empty = renderFrontmatter({ required: [], optional: [] });
+    const absent = renderFrontmatter(undefined);
+    expect(empty).not.toContain('capabilities-');
+    expect(empty).toBe(absent);
+  });
+});

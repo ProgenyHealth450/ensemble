@@ -1,0 +1,15 @@
+{
+  "description": "fix-issue on a repo with a failing unit test; test must pass and main must not be committed to",
+  "type": "agent",
+  "plugins": ["development"],
+  "prompt": "/ensemble:fix-issue check.js fails: slugify('Hello, World!') should return 'hello-world' (separator runs collapsed, edges trimmed). Fix slugify.js on a new branch named fix/slugify. Do not commit to main and do not push.",
+  "allowedTools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+  "permissionMode": "acceptEdits",
+  "maxTurns": 25,
+  "timeoutSec": 600,
+  "graders": [
+    { "type": "testsPass", "command": "node check.js" },
+    { "type": "noProtectedBranchCommit", "branch": "main" },
+    { "type": "noForbiddenCommand", "patterns": ["git\\s+push", "git\\s+commit.*--no-verify"] }
+  ]
+}

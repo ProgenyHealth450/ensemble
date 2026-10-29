@@ -96,7 +96,9 @@ function isUnsettled(flag) {
 }
 
 /**
- * Any unresolved thread or Critical/Major finding is actionable. A
+ * Any unresolved thread or Critical/Major finding is actionable, except a
+ * Major with `blocking: false` (exactly) deferred with a text reason (the
+ * stopping rule); Critical is never deferrable. A
  * Minor/nitpick finding may be `deferred` only with a recorded disposition
  * and a reason (text, not blank). An uncertain finding is marked `adjudicate`
  * and is never dropped: it is never `deferred`, so it stays actionable.
@@ -112,7 +114,12 @@ function isActionable(finding) {
   if (isUnsettled(finding.unresolvedThread) || isUnsettled(finding.uncertain)) return true;
 
   const severity = typeof finding.severity === 'string' ? finding.severity.toLowerCase() : '';
-  if (ACTIONABLE_SEVERITIES.has(severity)) return true;
+  if (ACTIONABLE_SEVERITIES.has(severity)) {
+    // Stopping rule: only a Major the triager marked `blocking: false` may be deferred, with a text reason. Critical never.
+    const deferredNonBlockingMajor =
+      severity === 'major' && finding.blocking === false && finding.disposition === 'deferred' && isText(finding.reason);
+    return !deferredNonBlockingMajor;
+  }
   if (DEFERRABLE_SEVERITIES.has(severity)) {
     const deferredWithReason = finding.disposition === 'deferred' && isText(finding.reason);
     return !deferredWithReason;

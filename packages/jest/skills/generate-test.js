@@ -33,7 +33,7 @@ class JestTestGenerator {
     try {
       template = await fs.readFile(templatePath, 'utf-8');
     } catch (error) {
-      throw new Error(`Template not found: ${templateName}`);
+      throw new Error(`Template not found: ${templateName}`, { cause: error });
     }
 
     // Generate test content
@@ -65,7 +65,7 @@ class JestTestGenerator {
     const componentName = basename;
 
     // Determine imports based on framework
-    let imports = '';
+    let imports;
     if (framework === 'react') {
       imports = `import { render, fireEvent, screen } from '@testing-library/react';\nimport { ${componentName} } from '${this.getRelativeImport(source)}';`;
     } else {

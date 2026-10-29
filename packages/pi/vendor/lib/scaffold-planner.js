@@ -47,6 +47,8 @@
  * @property {string} text
  */
 
+const { buildReferencesBlock } = require('./bead-refs');
+
 const DEFAULT_PRIORITY = 2;
 
 // br rejects a title over 500 Unicode code points and then refuses to load the whole
@@ -154,6 +156,35 @@ function taskPrefix(slug, taskId) {
 }
 
 // ---------------------------------------------------------------------------
+// References block (links every bead back to the TRD task / PRD requirement)
+// ---------------------------------------------------------------------------
+
+/** Satisfied PRD requirement ids of a task, excluding the INFRA / ARCH markers. */
+function reqIdsOf(task) {
+  return (Array.isArray(task.satisfies) ? task.satisfies : [])
+    .map((s) => String(s || '').trim())
+    .filter((s) => s && !isInfraOrArch(s));
+}
+
+/** The task's satisfies tokens exactly as written in the TRD (INFRA/ARCH included). */
+function rawSatisfies(task) {
+  return (Array.isArray(task.satisfies) ? task.satisfies : []).join(', ');
+}
+
+function taskReferencesBlock(task, opts, extra) {
+  return buildReferencesBlock({
+    trdPath: opts.trdFilePath,
+    trdTaskId: task.id,
+    prdPath: opts.prdFilePath,
+    prdUnresolved: opts.prdUnresolved,
+    reqIds: reqIdsOf(task),
+    acIds: task.validatesAcs || [],
+    parentEpicPrefix: opts.epicPrefix,
+    ...extra,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Description builders (port of YAML Scaffold Step 5 lines ~517-518 & Step 6)
 // ---------------------------------------------------------------------------
 
@@ -163,18 +194,16 @@ function taskPrefix(slug, taskId) {
  * Embedded-tests additions.
  */
 function buildImplTaskDescription(task, opts) {
-  const { trdFilePath, prdFilePath, prdContext, architectureDecision, keyTechnicalDecisions } = opts;
-  const satisfiesReq = task.satisfies && task.satisfies.length ? task.satisfies[0] : '';
+  const { prdContext, architectureDecision, keyTechnicalDecisions } = opts;
+  const satisfiesAll = reqIdsOf(task);
 
   const sections = [];
   sections.push(`## Task: ${task.id}`);
-  sections.push(`TRD Reference: ${trdFilePath}#${lower(task.id)}`);
-
-  // PRD Reference line is omitted for INFRA / ARCH / empty satisfies.
-  if (satisfiesReq && !isInfraOrArch(satisfiesReq)) {
-    sections.push(`PRD Reference: ${prdFilePath}#${lower(satisfiesReq)}`);
-    // Embed actual PRD requirement prose and AC breakdown so agents never need to cross-reference.
-    const prdBlock = prdEnrichmentSection(satisfiesReq, task.validatesAcs || [], prdContext);
+  sections.push(taskReferencesBlock(task, opts, {}));
+  sections.push('');
+  // Embed actual PRD requirement prose and AC breakdown so agents never need to cross-reference.
+  for (const reqId of satisfiesAll) {
+    const prdBlock = prdEnrichmentSection(reqId, task.validatesAcs || [], prdContext);
     if (prdBlock) sections.push(prdBlock);
   }
 
@@ -192,8 +221,7 @@ function buildImplTaskDescription(task, opts) {
     }
   }
 
-  sections.push(`Satisfies: ${satisfiesReq}`);
-  sections.push(`PRD ACs: ${(task.validatesAcs || []).join(', ')}`);
+  sections.push(`Satisfies: ${rawSatisfies(task)}`);
   sections.push(`Target File: ${(task.targetFiles || []).join(', ')}`);
   sections.push('Actions:');
   sections.push(numberedBlock(task.actions || []));
@@ -218,17 +246,17 @@ function buildImplTaskDescription(task, opts) {
  * Ports implement-trd-beads.yaml Step 5 line ~518.
  */
 function buildTestTaskDescription(task, opts) {
-  const { trdFilePath, prdFilePath, prdContext, architectureDecision, keyTechnicalDecisions } = opts;
-  const satisfiesReq = task.satisfies && task.satisfies.length ? task.satisfies[0] : '';
+  const { prdContext, architectureDecision, keyTechnicalDecisions } = opts;
+  const satisfiesAll = reqIdsOf(task);
   const verifies = task.verifies || '';
 
   const sections = [];
   sections.push(`## Test Task: ${task.id}`);
-  sections.push(`TRD Reference: ${trdFilePath}#${lower(task.id)}`);
-  if (satisfiesReq && !isInfraOrArch(satisfiesReq)) {
-    sections.push(`PRD Reference: ${prdFilePath}#${lower(satisfiesReq)}`);
-    // Embed actual PRD requirement prose and AC breakdown so agents never need to cross-reference.
-    const prdBlock = prdEnrichmentSection(satisfiesReq, task.validatesAcs || [], prdContext);
+  sections.push(taskReferencesBlock(task, opts, { verifiesTaskId: verifies }));
+  sections.push('');
+  // Embed actual PRD requirement prose and AC breakdown so agents never need to cross-reference.
+  for (const reqId of satisfiesAll) {
+    const prdBlock = prdEnrichmentSection(reqId, task.validatesAcs || [], prdContext);
     if (prdBlock) sections.push(prdBlock);
   }
 
@@ -246,9 +274,8 @@ function buildTestTaskDescription(task, opts) {
     }
   }
 
-  sections.push(`Verifies Task: ${trdFilePath}#${lower(verifies)}`);
   sections.push(`Verifies: ${verifies}`);
-  sections.push(`Satisfies: ${satisfiesReq}`);
+  sections.push(`Satisfies: ${rawSatisfies(task)}`);
   sections.push(`PRD ACs Proven: ${(task.validatesAcs || []).join(', ')}`);
   sections.push(`Proof of requirement: ${task.proofOfRequirement || ''}`);
   sections.push(`Target Files: ${(task.targetFiles || []).join(', ')}`);
@@ -265,14 +292,14 @@ function buildTestTaskDescription(task, opts) {
  * Build the description for a synthesized test bead derived from a nested test
  * sub-item. Ports implement-trd-beads.yaml Step 6 line ~535.
  */
-function buildSynthTestDescription(synthId, parentTask, subitemText) {
-  const satisfiesReq = parentTask.satisfies && parentTask.satisfies.length ? parentTask.satisfies[0] : '';
+function buildSynthTestDescription(synthId, parentTask, subitemText, opts) {
   const sections = [];
   sections.push(`## Synthesized Test Task: ${synthId}`);
+  sections.push(taskReferencesBlock(parentTask, opts, { verifiesTaskId: parentTask.id }));
+  sections.push('');
   sections.push(`Derived from a nested test sub-item of ${parentTask.id} (no explicit TRD-NNN-TEST task existed).`);
-  sections.push(`Verifies Task: ${parentTask.id}`);
   sections.push(`Verifies: ${parentTask.id}`);
-  sections.push(`Satisfies: ${satisfiesReq}`);
+  sections.push(`Satisfies: ${rawSatisfies(parentTask)}`);
   sections.push(`Test objective: ${subitemText}`);
   sections.push(`Target Files: ${(parentTask.targetFiles || []).join(', ')}`);
   sections.push(`Parent impl task: ${parentTask.id}`);
@@ -288,7 +315,9 @@ function buildSynthTestDescription(synthId, parentTask, subitemText) {
  * Never throws — problems are collected into the returned `warnings` array.
  *
  * @param {ParsedTRD} parsed
- * @param {{trdSlug:string, trdFilePath:string, prdFilePath:string, prdContext:PrdContext}} opts
+ * @param {{trdSlug:string, trdFilePath:string, prdFilePath:string, prdUnresolved?:boolean, prdContext:PrdContext}} opts
+ *   trdFilePath / prdFilePath MUST already be repo-root-relative (forward slashes); prdFilePath is the
+ *   raw reference when prdUnresolved is true, and '' when the TRD names no PRD.
  */
 function buildScaffoldPlan(parsed, opts) {
   const warnings = [];
@@ -300,13 +329,22 @@ function buildScaffoldPlan(parsed, opts) {
   const trdFilePath = o.trdFilePath == null ? '' : String(o.trdFilePath);
   const prdFilePath = o.prdFilePath == null ? '' : String(o.prdFilePath);
   const prdContext = o.prdContext && typeof o.prdContext === 'object' ? o.prdContext : { requirements: {}, acs: {} };
+  const prdUnresolved = !!o.prdUnresolved && !!prdFilePath;
   const descOpts = {
     trdFilePath,
     prdFilePath,
+    prdUnresolved,
+    epicPrefix: epicPrefix(slug),
     prdContext,
     architectureDecision: safeParsed.architectureDecision || null,
     keyTechnicalDecisions: Array.isArray(safeParsed.keyTechnicalDecisions) ? safeParsed.keyTechnicalDecisions : [],
   };
+  const refsBase = { trdPath: trdFilePath, prdPath: prdFilePath, prdUnresolved };
+  if (!prdFilePath) {
+    warnings.push('TRD has no PRD reference — beads carry no PRD lines in their References block');
+  } else if (prdUnresolved) {
+    warnings.push(`PRD reference '${prdFilePath}' could not be resolved — beads carry an (UNRESOLVED) PRD line`);
+  }
 
   const prFormat = !!safeParsed.prFormat;
   const phases = Array.isArray(safeParsed.phases) ? safeParsed.phases : [];
@@ -329,7 +367,8 @@ function buildScaffoldPlan(parsed, opts) {
     type: 'epic',
     labels: [slug],
     priority: DEFAULT_PRIORITY,
-    description: summary,
+    description: `${buildReferencesBlock(refsBase)}\n\n${summary}`,
+    externalRef: trdFilePath,
   };
 
   // -------------------------------------------------------------------------
@@ -350,7 +389,7 @@ function buildScaffoldPlan(parsed, opts) {
     const shippableLine = prFormat && shippableState
       ? ` Shippable state: ${shippableState}`
       : '';
-    const description = `${beadLabel} ${phase.n} of TRD: ${title}. Contains ${taskCount} tasks.${shippableLine}`;
+    const description = `${buildReferencesBlock({ ...refsBase, parentEpicPrefix: epicPrefix(slug) })}\n\n${beadLabel} ${phase.n} of TRD: ${title}. Contains ${taskCount} tasks.${shippableLine}`;
 
     stories.push({
       phaseN: phase.n,
@@ -360,6 +399,7 @@ function buildScaffoldPlan(parsed, opts) {
       labels: [slug],
       priority: DEFAULT_PRIORITY,
       description,
+      externalRef: trdFilePath,
       shippableState,
     });
   }
@@ -423,6 +463,7 @@ function buildScaffoldPlan(parsed, opts) {
       labels: [slug],
       priority,
       description: clamped ? `Full title: ${task.description}\n\n${description}` : description,
+      externalRef: `${trdFilePath}#${lower(task.id)}`,
       isTest: !!task.isTest,
       dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn.slice() : [],
     });
@@ -449,7 +490,8 @@ function buildScaffoldPlan(parsed, opts) {
         type: 'task',
         labels: [slug],
         priority,
-        description: buildSynthTestDescription(synthId, task, subitemText),
+        description: buildSynthTestDescription(synthId, task, subitemText, descOpts),
+        externalRef: `${trdFilePath}#${lower(task.id)}`,
         verifies: task.id,
         satisfies: Array.isArray(task.satisfies) ? task.satisfies.slice() : [],
       });

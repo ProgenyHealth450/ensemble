@@ -21,11 +21,20 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     expect(block).toMatch(/ERROR: --epic <id> is required/);
   });
 
-  test('bv is required (no br ready fallback)', () => {
+  test('bv is optional: falls back to work-graph.ready, one bead per track', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toMatch(/bv \(beads_viewer\) is required/);
-    expect(text).toMatch(/exit 1/);
+    expect(text).not.toMatch(/bv \(beads_viewer\) is required/);
+    expect(text).toMatch(/work-graph\.ready/);
+    expect(text).toMatch(/single-bead track/);
   });
+
+  test('stages explicit paths, never a blanket stage or .beads', () => {
+    const text = fs.readFileSync(yamlPath, 'utf8');
+    expect(text).toMatch(/stage exactly the files the wave modified/);
+    expect(text).toMatch(/NEVER a blanket or whole-directory stage, an auto-staging commit, or anything under \.beads\//);
+    expect(text).toMatch(/run workflow\.commit/);
+  });
+
   test('workflow is exactly two phases: Preflight + Execute (no Quality Gate, no Completion)', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/- name: Preflight/);
@@ -41,7 +50,7 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
       text.indexOf('expectedInput:')
     );
     expect(execBlock).toMatch(/title: Single-Wave Dispatch/);
-    expect(execBlock).toMatch(/Step 1 \(sync\): run br sync --flush-only/);
+    expect(execBlock).toMatch(/Step 1 \(sync\): before this command''s first tracker write/);
     expect(execBlock).toMatch(/Step 5 \(concurrent dispatch\)/);
     expect(execBlock).toMatch(/Step 6 \(barrier\)/);
     expect(execBlock).toMatch(/Step 8 \(build summary\)/);
@@ -75,6 +84,7 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/track_beads/);
     expect(text).toMatch(/lifecycle_contract/);
+    expect(text).toMatch(/context_contract/);
     expect(text).toMatch(/quality_loop/);
     expect(text).toMatch(/pm_clarification_guard/);
   });
@@ -90,11 +100,11 @@ describe('beads-build-wave command contract (v1.2.0 wave-runner primitive)', () 
     expect(text).toMatch(/does NOT create or switch branches itself/);
   });
 
-  test('lifecycle_contract has a Commit Gate that blocks br close until git status is clean (self-reported success is not sufficient evidence)', () => {
+  test('lifecycle_contract has a Commit Gate that blocks br close until workflow.status is clean (self-reported success is not sufficient evidence)', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     expect(text).toMatch(/COMMIT GATE/);
-    expect(text).toMatch(/NEVER call br close while git status --porcelain is non-empty/);
-    expect(text).toMatch(/self-reported success narrative is NOT sufficient evidence of a commit/);
+    expect(text).toMatch(/NEVER call tracker\.close while workflow\.status lists non-\.beads\/ paths/);
+    expect(text).toMatch(/self-reported success is NOT evidence of a commit/);
   });
 
   test('cross-platform: works with Task() on claude/pi/codex/opencode (mentioned in mission)', () => {
@@ -124,7 +134,7 @@ describe('beads-build v1.2.0 wave-loop contract', () => {
     const execEnd = text.indexOf('title: Debug Loop');
     const execBlock = text.slice(execStart, execEnd);
     expect(execBlock).toMatch(/Task\(subagent_type=<resolved-from-AGENT_ALIAS_MAP-beads-build-wave>/);
-    expect(execBlock).toMatch(/does NOT call bv --robot-plan/);
+    expect(execBlock).toMatch(/does NOT call work-graph\.ready\/work-graph\.plan for scheduling/);
     expect(execBlock).toMatch(/Two-tier non-recursive dispatch loop/);
   });
 
@@ -147,19 +157,14 @@ describe('beads-build v1.2.0 wave-loop contract', () => {
     expect(execBlock).toMatch(/Codex's max_depth=1 constraint/);
   });
 
-  test('metadata version bumped to 1.2.0', () => {
-    const text = fs.readFileSync(yamlPath, 'utf8');
-    expect(text).toMatch(/version: 1\.2\.0/);
-    expect(text).toMatch(/lastUpdated: "2026-08-19"/);
-  });
-
-  test('mission summary explains the two-tier loop architecture', () => {
+  test('mission summary states the parent-loop / one-wave-per-runner contract', () => {
     const text = fs.readFileSync(yamlPath, 'utf8');
     const missionBlock = text.slice(
       text.indexOf('mission:'),
       text.indexOf('workflow:')
     );
-    expect(missionBlock).toMatch(/two-tier non-recursive dispatch\s+loop/i);
+    expect(missionBlock).toMatch(/remaining_scoped_count/);
+    expect(missionBlock).toMatch(/No recursion/);
     expect(missionBlock).toMatch(/beads-build-wave/);
     expect(missionBlock).toMatch(/max_depth=1/);
   });

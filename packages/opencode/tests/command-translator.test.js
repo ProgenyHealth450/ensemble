@@ -323,6 +323,60 @@ describe('OC-S1-CMD-005: Constraints section', () => {
 });
 
 // ---------------------------------------------------------------------------
+// TRD-022: metadata.capabilities passthrough
+// ---------------------------------------------------------------------------
+describe('TRD-022: Capabilities section', () => {
+  let translator;
+
+  beforeEach(() => {
+    translator = new CommandTranslator({
+      packagesDir: PACKAGES_DIR,
+      outputDir: '/tmp/test-output',
+      dryRun: true,
+      verbose: false,
+    });
+  });
+
+  function baseCommand(capabilities) {
+    return {
+      metadata: {
+        name: 'ensemble:fix-issue',
+        description: 'Fix a bug end to end',
+        version: '1.0.0',
+        ...(capabilities ? { capabilities } : {}),
+      },
+      workflow: { phases: [] },
+    };
+  }
+
+  it('renders a ## Capabilities section with Required and Optional lists', () => {
+    const markdown = translator.translateToMarkdown(
+      baseCommand({ required: ['tracker.show'], optional: ['work-graph.ready', 'lint.run'] })
+    );
+    expect(markdown).toContain('## Capabilities');
+    expect(markdown).toContain('**Required:** tracker.show');
+    expect(markdown).toContain('**Optional:** work-graph.ready, lint.run');
+  });
+
+  it('omits the Capabilities section when metadata.capabilities is absent', () => {
+    const withField = translator.translateToMarkdown(baseCommand());
+    const without = translator.translateToMarkdown(baseCommand());
+    expect(withField).not.toContain('## Capabilities');
+    expect(withField).toBe(without);
+  });
+
+  // TRD-2026-8d825f54 PR 5 review P3: a present-but-empty `capabilities: {required: [],
+  // optional: []}` declaration (the schema's own default shape) must render nothing, exactly
+  // like the absent case above, matching Claude/Pi/Codex's own length-gating.
+  it('omits the Capabilities section when metadata.capabilities is present but both lists are empty', () => {
+    const empty = translator.translateToMarkdown(baseCommand({ required: [], optional: [] }));
+    const absent = translator.translateToMarkdown(baseCommand());
+    expect(empty).not.toContain('## Capabilities');
+    expect(empty).toBe(absent);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OC-S1-CMD-006: Expected output section rendering
 // ---------------------------------------------------------------------------
 describe('OC-S1-CMD-006: Expected output section', () => {

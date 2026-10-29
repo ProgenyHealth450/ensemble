@@ -221,12 +221,12 @@ describe('OC-S2-HK-002: discoverHooksFiles', () => {
     }
   });
 
-  it('should find router hooks.json', () => {
+  it('should find permitter hooks.json', () => {
     const results = discoverHooksFiles(ROOT);
-    const router = results.find(r =>
-      r.filePath.includes('router')
+    const permitter = results.find(r =>
+      r.filePath.includes('permitter')
     );
-    expect(router).toBeDefined();
+    expect(permitter).toBeDefined();
   });
 });
 
@@ -525,18 +525,18 @@ describe('OC-S2-TEST-007: Comprehensive hook parsing and environment bridging', 
       expect(result.length).toBe(0);
     });
 
-    it('should not extract hooks from router package (UserPromptSubmit only)', () => {
+    it('should not extract hooks from permitter package (PermissionRequest only)', () => {
       const hooksJson = JSON.parse(
         fs.readFileSync(
-          path.join(ROOT, 'packages/router/hooks/hooks.json'),
+          path.join(ROOT, 'packages/permitter/hooks/hooks.json'),
           'utf-8'
         )
       );
       const result = parseHooksJson(
         hooksJson,
-        path.join(ROOT, 'packages/router')
+        path.join(ROOT, 'packages/permitter')
       );
-      // router only has UserPromptSubmit, which is not bridgeable
+      // permitter only has PermissionRequest, which is not bridgeable
       expect(result).toEqual([]);
     });
   });

@@ -136,3 +136,40 @@ describe('validateCommandSchema — metadata.visibility', () => {
     }
   });
 });
+
+describe('validateCommandSchema — metadata.capabilities', () => {
+  const withCapabilities = (capabilities) => {
+    const cmd = baseCommand(undefined);
+    delete cmd.dispatch;
+    cmd.metadata.capabilities = capabilities;
+    return cmd;
+  };
+  const FILE = '/repo/packages/development/commands/x.yaml';
+
+  test('accepts a command YAML with capabilities: {required: [tracker.show], optional: [work-graph.ready]}', () => {
+    expect(() =>
+      validateCommandSchema(withCapabilities({ required: ['tracker.show'], optional: ['work-graph.ready'] }), FILE)
+    ).not.toThrow();
+  });
+
+  test('rejects an id that does not match the <category>.<capability> pattern', () => {
+    let thrown;
+    try {
+      validateCommandSchema(withCapabilities({ required: ['trackershow'] }), FILE);
+    } catch (errors) {
+      thrown = errors;
+    }
+    expect(Array.isArray(thrown)).toBe(true);
+    expect(thrown.some((e) => /capabilities/.test(e.path || e.field || e.message || String(e)))).toBe(true);
+  });
+
+  test('rejects an unknown key inside the capabilities object', () => {
+    let thrown;
+    try {
+      validateCommandSchema(withCapabilities({ wanted: ['tracker.show'] }), FILE);
+    } catch (errors) {
+      thrown = errors;
+    }
+    expect(Array.isArray(thrown)).toBe(true);
+  });
+});

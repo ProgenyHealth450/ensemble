@@ -1,3 +1,8 @@
+---
+name: staleness-gate
+description: Detect whether a TRD is stale before implementation and invoke /ensemble:refine-trd to refresh it, halting if refinement fails. Use before implementing a TRD; not after implementation is underway without a resume check.
+---
+
 # TRD Staleness Gate
 
 Detect whether a TRD is stale before implementation begins. If stale, invoke

@@ -32,7 +32,6 @@
     "@sunstone-partners/ensemble-infrastructure": "^6.0.0",
     "@sunstone-partners/ensemble-git": "^6.0.0",
     "@sunstone-partners/ensemble-e2e-testing": "^6.0.0",
-    "@sunstone-partners/ensemble-metrics": "^6.0.0",
     "@sunstone-partners/ensemble-react": "^6.0.0",
     "@sunstone-partners/ensemble-nestjs": "^5.0.0",
     "@sunstone-partners/ensemble-rails": "^5.0.0",
@@ -42,7 +41,6 @@
     "@sunstone-partners/ensemble-jest": "^5.0.0",
     "@sunstone-partners/ensemble-pytest": "^5.0.0",
     "@sunstone-partners/ensemble-rspec": "^5.0.0",
-    "@sunstone-partners/ensemble-router": "^5.0.0",
     "@sunstone-partners/ensemble-permitter": "^5.0.0",
     "@sunstone-partners/ensemble-xunit": "^5.0.0",
     "@sunstone-partners/ensemble-exunit": "^5.0.0"
