@@ -29,7 +29,7 @@ The repository is an npm monorepo under `packages/`. Each package is both an npm
 | `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `/ensemble:fold-prompt`, `/ensemble:sessionlog`, `/ensemble:reinstall-plugins`, `ensemble-orchestrator` agent |
 | `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher |
 | `ensemble-development` | 7.0.1 | TRD, beads, feature and issue workflows, language skills, orchestrator agents |
-| `ensemble-quality` | 6.0.1 | `pr-review-remediation` skill, `code-reviewer`, `deep-debugger`, `test-runner` agents |
+| `ensemble-quality` | 6.0.1 | `pr-review-remediation` and `flake-reproduction` skills, `code-reviewer`, `deep-debugger`, `test-runner` agents |
 | `ensemble-infrastructure` | 6.0.0 | Cloud and vendor skills (`aws`, `kubernetes`, `jira`, ...), infrastructure agents |
 | `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`, git skills, `git-workflow` agent |
 | `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`, `smoke-test-runner`, `writing-playwright-tests`, `playwright-tester` agent |
@@ -627,6 +627,7 @@ The test-skill helpers print a JSON result with `success`, `passed`, `failed`, `
 | Skill | When to use |
 | --- | --- |
 | `pr-review-remediation` | Verifying and fixing findings from CodeRabbit or another review agent |
+| `flake-reproduction` | A test fails intermittently, in one CI partition or only after another test: reproduce with the logged replay handle, capture the failing output, root-cause it and keep a red-run record. Edit the recipe in `packages/quality/skills/flake-reproduction/` (defaults table in `SKILL.md`, stack commands in `recipes/`); it never retries, quarantines, skips or loosens a test |
 
 ### `ensemble-e2e-testing`
 

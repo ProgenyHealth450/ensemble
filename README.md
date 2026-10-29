@@ -138,7 +138,7 @@ Versions below are taken from each package's `package.json`.
 | `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
 | `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`, `reqnroll`) and the product-management orchestrator |
 | `ensemble-development` | 7.0.1 | TRD, Beads, feature and issue workflows; language skills; development agents |
-| `ensemble-quality` | 6.0.1 | `pr-review-remediation` skill; code-reviewer, deep-debugger, test-runner agents |
+| `ensemble-quality` | 6.0.1 | `pr-review-remediation` and `flake-reproduction` skills; code-reviewer, deep-debugger, test-runner agents |
 | `ensemble-infrastructure` | 6.0.0 | Cloud, Kubernetes, Helm, Fly.io, Railway, Supabase, Vercel, Jira and Linear skills; infrastructure agents |
 | `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
 | `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`; `smoke-test-runner`, `writing-playwright-tests` skills; `playwright-tester` agent |
@@ -420,7 +420,7 @@ Skill directories use the bare technology name. The tree has 58 source skill dir
 | development | `completion-verification`, `pr-review-cycle`, `pr-review-eval`, `pr-review-explainer`, `pr-review-sweep`, `staleness-gate`, `tool-path-resolution` |
 | infrastructure | `aws`, `kubernetes`, `helm`, `flyio`, `railway`, `supabase`, `vercel`, `jira`, `linear` |
 | git | `git-town`, `changelog-generator`, `act-local-ci` |
-| quality | `pr-review-remediation` |
+| quality | `pr-review-remediation`, `flake-reproduction` |
 | e2e-testing | `smoke-test-runner`, `writing-playwright-tests` |
 | ai | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` |
 | assessment | `ensemble-assess` and the 22 assessment skills listed under [Assessment](#assessment) |
