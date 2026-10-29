@@ -893,3 +893,15 @@ The review is equivalent on **Claude Code** and **Pi**: both carry the same proc
 On **Codex** and **OpenCode** the capability is **reduced**: both generate the command entry points, but neither bundles the `pr-review-*` procedure skills or a vendored CLI, so the graded steps do not run there. This is stated rather than papered over — see `docs/reports/pr-review-cross-runtime-reachability.md`.
 
 No part of the in-agent review requires a new CI secret, and nothing on the review path makes a network call. A credential that appears in a diff is redacted at the CLI's output boundary, so it is not reproduced in a finding, a PR comment or a ledger entry.
+
+### 11.8 Asking for a review
+
+You do not need a command to start a review. The `pr-review-request` skill routes three plain requests to `pr-review-cycle` (Claude Code and Pi):
+
+| Say | What happens |
+| --- | --- |
+| "review PR #123" (or a PR URL) | Reviews that PR's current head with the full process above. Reads and reports only: nothing is pushed, commented, approved or resolved on the PR, and a fix the cycle produces stays in its isolated worktree for the author or you to apply. |
+| "review open PRs" | Lists the open PRs, asks which to review when there are more than three, then reviews them one at a time. |
+| "review local changes" | Reviews your working tree (including untracked files) against the default branch. These are your own changes, so the batch fix is applied to the working tree; nothing is committed. |
+
+To merge rather than review, use `/ensemble:pr-merge`, which runs the review as part of its merge gate.
