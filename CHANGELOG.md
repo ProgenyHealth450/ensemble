@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **e2e-testing:** `/ensemble:author-playwright-tests` now captures an end-state screenshot for every authored test, pass or fail, through a framework-neutral `EvidenceCapture` C# scope that the command adds to the E2E project and requires in every proposed test; a run with no screenshot is rejected. Files go to `E2E_EVIDENCE_DIR` (outside the repo) and are attached to the synced ADO Test Case via `E2E_EVIDENCE_ATTACH_CMD`, because the Azure DevOps MCP cannot upload. The `writing-playwright-tests` skill and config template now set `screenshot: 'on'` instead of `'only-on-failure'`. See [Environment Variables](docs/guides/environment-variables.md).
 - **e2e-testing:** `/ensemble:author-playwright-tests` now writes xUnit tests as well as NUnit. It detects the consuming E2E project's framework from its package references and passes it to the authoring agent and `spec-writer`; xUnit projects that build their own page per test (core `Microsoft.Playwright` with a `[Collection]` fixture) are supported, and NUnit output is unchanged.
 
+### Changed
+
+- **packages/development:** BDD/Reqnroll stays on by default in `/ensemble:create-trd` and `/ensemble:implement-trd-beads`, and a repo that does not use it can opt out. One resolver, `trd-cli resolve-bdd`, decides from `--bdd` / `--no-bdd`, the `ENSEMBLE_BDD` environment variable, or the TRD's `test_approach` frontmatter; with `--no-bdd` or `ENSEMBLE_BDD=0` the standard path is used and nothing is scaffolded through Reqnroll. Nothing changes for a repo that does not opt out. See [Optional BDD](packages/development/README.md#optional-bdd-reqnroll).
+
 ### Removed
 
 - **packages/router, packages/metrics:** the `ensemble-router` and `ensemble-metrics` packages (routing hook; dashboard hooks and `/ensemble:manager-dashboard` with `manager-dashboard-agent`). The router hook registration is dropped from `packages/full/hooks/hooks.json`; `ensemble-permitter` stays. Telemetry lives in `packages/telemetry`.
