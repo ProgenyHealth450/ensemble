@@ -236,19 +236,28 @@ describe('TRD-030 AC-019-2: the noise rate, and what is never invented', () => {
 describe('TRD-030 AC-019-1: the library reproduces the committed baseline exactly', () => {
   const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
 
-  /** The runbook's own cohort query. Returns null when gh cannot answer. */
+  /**
+   * The runbook's own cohort query, bounded to the cohort the baseline captured.
+   * Merged PRs keep accumulating, so an unbounded query stops matching the
+   * committed numbers the day after the baseline is written; only PRs created
+   * on or before the baseline's latest creation date belong to it.
+   * Returns null when gh cannot answer.
+   */
   function fetchCohort() {
     try {
       execFileSync('gh', ['auth', 'status'], { stdio: 'ignore' });
     } catch (err) {
       return null;
     }
+    const cutoff = Date.parse(baseline.cohort.latest_created_at);
     const numbers = JSON.parse(
-      execFileSync('gh', ['pr', 'list', '--repo', baseline.repository, '--state', 'merged', '--limit', '1000', '--json', 'number'], {
+      execFileSync('gh', ['pr', 'list', '--repo', baseline.repository, '--state', 'merged', '--limit', '1000', '--json', 'number,createdAt'], {
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
       })
-    ).map((entry) => entry.number);
+    )
+      .filter((entry) => Date.parse(entry.createdAt) <= cutoff)
+      .map((entry) => entry.number);
 
     return numbers.map((number) =>
       JSON.parse(
