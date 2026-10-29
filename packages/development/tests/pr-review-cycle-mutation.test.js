@@ -440,7 +440,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2a',
     label:
       'Scenario: ignoring actionableCount in localPhase lets an unresolved finding slip through -- "a single local blocker keeps the local phase pending, not complete: unresolved finding" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: unresolved finding',
@@ -451,7 +451,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2b',
     label:
       'Scenario: ignoring isStale in localPhase lets a stale reviewed-head SHA slip through -- "a single local blocker keeps the local phase pending, not complete: stale SHA" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: stale SHA',
@@ -462,7 +462,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2c',
     label:
       'Scenario: dropping the tests condition from the local phase lets failed tests publish -- "a single local blocker keeps the local phase pending, not complete: failed test" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: failed test',
@@ -475,7 +475,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2d',
     label:
       'Scenario: dropping remotePhase from fullyComplete lets a pending remote review slip through -- "each blocker alone prevents completion: pending review" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'each blocker alone prevents completion: pending review',
@@ -487,7 +487,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2e',
     label:
       'Scenario: disabling the required-facts gate lets missing facts through -- "a missing baseSha is never complete: blocked" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a missing baseSha is never complete: blocked',
@@ -496,24 +496,98 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Guard 3 -- round cap: MAX_AUTO_ROUNDS=2 must actually block further
+// Guard 3 -- round cap: the shared roundCap (default 3) must actually block further
 // automatic rounds once the cap is reached with actionable findings.
+//
+// Two mutants, because a cap has two ways to be useless (TRD-014, AC-025-1 and
+// AC-025-2): 3a never stops the loop, 3b stops it whatever the repository
+// configured. The second is the case that must be REFUSED -- a gate that
+// always blocks would pass 3a's test while making the configured cap a lie.
 // ---------------------------------------------------------------------------
 
-describe('Guard 3: round cap MAX_AUTO_ROUNDS=2 (pr-review-status.js)', () => {
+describe('Guard 3: round cap roundCap (pr-review-status.js)', () => {
   proveGuardMutationIsCaught({
-    id: 'Guard 3',
+    id: 'Guard 3a',
     label:
       'Scenario: disabling roundLimitReached lets the cap be exceeded -- "round limit never completes" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'round limit never completes',
     mutate: (text, a) =>
       a.replace(
         text,
-        'const roundLimitReached = actionableCount > 0 && roundsUsed >= MAX_AUTO_ROUNDS;',
+        'const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;',
         'const roundLimitReached = false;'
+      ),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 3b',
+    label:
+      'Scenario: ignoring roundCap makes every open finding "at the cap" -- "a larger repository cap really does allow another round before the block" fails against the mutant',
+    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a larger repository cap really does allow another round before the block',
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        'const roundLimitReached = actionableCount > 0 && roundsUsed >= roundCap;',
+        'const roundLimitReached = actionableCount > 0;'
+      ),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 3c/3d -- cross-round repeat suppression in lib/pr-review-ledger.js
+// (TRD-014, AC-025-1 and AC-025-2). Suppression also has two failure modes,
+// and both are proven here: 3c stops recognising a repeat, so the author is
+// asked the same question every round; 3d recognises too much, so a genuinely
+// new defect is swallowed as a repeat of an unrelated one. The second is the
+// case that must be refused -- "nothing new this round" is the one answer this
+// module must never give wrongly.
+// ---------------------------------------------------------------------------
+
+describe('Guard 3c/3d: cross-round repeat suppression (pr-review-ledger.js)', () => {
+  const LEDGER_FILES = [
+    'lib/pr-review-ledger.js',
+    'lib/pr-review-state.js',
+    'lib/pr-review-scope.js',
+    'tests/pr-review-repeats.test.js',
+  ];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 3c',
+    label:
+      'Scenario: removing the already-recorded check re-posts every finding each round -- "the same defect in a later round is classified as a repeat and is not presented" fails against the mutant',
+    files: LEDGER_FILES,
+    targetRel: 'lib/pr-review-ledger.js',
+    testFileRel: 'tests/pr-review-repeats.test.js',
+    testTitle: 'the same defect in a later round is classified as a repeat and is not presented',
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        'if (fingerprint !== null && firstByFingerprint.has(fingerprint) && firstByFingerprint.get(fingerprint).cleared !== true) {',
+        'if (fingerprint !== null && firstByFingerprint.has(fingerprint) && firstByFingerprint.get(fingerprint).cleared !== true && false) {'
+      ),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 3d',
+    label:
+      'Scenario: dropping the failure mode from the fingerprint swallows a new defect as a repeat -- "negative control: a different file or a different failure mode is a new finding, not a repeat" fails against the mutant',
+    files: LEDGER_FILES,
+    targetRel: 'lib/pr-review-ledger.js',
+    testFileRel: 'tests/pr-review-repeats.test.js',
+    testTitle: 'negative control: a different file or a different failure mode is a new finding, not a repeat',
+    // The identity stays well-formed and consistent -- only the failure mode
+    // leaves it -- so every finding in one file collapses onto the first one.
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        'return `${path}::${mode}::${className === null ? \'\' : className.toLowerCase()}`;',
+        'return `${path}::any::${className === null ? \'\' : className.toLowerCase()}`;'
       ),
   });
 });
@@ -645,6 +719,195 @@ describe('Guard 8: fix-issue local review gate is keyed on exactly LOCAL_REVIEW_
         "'LOCAL_REVIEW_COMPLETE' (exact match) proceeds",
         "'LOCAL_REVIEW_COMPLETE' or 'LOCAL_REVIEW_PENDING' (exact match) proceeds"
       ),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 10 -- the verification vote threshold in lib/pr-review-votes.js
+// (TRD-021, AC-025-1 and AC-025-2). The threshold also has two failure modes
+// and both are proven: 10a lets a finding no majority verified through as
+// `present`, so "verified" would mean nothing; 10b drops the critical/security
+// bypass, so a rejected security finding would be filtered away instead of
+// going to a person. 10b is the case that must be REFUSED -- a threshold that
+// simply obeys the vote would pass 10a's test while silently closing the one
+// class of finding a vote may never close.
+// ---------------------------------------------------------------------------
+
+describe('Guard 10: verification vote threshold (pr-review-votes.js)', () => {
+  const VOTE_FILES = ['lib/pr-review-votes.js', 'tests/pr-review-votes.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 10a',
+    label:
+      'Scenario: relaxing the majority comparison to a single vote waves through an unverified finding -- "1 of 3 real votes does not present it: it is filtered as verifier-rejected" fails against the mutant',
+    files: VOTE_FILES,
+    targetRel: 'lib/pr-review-votes.js',
+    testFileRel: 'tests/pr-review-votes.test.js',
+    testTitle: '1 of 3 real votes does not present it: it is filtered as verifier-rejected',
+    // Still a real comparison against a real count, so the module keeps working
+    // -- it just stops being a majority.
+    mutate: (text, a) => a.replace(text, 'if (votes.counted.real >= needed) {', 'if (votes.counted.real >= 1) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 10b',
+    label:
+      'Scenario: dropping the critical/security bypass lets a vote close a security finding -- "a security finding rejected by every verifier is disputed, not filtered" fails against the mutant',
+    files: VOTE_FILES,
+    targetRel: 'lib/pr-review-votes.js',
+    testFileRel: 'tests/pr-review-votes.test.js',
+    testTitle: 'a security finding rejected by every verifier is disputed, not filtered',
+    mutate: (text, a) =>
+      a.replace(
+        text,
+        "    if (isSecurityLane(finding)) {\n      // Critical and security-relevant findings are never closed by a vote:",
+        "    if (false) {\n      // Critical and security-relevant findings are never closed by a vote:"
+      ),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 11 -- the sensitive-path floor in lib/pr-review-tier.js (TRD-028,
+// AC-025-1 and AC-025-2). A floor has two failure modes and both are proven:
+// 11a removes it, so a PR touching a sensitive path is graded on its change
+// kinds alone and can be Low; 11b applies it to everything, so the floor
+// stops being a floor and becomes a constant. 11b is the case that must be
+// REFUSED -- a tier that is always High would pass 11a's test while making
+// the tier decision meaningless.
+// ---------------------------------------------------------------------------
+
+describe('Guard 11: sensitive-path tier floor (pr-review-tier.js)', () => {
+  const TIER_FILES = ['lib/pr-review-tier.js', 'tests/pr-review-tier.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 11a',
+    label:
+      'Scenario: removing the sensitive floor lets a sensitive path be graded Low -- "a sensitive path is High whatever the classifier concluded (AC-013-3)" fails against the mutant',
+    files: TIER_FILES,
+    targetRel: 'lib/pr-review-tier.js',
+    testFileRel: 'tests/pr-review-tier.test.js',
+    testTitle: 'a sensitive path is High whatever the classifier concluded (AC-013-3)',
+    // Still a real read of a real classification -- it just never finds one.
+    mutate: (text, a) => a.replace(text, "  if (classification.sensitive.length > 0) {\n    floor = 'high';", "  if (classification.sensitive.length < 0) {\n    floor = 'high';"),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 11b',
+    label:
+      'Scenario: flooring every PR to High makes the floor a constant -- "documentation, copy and additive-behind-flag changes are Low" fails against the mutant',
+    files: TIER_FILES,
+    targetRel: 'lib/pr-review-tier.js',
+    testFileRel: 'tests/pr-review-tier.test.js',
+    testTitle: 'documentation, copy and additive-behind-flag changes are Low',
+    mutate: (text, a) => a.replace(text, "  if (classification.sensitive.length > 0) {\n    floor = 'high';", "  if (classification.sensitive.length >= 0) {\n    floor = 'high';"),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 12 -- approval binding in lib/pr-review-approvals.js (TRD-028,
+// AC-025-1 and AC-025-2): the bot filter and the commit/tree comparison are
+// the two things that make "a human approval, on this commit" true. 12a lets
+// an automated approval count; 12b lets an approval given on an older commit
+// with a different tree keep counting; 12c is the case that must be REFUSED
+// -- dropping the tree comparison altogether would pass 12b's test while
+// discarding approvals of commits that changed nothing.
+// ---------------------------------------------------------------------------
+
+describe('Guard 12: bot filter and commit binding (pr-review-approvals.js)', () => {
+  const APPROVAL_FILES = ['lib/pr-review-approvals.js', 'lib/pr-review-tier.js', 'tests/pr-review-approvals.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 12a',
+    label:
+      'Scenario: dropping the bot filter counts an automated approval as a person -- "a bot approval never fills the required human slot" fails against the mutant',
+    files: APPROVAL_FILES,
+    targetRel: 'lib/pr-review-approvals.js',
+    testFileRel: 'tests/pr-review-approvals.test.js',
+    testTitle: 'a bot approval never fills the required human slot',
+    mutate: (text, a) => a.replace(text, '    const automated = automatedReason(login, review, botLogins);\n    if (automated !== null) {', '    const automated = automatedReason(login, review, botLogins);\n    if (automated === null && automated !== null) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 12b',
+    label:
+      'Scenario: accepting any reviewed commit unbinds approval from the head -- "a stale approval never fills the required human slot" fails against the mutant',
+    files: APPROVAL_FILES,
+    targetRel: 'lib/pr-review-approvals.js',
+    testFileRel: 'tests/pr-review-approvals.test.js',
+    testTitle: 'a stale approval never fills the required human slot',
+    mutate: (text, a) => a.replace(text, "  if (tree !== null && headTreeSha !== null && tree === headTreeSha) return null;\n  return 'stale-commit';", "  if (tree !== null && headTreeSha !== null && tree === headTreeSha) return null;\n  return null;"),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 12c',
+    label:
+      'Scenario: discarding the tree comparison throws away an approval of an identical tree -- "an approval on another commit whose tree EQUALS the head tree still counts" fails against the mutant',
+    files: APPROVAL_FILES,
+    targetRel: 'lib/pr-review-approvals.js',
+    testFileRel: 'tests/pr-review-approvals.test.js',
+    testTitle: 'an approval on another commit whose tree EQUALS the head tree still counts',
+    mutate: (text, a) => a.replace(text, '  if (tree !== null && headTreeSha !== null && tree === headTreeSha) return null;', '  if (tree !== null && headTreeSha !== null && tree !== headTreeSha) return null;'),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 13 -- the merge gate in lib/pr-review-gate.js (TRD-028, AC-025-1 and
+// AC-025-2): the blocking security lane and the open-Important block are the
+// two refusals that stand between a reviewed PR and the merge button. 13a and
+// 13c remove each refusal; 13b and 13d are the cases that must be REFUSED --
+// a gate that blocks on an answered finding, or on a security finding closed
+// with a stated reason, would pass 13a and 13c while never letting any PR
+// merge, which is not a gate either.
+// ---------------------------------------------------------------------------
+
+describe('Guard 13: security block and answered-findings merge block (pr-review-gate.js)', () => {
+  // The gate's require closure reaches most of the review libraries, so the
+  // whole lib/ directory is mirrored; only lib/pr-review-gate.js is mutated.
+  const GATE_FILES = ['lib', 'tests/pr-review-gate.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13a',
+    label:
+      'Scenario: recording an open security finding without blocking on it lets the PR merge -- "an open security finding blocks the merge and names it" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'an open security finding blocks the merge and names it',
+    // The finding is still recorded as open -- it just stops refusing the merge.
+    mutate: (text, a) => a.replace(text, '    record.open.push(id);\n    blockers.push(\n      blocker(\n        BLOCKER_CODES.SECURITY_FINDING_OPEN,', '    record.open.push(id);\n    warnings.push(\n      blocker(\n        BLOCKER_CODES.SECURITY_FINDING_OPEN,'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13b',
+    label:
+      'Scenario: ignoring a recorded resolution blocks a security finding the author already answered -- "a security finding closed with a stated reason stops blocking and the reason is recorded (AC-017-3)" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'a security finding closed with a stated reason stops blocking and the reason is recorded (AC-017-3)',
+    mutate: (text, a) => a.replace(text, '    const reason = resolutionReason(entry);\n    if (reason !== null && !isActionable(entry)) {', '    const reason = resolutionReason(entry);\n    if (reason === null && !isActionable(entry)) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13c',
+    label:
+      'Scenario: treating every ledger finding as answered waves an open Important finding through -- "an open Important finding refuses the merge and names the finding" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'an open Important finding refuses the merge and names the finding',
+    mutate: (text, a) => a.replace(text, '          if (!isActionable(entry)) continue;', '          if (isActionable(entry) || !isActionable(entry)) continue;'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 13d',
+    label:
+      'Scenario: treating every ledger finding as open blocks a PR whose findings were answered -- "an Important finding answered with a recorded reason stops blocking" fails against the mutant',
+    files: GATE_FILES,
+    targetRel: 'lib/pr-review-gate.js',
+    testFileRel: 'tests/pr-review-gate.test.js',
+    testTitle: 'an Important finding answered with a recorded reason stops blocking',
+    mutate: (text, a) => a.replace(text, '          if (!isActionable(entry)) continue;', '          if (isActionable(entry) && !isActionable(entry)) continue;'),
   });
 });
 
@@ -825,7 +1088,7 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy B',
-          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
           targetRel: 'lib/pr-review-status.js',
           testFileRel: 'tests/pr-review-status.test.js',
           testTitle: 'round limit never completes',
@@ -838,7 +1101,7 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy C',
-          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'tests/pr-review-status.test.js'],
+          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
           targetRel: 'lib/pr-review-status.js',
           testFileRel: 'tests/pr-review-status.test.js',
           testTitle: 'a test title that does not exist anywhere',

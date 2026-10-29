@@ -1,6 +1,6 @@
 const {
   deriveStatus,
-  MAX_AUTO_ROUNDS,
+  DEFAULT_ROUND_CAP,
   STATUSES,
   LOCAL_PHASES,
   REMOTE_PHASES,
@@ -24,7 +24,7 @@ function baseFacts(overrides = {}) {
     reviewedHeadSha: HEAD_SHA,
     roundsUsed: 0,
     findingCounts: { total: 0, actionable: 0, deferred: 0 },
-    tests: { passed: true, skipped: false, command: 'npx jest tests/foo.test.js' },
+    tests: { exitCode: 0, skipped: false, command: 'npx jest tests/foo.test.js' },
     remotePhase: 'REMOTE_REVIEW_COMPLETE',
     access: { ok: true },
     reportPath: '.ensemble/pr-review/pr-1.json',
@@ -39,9 +39,39 @@ function without(key) {
   return facts;
 }
 
-describe('pr-review-status: MAX_AUTO_ROUNDS', () => {
-  test('is bounded at 2', () => {
-    expect(MAX_AUTO_ROUNDS).toBe(2);
+describe('pr-review-status: DEFAULT_ROUND_CAP', () => {
+  test('is the shared default of 3, taken from the policy loader and not kept privately here', () => {
+    expect(DEFAULT_ROUND_CAP).toBe(3);
+    expect(DEFAULT_ROUND_CAP).toBe(require('../lib/pr-review-policy').DEFAULT_ROUND_CAP);
+  });
+
+  test('a repository cap from the policy is the one used, and it is reported', () => {
+    const result = deriveStatus(baseFacts({ roundCap: 1, roundsUsed: 1, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+    expect(result.rounds).toEqual({ used: 1, max: 1 });
+    expect(result.contract.roundCap).toBe(1);
+    expect(result.status).toBe('REVIEW_BLOCKED');
+  });
+
+  test('a cap outside 1-5, or one that is not an integer, never widens the budget', () => {
+    for (const roundCap of [0, 6, 99, 2.5, '5']) {
+      const result = deriveStatus(baseFacts({ roundCap, roundsUsed: 3, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+      expect(result.rounds.max).toBe(DEFAULT_ROUND_CAP);
+      expect(result.status).toBe('REVIEW_BLOCKED');
+    }
+  });
+
+  test('an invalid cap says so in the reasons rather than being silently swapped', () => {
+    const result = deriveStatus(baseFacts({ roundCap: 9 }));
+    expect(result.reasons.some((reason) => /invalid roundCap/.test(reason))).toBe(true);
+  });
+
+  test('a larger repository cap really does allow another round before the block', () => {
+    const facts = { roundsUsed: 3, findingCounts: { total: 1, actionable: 1, deferred: 0 } };
+    expect(deriveStatus(baseFacts({ ...facts })).status).toBe('REVIEW_BLOCKED');
+
+    const wider = deriveStatus(baseFacts({ ...facts, roundCap: 5 }));
+    expect(wider.status).toBe('REVIEW_PENDING');
+    expect(wider.next).toBe('run-fix-round');
   });
 });
 
@@ -58,28 +88,28 @@ describe('pr-review-status: deriveStatus', () => {
     expect(result.baseSha).toBe(BASE_SHA);
     expect(result.headSha).toBe(HEAD_SHA);
     expect(result.prUrl).toBe('https://github.com/org/repo/pull/1');
-    expect(result.rounds).toEqual({ used: 1, max: MAX_AUTO_ROUNDS });
+    expect(result.rounds).toEqual({ used: 1, max: DEFAULT_ROUND_CAP });
     expect(result.findingCounts).toEqual({ total: 0, actionable: 0, deferred: 0 });
-    expect(result.tests).toEqual({ passed: true, skipped: false, command: 'npx jest tests/foo.test.js' });
+    expect(result.tests).toEqual({ exitCode: 0, passed: true, skipped: false, command: 'npx jest tests/foo.test.js' });
     expect(result.reportPath).toBe('.ensemble/pr-review/pr-1.json');
   });
 
-  test('at most two rounds -- roundsUsed at the cap with an unresolved finding permits no further automatic round', () => {
+  test('the cap holds -- roundsUsed at the cap with an unresolved finding permits no further automatic round', () => {
     const result = deriveStatus(
-      baseFacts({ roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
+      baseFacts({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
     );
     expect(result.next).not.toMatch(/auto|another-round|fix-round/i);
   });
 
   test('round limit never completes -- the cap is reached with actionable findings', () => {
     const result = deriveStatus(
-      baseFacts({ roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
+      baseFacts({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } })
     );
     expect(result.status).not.toBe('REVIEW_COMPLETE');
     expect(result.status).toBe('REVIEW_BLOCKED');
     expect(result.localPhase).toBe('LOCAL_REVIEW_BLOCKED');
-    expect(result.reasons).toContain('round limit reached');
-    expect(result.next).toBe('escalate-to-human');
+    expect(result.reasons.some((reason) => /round cap reached/.test(reason))).toBe(true);
+    expect(result.next).toBe('reconsider-approach-with-author');
   });
 
   test('unauthorized access blocks -- a 403 from review retrieval names the access problem', () => {
@@ -97,13 +127,13 @@ describe('pr-review-status: deriveStatus', () => {
   });
 
   test('failed required check prevents completion', () => {
-    const result = deriveStatus(baseFacts({ tests: { passed: false, skipped: false, command: 'npx jest x' } }));
+    const result = deriveStatus(baseFacts({ tests: { exitCode: 1, skipped: false, command: 'npx jest x' } }));
     expect(result.status).not.toBe('REVIEW_COMPLETE');
   });
 
   test.each([
     ['unresolved finding', { findingCounts: { total: 1, actionable: 1, deferred: 0 } }],
-    ['failed test', { tests: { passed: false, skipped: false, command: 'npx jest x' } }],
+    ['failed test', { tests: { exitCode: 1, skipped: false, command: 'npx jest x' } }],
     ['pending review', { remotePhase: 'REMOTE_REVIEW_PENDING' }],
     ['stale SHA', { reviewedHeadSha: OTHER_SHA }],
   ])('each blocker alone prevents completion: %s', (_label, overrides) => {
@@ -129,13 +159,13 @@ describe('pr-review-status: deriveStatus', () => {
   });
 
   test('skip-tests keeps local review complete but the overall status is not REVIEW_COMPLETE', () => {
-    const result = deriveStatus(baseFacts({ tests: { passed: false, skipped: true, command: 'npx jest x' } }));
+    const result = deriveStatus(baseFacts({ tests: { skipped: true, command: 'npx jest x' } }));
     expect(result.localPhase).toBe('LOCAL_REVIEW_COMPLETE');
     expect(result.status).not.toBe('REVIEW_COMPLETE');
   });
 
   test('skip-tests reports its reason and the test command to run', () => {
-    const result = deriveStatus(baseFacts({ tests: { passed: false, skipped: true, command: 'npx jest x' } }));
+    const result = deriveStatus(baseFacts({ tests: { skipped: true, command: 'npx jest x' } }));
     expect(result.status).toBe('REVIEW_PENDING');
     expect(result.reasons).toContain('tests skipped');
     expect(result.tests.command).toBe('npx jest x');
@@ -148,12 +178,12 @@ describe('pr-review-status: closed vocabulary', () => {
     'remote pending': baseFacts({ remotePhase: 'REMOTE_REVIEW_PENDING' }),
     'actionable finding with rounds left': baseFacts({ findingCounts: { total: 1, actionable: 1, deferred: 0 } }),
     'round limit reached': baseFacts({
-      roundsUsed: MAX_AUTO_ROUNDS,
+      roundsUsed: DEFAULT_ROUND_CAP,
       findingCounts: { total: 1, actionable: 1, deferred: 0 },
     }),
     'stale head': baseFacts({ reviewedHeadSha: OTHER_SHA }),
-    'tests failed': baseFacts({ tests: { passed: false, skipped: false, command: 'npx jest x' } }),
-    'tests skipped': baseFacts({ tests: { passed: false, skipped: true, command: 'npx jest x' } }),
+    'tests failed': baseFacts({ tests: { exitCode: 1, skipped: false, command: 'npx jest x' } }),
+    'tests skipped': baseFacts({ tests: { skipped: true, command: 'npx jest x' } }),
     'access failure': baseFacts({ access: { ok: false, reason: '403 Forbidden' } }),
     'missing facts': {},
     'no argument': undefined,
@@ -236,7 +266,7 @@ describe('pr-review-status: fails closed on missing or invalid facts', () => {
   });
 
   test('the payloads that used to complete on almost no facts are no longer complete', () => {
-    const noReviewFacts = deriveStatus({ remotePhase: 'REMOTE_REVIEW_COMPLETE', tests: { passed: true } });
+    const noReviewFacts = deriveStatus({ remotePhase: 'REMOTE_REVIEW_COMPLETE', tests: { exitCode: 0 } });
     expect(noReviewFacts.status).not.toBe('REVIEW_COMPLETE');
     expect(noReviewFacts.localPhase).not.toBe('LOCAL_REVIEW_COMPLETE');
 
@@ -244,7 +274,7 @@ describe('pr-review-status: fails closed on missing or invalid facts', () => {
       headSha: 'a',
       findingCounts: { actionable: undefined, total: 3, deferred: 0 },
       remotePhase: 'REMOTE_REVIEW_COMPLETE',
-      tests: { passed: true },
+      tests: { exitCode: 0 },
     });
     expect(undefinedActionable.status).not.toBe('REVIEW_COMPLETE');
     expect(undefinedActionable.localPhase).not.toBe('LOCAL_REVIEW_COMPLETE');
@@ -292,7 +322,7 @@ describe('pr-review-status: localPhase is the only publication gate', () => {
 
   test.each([
     ['unresolved finding', { findingCounts: { total: 1, actionable: 1, deferred: 0 } }],
-    ['failed test', { tests: { passed: false, skipped: false, command: 'npx jest x' } }],
+    ['failed test', { tests: { exitCode: 1, skipped: false, command: 'npx jest x' } }],
     ['stale SHA', { reviewedHeadSha: OTHER_SHA }],
   ])('a single local blocker keeps the local phase pending, not complete: %s', (_label, overrides) => {
     const result = deriveStatus(baseFacts(overrides));
@@ -324,7 +354,7 @@ describe('pr-review-status: localPhase is the only publication gate', () => {
         facts.findingCounts = { total: 1, actionable: 1, deferred: 0 };
       },
       tests: (facts) => {
-        facts.tests = { passed: false, skipped: false, command: 'npx jest x' };
+        facts.tests = { exitCode: 1, skipped: false, command: 'npx jest x' };
       },
       access: (facts) => {
         facts.access = { ok: false, reason: 'unavailable' };
@@ -449,19 +479,19 @@ describe('pr-review-status: roundsUsed must be a non-negative integer', () => {
   test.each([0, 1, 2, 3, 10])('roundsUsed %p is a valid count', (roundsUsed) => {
     const result = deriveStatus(baseFacts({ roundsUsed }));
     expect(result.status).toBe('REVIEW_COMPLETE');
-    expect(result.rounds).toEqual({ used: roundsUsed, max: MAX_AUTO_ROUNDS });
+    expect(result.rounds).toEqual({ used: roundsUsed, max: DEFAULT_ROUND_CAP });
   });
 
   test('an absent roundsUsed means no round has been used yet', () => {
     const result = deriveStatus(without('roundsUsed'));
     expect(result.status).toBe('REVIEW_COMPLETE');
-    expect(result.rounds).toEqual({ used: 0, max: MAX_AUTO_ROUNDS });
+    expect(result.rounds).toEqual({ used: 0, max: DEFAULT_ROUND_CAP });
   });
 
   test('a count above the cap with actionable findings still blocks through the round limit', () => {
-    const result = deriveStatus(baseFacts({ roundsUsed: MAX_AUTO_ROUNDS + 5, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+    const result = deriveStatus(baseFacts({ roundsUsed: DEFAULT_ROUND_CAP + 5, findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
     expect(result.localPhase).toBe('LOCAL_REVIEW_BLOCKED');
-    expect(result.next).toBe('escalate-to-human');
+    expect(result.next).toBe('reconsider-approach-with-author');
   });
 });
 
@@ -503,7 +533,7 @@ describe('pr-review-status: findingCounts must be consistent non-negative intege
   });
 
   test('an inconsistent count is blocked as missing facts, not escalated as a round limit', () => {
-    const result = deriveStatus(baseFacts({ roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 1 } }));
+    const result = deriveStatus(baseFacts({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 1 } }));
     expect(result.next).toBe('supply-review-facts');
   });
 
@@ -555,10 +585,11 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
     (facts.access === undefined || facts.access === null || (isObject(facts.access) && facts.access.ok === true)) &&
     isObject(facts.tests) &&
     ['passed', 'skipped'].every((flag) => facts.tests[flag] === undefined || typeof facts.tests[flag] === 'boolean') &&
-    (facts.tests.passed === true || facts.tests.skipped === true);
+    (facts.tests.exitCode === undefined || Number.isInteger(facts.tests.exitCode)) &&
+    (facts.tests.exitCode === 0 || facts.tests.skipped === true);
 
   const fullPreconditions = (facts) =>
-    localPreconditions(facts) && facts.remotePhase === 'REMOTE_REVIEW_COMPLETE' && facts.tests.passed === true && facts.tests.skipped !== true;
+    localPreconditions(facts) && facts.remotePhase === 'REMOTE_REVIEW_COMPLETE' && facts.tests.exitCode === 0 && facts.tests.skipped !== true;
 
   const check = (label, facts) => {
     const result = deriveStatus(facts);
@@ -595,7 +626,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
 
   test.each([
     ['findingCounts', ['actionable', 'total', 'deferred']],
-    ['tests', ['passed', 'skipped', 'command']],
+    ['tests', ['exitCode', 'skipped', 'command']],
     ['access', ['ok', 'reason']],
   ])('wrong %s members complete only while the preconditions still hold', (key, members) => {
     for (const member of members) {
@@ -616,7 +647,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
     const smuggled = JSON.parse(
       `{"__proto__":{"baseSha":"${BASE_SHA}","headSha":"${HEAD_SHA}","reviewedHeadSha":"${HEAD_SHA}"},` +
         '"constructor":{"prototype":{"remotePhase":"REMOTE_REVIEW_COMPLETE"}},' +
-        '"findingCounts":{"total":0,"actionable":0,"deferred":0},"tests":{"passed":true},"remotePhase":"REMOTE_REVIEW_COMPLETE"}'
+        '"findingCounts":{"total":0,"actionable":0,"deferred":0},"tests":{"exitCode":0},"remotePhase":"REMOTE_REVIEW_COMPLETE"}'
     );
     const result = deriveStatus(smuggled);
     expect(result.status).not.toBe('REVIEW_COMPLETE');
@@ -635,8 +666,8 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
 // can read, not a "false" and not a "true" -- so it never rides along into a completed phase beside a passing flag.
 describe('pr-review-status: a recorded tests fact must be readable', () => {
   const NOT_BOOLEAN = WRONG_VALUES.filter((value) => value !== undefined && typeof value !== 'boolean');
-  const NOT_AN_OBJECT = [5, 0, NaN, 'x', 'passed', true, false, [], [{ passed: true }], ['x']];
-  const COMPANIONS = { passed: [{}, { skipped: true }, { skipped: false }], skipped: [{}, { passed: true }, { passed: false }] };
+  const NOT_AN_OBJECT = [5, 0, NaN, 'x', 'passed', true, false, [], [{ exitCode: 0 }], ['x']];
+  const COMPANIONS = { passed: [{}, { skipped: true }, { skipped: false }], skipped: [{}, { exitCode: 0 }, { passed: false }] };
 
   test.each(['passed', 'skipped'])('a %s flag that is present but not a boolean is unreadable: blocked, naming it', (flag) => {
     expect(NOT_BOOLEAN.length).toBeGreaterThan(10);
@@ -661,12 +692,12 @@ describe('pr-review-status: a recorded tests fact must be readable', () => {
   });
 
   test.each([
-    ['passed alone', { passed: true }, 'REVIEW_COMPLETE', 'LOCAL_REVIEW_COMPLETE'],
-    ['passed and not skipped', { passed: true, skipped: false }, 'REVIEW_COMPLETE', 'LOCAL_REVIEW_COMPLETE'],
+    ['passed alone', { exitCode: 0 }, 'REVIEW_COMPLETE', 'LOCAL_REVIEW_COMPLETE'],
+    ['passed and not skipped', { exitCode: 0, skipped: false }, 'REVIEW_COMPLETE', 'LOCAL_REVIEW_COMPLETE'],
     ['skipped alone', { skipped: true }, 'REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE'],
-    ['passed and skipped contradict each other, so the review is not complete', { passed: true, skipped: true }, 'REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE'],
-    ['failed', { passed: false }, 'REVIEW_PENDING', 'LOCAL_REVIEW_PENDING'],
-    ['an empty record', {}, 'REVIEW_PENDING', 'LOCAL_REVIEW_PENDING'],
+    ['passed and skipped contradict each other, so the review is not complete', { exitCode: 0, skipped: true }, 'REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE'],
+    ['failed', { exitCode: 1 }, 'REVIEW_PENDING', 'LOCAL_REVIEW_PENDING'],
+    ['an empty record has no exit code, so it is unreadable', {}, 'REVIEW_BLOCKED', 'LOCAL_REVIEW_BLOCKED'],
   ])('booleans are read as written: %s', (_label, tests, status, localPhase) => {
     const result = deriveStatus(baseFacts({ tests }));
     expect([result.status, result.localPhase]).toEqual([status, localPhase]);
@@ -743,13 +774,13 @@ describe('pr-review-status: a published commit that holds the reviewed tree is f
   test('tree equivalence only ends staleness: it never overrides a finding, a failed test, a pending remote review or a missing fact', () => {
     const blockers = {
       'an actionable finding': { findingCounts: { total: 1, actionable: 1, deferred: 0 } },
-      'failed tests': { tests: { passed: false, skipped: false, command: 'npm test' } },
-      'skipped tests': { tests: { passed: false, skipped: true, command: 'npm test' } },
+      'failed tests': { tests: { exitCode: 1, skipped: false, command: 'npm test' } },
+      'skipped tests': { tests: { skipped: true, command: 'npm test' } },
       'tests nobody recorded': { tests: undefined },
       'a pending remote review': { remotePhase: 'REMOTE_REVIEW_PENDING' },
       'an access failure': { access: { ok: false, reason: '403 Forbidden' } },
       'a missing baseSha': { baseSha: undefined },
-      'the round limit': { roundsUsed: MAX_AUTO_ROUNDS, findingCounts: { total: 1, actionable: 1, deferred: 0 } },
+      'the round limit': { roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } },
     };
     for (const [label, overrides] of Object.entries(blockers)) {
       const result = deriveStatus(published(overrides));
@@ -757,7 +788,7 @@ describe('pr-review-status: a published commit that holds the reviewed tree is f
     }
     expect(deriveStatus(published(blockers['an actionable finding'])).next).toBe('run-fix-round');
     expect(deriveStatus(published(blockers['failed tests'])).next).toMatch(/^run-tests/);
-    expect(deriveStatus(published(blockers['the round limit'])).next).toBe('escalate-to-human');
+    expect(deriveStatus(published(blockers['the round limit'])).next).toBe('reconsider-approach-with-author');
   });
 
   test('the result echoes the heads and trees it graded, so the report recorded from it carries what was reviewed', () => {
@@ -855,5 +886,68 @@ describe('pr-review-status: freshness sweep -- complete exactly when the head ma
     // The sweep is not vacuous: both outcomes occur, many times.
     expect(completes).toBeGreaterThan(20);
     expect(refuses).toBeGreaterThan(100);
+  });
+});
+
+// The tests fact is evidence (an exit code), never an assertion: `passed` is derived, so a hand-typed pass cannot be
+// persisted or trusted by automation.
+describe('pr-review-status: tests are evidence -- passed is derived from exitCode', () => {
+  const T = (tests) => deriveStatus(baseFacts({ tests: { command: 'npm test', ...tests } }));
+
+  test('passed:true with a nonzero exitCode is a contradiction: blocked, naming tests.passed', () => {
+    const result = T({ passed: true, exitCode: 1 });
+    expect([result.status, result.localPhase]).toEqual(['REVIEW_BLOCKED', 'LOCAL_REVIEW_BLOCKED']);
+    expect(result.reasons.join(' ')).toMatch(/tests\.passed/);
+  });
+
+  test('a bare passed:true with no exitCode is no longer accepted', () => {
+    const result = T({ passed: true });
+    expect(result.status).toBe('REVIEW_BLOCKED');
+    expect(result.reasons.join(' ')).toMatch(/tests\.exitCode/);
+  });
+
+  test.each([{}, { skipped: false }, { exitCode: '0' }, { exitCode: 0.5 }, { exitCode: null }])(
+    'a missing or non-integer exitCode (%j) is rejected',
+    (tests) => {
+      const result = T(tests);
+      expect(result.status).toBe('REVIEW_BLOCKED');
+      expect(result.reasons.join(' ')).toMatch(/tests\.exitCode/);
+    }
+  );
+
+  test('exitCode 0 passes, and the echoed fact carries the derived passed', () => {
+    const result = T({ exitCode: 0 });
+    expect(result.status).toBe('REVIEW_COMPLETE');
+    expect(result.tests.passed).toBe(true);
+  });
+
+  test('a nonzero exitCode is REVIEW_PENDING with the reason "failed test"', () => {
+    const result = T({ exitCode: 1 });
+    expect([result.status, result.localPhase]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_PENDING']);
+    expect(result.reasons).toContain('failed test');
+    expect(result.tests.passed).toBe(false);
+  });
+
+  test.each([
+    ['passed:false with exitCode 0', { passed: false, exitCode: 0 }],
+    ['passed:true with exitCode 1', { passed: true, exitCode: 1 }],
+    ['a string skipped', { skipped: 'true', exitCode: 0 }],
+  ])('an invalid fact (%s) is blocked and never echoes tests.passed as true', (_name, tests) => {
+    const result = T(tests);
+    expect(result.status).toBe('REVIEW_BLOCKED');
+    expect(result.tests.passed).toBe(false);
+  });
+
+  test('skipped:true with exitCode 0 is never a pass', () => {
+    const result = T({ skipped: true, exitCode: 0 });
+    expect(result.status).toBe('REVIEW_PENDING');
+    expect(result.tests.passed).toBe(false);
+  });
+
+  test('the skipped path is unchanged: no exitCode needed, never complete', () => {
+    const result = T({ skipped: true });
+    expect([result.status, result.localPhase]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE']);
+    expect(result.reasons).toContain('tests skipped');
+    expect(result.tests.passed).toBe(false);
   });
 });

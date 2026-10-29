@@ -10,8 +10,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`flake-reproduction` skill (`ensemble-quality`):** an editable recipe and replayable red-run record for intermittent test failures (PRD-2026-bd69b524, REQ-034 and REQ-035). No automatic retry, quarantine, skip, wider timeout or weaker assertion. `deep-debugger` now loads it for flaky failures. Edit the defaults in the skill's `SKILL.md`; no rebuild is needed.
+- **packages/development, packages/git:** risk tiers, commit-bound human
+  approvals and the merge gate (TRD-2026-70e784f2, PR 4).
+  `lib/pr-review-tier.js` derives the tier from the change itself (never from
+  who wrote it), floors it on sensitive and High paths, and is **raise-only**:
+  anyone may propose a higher tier, but a proposal that lowers one is ignored
+  and recorded as `lowering-needs-code-owner` unless a code owner of the
+  affected path makes it. `lib/pr-review-approvals.js` counts an approval only
+  when it is bound to the commit (or tree) under review, so a push invalidates
+  it; bot approvals never count, the author never fills a required slot, and
+  the person named on an agent-authored PR's `Directed by:` line counts as one
+  of the required reviewers. `lib/pr-review-gate.js` answers "may this PR
+  merge?" with `mergeable` plus a blocker list that always carries a
+  `nextAction`, refusing on an open Important finding, an unanswered security
+  finding, an incomplete description or review data it could not read — it
+  never passes on missing data. Reached as the `tier`, `approvals` and `gate`
+  subcommands of `lib/pr-review-cli.js`, and through `MODE=gate` of the
+  `pr-review-cycle` skill, which `pr-merge` now requires `mergeable:true` from
+  on freshly read GitHub state.
+  **Strict by default:** the Low tier is treated as Medium unless
+  `lowWaiverEnabled` is turned on with its evidence, so no PR silently drops
+  to zero human reviewers.
+  **Honest limit:** these gates run where ensemble runs. Server-side
+  enforcement of required approvals needs a branch-protection rule in the host
+  repository; `pr-merge` reports when it is absent and recommends it, but
+  cannot enforce it. See the README section "Risk tiers, human approvals and
+  the merge gate".
+
+- **packages/development:** review metrics and the reviewer eval set
+  (TRD-2026-70e784f2, PR 5). `lib/pr-review-metrics.js` computes per-cohort
+  human approvals per PR (median and p95), human comments, wait-on-human
+  hours, rounds-to-pass, the share of PRs needing five or more rounds and the
+  noise rate, counting no bot reviewer, and compares a post-change cohort with
+  the committed baseline: targets are graded relative to baseline and a
+  revert/incident guardrail fails the cohort on its own.
+  `lib/pr-review-eval.js` scores an incident-driven, code-owner-confirmed eval
+  case set, compares runs and reports regressions and stale cases. Both are
+  reached as JSON-in/JSON-out subcommands of `lib/pr-review-cli.js`
+  (`metrics`, `metrics-compare`, `eval-score`, `eval-compare`, `eval-stale`)
+  and through the new `pr-review-eval` skill, which walks a maintainer through
+  adding a case (`docs/review-eval/cases/<id>.json`) and running the eval set
+  when the reviewer's rules, prompts or model change. No dashboard, no
+  scheduler, no new dependency: recurrence is the host repository's
+  responsibility (Constitution Rule 4).
+  **Entry criterion:** a comparison is only meaningful against a baseline
+  captured *before* the review changes land — capture the baseline cohort once
+  (at least 20 PRs **and** at least 30 days) and commit it as
+  `docs/guides/review-baseline-<date>.json`; never edit a baseline in place. A
+  cohort missing either floor is returned as `insufficient` with no target
+  graded. Runbook: `docs/guides/pr-review-metrics.md` (extends §6 of
+  `docs/guides/pr-review-cycle-time-pilot.md`).
+  `ensemble-full` mirrors the new libraries and the new skill, and
+  `ensemble-pi` vendors them with the generated `pr-review-eval` skill copy.
+
+- **packages/development, packages/core, packages/git:** on-demand sweeps,
+  explainers and the cross-runtime reachability proof that completes the code
+  review process (TRD-2026-70e784f2, PR 6). `pr-review-sweep` reviews code
+  that is **already merged**, sensitive areas first, with the same bounds and
+  the same strict-majority verification a PR gets; every finding is tagged
+  `Pre-existing`, so a sweep can never block somebody else's merge, and it
+  reports without editing, committing, pushing or opening a PR. Recurrence
+  stays the host repository's (Constitution Rule 4): the skill holds no timer
+  and ensemble's own workflows gain no `schedule:` trigger.
+  `pr-review-explainer` describes a module from the code as it is now and
+  names every file it read; a High-tier PR's report offers one for each
+  touched sensitive module, and generates it only on request.
+  `lib/pr-review-reachability.js` proves every capability is reached from the
+  REAL entry points -- entry command text to skill to a registered subcommand
+  -- rather than merely unit-tested, and grades the four runtimes against a
+  baseline.
+  **Runtime coverage, stated rather than implied:** Claude Code and Pi are
+  equivalent (the same payloads produce byte-identical output from each
+  runtime's own shipped CLI); **Codex and OpenCode are reduced** -- both
+  generate the command entry points, but neither bundles the `pr-review-*`
+  procedure skills or a vendored CLI, so the graded steps do not run there.
+  See `docs/reports/pr-review-cross-runtime-reachability.md`.
+  The in-agent review needs **no new CI secret** and makes no network call.
+  The whole process is now documented for users in section 11 of
+  `docs/guides/user-guide.md`.
 - **Tool abstraction layer (PRD/TRD 2026-8d825f54):** commands, agents and skills call versioned category capabilities (for example `tracker.show`, `host.change-request-create`, `workflow.push`) instead of naming tool binaries; adapters (`adapter-*` skills with an `adapter.yaml` manifest) implement them for each of the 14 categories. Resolution, preflight, allowlisted no-shell execution and `toolchain-cli validate` live in `packages/development/lib/toolchain/`. `scripts/lint-provider-refs.js` fails CI on a hardcoded tool binary in a shared source, with a baseline ratchet for grandfathered violations and zero tolerance for the named refactored sources.
 - **Documentation:** generated per-category contract specs in `docs/toolchain/contracts/` (regenerate with `node scripts/generate-contract-docs.js`, verify with `--check`), the [adapter authoring guide](docs/guides/adapter-authoring.md) and the [toolchain migration guide](docs/guides/toolchain-migration.md), which gives a fix for every lint failure class.
+
+### Fixed
+
+- **packages/development, packages/pi:** a credential shown to a reviewer
+  could be reproduced in a PR comment or ledger entry. `pr-review-cli.js`
+  redacted only before a state report touched **disk**, so a token in a
+  finding's text survived into the CLI's stdout -- the text that actually
+  becomes a comment or a ledger entry -- through `ledger` and `votes`.
+  Redaction now happens at the single output boundary, error path included.
+  The vendored Pi copy had drifted and was still printing the credential
+  after the fix landed in `packages/development`, so the same review was
+  clean on Claude and leaking on Pi; it has been re-vendored, and a scenario
+  now compares a credential-carrying payload across both runtimes so the
+  drift cannot return unnoticed.
+
+- **packages/development, packages/quality, packages/git (final review):**
+  the merge gate no longer passes on a missing ledger -- `pr-review-cycle`
+  Step 10 and `pr-merge` treat a head with no recorded review as unavailable
+  (`review-data-unavailable`), never as an empty ledger. The sweep skill now
+  records `Pre-existing` findings through `recordRound` with a valid
+  disposition and documents the `paths` declaration as
+  `{ sourceSha, sensitive, high }`; Step 4 uses the Important/Nit/Pre-existing
+  vocabulary; the explainer `TIER` is lowercase like the CLI; and the
+  `code-reviewer` output contract lists `disposition`. Versions:
+  ensemble-pi 1.6.18, ensemble-full 7.0.1.
+
+- **packages/development, packages/codex (local review gate, PRs 2-6):** the
+  merge gate now answers `review-data-unavailable` when it is not given a head
+  SHA and refuses an approvals result that names no commit; the eval run
+  (`pr-review-eval` Step R3.1) passes CODEOWNERS to `eval-score` so a case no
+  owner confirmed earns no credit; `pr-review-cycle` Step 10e says review and
+  head trees are computed by the run, never read from review text; and the
+  generated Codex `code-reviewer` agent is `sandbox_mode = "read-only"` like
+  its source declares.
+
+### Documentation
+
+- **User guide section 11, "Code review process":** the whole process in one
+  chapter -- `REVIEW.md` and the `ensemble-review-policy` block, depth and
+  verification thresholds, risk tiers, commit-bound approvals and the merge
+  gate, metrics and the reviewer eval set, sweeps and explainers, and which
+  runtimes the capability is reduced on. Each stated gate was checked against
+  the shipped modules by running them, not against the changelog.
+- **Wiki:** a `Code-Review-Process` page is staged at
+  `.wiki-staging/Code-Review-Process.md` per AGENTS.md (local-only, excluded
+  from git) and is published with `scripts/wiki-publish.sh --yes`. It is
+  generated from user guide section 11, which stays the source of truth.
 
 ### Removed
 

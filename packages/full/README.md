@@ -14,7 +14,7 @@ Part of the ensemble plugin ecosystem for Claude Code. This plugin provides comp
 
 ## Features
 
-- TBD (to be populated during plugin extraction)
+- Mirrors every plugin's `lib/` modules under `packages/full/lib/` via symlink, including the `pr-review-*.js` libraries (`pr-review-policy`, `pr-review-rules`, `pr-review-paths`, `pr-review-description`, `pr-review-scope`, `pr-review-state`, `pr-review-status`, `pr-review-ledger`, `pr-review-remote`, `pr-review-cli`) that back the `pr-review-cycle` skill, so they resolve from a single install the same way as every other package.
 
 ## Usage
 
