@@ -47,7 +47,7 @@ verification; a second only while a BLOCKING finding remains (CLI
 round cap from the repository policy -- see Step 7 -- is the hard limit).
 
 **Wall-clock budget:** 45 minutes per cycle, 20 per independent
-reviewer; give each reviewer its timebox and ask for findings so far at expiry.
+reviewer; give each reviewer its timebox and the reviewer brief (tool-call cap; findings so far at either limit).
 When spent, stop, derive status with the CLI (never `REVIEW_COMPLETE` from
 prose) and report what was not reviewed.
 
@@ -55,7 +55,7 @@ prose) and report what was not reviewed.
 (an export of the reviewed commit to a temporary directory) or a throwaway
 worktree (`worktree.create`), never the shared working tree; they never run
 state-changing VCS operations (checkout, switch, branch, reset, stash, commit,
-add, rebase, push) or any generator. Fixers run in an isolated worktree (task
+add, rebase, push), any generator, test suite or mutation run. Fixers run in an isolated worktree (task
 `isolated: true` or `worktree.create`). The parent verifies branch and
 working-tree state (`workflow.status`) before every commit and push, and gates every push on a passing check -- no
 `;`-chained command that ignores a failing step.
@@ -66,17 +66,16 @@ working-tree state (`workflow.status`) before every commit and push, and gates e
 
 Full table with every description: `reference/inputs.md`. Names:
 
-* `MODE` -- `'local'` | `'remote'` | `'gate'`. `local` runs Steps 1-6; `remote` (PR
-  exists) runs Steps 7-9 using the facts the prior `local` run recorded; `gate` ("may
-  this PR merge?", Step 10) dispatches no reviewer and fixes nothing. Steps 1 and 1b run in every mode.
+* `MODE` -- `'local'` | `'remote'` | `'gate'` (steps per mode: see Algorithm).
 * `BASE_SHA`, `HEAD_SHA` -- resolved SHAs, never a bare ref; optional `MERGE_BASE_SHA`,
   `PR_BASE_SHA`, `PARENT_PHASE_TIP_SHA` go to CLI `scope`.
 * `REVIEWED_TREE_SHA` (local) / `HEAD_TREE_SHA` (remote) -- optional tree ids; leave out when not computed.
 * `PR_ID` (state-report key), `PR_URL` (required for remote), `PR_NUMBER` (gate).
 * `TEST_COMMAND` -- record the real `tests.exitCode`; never type a pass. `SKIP_TESTS` -- record `tests.skipped = true` plus the command; status is then `REVIEW_PENDING` (`tests skipped`), never `REVIEW_COMPLETE`.
 * `FOREMAN` -- true: never enter the interactive wait. `BOT_LOGINS` -- review-bot logins for CLI `remote`.
+* `PLAN_ONLY`, `REUSE_RECORDED` -- opt-in early exits of `local` (Steps 1c, 1a).
 * `PR_BODY`, `AGENT_AUTHORED` -- graded by CLI `description`; anything but an explicit
-  `false` reads as true, and an agent-authored body names the accountable person on a `Directed by:` line.
+  `false` reads as true (unset too), and an agent-authored body names the accountable person on a `Directed by:` line.
 * Gate only: `DIRECTED_BY` (`directedBy`; counts as a reviewer only when `AGENT_AUTHORED`),
   `PROPOSED_TIER` (can only raise), `CODE_OWNER_DECISION` (`{ login, isCodeOwner }`;
   only a code owner can lower a tier).
@@ -116,60 +115,65 @@ headSha, mergeBaseSha, prBaseSha, parentPhaseTipSha }`, every SHA a full 40- or
 the missing and invalid fields and HALT as `REVIEW_BLOCKED` -- never
 substitute a guessed base. Otherwise the diff is exactly `range = baseSha..headSha`.
 
+### Step 1a -- Recorded state (CLI `state-read`; `REUSE_RECORDED` only)
+
+Detail: `reference/scope-guidance-depth.md`. A recorded `REVIEW_PENDING` or `REVIEW_COMPLETE`
+for this head and `baseSha` is returned as recorded and ends the run.
+
 ### Step 1b -- Resolve guidance from the base commit (CLI `policy`, `rules`, `paths`, `description`)
 
-Detail: `reference/scope-guidance-depth.md`. Runs in **every** mode. `REVIEW.md` rules
-files, the policy block and the sensitivity declaration are read from the
-**base commit** (the file as it is at `<baseSha>`), never from the PR head or
-working tree (REQ-024): the head's copy is reviewed as a change, never guidance in
-force. A failed read means the file is absent: pass `text: null`. Run `policy`,
-`rules`, `paths`, then `description` (skip only with no `PR_BODY`); an `ok:false`
-`policy` means review under the strict defaults it returned; an `ok:false` `rules`
-applies no rules. Report every missing description section by name and treat the body
-as not ready for approval. Print `applied` and `notes` verbatim.
+Detail: `reference/scope-guidance-depth.md`. Runs in **every** mode. Rules files, the
+policy block and the sensitivity declaration come from the **base commit** (`<baseSha>`),
+never the PR head or working tree (REQ-024): the head's copy is reviewed as a change,
+never guidance in force. A failed read means the file is absent (`text: null`). Run
+`policy`, `rules`, `paths`, then `description` (with a `PR_BODY`); `ok:false` `policy`
+means the strict defaults it returned, `ok:false` `rules` applies none. Report each
+missing description section by name (not ready for approval) and print `applied` and
+`notes` verbatim.
 
-### Step 1c -- Resolve depth and slices (CLI `depth`, `slices`)
+### Step 1c -- Resolve depth and slices (CLI `tier`, `depth`, `slices`)
 
-Detail: `reference/scope-guidance-depth.md`. Before any reviewer runs, `depth` decides
-`quick` (one reviewer, no verifiers), `standard` (>=2 reviewers, 3 verifiers) or `deep` (>=2, 5). **A non-empty `violations` is binding**: re-plan
-and call `depth` again until empty; never dispatch a refused plan, never raise Quick's
-ceiling; an unreadable tier resolves to `deep` (more review, never less). `slices` cuts
-a PR above the threshold (default 1500 changed lines) into area slices; after review,
-re-run it with `reviewed` and `changedPaths` -- `covered:false` means review the
-missing slices; an uncovered path is never reported as reviewed. Reviewers are
-fresh-context, read-only subagents given only their slice diff, the applied rules and
-repository guidance -- never the authoring conversation. Record every candidate with its
-`source` (disagreements included) and report `reviewedSlices` and reviewers dispatched.
+Detail: `reference/scope-guidance-depth.md`. `tier` first, over the Step 1b `paths` with no
+`kinds` (never a typed tier). Before any reviewer runs, `depth` then decides `quick` (one
+reviewer, no verifiers), `standard` (>=2 reviewers, 3 verifiers; Medium) or `deep` (>=2, 5;
+High). **A non-empty `violations` is binding**: re-plan and call `depth` again until empty;
+never dispatch a refused plan, never raise Quick's ceiling; an unreadable tier resolves to
+`deep` (more review, never less). Print the plan; `PLAN_ONLY` ends the run there. `slices`
+cuts a PR above the threshold (default 1500 changed lines) into area slices; after review,
+re-run it with `reviewed` and `changedPaths` -- `covered:false` means review the missing
+slices; an uncovered path is never reported as reviewed. Reviewers are fresh-context,
+read-only subagents under the reviewer brief, given only their slice diff, the applied
+rules and repository guidance -- never the authoring conversation. Record every
+candidate with its `source` (disagreements included) and report `reviewedSlices` and
+reviewers dispatched.
 
 ### Step 2 -- Independent local review (full diff)
 
 Detail: `reference/scope-guidance-depth.md`. Review the whole `range` under the
 Step 1c plan plus a local-tool pass; with no such tool, say so and review the diff
-directly -- never skip it. Record every finding as a ledger entry `{ id, source,
-locationOrLink, severity, failureMode, disposition, evidence, originalTextOrLink }`
-under the Step 1b guidance, naming every rules file applied.
+directly -- never skip it. Record every finding as a ledger entry under the
+Step 1b guidance, naming every rules file applied.
 
 ### Step 3 -- Build ledger (CLI `ledger`)
 
 Detail: `reference/ledger-and-verification.md`. Run `ledger` with one `action`
-(`validate`, `isActionable`, `dedupe`, `merge`, `scopeViolations`, `recordRound`) and
-that action's required keys; an absent key is a CLI error. A finding missing a required
-field is completed, not dropped. After `dedupe`, `recordRound` (`{ ledger, incoming,
-round }`) reports `repeat` (suppressed by name, never silently), `attached` (joins a
-flagged class) and `new`; name classes with every instance so Step 5 fixes all.
-Review-bot findings (any `BOT_LOGINS` login) become ledger entries (`source` = bot login)
-through the same dedupe and Step 3b verification -- never pre-trusted or pre-dismissed. Bot
-comments are read-only (see Safety rules).
+(`validate`, `isActionable`, `dedupe`, `merge`, `scopeViolations`, `recordRound`) and its
+required keys (an absent key is a CLI error); a finding missing a field is completed, not
+dropped. Report `recordRound`'s `repeat`s by name, never silently, and name each flagged
+class with every instance so Step 5 fixes all. Review-bot findings (`BOT_LOGINS`) enter
+the same dedupe and Step 3b verification, never pre-trusted or pre-dismissed.
 
 ### Step 3b -- Verify the candidates before they are presented (CLI `votes`)
 
-Detail: `reference/ledger-and-verification.md` (incl. the exact REDUCED REVIEW notice). Every
-candidate is verified first (REQ-005) and nothing is dropped (REQ-006). Dispatch exactly
-`bounds.verifiers` fresh-context verifiers; a verifier never votes on a finding its own
-reviewer raised (record `incompleteVerifiers`). Verdicts: `real`, `not-real`, `abstain`.
-Run `votes` with `{ findings, depth, expectedVerifiers, verificationCapability }`. Present
-exactly `presented[]` (`present`, `disputed`, `unverified`) with each `authorLabel` verbatim;
-`filtered` stays in the ledger with tally and reason. A missing verifier makes a finding
+Detail: `reference/ledger-and-verification.md`. Every candidate is verified first
+(REQ-005) and nothing is dropped (REQ-006). Dispatch exactly
+`bounds.verifiers` fresh-context verifiers per named finding, each under the verifier
+brief; a verifier never votes on a finding its own reviewer raised (record
+`incompleteVerifiers`). Verdicts: `real`, `not-real`, `abstain`. Run `votes` with
+`{ findings, depth, expectedVerifiers, verificationCapability }`. Present exactly
+`presented[]` (`present`, `disputed`, `unverified`) with each `authorLabel` verbatim;
+`filtered` stays in the ledger with tally and reason. A missing verifier (a dispatch that
+returns nothing is recorded the same way; the cycle moves on) makes a finding
 `unverified` / `verifier-incomplete` even if the arrived votes were a majority. With no
 subagent capability: single-pass review, `verificationCapability: false`, and the visible
 `REDUCED REVIEW` notice in the report and state report. `verification: 'blocked'` is
@@ -179,10 +183,10 @@ subagent capability: single-pass review, `verificationCapability: false`, and th
 
 Detail: `reference/triage-fix-reverify.md`. Classify every **presented** entry with
 `isActionable` before any code change. Unresolved threads and Important findings are
-actionable unless the stopping rule lets them be deferred (`blocking: false`, recorded
-reason, never at the top legacy severity); Nit may be `deferred` only with a reason;
+actionable unless the stopping rule defers them (`blocking: false`, recorded reason,
+never at the top legacy severity); Nit may be `deferred` only with a reason;
 `Pre-existing` is reported separately and never blocks; uncertain is `adjudicate`, never
-dropped; `filtered` is neither triaged nor fixed nor deleted.
+dropped; `filtered` is never triaged, fixed or deleted.
 
 ### Step 5 -- Batch fix (delegate to `pr-review-remediation`)
 
@@ -246,9 +250,9 @@ create the PR only when it is exactly `LOCAL_REVIEW_COMPLETE`; `LOCAL_REVIEW_PEN
 ### Step 8b -- High-tier explainer offer (CLI `explainer-offer`)
 
 Detail: `reference/status-and-state.md`. Only on a **High** effective tier: run
-`explainer-offer` with `{ tier, paths, requested }`, list each module in `modules`, say
-an explainer is produced only on request, and generate only what `generate` names via
-the `pr-review-explainer` skill. An `ok:false` result offers and generates nothing.
+`explainer-offer` with `{ tier, paths, requested }`, list each `modules` entry, say an
+explainer is produced only on request, and generate only what `generate` names
+(`pr-review-explainer` skill). `ok:false` offers and generates nothing.
 
 ### Step 9 -- Write state (CLI `state-write`)
 
