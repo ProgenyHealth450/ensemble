@@ -67,6 +67,7 @@
  *   rules        { changedPaths, ruleFiles, rulesFileName?, baseSha?, sourceSha? }
  *   paths        { changedPaths, declaration?, codeowners?, baseSha }
  *   description  { body, agentAuthored? } (or the PR body as a bare JSON string)
+ *                -- an omitted `agentAuthored` is read as agent-authored; only an explicit `false` says a person wrote it
  *
  * `explainer-offer` (TRD-043) decides what a review report OFFERS, never what
  * it writes: given the effective tier and the `paths` classification, it names
