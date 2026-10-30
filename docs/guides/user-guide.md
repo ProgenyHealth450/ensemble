@@ -1,4 +1,4 @@
-# Ensemble 7.0.0 User Guide
+# Ensemble 8.0.0 User Guide
 
 Ensemble is a marketplace of plugins that add commands, skills and agents to AI coding runtimes (Claude Code, Pi/Oh My Pi, Codex, OpenCode). Its core workflow takes a product idea through a PRD, a TRD, a Beads task hierarchy and a merged pull request, with a gate at every hand-off.
 
@@ -27,20 +27,20 @@ The repository is an npm monorepo under `packages/`. Each package is both an npm
 | Plugin | Version | Contents |
 | --- | --- | --- |
 | `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `/ensemble:fold-prompt`, `/ensemble:sessionlog`, `/ensemble:reinstall-plugins`, `ensemble-orchestrator` agent |
-| `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher |
+| `ensemble-product` | 7.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher |
 | `ensemble-development` | 7.0.1 | TRD, beads, feature and issue workflows, language skills, orchestrator agents |
 | `ensemble-quality` | 6.0.1 | `pr-review-remediation` and `flake-reproduction` skills, `code-reviewer`, `deep-debugger`, `test-runner` agents |
-| `ensemble-infrastructure` | 6.0.0 | Cloud and vendor skills (`aws`, `kubernetes`, `jira`, ...), infrastructure agents |
+| `ensemble-infrastructure` | 6.1.0 | Cloud and vendor skills (`aws`, `kubernetes`, `jira`, ...), infrastructure agents |
 | `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`, git skills, `git-workflow` agent |
-| `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`, `smoke-test-runner`, `writing-playwright-tests`, `playwright-tester` agent |
-| `ensemble-assessment` | 1.1.0 | `/ensemble:assess` and 22 assessment skills |
-| `ensemble-ai` | 6.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
-| `ensemble-react`, `ensemble-nestjs`, `ensemble-rails`, `ensemble-phoenix`, `ensemble-blazor`, `ensemble-dotnet` | 6.0.0, 5.1.1, 5.1.1, 5.1.1, 6.0.0, 1.1.0 | One framework skill each (`react`, `nestjs`, `rails`, `phoenix`, `blazor`, `dotnet`) |
-| `ensemble-jest`, `ensemble-pytest`, `ensemble-rspec`, `ensemble-xunit`, `ensemble-exunit`, `ensemble-reqnroll` | 5.1.1, 5.1.1, 5.2.0, 5.2.0, 5.1.1, 1.0.2 | One test-framework skill each; `ensemble-reqnroll` also ships the `reqnroll-binding-specialist` agent |
-| `ensemble-full` | 7.0.1 | Bundle that depends on the plugins above |
-| `ensemble-pi`, `ensemble-codex`, `ensemble-opencode` | 1.6.18, 6.0.1, 5.3.1 | Runtime adapters that translate the Ensemble sources for Pi/OMP, Codex and OpenCode |
+| `ensemble-e2e-testing` | 6.1.0 | `/ensemble:author-playwright-tests`, `smoke-test-runner`, `writing-playwright-tests`, `playwright-tester` agent |
+| `ensemble-assessment` | 2.0.0 | `/ensemble:assess` and 22 assessment skills |
+| `ensemble-ai` | 7.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
+| `ensemble-react`, `ensemble-nestjs`, `ensemble-rails`, `ensemble-phoenix`, `ensemble-blazor`, `ensemble-dotnet` | 7.0.0, 6.0.0, 6.0.0, 6.0.0, 7.0.0, 2.0.0 | One framework skill each (`react`, `nestjs`, `rails`, `phoenix`, `blazor`, `dotnet`) |
+| `ensemble-jest`, `ensemble-pytest`, `ensemble-rspec`, `ensemble-xunit`, `ensemble-exunit`, `ensemble-reqnroll` | 5.1.2, 5.2.0, 5.2.0, 5.2.0, 5.1.1, 1.0.2 | One test-framework skill each; `ensemble-reqnroll` also ships the `reqnroll-binding-specialist` agent |
+| `ensemble-full` | 8.0.0 | Bundle that depends on the plugins above |
+| `ensemble-pi`, `ensemble-codex`, `ensemble-opencode` | 1.6.18, 6.0.1, 5.4.0 | Runtime adapters that translate the Ensemble sources for Pi/OMP, Codex and OpenCode |
 
-`ensemble-permitter` and the other support packages ship hooks and plumbing rather than workflow content. Versions come from `marketplace.json`; each package is versioned independently, so `ensemble-pi` is at 1.6.18 while the bundle is at 7.
+`ensemble-permitter` and the other support packages ship hooks and plumbing rather than workflow content. Versions come from `marketplace.json`; each package is versioned independently, so `ensemble-pi` is at 1.6.18 while the bundle is at 8.0.0.
 
 ### Skills, commands and agents
 
