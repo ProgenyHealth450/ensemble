@@ -26,7 +26,8 @@ in **one batch** to `packages/quality/skills/pr-review-remediation/SKILL.md`.
 That skill owns verification, test-first reproduction, minimal-fix
 discipline and its own stop conditions -- this skill does not restate or
 re-implement any of those rules, and never patches findings one comment at
-a time.
+a time. Fixers run in an isolated worktree (task `isolated: true` or
+`worktree.create`).
 
 **If `pr-review-remediation` is not installed or cannot be resolved**, this
 skill halts immediately as `REVIEW_BLOCKED`, naming the missing capability
@@ -92,10 +93,10 @@ verify and nothing to re-review.
   severity and location -- and never fixed: nothing is edited, committed or
   pushed, `pr-review-remediation` is not invoked, and its absence does not block a
   review-only run.
-* **Steps 5 and 6 do not run.** The head is the head that was reviewed: `headSha`
-  and `reviewedHeadSha` are the same commit, so no tree id is needed. The optional
-  security gate above still runs on the reviewed `range`; a real hit is one more
-  finding to report.
+* **Step 5, and Step 6's verification and re-review, do not run.** The head is the
+  head that was reviewed: `headSha` and `reviewedHeadSha` are the same commit, so no
+  tree id is needed. The optional security gate above still runs on the reviewed
+  `range`; a real hit is one more finding to report.
 * **The tests fact is still recorded, from CI before a local run.** The caller
   passes the host's check runs for exactly `HEAD_SHA` as `CHECK_RUNS`, with the
   host's own count as `CHECK_RUNS_TOTAL`. In this order:

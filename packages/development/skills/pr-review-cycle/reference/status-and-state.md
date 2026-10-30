@@ -66,8 +66,9 @@ naming it; a tree on one side only never makes a different head fresh, and a
 different tree is stale: re-run the local review for the current head.
 
 **Which reviewed head and tree to grade against.** In `MODE=local`, `headSha`
-and `reviewedHeadSha` are the same post-fix head (Step 6) and
-`reviewedTreeSha` is its tree; leave `headTreeSha` out. In `MODE=remote`,
+and `reviewedHeadSha` are the same post-fix head (Step 6; a `REVIEW_ONLY` run fixes
+nothing, so it is the head it reviewed) and `reviewedTreeSha` is its tree; leave
+`headTreeSha` out. In `MODE=remote`,
 `headSha` is `HEAD_SHA` and `headTreeSha` is `HEAD_TREE_SHA` -- the commit
 being evaluated and its tree -- but `reviewedHeadSha` and `reviewedTreeSha`
 are **not** those: they are what the local run recorded, read back from the

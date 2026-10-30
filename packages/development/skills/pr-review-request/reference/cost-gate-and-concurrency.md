@@ -21,7 +21,7 @@ dispatched, show what the run will cost:
    slices, time bound) with the total reviewers and verifiers and the longest
    bound. The bound is the one each plan carries: the cycle's own budget, a
    ceiling and never a forecast (no per-step timings are recorded yet), with
-   test runs waiting their turn on top of it. For one PR this is a few lines.
+   any local test runs waiting their turn on top of it. For one PR this is a few lines.
 3. Then **proceed or ask.** Ask, and stop until answered, when any plan is
    `deep`: say which, what it dispatches, and offer to drop it or go ahead.
    Otherwise proceed -- more than 3 PRs was already asked about in the list
@@ -46,8 +46,9 @@ through the cycle at the same time, phase by phase instead of PR by PR.
   that PR's inputs arrive.
 - **Test runs are the one thing that never overlap.** Run `TEST_COMMAND` for
   one PR at a time across the whole request, in list order: concurrent suites
-  load the machine and produced a flaky failure. A PR waiting for its turn
-  holds up neither another PR's reviewers nor its verifiers.
+  load the machine and produced a flaky failure. (A PR review runs it only where
+  CI cannot stand in for it.) A PR waiting for its turn holds up neither another
+  PR's reviewers nor its verifiers.
 - A runtime that cannot run subagents at the same time runs the same PRs one
   after another; nothing else changes.
 - A halt or `REVIEW_BLOCKED` on one PR is recorded and the others still run.

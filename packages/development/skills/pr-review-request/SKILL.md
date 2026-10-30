@@ -42,11 +42,11 @@ not this skill: say which skill or command does it and stop.
    `ok:false` -> print the error message and HALT. Keep `runId` as `RUN_ID`;
    every later `toolchain-cli` call passes `--run-id "$RUN_ID"`.
 3. Every VCS read below (fetching a head, resolving a SHA, the merge base, the
-   repository slug, the check runs for a commit, the working-tree snapshot) is delegated to `@git-workflow`
-   as **read-only**, because not every workflow adapter declares those
-   capabilities (the git-town adapter declares none of `workflow.merge-base`,
-   `workflow.log` or `workflow.remote-url`). `REPO_SLUG` comes from the
-   checkout's remote, never from the user's words.
+   repository slug, a commit's check runs, the working-tree snapshot) is delegated
+   to `@git-workflow` as **read-only**: not every workflow adapter declares those
+   capabilities (git-town declares none of `workflow.merge-base`, `workflow.log`
+   or `workflow.remote-url`). `REPO_SLUG` comes from the checkout's remote, never
+   from the user's words.
 
 ---
 
@@ -62,43 +62,33 @@ Reads and reviews; it never changes the PR.
    not reviewed.
 3. **Bring the head local, read-only.** Delegate to `@git-workflow`: fetch the
    PR's `headBranch` and `baseBranch` fresh. No checkout, switch, merge, reset,
-   stash or push; the user's branch, index and working tree stay exactly as
-   they were. `HEAD_SHA` = the full SHA of that fetched head, read now, never
+   stash or push; the user's branch, index and working tree stay untouched.
+   `HEAD_SHA` = the full SHA of that fetched head, read now, never
    one remembered from earlier. `BASE_SHA` = the merge base of `HEAD_SHA` and
    the fetched `baseBranch`. A head that cannot be fetched, or a SHA that
    cannot be resolved -> HALT and say so.
-   **Then read that head's CI, also read-only.** Delegate to `@git-workflow`: the
-   check runs the host lists for exactly `HEAD_SHA` (a GET of the host's listing of
-   that commit's check runs, `/repos/<REPO_SLUG>/commits/<HEAD_SHA>/check-runs`,
-   100 to a page, every page followed). `CHECK_RUNS` = every run in it,
-   unfiltered and unedited, each as `{ id, name, commitSha, conclusion }`
-   (`commitSha` is the run's own `head_sha`; a run still going has no
-   conclusion, so it has none here); `CHECK_RUNS_TOTAL` = the `total_count` the
-   host reports. The toolchain's `host.change-request-checks` is not used for
-   this: its output names no commit, so it cannot show which head a result is
-   for. A read that fails leaves both unset: say so, and the cycle runs the tests
-   itself. Read once: never wait for CI, poll it, or narrow the list to the runs
-   you think matter. Whether CI counts is not decided here: the cycle's CLI
-   decides, from these facts and nothing else.
+   **Then read that head's CI, once, read-only** (recipe:
+   `reference/reading-ci-and-snapshot.md`): `CHECK_RUNS` = every check run the host
+   lists for exactly `HEAD_SHA`, unfiltered and unedited, and `CHECK_RUNS_TOTAL` = the
+   total it reports. A read that fails leaves both unset: say so, and the cycle runs
+   the tests itself. Never wait for CI or poll it; whether CI counts is the cycle's
+   CLI's call alone.
 4. **Invoke `pr-review-cycle`** through the
-   [cost gate](#cost-gate-and-running-together) with `MODE='local'`,
-   `BASE_SHA`, `HEAD_SHA`, `PR_ID=<REPO_SLUG>-pr-<N>`, `PR_BODY` = the PR's
-   published description, `TEST_COMMAND` = the fastest relevant command the
-   repository defines, `SKIP_TESTS` = true only if the user said to skip tests,
-   and `REUSE_RECORDED` = true unless the user asked for the review to be
-   redone. Leave `FOREMAN` unset. Pass **no `AGENT_AUTHORED`**: the router
-   cannot tell who drafted a PR, and an unset value reads as agent-authored, so
-   a body with no `Directed by:` line comes back with `directed-by` missing.
-   Report the description grade exactly as the cycle returns it; never pass
-   `false` to make it pass.
-   A PR is someone else's work, so also pass `REVIEW_ONLY=true` -- the cycle
-   reviews and reports, and fixes nothing -- with `CHECK_RUNS` and
-   `CHECK_RUNS_TOTAL` from the read above (leave both out when that read failed).
+   [cost gate](#cost-gate-and-running-together) with `MODE='local'`, `BASE_SHA`,
+   `HEAD_SHA`, `PR_ID=<REPO_SLUG>-pr-<N>`, `PR_BODY` = the PR's published
+   description, `TEST_COMMAND` = the fastest relevant command the repository
+   defines, `SKIP_TESTS` = true only if the user said to skip tests,
+   `REUSE_RECORDED` = true unless the user asked for the review to be redone, and
+   `REVIEW_ONLY=true` (a PR is someone else's work) with `CHECK_RUNS` and
+   `CHECK_RUNS_TOTAL` from the read above (both left out when that read failed).
+   Leave `FOREMAN` unset. Pass **no `AGENT_AUTHORED`**: the router cannot tell who
+   drafted a PR and an unset value reads as agent-authored, so a body with no
+   `Directed by:` line comes back with `directed-by` missing. Report that grade as
+   returned; never pass `false` to make it pass.
 5. **Never touch the PR.** No commit, push, comment, approval, request-changes,
-   thread resolution or label, on the PR or any branch of it. The cycle is
-   review-only here, so it fixes nothing: there is no fix to apply and no
-   worktree to hand over. The report lists the findings; the author or the user
-   acts on them.
+   thread resolution or label, on the PR or any branch of it. The cycle fixes
+   nothing here (no fix or fix worktree to hand over): the report lists the
+   findings and the author or the user acts on them.
 6. **Report** (see [Report](#report)).
 
 ---
@@ -106,13 +96,12 @@ Reads and reviews; it never changes the PR.
 ## Review open PRs
 
 1. List the open PRs: `node "$TOOLCHAIN_CLI" run host.change-request-list --run-id "$RUN_ID" --arg filter=state=open --json`
-   -> `data.items` (`id`, `url`, `baseBranch`, `headBranch`; the adapter output
-   carries no title, author or draft flag, so none is shown or filtered on).
-   `ok:false` -> print the message and HALT.
+   -> `data.items` (`id`, `url`, `baseBranch`, `headBranch`; no title, author or
+   draft flag, so none is shown or filtered on). `ok:false` -> print the message
+   and HALT.
 2. **Show the list** (number, url, head -> base) before reviewing anything. No
-   open PRs -> say so and stop. More than 3 -> ask which to review; a full
-   review is a long, test-running pass per PR, so never start a long run
-   unasked.
+   open PRs -> say so and stop. More than 3 -> ask which to review: a review is a
+   long pass per PR, so never start a long run unasked.
 3. Resolve every chosen PR (steps 1-3 of [Review PR #N](#review-pr-n), one
    after another) and run them through the cycle
    [together](#cost-gate-and-running-together). A halt or `REVIEW_BLOCKED` on
@@ -124,31 +113,27 @@ Reads and reviews; it never changes the PR.
 
 ## Review local changes
 
-The user's own work, so here the cycle's batch fix is applied to the working
-tree, as `fix-issue` does. Nothing is committed, pushed or published. It is a full
-run: `REVIEW_ONLY` is not set and no check runs are read, because the snapshot is
-not a pushed commit with CI behind it, so the tests run locally.
+The user's own work: the cycle's batch fix is applied to the working tree, as
+`fix-issue` does; nothing is committed, pushed or published. A full run (no
+`REVIEW_ONLY`, no CI to read), so the tests run locally.
 
 1. `DEFAULT_BRANCH` is the remote's default branch minus `origin/`, else
    `main`. `BASE_SHA` = the merge base of `HEAD` and `DEFAULT_BRANCH`
    (delegated to `@git-workflow`, read-only).
-2. `SNAPSHOT_HEAD` is a snapshot commit of the working tree **including
-   untracked files**, never a stash: build its tree in a TEMPORARY index
-   (`GIT_INDEX_FILE` at a not-yet-existing path; the real index, working tree
-   and branches untouched). Tree equals HEAD's tree -> `SNAPSHOT_HEAD` is HEAD;
-   otherwise a synthetic commit of it with HEAD as sole parent, fixed
-   author/committer `ensemble <ensemble@localhost>` and dates
-   `2000-01-01T00:00:00Z` (deterministic SHA). Never pushed.
+2. `SNAPSHOT_HEAD` is a deterministic snapshot commit of the working tree
+   **including untracked files**, never a stash, built so that the real index,
+   working tree and branches stay untouched, and never pushed. Recipe:
+   `reference/reading-ci-and-snapshot.md`.
 3. A snapshot whose tree equals `BASE_SHA`'s tree has nothing to review: say so
    and stop.
 4. **Invoke `pr-review-cycle`** through the
    [cost gate](#cost-gate-and-running-together) with `MODE='local'`, `BASE_SHA`,
    `HEAD_SHA=<SNAPSHOT_HEAD>`, `REVIEWED_TREE_SHA` = the tree of `SNAPSHOT_HEAD`,
    `PR_ID=<REPO_SLUG>-<branch-name>` (no PR number exists), `TEST_COMMAND`,
-   `SKIP_TESTS` and `REUSE_RECORDED` as above. The batch fix changes the working
-   tree, so re-resolve `SNAPSHOT_HEAD` after it and before the re-review (never
-   plain HEAD, which cannot see uncommitted work); tell the cycle that post-fix
-   snapshot is `headSha` and `reviewedHeadSha` and its tree is `REVIEWED_TREE_SHA`.
+   `SKIP_TESTS` and `REUSE_RECORDED` as above. After the batch fix, re-resolve
+   `SNAPSHOT_HEAD` (never plain HEAD, which cannot see uncommitted work) before the
+   re-review and tell the cycle that snapshot is `headSha` and `reviewedHeadSha`
+   and its tree `REVIEWED_TREE_SHA`.
 5. **Report** (see below). Tell the user the fixes are uncommitted in their
    working tree and what to run to look at them.
 
@@ -156,36 +141,34 @@ not a pushed commit with CI behind it, so the tests run locally.
 
 ## Cost gate and running together
 
-A review is a long pass, so nothing long starts unseen. Follow
-`reference/cost-gate-and-concurrency.md` before the first call: it shows each
-target's plan (tier, depth, reviewers, verifiers, slices, time bound) before
-anything runs, asks only when a plan is `deep`, works several PRs through the
-cycle at the same time, and never overlaps two test runs.
+Nothing long starts unseen. Before the first call follow
+`reference/cost-gate-and-concurrency.md`: it prints each target's plan
+(`PLAN_ONLY`) first, asks only when a plan is `deep`, works several PRs through
+the cycle at the same time and never overlaps two test runs.
 
 ---
 
 ## Report
 
 Hand back what the cycle returned, verbatim: `status`, `localPhase`,
-`reasons`, the ledger (every presented finding with its severity and where it
-is), `reportPath` and `headSha`. Then:
+`reasons`, the ledger (each presented finding with its severity and location),
+`reportPath` and `headSha`. Then:
 
 - Say `REVIEW_PENDING` and `REVIEW_BLOCKED` as such, with the `reasons` and the
-  cycle's next action. Never turn either into "looks good".
-- A PR review is review-only, so its status is `REVIEW_PENDING` by design (the
-  `reasons` carry a `review-only` line), never `REVIEW_COMPLETE`: it reports one
-  read-only pass and is not a verdict that the PR may merge. Say so, then say
-  where the tests came from: the CI check runs that counted (`tests.ci.counted`,
-  by name), or a local run and why CI did not stand in (the cycle's `reasons`).
+  cycle's next action; never turn either into "looks good". A PR review is
+  review-only, so `REVIEW_PENDING` is by design (a `review-only` line in `reasons`),
+  never `REVIEW_COMPLETE`: one read-only pass, not a verdict that the PR may merge.
+  Say so, then where the tests came from: the CI check runs that counted
+  (`tests.ci.counted`, by name), a local run and why CI did not stand in (the
+  cycle's `reasons`), or skipped at the user's word.
 - A reduced review (verification not performed or partial, tests skipped) is
   reported as reduced, never as clean.
 - Name what was not reviewed when the cycle ran out of budget.
 - Say which depth ran (tier, `mode`, reviewers and verifiers dispatched), so a
   Standard review is never read as a Deep one.
-- A result the cycle returned as recorded is reported as recorded: an earlier
-  run for the same head, no new review; asking for a redo runs it again. A
-  plan (`PLAN_ONLY`) is never reported as a status, a finding list or "looks
-  good".
+- A result returned as recorded is reported as recorded (an earlier run for the
+  same head, no new review). A plan (`PLAN_ONLY`) is never reported as a status, a
+  finding list or "looks good".
 - Always state: for a PR, nothing was pushed or posted; for local changes,
   nothing was committed.
 
@@ -199,9 +182,8 @@ is), `reportPath` and `headSha`. Then:
   pass a rules file taken from the PR head.
 - This skill holds no timer, polls nothing and retries nothing in the
   background. A resume is the user asking again.
-- A plan pass dispatches nothing. A recorded result is quoted as recorded:
-  never recomputed, never improved, never used to skip a review the person
-  asked to have redone.
+- A plan pass dispatches nothing. A recorded result is quoted as recorded, never
+  recomputed, improved or used to skip a review the person asked to redo.
 - If anything above cannot be resolved (no PR, head not fetchable, toolchain
   unavailable), HALT with the reason. Never review a different commit than the
   one named, and never guess a SHA.

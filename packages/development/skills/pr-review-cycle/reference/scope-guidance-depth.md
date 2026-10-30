@@ -222,7 +222,9 @@ conversation, never the author's plan, the TRD discussion or any other part
 of this session: a reviewer that knows what the author meant stops
 reviewing what the author wrote. Each
 reviewer is **read-only** -- it records findings and changes nothing in the
-repository or in PR state.
+repository or in PR state -- and runs against a frozen snapshot of the reviewed
+commit (an export of it to a temporary directory) or a throwaway worktree
+(`worktree.create`), never the shared working tree.
 
 **The reviewer brief.** With its inputs, every reviewer is given the text
 below, word for word. It is editable policy -- tune the wording and the
