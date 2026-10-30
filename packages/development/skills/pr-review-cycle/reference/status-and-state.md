@@ -101,9 +101,16 @@ otherwise, or when it carries no head, it is discarded, not reused.
 status facts, `state` carries `verification` -- the `votes` result's
 `verification` word (`performed`, `partial`, `not-performed` or `blocked`),
 its `reason` and its `recoveryAction` -- and, whenever that word is not
-`performed`, the same **reduced-review notice** Step 3b puts in the report,
-verbatim, under `reducedReview`. A reader of the report, and the next
+`performed`, the **reduced-review notice** Step 3b puts in the report for that
+case (its fixed text for a runtime with no subagents, its plain words when
+verifiers did not come back), verbatim, under `reducedReview`. A reader of the report, and the next
 `state-read` that resumes it, therefore sees that the review was reduced
 without having to re-derive it; a report that records a clean status and
 says nothing about a review that was never verified is the one shape this
 rule exists to prevent.
+
+**What the report records about depth.** `state` also carries the Step 1c
+`tier` result under `tier` and the `depth` result under `depth` (its `mode`
+and `reasons`, with the reviewers and verifiers actually dispatched), so a
+reader of the report sees at what depth the review ran and why: a Standard
+review is never mistaken for a Deep one.

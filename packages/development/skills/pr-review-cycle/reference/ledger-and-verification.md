@@ -75,6 +75,31 @@ than letting the author of the finding confirm their own finding.
 Each verifier returns, per candidate, exactly one verdict: `real`,
 `not-real` or `abstain`. Anything else is not a vote and is ignored as one.
 
+**The verifier brief.** This is where the checks a reviewer may not run
+belong, on named findings only. With the diff, the findings it is to settle
+and the applied rules, every verifier is given the text below, word for word;
+like the reviewer brief it is editable policy, and until a maintainer edits it
+the limits bind.
+
+> You are verifying findings that someone else raised: decide, for each one
+> you are given, whether it is real. You are told each finding's file, line,
+> failure mode and evidence, and nothing about who raised it or why.
+>
+> Settle each finding with the narrowest check that bears on it and on no
+> other finding: read the code, run one snippet, or run the ONE test file
+> that exercises the claim. Never run a whole test suite, a build or a
+> generator. When a finding says that a test or a guard would not catch a
+> defect, you may prove it with ONE mutation: in your own throwaway copy of
+> the snapshot, change the one line, run that one test, then discard the
+> copy. Never change the shared working tree, the PR's branch or the snapshot
+> itself.
+>
+> Use at most 20 tool calls per finding. Return exactly one verdict per
+> finding -- `real`, `not-real` or `abstain` -- with the evidence for it. If
+> you reach the cap or your timebox before you have a verdict on a finding,
+> return NO verdict for it rather than guess: the cycle records you as
+> incomplete for that finding, which is the honest answer.
+
 **Tallying.** Run `node "$PR_REVIEW_CLI" votes` with
 `{ findings, depth, expectedVerifiers, verificationCapability }`:
 
@@ -98,12 +123,28 @@ person, because a vote does not close a critical or security-relevant
 finding.
 
 **A verifier that did not come back.** When a verifier assigned to a finding
-returns no usable vote (timeout, tool failure, excluded as its own reviewer),
-name it on that finding's `incompleteVerifiers` as `{ verifier, reason }`.
-That finding comes back `unverified` / `verifier-incomplete` and is
-presented and marked **even if the votes that did arrive would have reached a
-majority**: incomplete coverage is never read as agreement. Report the
-result's `recoveryAction` (`supply-the-missing-votes`) with it.
+returns no usable vote -- it timed out or hit its cap before a verdict, the
+tool failed, the dispatch returned nothing ("No result provided"), or it was
+excluded as its own reviewer -- name it on that finding's `incompleteVerifiers`
+as `{ verifier, reason }`. A dispatch that returns nothing was assigned every
+finding in its batch, so it is named on every one of them, not on one. Then
+**move on**: do not wait for it past the cycle budget, do not re-dispatch it,
+do not vote for it and do not hold the round for it. That finding comes back
+`unverified` / `verifier-incomplete` and is presented and marked **even if the
+votes that did arrive would have reached a majority**: incomplete coverage is
+never read as agreement. Report the result's `recoveryAction`
+(`supply-the-missing-votes`) with it, and say in the report, in plain words,
+which verifiers did not return, on which findings and why: the review is
+partially verified, not verified, and those words are what goes under
+`reducedReview` in the state report (Step 9). For example:
+
+> REDUCED REVIEW: verifier v3 returned no usable vote on 4 findings, so they
+> are presented unverified (verification: partial, reason:
+> some-verifiers-did-not-return). Supply the missing votes before relying on
+> them.
+
+The fixed text of the degraded mode below is for a runtime with no subagents
+and is never used here, because here the verifiers exist and did not answer.
 
 **Degraded mode: a runtime with no subagents (AC-006-4).** When the runtime
 cannot dispatch subagents at all -- so neither the multi-reviewer dispatch of
