@@ -274,9 +274,14 @@ describe('AC-016-1: reviewer and verifier counts never exceed the mode\'s bound'
     ['quick', 'low', { reviewers: 2, verifiers: 0 }, false],
     ['quick', 'low', { reviewers: 1, verifiers: 1 }, false],
     ['standard', 'medium', { reviewers: 2, verifiers: 3 }, true],
+    // REVIEWER_COUNT (2 to 4) plans more reviewers than the minimum; the CLI grades that plan like any other.
+    ['standard', 'medium', { reviewers: 3, verifiers: 3 }, true],
+    ['standard', 'medium', { reviewers: 4, verifiers: 3 }, true],
     ['standard', 'medium', { reviewers: 1, verifiers: 3 }, false],
     ['standard', 'medium', { reviewers: 2, verifiers: 2 }, false],
     ['deep', 'high', { reviewers: 2, verifiers: 5 }, true],
+    ['deep', 'high', { reviewers: 3, verifiers: 5 }, true],
+    ['deep', 'high', { reviewers: 4, verifiers: 5 }, true],
     ['deep', 'high', { reviewers: 2, verifiers: 4 }, false],
   ];
 

@@ -17,10 +17,12 @@ dispatched, show what the run will cost:
    dispatch, the slices and the time bound. For a head it already has a recorded
    result for (`REUSE_RECORDED`), it returns that result instead: report it (see
    Report in `SKILL.md`) and leave that target out of everything below.
-2. Print the plans as one table (PR, tier -> depth, reviewers, verifiers,
-   slices, time bound) with the total reviewers and verifiers and the longest
-   bound. The bound is the one each plan carries: the cycle's own budget, a
-   ceiling and never a forecast (no per-step timings are recorded yet), with
+2. Print the plans as one table (PR, tier -> depth, reviewers -- the count the
+   cycle planned, which is not the count asked for when they differ --
+   verifiers, slices, time bound) with the total reviewers and verifiers and the
+   longest bound. The bound is the one each plan carries: the cycle's own
+   budget, a ceiling and never a forecast (no per-step timings are recorded
+   yet), with
    any local test runs waiting their turn on top of it. For one PR this is a few lines.
 3. Then **proceed or ask.** Ask, and stop until answered, when any plan is
    `deep`: say which, what it dispatches, and offer to drop it or go ahead.
@@ -32,6 +34,21 @@ dispatched, show what the run will cost:
 A Standard plan never asks: a Medium-tier change resolves to Standard depth, and
 only a High or unreadable tier resolves to Deep (the cycle decides, never this
 skill). Nothing here lowers a depth, and a plan is not a review result.
+
+## More reviewers
+
+The router passes `REVIEWER_COUNT` only when the person asked for more
+reviewers ("review thoroughly", "use more reviewers", a number), never by
+default, so an ordinary request plans the mode's minimum as before. The count
+is the number they named; with no number it is 3. It goes to every target of
+that request, PRs and local changes alike, in the `PLAN_ONLY` call and in the
+real one. The cycle takes 2 to 4 and refuses anything else as `REVIEW_BLOCKED`
+at the plan, before any reviewer runs: report that and let the person ask
+again. Quick keeps its one reviewer and a policy minimum above the count raises
+it, which the table shows. Asking for more reviewers is asking for the review
+to be redone, so `REUSE_RECORDED` stays unset for that request. Nothing else
+changes: the depth, the verifier count and the rule that only a Deep plan asks
+first are the cycle's.
 
 ## Running the PRs together
 

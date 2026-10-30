@@ -177,6 +177,19 @@ The bounds the modes carry:
 * **Standard** -- at least two reviewers and 3 verifiers.
 * **Deep** -- at least two reviewers and 5 verifiers.
 
+**More reviewers (`REVIEWER_COUNT`).** Unset, plan the mode's minimum
+(`bounds.reviewers.min`: two at Standard and Deep, one at Quick), as always.
+Set, it must be an integer from 2 to 4; anything else (a word, a fraction, 0,
+1, 5 or more) ends the run as `REVIEW_BLOCKED` naming `REVIEWER_COUNT`, with
+nothing dispatched -- it is never rounded, clamped or ignored. A valid count is
+the `planned.reviewers` of the `depth` call, so the CLI grades it like any
+plan and `violations` stays binding: Quick, a ceiling of one reviewer, refuses
+it, and a policy minimum above it raises it. Re-plan within the bounds, call
+`depth` again, and say in the plan which count was asked for and which is
+used. The mode, the verifier count and every bound stay as `depth` resolved
+them: more reviewers are more independent passes over the same `range`, not a
+deeper mode.
+
 **Slices.** Run `node "$PR_REVIEW_CLI" slices` with
 `{ paths, areas, threshold }`: `paths` is `[{ path, lines }]` for every
 changed file in `range` (the per-file added-plus-deleted line counts of the `range` diff), `areas` are the
@@ -196,7 +209,8 @@ slices before continuing -- an uncovered path is never reported as reviewed.
 **The plan.** With `depth` free of violations and the slices cut, print the
 plan before anything is dispatched: `PR_ID`; the tier and effective tier with
 the `reasons` the `tier` result gave; the `mode` and its `reasons`; the
-reviewers and verifiers about to be dispatched and the slices they cover; and
+reviewers and verifiers about to be dispatched (and the `REVIEWER_COUNT` asked
+for, when it is not the count used) and the slices they cover; and
 the time bound. The bound is the budget at the top of this skill -- 20
 minutes per reviewer, all of them at once, 45 for the whole cycle -- and
 nothing else: no per-step durations are recorded yet, so it is a ceiling and
@@ -209,8 +223,9 @@ call that finds a reusable recorded result (Step 1a) returns that result
 instead of a plan.
 
 **Dispatching the reviewers (REQ-004).** At Standard or Deep, dispatch **at
-least two reviewers as subagents**, within the `depth` bounds; at Quick,
-exactly one. Each reviewer starts in **fresh context** and is given only:
+least two reviewers as subagents**, within the `depth` bounds (the count
+planned above); at Quick, exactly one. Each reviewer starts in **fresh
+context** and is given only:
 
 1. the diff for its slice (the whole `range` when the PR was not sliced),
 2. the rules `applied` from Step 1b and the policy and sensitivity facts

@@ -75,6 +75,7 @@ Full table with every description: `reference/inputs.md`. Names:
   `HEAD_SHA` and the total it reported.
 * `FOREMAN` -- true: never enter the interactive wait. `BOT_LOGINS` -- review-bot logins for CLI `remote`.
 * `PLAN_ONLY`, `REUSE_RECORDED` -- opt-in early exits of `local` (Steps 1c, 1a).
+* `REVIEWER_COUNT` -- opt-in 2-4 reviewers (Step 1c).
 * `PR_BODY`, `AGENT_AUTHORED` -- graded by CLI `description`; anything but an explicit
   `false` reads as true (unset too), and an agent-authored body names the accountable person on a `Directed by:` line.
 * Gate only: `DIRECTED_BY` (counts as a reviewer only when `AGENT_AUTHORED`),
