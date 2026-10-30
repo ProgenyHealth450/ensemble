@@ -42,7 +42,7 @@ not this skill: say which skill or command does it and stop.
    `ok:false` -> print the error message and HALT. Keep `runId` as `RUN_ID`;
    every later `toolchain-cli` call passes `--run-id "$RUN_ID"`.
 3. Every VCS read below (fetching a head, resolving a SHA, the merge base, the
-   repository slug, the working-tree snapshot) is delegated to `@git-workflow`
+   repository slug, the check runs for a commit, the working-tree snapshot) is delegated to `@git-workflow`
    as **read-only**, because not every workflow adapter declares those
    capabilities (the git-town adapter declares none of `workflow.merge-base`,
    `workflow.log` or `workflow.remote-url`). `REPO_SLUG` comes from the
@@ -67,17 +67,33 @@ Reads and reviews; it never changes the PR.
    one remembered from earlier. `BASE_SHA` = the merge base of `HEAD_SHA` and
    the fetched `baseBranch`. A head that cannot be fetched, or a SHA that
    cannot be resolved -> HALT and say so.
+   **Then read that head's CI, also read-only.** Delegate to `@git-workflow`: the
+   check runs the host lists for exactly `HEAD_SHA` (a GET of the host's listing of
+   that commit's check runs, `/repos/<REPO_SLUG>/commits/<HEAD_SHA>/check-runs`,
+   100 to a page, every page followed). `CHECK_RUNS` = every run in it,
+   unfiltered and unedited, each as `{ id, name, commitSha, conclusion }`
+   (`commitSha` is the run's own `head_sha`; a run still going has no
+   conclusion, so it has none here); `CHECK_RUNS_TOTAL` = the `total_count` the
+   host reports. The toolchain's `host.change-request-checks` is not used for
+   this: its output names no commit, so it cannot show which head a result is
+   for. A read that fails leaves both unset: say so, and the cycle runs the tests
+   itself. Read once: never wait for CI, poll it, or narrow the list to the runs
+   you think matter. Whether CI counts is not decided here: the cycle's CLI
+   decides, from these facts and nothing else.
 4. **Invoke `pr-review-cycle`** with `MODE='local'`, `BASE_SHA`, `HEAD_SHA`,
    `PR_ID=<REPO_SLUG>-pr-<N>`, `PR_BODY` = the PR's published description,
    `TEST_COMMAND` = the fastest relevant command the repository defines,
    `SKIP_TESTS` = true only if the user said to skip tests. Leave `FOREMAN`
    unset. Leave `AGENT_AUTHORED` unset and report the description grade exactly
    as the cycle returns it.
+   A PR is someone else's work, so also pass `REVIEW_ONLY=true` -- the cycle
+   reviews and reports, and fixes nothing -- with `CHECK_RUNS` and
+   `CHECK_RUNS_TOTAL` from the read above (leave both out when that read failed).
 5. **Never touch the PR.** No commit, push, comment, approval, request-changes,
-   thread resolution or label, on the PR or any branch of it. The cycle may
-   batch-fix in its isolated worktree; those fixes are **not** applied to the
-   PR. Report that a fix exists and where (the worktree path the cycle
-   returns); the author or the user applies it.
+   thread resolution or label, on the PR or any branch of it. The cycle is
+   review-only here, so it fixes nothing: there is no fix to apply and no
+   worktree to hand over. The report lists the findings; the author or the user
+   acts on them.
 6. **Report** (see [Report](#report)).
 
 ---
@@ -94,7 +110,7 @@ Reads and reviews; it never changes the PR.
    unasked.
 3. Run [Review PR #N](#review-pr-n) for each chosen PR, **one at a time**. A
    halt or `REVIEW_BLOCKED` on one PR is recorded and the next still runs.
-4. Finish with one table (PR, status, blocking findings, fixes available) and
+4. Finish with one table (PR, status, blocking findings, where the tests came from) and
    then each PR's own report.
 
 ---
@@ -102,7 +118,9 @@ Reads and reviews; it never changes the PR.
 ## Review local changes
 
 The user's own work, so here the cycle's batch fix is applied to the working
-tree, as `fix-issue` does. Nothing is committed, pushed or published.
+tree, as `fix-issue` does. Nothing is committed, pushed or published. It is a full
+run: `REVIEW_ONLY` is not set and no check runs are read, because the snapshot is
+not a pushed commit with CI behind it, so the tests run locally.
 
 1. `DEFAULT_BRANCH` is the remote's default branch minus `origin/`, else
    `main`. `BASE_SHA` = the merge base of `HEAD` and `DEFAULT_BRANCH`
@@ -136,6 +154,11 @@ is), `reportPath` and `headSha`. Then:
 
 - Say `REVIEW_PENDING` and `REVIEW_BLOCKED` as such, with the `reasons` and the
   cycle's next action. Never turn either into "looks good".
+- A PR review is review-only, so its status is `REVIEW_PENDING` by design (the
+  `reasons` carry a `review-only` line), never `REVIEW_COMPLETE`: it reports one
+  read-only pass and is not a verdict that the PR may merge. Say so, then say
+  where the tests came from: the CI check runs that counted (`tests.ci.counted`,
+  by name), or a local run and why CI did not stand in (the cycle's `reasons`).
 - A reduced review (verification not performed, tests skipped) is reported as
   reduced, never as clean.
 - Name what was not reviewed when the cycle ran out of budget.

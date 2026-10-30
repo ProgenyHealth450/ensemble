@@ -7,7 +7,7 @@ Companion to `SKILL.md`; every rule here is normative.
 Run `node "$PR_REVIEW_CLI" status` with the accumulated facts: `{ baseSha,
 headSha, reviewedHeadSha, reviewedTreeSha, headTreeSha,
 findingCounts:{total, actionable, deferred}, tests:{exitCode, skipped, command},
-remotePhase, roundsUsed, roundCap, access, prUrl, reportPath }`. `baseSha`, `headSha` and
+remotePhase, roundsUsed, roundCap, access, prUrl, reportPath, reviewOnly }`. `baseSha`, `headSha` and
 `reviewedHeadSha` (full 40- or 64-hex
 object ids, never a bare ref) and `findingCounts` (`total`, `actionable` and
 `deferred`: non-negative integers with `total >= actionable + deferred`) are
@@ -24,6 +24,36 @@ naming the missing facts. The result is exactly one of
 `REVIEW_COMPLETE` / `REVIEW_PENDING` / `REVIEW_BLOCKED` plus `localPhase`,
 `remotePhase` and `reasons`. `REVIEW_COMPLETE` requires `LOCAL_REVIEW_COMPLETE`
 **and** `REMOTE_REVIEW_COMPLETE` -- never return it from prose judgment.
+
+**Review-only runs (`REVIEW_ONLY`).** Add `reviewOnly: true` to the facts. The result
+is then `REVIEW_PENDING` with a reason that says why, whatever else is complete --
+a complete remote review included -- and `localPhase` is never
+`LOCAL_REVIEW_COMPLETE`: a run that fixed and verified nothing cannot unlock a
+publication. Its `next` is `run-tests` until the tests are shown, then
+`report-to-author`. A blocked result stays blocked, `reviewOnly` is echoed in every
+result so the report records it, and only an explicit boolean is read: any other
+value blocks. Leave `reviewOnly` out (or `false`) for every other run; nothing else
+changes for it.
+
+**CI as the tests fact (a review-only run's alone).** `tests` may instead be
+`{ source: 'ci', checkRuns, totalCount, command }` -- `CHECK_RUNS`,
+`CHECK_RUNS_TOTAL` and `TEST_COMMAND` exactly as given. `passed` is derived by the
+CLI from the runs and never supplied. A check run counts only when its `commitSha`
+is exactly `headSha` and its `conclusion` is `success`; `skipped`, `stale` and
+`neutral` count for nothing and object to nothing; a run for another commit is
+ignored. CI shows **nothing** -- the tests stay unshown, `next` is
+`run-tests:<command>` and `reasons` says why -- when no run is for `headSha`, the
+list is empty, unreadable or shorter than `totalCount` (the host pages its
+answer), or a run failed, was cancelled, timed out, needs action, has not
+concluded or has a conclusion nobody can read. The next call then carries a real
+local `exitCode` instead. `source: 'ci'` with an `exitCode`, with `skipped: true`,
+with a `passed` the runs do not show, or on a run that is not review-only is a
+typed pass, not a CI result: the fact is invalid and the status is
+`REVIEW_BLOCKED`. The recorded fact keeps the runs and the verdict on each
+(`tests.ci`), so the report says which check runs stood in for the tests. The
+limit, stated: the CLI sees only what the host lists. A workflow that has not
+started has no run that could object, and every run counts alike, so the report
+names the ones that counted rather than saying "CI passed".
 
 **Fresh review.** The review is fresh for `headSha` when `reviewedHeadSha`
 equals it, or when `reviewedTreeSha` and `headTreeSha` -- the tree ids of those two commits -- are both given and are the identical full
@@ -43,7 +73,7 @@ being evaluated and its tree -- but `reviewedHeadSha` and `reviewedTreeSha`
 are **not** those: they are what the local run recorded, read back from the
 report `state-read` returns (Step 9), that report's own `reviewedHeadSha` and
 `reviewedTreeSha`; the other local-phase facts it recorded (`baseSha`,
-`findingCounts`, `tests`, `rounds.used`) come from the same report. Never copy
+`findingCounts`, `tests`, `rounds.used`) come from the same report, and so does `reviewOnly`. Never copy
 `headSha` or `headTreeSha` into them -- that would make every head look
 reviewed -- and never use a value from before the batch fix. When `state-read`
 finds no report, or discards it, leave both out (the grader blocks, naming the

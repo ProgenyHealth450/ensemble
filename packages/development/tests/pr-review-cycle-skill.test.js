@@ -243,6 +243,7 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
     roundsUsed: () => 0,
     roundCap: () => 3,
     access: () => ({ ok: true }),
+    reviewOnly: () => false,
     prUrl: () => 'https://github.com/org/repo/pull/1',
     reportPath: () => '.ensemble/pr-review/pr-1.json',
     // state
@@ -360,6 +361,7 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
         'prUrl',
         'remotePhase',
         'reportPath',
+        'reviewOnly',
         'reviewedHeadSha',
         'reviewedTreeSha',
         'roundCap',
@@ -403,6 +405,31 @@ describe('pr-review-cycle SKILL.md: every CLI call it documents is accepted by t
       'LOCAL_REVIEW_COMPLETE',
       'none',
     ]);
+  });
+
+  test('Step 8 documents the CI tests fact: against the real CLI, the keys it lists are what a review-only run takes CI from', () => {
+    const [, listed] = flat.match(/`\{ source: 'ci', ([^}]*) \}`/);
+    const keys = keysOf(listed);
+    expect([...keys].sort()).toEqual(['checkRuns', 'command', 'totalCount']);
+    const CI_SAMPLES = {
+      checkRuns: () => [{ id: 1, name: 'test', commitSha: HEAD_SHA, conclusion: 'success' }],
+      totalCount: () => 1,
+      command: () => 'npm test',
+    };
+    const reviewOnlyStatus = (omitted) =>
+      run('status', {
+        ...Object.fromEntries(documentedStatusKeys().map((key) => [key, sampleFor(key)])),
+        reviewOnly: true,
+        tests: { source: 'ci', ...Object.fromEntries(keys.filter((key) => key !== omitted).map((key) => [key, CI_SAMPLES[key]()])) },
+      }).out;
+
+    const shown = reviewOnlyStatus(undefined);
+    expect([shown.status, shown.reviewOnly, shown.tests.passed]).toEqual(['REVIEW_PENDING', true, true]);
+    // The runs and the host's total are each needed: without either, CI shows nothing and the next call needs a local run.
+    for (const key of ['checkRuns', 'totalCount']) {
+      const result = reviewOnlyStatus(key);
+      expect([key, result.tests.passed, /^run-tests/.test(result.next)]).toEqual([key, false, true]);
+    }
   });
 
   test('Step 9 documents the state payloads: write { prId, state }, then read { prId, headSha, treeSha } for the head being resumed', () => {

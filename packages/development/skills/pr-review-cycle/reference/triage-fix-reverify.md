@@ -18,6 +18,9 @@ the first finding while later findings are still unclassified.
 
 ### Step 5 -- Batch fix (delegate to `pr-review-remediation`)
 
+**A `REVIEW_ONLY` run skips this step:** someone else's PR is reported on, never
+fixed (see "Review-only runs" at the end of this file).
+
 Once every finding is triaged, delegate the full set of actionable findings
 in **one batch** to `packages/quality/skills/pr-review-remediation/SKILL.md`.
 That skill owns verification, test-first reproduction, minimal-fix
@@ -32,6 +35,9 @@ skill halts immediately as `REVIEW_BLOCKED`, naming the missing capability
 state and never silently skips remediation.
 
 ### Step 6 -- Verify once, then re-review the diff
+
+**A `REVIEW_ONLY` run has no fix to verify and nothing to re-review.** It records the
+tests fact as "Review-only runs" at the end of this file describes.
 
 After the batch fix returns, run the focused regression tests first, then
 run the broad test gate **once** and record its real exit code as `tests.exitCode` (`TEST_COMMAND`, unless `SKIP_TESTS`, in
@@ -73,3 +79,53 @@ Step 2 findings (fix real ones via Step 5); report each tool as `clean`,
 If `MODE=local`, stop here: derive status (Step 8 below) using only the
 local facts (`remotePhase` is omitted / treated as pending), write state
 (Step 9), and return. There is no PR yet to push or evaluate remotely.
+
+### Review-only runs (`REVIEW_ONLY`) -- what stands in for Steps 5 and 6
+
+`REVIEW_ONLY` is set by a caller reviewing **someone else's PR** (the
+`pr-review-request` router sets it for every PR target and never for local
+changes). The cycle reads and reports; it fixes nothing, so there is no fix to
+verify and nothing to re-review.
+
+* **Step 4 runs in full.** Every presented finding is classified with
+  `isActionable`. The actionable ones are **reported** -- in the ledger, with
+  severity and location -- and never fixed: nothing is edited, committed or
+  pushed, `pr-review-remediation` is not invoked, and its absence does not block a
+  review-only run.
+* **Steps 5 and 6 do not run.** The head is the head that was reviewed: `headSha`
+  and `reviewedHeadSha` are the same commit, so no tree id is needed. The optional
+  security gate above still runs on the reviewed `range`; a real hit is one more
+  finding to report.
+* **The tests fact is still recorded, from CI before a local run.** The caller
+  passes the host's check runs for exactly `HEAD_SHA` as `CHECK_RUNS`, with the
+  host's own count as `CHECK_RUNS_TOTAL`. In this order:
+  1. `SKIP_TESTS`: record `tests = { skipped: true, command: TEST_COMMAND }` as
+     always. CI is not consulted.
+  2. Otherwise, with `CHECK_RUNS` given, record `tests = { source: 'ci',
+     checkRuns: CHECK_RUNS, totalCount: CHECK_RUNS_TOTAL, command: TEST_COMMAND }`
+     and run `status` (Step 8) with it and `reviewOnly: true`. The CLI derives
+     `passed` from the runs and this skill never does: a check run counts only
+     when its `commitSha` is exactly `headSha` and its conclusion is `success`.
+  3. `tests.passed` is `true`: CI stands in for the local run and **no local test
+     run happens**. The report names the runs that counted (`tests.ci.counted`).
+  4. Otherwise -- `CHECK_RUNS` was not given (the caller could not read them), or
+     `tests.passed` is not `true` because no run is for this head, a run failed or
+     had not finished, a conclusion could not be read, or the list is empty or
+     shorter than the host's total (the CLI's `reasons` say which, and `next` is
+     `run-tests`) -- run `TEST_COMMAND` **once**, in a throwaway worktree of
+     `headSha` (`worktree.create`), never in the user's checkout. Record its real
+     exit code as `tests.exitCode` and run `status` again -- still with
+     `reviewOnly: true`, every `status` call of this run carries it -- with that
+     local fact in place of the CI one. Only the last result is reported and
+     written (Step 9), and it no longer says why a local run was needed, so quote
+     the first result's reasons in the report.
+  5. Never type the fact: no pass, no `exitCode` or `passed` on a CI fact. The CLI
+     refuses it as invalid (`REVIEW_BLOCKED`), and refuses CI altogether when
+     `reviewOnly` is not `true`.
+* **A failing test is also a finding to report.** A failed check run or a failing
+  local run is a build/test/required-check failure under the stopping rule:
+  report it with the other blocking findings.
+* **The result is `REVIEW_PENDING`, never `REVIEW_COMPLETE`.** `reasons` carries the
+  `review-only` line and `localPhase` is never `LOCAL_REVIEW_COMPLETE`, so nothing
+  is published or merged on it. What remains -- the author's fixes, a re-review of
+  the next head, the remote review -- is the author's.

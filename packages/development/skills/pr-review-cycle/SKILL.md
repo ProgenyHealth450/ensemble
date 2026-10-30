@@ -39,6 +39,11 @@ merge into ONE bead, not new rounds.
 verification; a second only while a BLOCKING finding remains (CLI
 round cap from the repository policy -- see Step 7 -- is the hard limit).
 
+**Review-only (`REVIEW_ONLY`, someone else's PR):** the review pass and its report and
+nothing more -- no batch fix, no post-fix verification, no re-review, and no test run
+of its own unless CI cannot stand in for one (Step 6). The result is `REVIEW_PENDING`,
+never `REVIEW_COMPLETE`.
+
 **Wall-clock budget:** 45 minutes per cycle, 20 per independent
 reviewer; give each reviewer its timebox and ask for findings so far at expiry.
 When spent, stop, derive status with the CLI (never `REVIEW_COMPLETE` from
@@ -67,6 +72,8 @@ Full table with every description: `reference/inputs.md`. Names:
 * `REVIEWED_TREE_SHA` (local) / `HEAD_TREE_SHA` (remote) -- optional tree ids; leave out when not computed.
 * `PR_ID` (state-report key), `PR_URL` (required for remote), `PR_NUMBER` (gate).
 * `TEST_COMMAND` -- record the real `tests.exitCode`; never type a pass. `SKIP_TESTS` -- record `tests.skipped = true` plus the command; status is then `REVIEW_PENDING` (`tests skipped`), never `REVIEW_COMPLETE`.
+* `REVIEW_ONLY` -- true: someone else's PR. Steps 5 and 6 do not run; status is `REVIEW_PENDING` with a reason, never `REVIEW_COMPLETE`. Never set for local changes.
+* `CHECK_RUNS`, `CHECK_RUNS_TOTAL` -- `REVIEW_ONLY` only: the host's check runs for exactly `HEAD_SHA` and the total it reported. The CLI derives from them whether CI stands in for the tests (Step 6); never type a pass.
 * `FOREMAN` -- true: never enter the interactive wait. `BOT_LOGINS` -- review-bot logins for CLI `remote`.
 * `PR_BODY`, `AGENT_AUTHORED` -- graded by CLI `description`; anything but an explicit
   `false` reads as true, and an agent-authored body names the accountable person on a `Directed by:` line.
@@ -97,8 +104,10 @@ malformed JSON on stdin, or a request key (a `ledger` action's keys,
 ## Algorithm
 
 The steps run in this fixed order. No step is reordered, skipped, or
-collapsed by a caller. `MODE=local` runs Steps 1-6, `MODE=remote` runs Steps
-1, 1b and 7-9, and `MODE=gate` runs Steps 1, 1b and 10 -- and only those.
+collapsed by a caller, except through `REVIEW_ONLY` (below). `MODE=local` runs Steps
+1-6, `MODE=remote` runs Steps 1, 1b and 7-9, and `MODE=gate` runs Steps 1, 1b and 10
+-- and only those. With `REVIEW_ONLY`, `MODE=local` runs Steps 1-4, the tests fact of
+Step 6 and Steps 8-9: Step 5 and Step 6's verification and re-review never run.
 
 ### Step 1 -- Resolve scope (CLI `scope`)
 
@@ -179,6 +188,8 @@ dropped; `filtered` is neither triaged nor fixed nor deleted.
 
 ### Step 5 -- Batch fix (delegate to `pr-review-remediation`)
 
+A `REVIEW_ONLY` run skips this step: its findings are reported, never fixed.
+
 Delegate all actionable findings in **one batch** to
 `packages/quality/skills/pr-review-remediation/SKILL.md` (it owns verification, test-first
 reproduction, minimal fixes); never one comment at a time. If unresolvable, halt as
@@ -195,6 +206,11 @@ from the post-fix head (never the pre-fix one). Before `MODE=local` returns, run
 optional prose-only security gate (`/security-review`, `gitleaks`, `osv-scanner`);
 it never changes CLI status. `MODE=local` then derives status (Step 8), writes state
 (Step 9) and returns.
+
+A `REVIEW_ONLY` run has no fix to verify and nothing to re-review. Its tests fact comes
+from CI (`CHECK_RUNS`, derived by the CLI) and only otherwise from one local run; the
+optional security gate still runs and its hits are reported. Detail: "Review-only runs"
+in `reference/triage-fix-reverify.md`.
 
 ### Step 7 -- Collect and evaluate the remote review (CLI `remote`, `MODE=remote` only)
 
@@ -224,7 +240,7 @@ decision: `REVIEW_BLOCKED` stating the decision -- never dismiss it to force com
 Detail: `reference/status-and-state.md`. Run `status` with `{ baseSha, headSha,
 reviewedHeadSha, reviewedTreeSha, headTreeSha, findingCounts:{total, actionable,
 deferred}, tests:{exitCode, skipped, command}, remotePhase, roundsUsed, roundCap, access,
-prUrl, reportPath }`. The grader fails closed on missing or invalid facts. Result: exactly one of `REVIEW_COMPLETE` / `REVIEW_PENDING` /
+prUrl, reportPath, reviewOnly }`. The grader fails closed on missing or invalid facts. Result: exactly one of `REVIEW_COMPLETE` / `REVIEW_PENDING` /
 `REVIEW_BLOCKED` plus `localPhase`, `remotePhase`, `reasons`. `REVIEW_COMPLETE` requires
 `LOCAL_REVIEW_COMPLETE` **and** `REMOTE_REVIEW_COMPLETE` -- never from prose judgment.
 The review is fresh only when `reviewedHeadSha` equals `headSha` or both tree ids are
@@ -232,6 +248,10 @@ given and identical; else stale -- re-run the local review. In `MODE=remote`,
 `reviewedHeadSha`, `reviewedTreeSha` and the other local facts come from `state-read`,
 never from `headSha`/`headTreeSha`; with no report, leave them out and tell the operator
 to re-run the local phase. A caller's completion override goes to the CLI, never applied here.
+`REVIEW_ONLY` passes `reviewOnly: true` and in `MODE=remote` takes it from the report
+with the other recorded facts: the result is `REVIEW_PENDING` with a reason whatever
+else is complete, and `localPhase` is never `LOCAL_REVIEW_COMPLETE`. Its `tests` may
+be `{ source: 'ci', checkRuns, totalCount, command }`, from which the CLI derives `passed`.
 **Publication is gated on `localPhase` alone:** push or
 create the PR only when it is exactly `LOCAL_REVIEW_COMPLETE`; `LOCAL_REVIEW_PENDING`,
 `LOCAL_REVIEW_BLOCKED`, or a missing/unreadable status halts: report, never publish.

@@ -900,8 +900,10 @@ You do not need a command to start a review. The `pr-review-request` skill route
 
 | Say | What happens |
 | --- | --- |
-| "review PR #123" (or a PR URL) | Reviews that PR's current head with the full process above. Reads and reports only: nothing is pushed, commented, approved or resolved on the PR, and a fix the cycle produces stays in its isolated worktree for the author or you to apply. |
+| "review PR #123" (or a PR URL) | Reviews that PR's current head as a **review-only** run: the independent review, verification and report of the process above, but no batch fix and no re-review, because it is someone else's PR. Reads and reports only: nothing is pushed, commented, approved or resolved on the PR. The result is `REVIEW_PENDING` by design, never `REVIEW_COMPLETE`. |
 | "review open PRs" | Lists the open PRs, asks which to review when there are more than three, then reviews them one at a time. |
-| "review local changes" | Reviews your working tree (including untracked files) against the default branch. These are your own changes, so the batch fix is applied to the working tree; nothing is committed. |
+| "review local changes" | Reviews your working tree (including untracked files) against the default branch. These are your own changes, so the batch fix is applied to the working tree and the tests run locally; nothing is committed. |
+
+**Tests on someone else's PR.** The host has usually run them already, so a green CI result for that exact commit stands in for a local run: the skill reads the commit's check runs (read-only, once, never waiting for CI) and the review CLI decides whether they count. A check run counts only when it is for exactly that commit and concluded `success`. A run for another commit is ignored; a failed, unfinished or unreadable run, an empty list, or a list shorter than the total the host reported counts for nothing. In any of those cases the tests run locally, once, in a throwaway worktree, and the report says why. Nothing here is typed by an agent: a "CI passed" the CLI did not derive from check runs is refused. The limit, stated: the CLI sees only what the host lists, so a workflow that has not started has no check run yet, and the report names the check runs that counted rather than saying "CI passed".
 
 To merge rather than review, use `/ensemble:pr-merge`, which runs the review as part of its merge gate.
