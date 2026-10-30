@@ -226,6 +226,17 @@ repository or in PR state -- and runs against a frozen snapshot of the reviewed
 commit (an export of it to a temporary directory) or a throwaway worktree
 (`worktree.create`), never the shared working tree.
 
+**Which agent.** A reviewer, and a verifier (Step 3b), must be an agent that
+(a) returns the output contract its brief asks for, in the shape asked, (b)
+can read files and run read-only commands, and (c) is not a specialist that
+imposes a findings format of its own or caps its own depth: such an agent
+answers in its own schema and stops early. Prefer the runtime's agent for
+general delegated work to one specialised for code review. If the runtime has
+no agent that meets all three, use its general-purpose one and say in the
+report, in plain words, which requirement could not be met and that the review
+is therefore of reduced assurance, never presenting it as a full one; the
+state report (Step 9) carries the same words under `reducedReview`.
+
 **The reviewer brief.** With its inputs, every reviewer is given the text
 below, word for word. It is editable policy -- tune the wording and the
 numbers here, never in the CLI -- and until a maintainer edits it the limits

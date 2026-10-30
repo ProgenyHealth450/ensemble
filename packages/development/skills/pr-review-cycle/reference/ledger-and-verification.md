@@ -86,7 +86,8 @@ each candidate records the `reviewer` that raised it, and that reviewer is
 excluded from that finding's verifier set. When the dispatch cannot exclude
 them (a single reviewer and a single verifier are the same agent), that
 finding has no usable verifier -- record it in `incompleteVerifiers` rather
-than letting the author of the finding confirm their own finding.
+than letting the author of the finding confirm their own finding. A verifier
+meets the same agent requirement as a reviewer (Step 1c, "Which agent").
 
 Each verifier returns, per candidate, exactly one verdict: `real`,
 `not-real` or `abstain`. Anything else is not a vote and is ignored as one.
