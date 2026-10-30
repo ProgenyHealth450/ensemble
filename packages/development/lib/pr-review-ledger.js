@@ -250,10 +250,203 @@ function collapseBase(group) {
 }
 
 /**
- * Duplicate findings (same location + failure mode) share one fix id and
- * keep every original link. The group collapses onto its most severe
- * actionable member (see collapseBase), and an actionable entry never keeps a
- * `deferred` disposition.
+ * Probable duplicates: one defect written up twice by independent reviewers.
+ *
+ * Reviewers who find the same defect rarely agree on the line range
+ * (`a.js:293-302`, `a.js:294-302`) or on the words, so two findings with
+ * different text never shared an entry. Merging by location alone would be
+ * wrong -- two defects can sit on one line -- and a wrong merge drops a
+ * finding, while a missed one only costs a repeated verification, so every
+ * condition below must hold and a doubt keeps the findings apart:
+ *
+ *   1. Different sources. One reviewer's two findings are two findings by its
+ *      own account, and an entry never holds two findings of one source (so a
+ *      reviewer's neighbouring findings cannot collapse through a single
+ *      match from another).
+ *   2. The same file, with line ranges that overlap or lie within
+ *      ADJACENT_LINES of each other (`path:12`, `path:12-20`, `path:12,40`;
+ *      trailing prose and several anchors are read).
+ *   3. Descriptions (failure mode and evidence) that agree. Each distinct
+ *      word weighs ln(N / df), N the distinct findings in the call and df how
+ *      many use the word, so vocabulary the whole round shares -- the PR's own
+ *      topic -- counts for little, and a round too small to tell topic from
+ *      defect (two findings) merges nothing. The weight of the words two
+ *      findings share, over the smaller description's total weight, must
+ *      reach SAME_DEFECT_MIN_SIMILARITY. On 54 reviewer findings from two
+ *      real PRs the distinct defects that sat on the same lines scored 0.21
+ *      or less (0.23 with another security relevance or Pre-existing status,
+ *      which condition 4 keeps apart anyway) and the pairs merged scored 0.29
+ *      to 0.56; a few weaker same-defect pairs (0.21 to 0.24) stay separate.
+ *      The shorter description must also weigh at least
+ *      SAME_DEFECT_MIN_SIZE_RATIO of the longer one, so a short finding is
+ *      not absorbed by a long one that merely mentions its words (every pair
+ *      merged on those findings weighed 0.53 or more).
+ *   4. Nothing that needs a person: no open thread and no uncertain flag, and
+ *      the same class, security relevance and Pre-existing status.
+ */
+const SAME_DEFECT_MIN_SIMILARITY = 0.26;
+/** The shorter of two descriptions must weigh at least this share of the longer one. */
+const SAME_DEFECT_MIN_SIZE_RATIO = 0.33;
+/** Fewer distinct words than this is too little text to call two findings one defect. */
+const SAME_DEFECT_MIN_WORDS = 8;
+const ADJACENT_LINES = 2;
+
+/** Words that say nothing about WHICH defect a finding describes (three letters or more; shorter words are dropped anyway). */
+const STOP_WORDS = new Set(
+  (
+    'about after all also and any are because been before being between both but can could did does each either ' +
+    'even every for from had has have here how however into its just may might more most must nor not only other ' +
+    'our out over per same shall should since some such than that the their them then there these they this those ' +
+    'through too under until upon was were what when where whether which while who whom whose why will with within ' +
+    'without would you your'
+  ).split(' ')
+);
+
+/** `path:12`, `path:12-20`, `path:12:5` and `path:12,40-44`, possibly several in one string, possibly followed by prose. */
+const ANCHOR_PATTERN = /([^\s:,;()[\]'"`<>]{1,255}):(\d+(?:\s*[-–]\s*\d+)?)(?::\d+)?((?:\s*,\s*\d+(?:\s*[-–]\s*\d+)?)*)/g;
+const LOCATION_TEXT_LIMIT = 2000;
+
+/**
+ * Every `{ file, start, end }` a finding's location cites. A link (anything with a URL scheme), a bare path
+ * and text that cites no line give none: such a finding is never merged by similarity.
+ */
+function locationRanges(finding) {
+  const text = isText(finding.locationOrLink) ? finding.locationOrLink.trim().slice(0, LOCATION_TEXT_LIMIT) : '';
+  if (text === '' || /^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return [];
+
+  const ranges = [];
+  for (const match of text.matchAll(ANCHOR_PATTERN)) {
+    if (!/[./]/.test(match[1])) continue;
+    const file = match[1].replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+    for (const part of `${match[2]}${match[3]}`.split(',')) {
+      const [first, last = first] = part.split(':')[0].split(/[-–]/).map((line) => Number(line.trim()));
+      if (first >= 1 && last >= 1) ranges.push({ file, start: Math.min(first, last), end: Math.max(first, last) });
+    }
+  }
+  return ranges;
+}
+
+/** The distinct words of a finding's failure mode and evidence, lower case, plural `s` folded. */
+function descriptionWords(finding) {
+  const words = new Set();
+  const text = [finding.failureMode, finding.evidence].filter(isText).join(' ');
+  for (const word of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (word.length < 3 || STOP_WORDS.has(word)) continue;
+    words.add(word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word);
+  }
+  return words;
+}
+
+/** What two findings must agree on besides their text: class, security relevance and Pre-existing status. */
+function kindOf(finding) {
+  const className = classOf(finding);
+  const security = finding.security === true || finding.securityRelevant === true;
+  const preExisting = normalizeSeverity(finding.severity) === 'pre-existing' || finding.preExisting === true;
+  return `${className === null ? '' : className.toLowerCase()}|${security}|${preExisting}`;
+}
+
+function rangesAreNear(rangesA, rangesB) {
+  return rangesA.some((a) =>
+    rangesB.some((b) => a.file === b.file && a.start <= b.end + ADJACENT_LINES && b.start <= a.end + ADJACENT_LINES)
+  );
+}
+
+/**
+ * Joins the exact-duplicate clusters (arrays of indexes into `findings`) whose findings are probably one defect
+ * (see SAME_DEFECT_MIN_SIMILARITY). The strongest matches join first, so a finding meets its best partner
+ * before a weaker one, and a join that would put two findings of one source in one entry is refused.
+ *
+ * @returns {Array<{indexes:number[], byResemblance:boolean}>}  Ordered by each group's first finding.
+ */
+function joinProbableDuplicates(findings, clusters) {
+  const wordSets = findings.map(descriptionWords);
+  const documentFrequency = new Map();
+  for (const members of clusters) {
+    const clusterWords = new Set(members.flatMap((index) => [...wordSets[index]]));
+    for (const word of clusterWords) documentFrequency.set(word, (documentFrequency.get(word) || 0) + 1);
+  }
+  const weightOf = (word) => Math.log(clusters.length / documentFrequency.get(word));
+
+  const facts = findings.map((finding, index) => {
+    const source = isText(finding.source) ? finding.source.trim().toLowerCase() : null;
+    const ranges = locationRanges(finding);
+    const settled = !isUnsettled(finding.unresolvedThread) && !isUnsettled(finding.uncertain);
+    const comparable = source !== null && ranges.length > 0 && settled && wordSets[index].size >= SAME_DEFECT_MIN_WORDS;
+    return { source, ranges, comparable, kind: kindOf(finding) };
+  });
+
+  const clusterOf = [];
+  clusters.forEach((members, number) => members.forEach((index) => (clusterOf[index] = number)));
+  const sources = clusters.map((members) => new Set(members.map((index) => facts[index].source)));
+  const kinds = clusters.map((members) => (new Set(members.map((index) => facts[index].kind)).size === 1 ? facts[members[0]].kind : null));
+  const eligible = clusters.map((members, number) => kinds[number] !== null && members.every((index) => facts[index].comparable));
+
+  const indexesByFile = new Map();
+  findings.forEach((_, index) => {
+    if (!eligible[clusterOf[index]]) return;
+    for (const file of new Set(facts[index].ranges.map((range) => range.file))) {
+      if (!indexesByFile.has(file)) indexesByFile.set(file, []);
+      indexesByFile.get(file).push(index);
+    }
+  });
+
+  const edges = [];
+  const compared = new Set();
+  for (const indexes of indexesByFile.values()) {
+    for (let a = 0; a < indexes.length; a += 1) {
+      for (let b = a + 1; b < indexes.length; b += 1) {
+        const [i, j] = [indexes[a], indexes[b]];
+        if (compared.has(i * findings.length + j)) continue;
+        compared.add(i * findings.length + j);
+        if (clusterOf[i] === clusterOf[j]) continue;
+        if (kinds[clusterOf[i]] !== kinds[clusterOf[j]] || !rangesAreNear(facts[i].ranges, facts[j].ranges)) continue;
+
+        let shared = 0;
+        let totalI = 0;
+        let totalJ = 0;
+        for (const word of wordSets[i]) {
+          totalI += weightOf(word);
+          if (wordSets[j].has(word)) shared += weightOf(word);
+        }
+        for (const word of wordSets[j]) totalJ += weightOf(word);
+        const smaller = Math.min(totalI, totalJ);
+        const larger = Math.max(totalI, totalJ);
+        if (smaller <= 0 || smaller / larger < SAME_DEFECT_MIN_SIZE_RATIO) continue;
+        if (shared / smaller >= SAME_DEFECT_MIN_SIMILARITY) edges.push({ i, j, score: shared / smaller });
+      }
+    }
+  }
+
+  const parent = clusters.map((_, number) => number);
+  const find = (number) => (parent[number] === number ? number : (parent[number] = find(parent[number])));
+  const byResemblance = new Set();
+  edges.sort((x, y) => y.score - x.score || x.i - y.i || x.j - y.j);
+  for (const { i, j } of edges) {
+    const [keep, drop] = [find(clusterOf[i]), find(clusterOf[j])];
+    if (keep === drop || [...sources[drop]].some((source) => sources[keep].has(source))) continue;
+    parent[drop] = keep;
+    sources[drop].forEach((source) => sources[keep].add(source));
+    byResemblance.add(keep);
+  }
+
+  const joined = new Map();
+  clusters.forEach((members, number) => {
+    const root = find(number);
+    if (!joined.has(root)) joined.set(root, []);
+    joined.get(root).push(...members);
+  });
+  return [...joined.entries()]
+    .map(([root, indexes]) => ({ indexes: indexes.sort((a, b) => a - b), byResemblance: byResemblance.has(root) }))
+    .sort((a, b) => a.indexes[0] - b.indexes[0]);
+}
+
+/**
+ * Duplicate findings share one fix id and keep every original link: those with the same location and failure
+ * mode, and those that are very probably one defect found by different reviewers (see
+ * SAME_DEFECT_MIN_SIMILARITY -- nothing that is not clearly the same defect is merged). The group collapses onto its
+ * most severe actionable member (see collapseBase), and an actionable entry never keeps a `deferred` disposition.
+ * An entry joined by resemblance lists its members in `mergedFrom` (`id`, `source`, `locationOrLink`), so the merge
+ * can be named in the report and checked.
  *
  * @returns {Object[]|{ok:false, reason:string}}  The findings, or a rejection when `findings` is not an array of objects.
  */
@@ -261,15 +454,16 @@ function dedupeFindings(findings) {
   if (!Array.isArray(findings)) return rejection('findings must be an array');
   if (!everyEntry(findings, isObject)) return rejection('findings must contain only objects');
 
-  const groups = new Map();
-  for (const finding of findings) {
+  const exact = new Map();
+  findings.forEach((finding, index) => {
     const key = dedupeKey(finding);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(finding);
-  }
+    if (!exact.has(key)) exact.set(key, []);
+    exact.get(key).push(index);
+  });
 
   const result = [];
-  for (const group of groups.values()) {
+  for (const { indexes, byResemblance } of joinProbableDuplicates(findings, [...exact.values()])) {
+    const group = indexes.map((index) => findings[index]);
     if (group.length === 1) {
       result.push(group[0]);
       continue;
@@ -279,6 +473,7 @@ function dedupeFindings(findings) {
       .map((f) => f.originalTextOrLink)
       .filter((link) => hasValue(link));
     const collapsed = { ...collapseBase(group), fixId, originalLinks };
+    if (byResemblance) collapsed.mergedFrom = group.map(({ id, source, locationOrLink }) => ({ id, source, locationOrLink }));
     if (collapsed.disposition === 'deferred' && isActionable(collapsed)) {
       collapsed.disposition = collapsed.uncertain === true ? 'adjudicate' : 'fix';
     }

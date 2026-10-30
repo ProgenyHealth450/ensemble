@@ -81,17 +81,19 @@ Reads and reviews; it never changes the PR.
    `HEAD_SHA`, `PR_ID=<REPO_SLUG>-pr-<N>`, `PR_BODY` = the PR's published
    description, `TEST_COMMAND` = the fastest relevant command the repository
    defines, `SKIP_TESTS` = true only if the user said to skip tests,
-   `REUSE_RECORDED` = true unless the user asked for the review to be redone, and
-   `REVIEW_ONLY=true` (a PR is someone else's work) with `CHECK_RUNS` and
-   `CHECK_RUNS_TOTAL` from the read above (both left out when that read failed).
+   `REUSE_RECORDED` = true unless the user asked for the review to be redone
+   or for more reviewers, `REVIEWER_COUNT` only on that request (cost-gate
+   reference), and `REVIEW_ONLY=true` (a PR is someone else's work) with
+   `CHECK_RUNS` and `CHECK_RUNS_TOTAL` from the read above (both left out when
+   that read failed).
    Leave `FOREMAN` unset. Pass **no `AGENT_AUTHORED`**: the router cannot tell who
    drafted a PR and an unset value reads as agent-authored, so a body with no
    `Directed by:` line comes back with `directed-by` missing. Report that grade as
    returned; never pass `false` to make it pass.
 5. **Never touch the PR.** No commit, push, comment, approval, request-changes,
    thread resolution or label, on the PR or any branch of it. The cycle fixes
-   nothing here (no fix or fix worktree to hand over): the report lists the
-   findings and the author or the user acts on them.
+   nothing here: the report lists the findings and the author or the user acts
+   on them.
 6. **Report** (see [Report](#report)).
 
 ---
@@ -133,8 +135,8 @@ The user's own work: the cycle's batch fix is applied to the working tree, as
    [cost gate](#cost-gate-and-running-together) with `MODE='local'`, `BASE_SHA`,
    `HEAD_SHA=<SNAPSHOT_HEAD>`, `REVIEWED_TREE_SHA` = the tree of `SNAPSHOT_HEAD`,
    `PR_ID=<REPO_SLUG>-<branch-name>` (no PR number exists), `TEST_COMMAND`,
-   `SKIP_TESTS` and `REUSE_RECORDED` as above. After the batch fix, re-resolve
-   `SNAPSHOT_HEAD` (never plain HEAD, which cannot see uncommitted work) before the
+   `SKIP_TESTS`, `REUSE_RECORDED` and `REVIEWER_COUNT` as above. After the batch
+   fix, re-resolve `SNAPSHOT_HEAD` (never plain HEAD, which cannot see uncommitted work) before the
    re-review and tell the cycle that snapshot is `headSha` and `reviewedHeadSha`
    and its tree `REVIEWED_TREE_SHA`.
 5. **Report** (see below). Tell the user the fixes are uncommitted in their

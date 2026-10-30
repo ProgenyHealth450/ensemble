@@ -18,10 +18,26 @@ absent or misspelt one is a CLI error (non-zero exit), never an empty default.
 
 A finding missing a required field is rejected and must be completed, not
 dropped. Duplicates found within the same round's own findings are merged
-under one fix id with `dedupe`, keeping every original link.
+under one fix id with `dedupe`, keeping every original link. It merges two
+kinds: findings with the same location and failure mode, and findings that are
+very probably one defect written up by different reviewers -- the same file,
+line ranges that overlap or lie within two lines of each other, and
+descriptions (failure mode and evidence), neither far longer than the other,
+that agree once the words most of the round's findings share are discounted.
+Anything not clearly the same defect stays separate: two defects on one line
+are two findings, one reviewer's own findings are never merged with each
+other, and neither is a finding with an open thread, an `uncertain` flag or
+another class, security relevance or
+Pre-existing status. A round of two findings, or a defect worded very
+differently, is not merged; that costs one repeated verification, where a wrong
+merge would drop a finding. An entry merged by resemblance lists its members in
+`mergedFrom` (`id`, `source`, `locationOrLink`): name each such merge in the
+report, never silently.
 
 **Cross-round suppression and class flags (TRD-013, AC-010-2, AC-011-1,
-AC-011-2).** Every round after `dedupe` runs `recordRound` with `ledger` set
+AC-011-2).** `dedupe` joins by resemblance within one round only; a repeat
+is still exactly the same path, failure mode and class. Every round after
+`dedupe` runs `recordRound` with `ledger` set
 to the findings carried over in the review-state report (empty on round 1),
 `incoming` set to this round's deduped findings, and `round` set to the
 current round number. Its result names three outcomes per incoming finding:
@@ -71,7 +87,8 @@ each candidate records the `reviewer` that raised it, and that reviewer is
 excluded from that finding's verifier set. When the dispatch cannot exclude
 them (a single reviewer and a single verifier are the same agent), that
 finding has no usable verifier -- record it in `incompleteVerifiers` rather
-than letting the author of the finding confirm their own finding.
+than letting the author of the finding confirm their own finding. A verifier
+meets the same agent requirement as a reviewer (Step 1c, "Which agent").
 
 Each verifier returns, per candidate, exactly one verdict: `real`,
 `not-real` or `abstain`. Anything else is not a vote and is ignored as one.

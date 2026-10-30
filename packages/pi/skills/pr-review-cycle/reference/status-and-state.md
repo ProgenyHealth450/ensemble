@@ -135,7 +135,9 @@ status facts, `state` carries `verification` -- the `votes` result's
 its `reason` and its `recoveryAction` -- and, whenever that word is not
 `performed`, the **reduced-review notice** Step 3b puts in the report for that
 case (its fixed text for a runtime with no subagents, its plain words when
-verifiers did not come back), verbatim, under `reducedReview`. A reader of the report, and the next
+verifiers did not come back), verbatim, under `reducedReview`. The same field
+carries Step 1c's "Which agent" notice when the reviewers or verifiers were not
+the kind it requires, whatever the `verification` word says. A reader of the report, and the next
 `state-read` that resumes it, therefore sees that the review was reduced
 without having to re-derive it; a report that records a clean status and
 says nothing about a review that was never verified is the one shape this

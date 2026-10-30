@@ -25,7 +25,9 @@
  * carries that action's keys:
  *   validate         { findings }
  *   isActionable     { finding }
- *   dedupe           { findings }
+ *   dedupe           { findings } -- one entry per defect: identical findings, and findings different
+ *                    reviewers probably wrote up twice (same file, nearby lines, matching description),
+ *                    keep every original link; an entry joined that way lists its `mergedFrom`
  *   merge            { existingLedger, incomingFindings, headSha }
  *   scopeViolations  { changedFiles, scope, ledger }
  *   recordRound      { ledger, incoming, round } -- suppresses repeats, attaches

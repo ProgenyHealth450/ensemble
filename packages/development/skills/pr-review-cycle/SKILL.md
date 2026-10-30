@@ -15,7 +15,7 @@ validity, remote-review binding, terminal status) is computed by
 This skill owns the *editable* parts (Constitution Rule 8): review criteria,
 loop order, the 10-minute interactive wait, and Foreman-mode rules. It
 **composes** `packages/quality/skills/pr-review-remediation/SKILL.md` for
-every per-finding triage, regression-test and minimal-fix decision.
+every triage, regression-test and minimal-fix decision.
 
 Companion files hold each step's full detail; read the one a step names before running it. Their rules are normative.
 Template for the PR body `fix-issue` builds: `reference/fix-issue-pr-body.md`.
@@ -36,8 +36,8 @@ heuristic component, after round one further "another bypass shape" findings
 merge into ONE bead, not new rounds.
 
 **Default plan:** one independent review pass, one batch fix round, executed-test
-verification; a second only while a BLOCKING finding remains (CLI
-round cap from the repository policy -- see Step 7 -- is the hard limit).
+verification; a second only while a BLOCKING finding remains (the CLI
+round cap -- see Step 7 -- is the hard limit).
 
 **Review-only (`REVIEW_ONLY`, someone else's PR):** Steps 1-4, the tests fact of Step 6
 and Steps 8-9; no batch fix, no post-fix verification, no re-review. Unless `SKIP_TESTS`,
@@ -75,6 +75,7 @@ Full table with every description: `reference/inputs.md`. Names:
   `HEAD_SHA` and the total it reported.
 * `FOREMAN` -- true: never enter the interactive wait. `BOT_LOGINS` -- review-bot logins for CLI `remote`.
 * `PLAN_ONLY`, `REUSE_RECORDED` -- opt-in early exits of `local` (Steps 1c, 1a).
+* `REVIEWER_COUNT` -- opt-in 2-4 reviewers (Step 1c).
 * `PR_BODY`, `AGENT_AUTHORED` -- graded by CLI `description`; anything but an explicit
   `false` reads as true (unset too), and an agent-authored body names the accountable person on a `Directed by:` line.
 * Gate only: `DIRECTED_BY` (counts as a reviewer only when `AGENT_AUTHORED`),
@@ -141,8 +142,8 @@ call `depth` again until empty; never dispatch a refused plan, never raise Quick
 ceiling; an unreadable tier resolves to `deep`. Print the plan; `PLAN_ONLY` ends the run
 there. `slices` cuts a PR above the threshold into area slices; after review, re-run it
 with `reviewed` and `changedPaths`: `covered:false` means review the missing slices, and
-an uncovered path is never reported as reviewed. Reviewers are fresh-context, read-only
-subagents under the reviewer brief, never given the authoring conversation; record every
+an uncovered path is never reported as reviewed. Reviewers and verifiers are fresh-context, read-only
+subagents (kind: "Which agent") under their briefs, never given the authoring conversation; record every
 candidate with its `source`.
 
 ### Step 2 -- Independent local review (full diff)
