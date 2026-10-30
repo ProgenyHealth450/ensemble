@@ -53,6 +53,12 @@ const agentAuthored = [
   '',
 ].join('\n');
 
+/**
+ * The options that say a person wrote the PR. Only an explicit `false` does: a description graded with no claim at all
+ * is read as agent-authored, and then also needs its `Directed by:` line.
+ */
+const byAPerson = { agentAuthored: false };
+
 /** Drops one section (heading and body) from a description. */
 const without = (body, heading) => {
   const lines = body.split('\n');
@@ -86,7 +92,7 @@ describe('Scenario AC-002-1: a PR description contains Testing, Risk and How-to-
   });
 
   test('negative control: the same PR without its Risk section is not ready', () => {
-    const result = checkDescription(without(humanAuthored, 'Risk'));
+    const result = checkDescription(without(humanAuthored, 'Risk'), byAPerson);
 
     expect(result.ready).toBe(false);
     expect(result.missing).toEqual(['risk']);
@@ -144,14 +150,14 @@ describe('Scenario AC-002-3: a missing section is reported and named', () => {
     ['Risk', 'risk'],
     ['How to revert', 'how-to-revert'],
   ])('a PR with no %s section is not ready and names %s', (heading, id) => {
-    const result = checkDescription(without(humanAuthored, heading));
+    const result = checkDescription(without(humanAuthored, heading), byAPerson);
 
     expect(result.ready).toBe(false);
     expect(result.missing).toEqual([id]);
   });
 
   test('two missing sections are both named', () => {
-    const result = checkDescription(without(without(humanAuthored, 'Risk'), 'How to revert'));
+    const result = checkDescription(without(without(humanAuthored, 'Risk'), 'How to revert'), byAPerson);
 
     expect(result.missing).toEqual(['risk', 'how-to-revert']);
     expect(result.ready).toBe(false);
@@ -162,7 +168,7 @@ describe('Scenario AC-002-3: a missing section is reported and named', () => {
       'Low. One new pure module; no caller is wired to it yet.',
       '<!-- TODO -->',
     );
-    const result = checkDescription(emptied);
+    const result = checkDescription(emptied, byAPerson);
 
     expect(result.missing).toEqual(['risk']);
     expect(result.empty).toEqual(['risk']);
@@ -185,14 +191,14 @@ describe('Scenario AC-002-3: a missing section is reported and named', () => {
       '```',
       '',
     ].join('\n');
-    const result = checkDescription(quoted);
+    const result = checkDescription(quoted, byAPerson);
 
     expect(result.missing).toEqual(['testing', 'risk', 'how-to-revert']);
     expect(result.ready).toBe(false);
   });
 
   test('an empty description names all three sections', () => {
-    const result = checkDescription('');
+    const result = checkDescription('', byAPerson);
 
     expect(result.missing).toEqual(['testing', 'risk', 'how-to-revert']);
     expect(result.ready).toBe(false);
@@ -209,7 +215,7 @@ describe('Scenario AC-002-3: a missing section is reported and named', () => {
   });
 
   test('negative control: the complete description is ready and names nothing', () => {
-    const result = checkDescription(humanAuthored);
+    const result = checkDescription(humanAuthored, byAPerson);
 
     expect(result.missing).toEqual([]);
     expect(result.ready).toBe(true);

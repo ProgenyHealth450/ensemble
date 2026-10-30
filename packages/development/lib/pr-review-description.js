@@ -26,6 +26,8 @@
  *      a `Directed by:` line names exactly one value shaped like a GitHub
  *      login. "the product team" is reported as unreadable, not parsed into a
  *      login, and an agent-authored PR without a readable one is not ready.
+ *      Only an explicit `agentAuthored: false` says a person wrote the PR; a
+ *      claim nobody made (the key absent) is read as agent-authored.
  *
  * `ready` is true only when `missing` is empty -- there is no second way for a
  * caller to conclude a description is acceptable.
@@ -147,9 +149,10 @@ function blocked(reason) {
  *
  * @param {string|{body:string, agentAuthored?:boolean}} input The PR body, or the
  *   CLI payload carrying it.
- * @param {{agentAuthored?:boolean}} [options] Used with the string form. A
- *   present-but-non-boolean `agentAuthored` is read as TRUE: an unreadable
- *   claim about who wrote the PR never relaxes the accountability check.
+ * @param {{agentAuthored?:boolean}} [options] Used with the string form. Only an
+ *   explicit `false` says a person wrote the PR: an absent, null or non-boolean
+ *   `agentAuthored` is read as TRUE, because a claim about who wrote the PR that
+ *   nobody made, or that cannot be read, never relaxes the accountability check.
  * @returns {{ok:boolean, missing:string[], present:string[], empty:string[], directedBy:string|null,
  *   agentAuthored:boolean, ready:boolean, warnings:string[], reason?:string}}
  *   `missing` names each absent section (and `directed-by` when it is required
@@ -164,10 +167,8 @@ function checkDescription(input, options) {
   const rawAgentAuthored = payloadForm
     ? input.agentAuthored
     : (isObject(options) ? options.agentAuthored : undefined);
-  // Absent means human-authored; anything present but not a boolean fails closed.
-  const agentAuthored = rawAgentAuthored === undefined || rawAgentAuthored === null
-    ? false
-    : rawAgentAuthored !== false;
+  // Only an explicit `false` is human-authored; absent, null and anything unreadable fail closed.
+  const agentAuthored = rawAgentAuthored !== false;
 
   const warnings = [];
 

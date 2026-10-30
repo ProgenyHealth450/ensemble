@@ -327,6 +327,27 @@ describe('TRD-005-TEST / AC-002-3: a description missing a section is not ready,
     expect(run.result.ready).toBe(false);
     expect(run.result.missing).toEqual(['directed-by']);
   });
+
+  test('a request that makes no claim about who wrote the PR is read as agent-authored: with no Directed by line it is not ready', () => {
+    const root = fixtureRepo({ 'PR_BODY.md': prBody({ directedBy: null }) });
+    const body = readFromBase(root, 'PR_BODY.md');
+
+    // A caller that cannot know the author leaves the claim out (the key, or the whole payload object): only an explicit false is a person's.
+    for (const payload of [{ body }, { body, agentAuthored: null }, body]) {
+      const run = runCli('description', payload);
+      expectCleanProcess(run);
+      expect(run.result.agentAuthored).toBe(true);
+      expect(run.result.ready).toBe(false);
+      expect(run.result.missing).toEqual(['directed-by']);
+    }
+
+    // Negative control: the same body with an explicit false is a person's, and needs no accountable human.
+    const person = runCli('description', { body, agentAuthored: false });
+    expectCleanProcess(person);
+    expect(person.result.agentAuthored).toBe(false);
+    expect(person.result.ready).toBe(true);
+    expect(person.result.missing).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

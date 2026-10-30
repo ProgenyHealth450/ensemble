@@ -5,7 +5,7 @@
  *
  * Verifies TRD-018 (the `votes`, `depth` and `slices` subcommands of
  * `pr-review-cli.js`).
- * Validates PRD ACs: AC-005-1 (REQ-005), AC-016-1 (REQ-016), AC-018-1 (REQ-018).
+ * Validates PRD ACs: AC-005-1 (REQ-005), AC-016-1 and AC-016-3 (REQ-016), AC-018-1 (REQ-018).
  *
  * TRD Reference: docs/TRD/TRD-2026-70e784f2-code-review-process.md#trd-018-test
  * PRD Reference: docs/PRD/PRD-2026-70e784f2-code-review-process.md#req-005
@@ -200,6 +200,70 @@ describe('Scenario AC-016-1: review depth bounds, through the shipped CLI', () =
 
     expect(tally.result.findings[0].tally).toMatchObject({ expected: EXPECTED_VERIFIERS[depth.result.mode], needed: 3 });
     expect(outcomeOf(tally.result, 'F')).toBe('present');
+  });
+});
+
+describe('Scenario AC-016-3: a local review resolves its tier from the paths, with no classifier, before depth -- through the shipped CLI', () => {
+  const BASE_SHA = '8b87a6d71146cd2e36e09c4fc265b6bb336f8798';
+
+  /**
+   * What Steps 1b and 1c do, as three processes: `paths` over the changed files, `tier` over that result with NO `kinds`
+   * (a local review dispatches no classifier), then `depth` over the `tier` and `effectiveTier` the tier answered.
+   */
+  function depthForChange(changedPaths) {
+    const classified = runCli('paths', { changedPaths, baseSha: BASE_SHA });
+    expectCleanProcess(classified);
+    const tier = runCli('tier', { paths: classified.result, assignedBy: 'pr-review-cycle/local-paths' });
+    expectCleanProcess(tier);
+    const depth = runCli('depth', {
+      tier: tier.result.tier,
+      effectiveTier: tier.result.effectiveTier,
+      lowWaiverEnabled: false,
+    });
+    expectCleanProcess(depth);
+    return { tier: tier.result, depth: depth.result };
+  }
+
+  test('an ordinary change is Medium and gets Standard, not the Deep an unrecorded tier used to get', () => {
+    const { tier, depth } = depthForChange(['packages/development/lib/widget.js', 'docs/guides/widget.md']);
+
+    expect(tier).toMatchObject({ ok: true, tier: 'medium', effectiveTier: 'medium' });
+    expect(tier.reasons).toContain('no-kinds-cited');
+    expect(depth).toMatchObject({ ok: true, mode: 'standard', violations: [] });
+    expect(depth.bounds).toEqual(DEFAULT_BOUNDS.standard);
+
+    // The contrast: `depth` with no tier at all, which is what a local review used to send.
+    const unrecorded = runCli('depth', {});
+    expectCleanProcess(unrecorded);
+    expect(unrecorded.result).toMatchObject({ ok: false, mode: 'deep' });
+    expect(unrecorded.result.reasons).toContain('unknown-tier');
+  });
+
+  test('a change that touches a sensitive path is High and stays Deep', () => {
+    const { tier, depth } = depthForChange(['.github/workflows/ci.yml', 'README.md']);
+
+    expect(tier).toMatchObject({ ok: true, tier: 'high', effectiveTier: 'high' });
+    expect(tier.reasons).toContain('sensitive-path');
+    expect(depth).toMatchObject({ ok: true, mode: 'deep' });
+    expect(depth.bounds).toEqual(DEFAULT_BOUNDS.deep);
+  });
+
+  test('negative control: with no classifier even a documentation-only change is Medium and Standard -- nothing buys a cheaper review', () => {
+    const { tier, depth } = depthForChange(['docs/guides/user-guide.md', 'README.md']);
+
+    expect(tier.tier).toBe('medium');
+    expect(tier.effectiveTier).toBe('medium');
+    expect(depth.mode).toBe('standard');
+  });
+
+  test('a path classification the CLI refused is High and resolves to Deep, never to a cheaper review', () => {
+    const tier = runCli('tier', { paths: { ok: false, reason: 'unreadable' } });
+    expectCleanProcess(tier);
+    expect(tier.result).toMatchObject({ ok: false, tier: 'high', effectiveTier: 'high' });
+
+    const depth = runCli('depth', { tier: tier.result.tier, effectiveTier: tier.result.effectiveTier });
+    expectCleanProcess(depth);
+    expect(depth.result.mode).toBe('deep');
   });
 });
 

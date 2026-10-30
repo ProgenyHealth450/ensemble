@@ -45,7 +45,10 @@ const POLICY = Object.freeze({
   maintainerLogins: ['maintainer-m'],
 });
 
-/** A PR description a person would really write, with all three sections. */
+/**
+ * A PR description a person would really write, with all three sections. It is graded with
+ * `agentAuthored: false`: only an explicit false says a person wrote it.
+ */
 const FULL_DESCRIPTION = [
   '## Summary',
   '',
@@ -121,7 +124,7 @@ function mergeAttempt(overrides = {}) {
     ledger: [],
     approvals: satisfiedApprovals(tier),
     tier,
-    description: checkDescription({ body: FULL_DESCRIPTION }),
+    description: checkDescription({ body: FULL_DESCRIPTION, agentAuthored: false }),
     security: { status: 'clean', findings: [] },
     ...overrides,
   };
@@ -270,7 +273,7 @@ describe('Scenario AC-017-1: the security lane blocks the merge until the issue 
           author: 'author-a',
         }),
         tier,
-        description: checkDescription({ body: FULL_DESCRIPTION }),
+        description: checkDescription({ body: FULL_DESCRIPTION, agentAuthored: false }),
         security: { status: 'findings', findings: ledger },
       };
     };
@@ -351,7 +354,7 @@ describe('Scenario AC-002-3: a description missing a section is not ready for ap
     ['How to revert', 'how-to-revert'],
   ]) {
     test(`the description has no ${section} section: the merge is refused and names it`, () => {
-      const description = checkDescription({ body: without(FULL_DESCRIPTION, section) });
+      const description = checkDescription({ body: without(FULL_DESCRIPTION, section), agentAuthored: false });
       expect(description.ready).toBe(false);
       expect(description.missing).toContain(label);
 

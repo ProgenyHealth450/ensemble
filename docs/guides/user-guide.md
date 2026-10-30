@@ -853,6 +853,17 @@ Two deliberate properties:
 
 The risk tier selects a depth, and the depth fixes how many reviewers and verifiers run: **Quick** one reviewer, no verifiers; **Standard** at least two reviewers and 3 verifiers; **Deep** at least two reviewers and 5 verifiers.
 
+| Effective tier | Depth |
+| --- | --- |
+| Medium | Standard |
+| High | Deep |
+| Low | Standard, until `lowWaiverEnabled` is in force; then Quick |
+| A tier the CLI cannot read | Deep |
+
+A review you ask for ("review PR #123", your local changes) resolves its tier from the changed paths alone, because no classifier runs there: **Medium** for an ordinary change, **High** where a sensitive or High path is touched, never Low. So an ordinary change is reviewed at Standard and a change to a sensitive path at Deep; a Medium change is never reviewed at Deep and an unreadable tier is never reviewed below it. Before the first reviewer starts you see the plan (tier, depth, reviewer and verifier counts, the time bound); a Deep review asks before it starts.
+
+Reviewers read the diff and a frozen snapshot of the commit and report. They run no test suite and no mutation experiment, make at most one throwaway check, and stop at a tool-call cap with the findings they have so far and the paths they did not reach. Whether a finding actually holds is the verifiers' job: each runs the narrowest check on that one finding (one test, or one mutation in its own throwaway copy). A verifier that returns nothing is recorded as incomplete and the cycle moves on; its findings are presented as unverified, never counted as agreement.
+
 Every candidate finding — from every reviewer, every local tool and every review bot, CodeRabbit included — enters one ledger and is voted on by fresh-context verifiers that did not raise it. A finding is presented only on a **strict majority of the verifiers the depth expects** (2 of 3, 3 of 5). The denominator is the expected count, never the number of votes that happened to arrive, so a missing verifier is never read as agreement. A finding the verifiers split on is `disputed` and goes to a person rather than being dropped.
 
 ### 11.3 Risk tiers
@@ -900,8 +911,10 @@ You do not need a command to start a review. The `pr-review-request` skill route
 
 | Say | What happens |
 | --- | --- |
-| "review PR #123" (or a PR URL) | Reviews that PR's current head with the full process above. Reads and reports only: nothing is pushed, commented, approved or resolved on the PR, and a fix the cycle produces stays in its isolated worktree for the author or you to apply. |
-| "review open PRs" | Lists the open PRs, asks which to review when there are more than three, then reviews them one at a time. |
+| "review PR #123" (or a PR URL) | Reviews that PR's current head with the full process above. Reads and reports only: nothing is pushed, commented, approved or resolved on the PR, and a fix the cycle produces stays in its isolated worktree for the author or you to apply. Asking again for an unchanged head returns the recorded result instead of redoing the review; say "review it again" to redo it. |
+| "review open PRs" | Lists the open PRs and asks which to review when there are more than three. Before anything starts it shows each chosen PR's tier, depth, reviewer and verifier counts and a time bound, and asks only when a PR needs a Deep review. The PRs are then reviewed together: their reviewers and verifiers run at the same time, while test runs go one at a time. |
 | "review local changes" | Reviews your working tree (including untracked files) against the default branch. These are your own changes, so the batch fix is applied to the working tree; nothing is committed. |
+
+The request cannot tell who wrote a PR, so the description check reads it as agent-authored (only an explicit `AGENT_AUTHORED=false` says a person wrote it): a body with no `Directed by:` line is reported with `directed-by` missing, and the report shows the grade exactly as the cycle returned it.
 
 To merge rather than review, use `/ensemble:pr-merge`, which runs the review as part of its merge gate.
