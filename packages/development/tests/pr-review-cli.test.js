@@ -1642,3 +1642,87 @@ describe('pr-review-cli: tier, approvals and gate over a real shell invocation (
     expect(JSON.parse(run.stdout)).toEqual(JSON.parse(JSON.stringify(direct)));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review-only and CI as the tests fact, through the entry points the skill uses. A review of someone else's PR reports; it
+// is never REVIEW_COMPLETE, and the host's CI stands in for its tests only as check runs the CLI itself derives a pass from.
+// ---------------------------------------------------------------------------
+
+describe('pr-review-cli: status for a review of someone else\'s PR (review-only, CI as the tests)', () => {
+  const ciTests = (conclusion = 'success', commitSha = HEAD_SHA) => ({
+    source: 'ci',
+    checkRuns: [{ id: 1, name: 'test', commitSha, conclusion }],
+    totalCount: 1,
+    command: 'npm test',
+  });
+  const reviewOnlyFacts = (overrides = {}) => completeStatusFacts({ reviewOnly: true, tests: ciTests(), ...overrides });
+  const viaShell = (payload) => {
+    const res = spawnSync('node', [CLI, 'status'], { input: JSON.stringify(payload), encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    return JSON.parse(res.stdout);
+  };
+
+  test('a review-only run is REVIEW_PENDING through the real executable, never REVIEW_COMPLETE, with every other fact complete', () => {
+    const payload = reviewOnlyFacts();
+    const result = viaShell(payload);
+    expect(result).toEqual(JSON.parse(JSON.stringify(deriveStatus(payload))));
+    expect(runStatus(payload)).toEqual(deriveStatus(payload));
+    expect([result.status, result.localPhase, result.remotePhase, result.reviewOnly]).toEqual([
+      'REVIEW_PENDING',
+      'LOCAL_REVIEW_PENDING',
+      'REMOTE_REVIEW_COMPLETE',
+      true,
+    ]);
+    expect(result.reasons.some((reason) => /review-only/.test(reason))).toBe(true);
+    // The identical facts without it complete, so the refusal above is the flag's doing.
+    expect(viaShell(completeStatusFacts()).status).toBe('REVIEW_COMPLETE');
+  });
+
+  test.each([
+    ['a failed run', ciTests('failure'), 'REVIEW_PENDING'],
+    ['a run that has not concluded', ciTests(null), 'REVIEW_PENDING'],
+    ['runs for another commit', ciTests('success', 'a'.repeat(40)), 'REVIEW_PENDING'],
+    ['a typed pass with no runs behind it', { source: 'ci', passed: true, exitCode: 0 }, 'REVIEW_BLOCKED'],
+  ])('CI that does not show a pass never counts as passing tests (%s)', (_label, tests, status) => {
+    const result = viaShell(reviewOnlyFacts({ tests }));
+    expect([result.status, result.tests.passed]).toEqual([status, false]);
+    if (status === 'REVIEW_PENDING') expect(result.next).toBe('run-tests:npm test');
+  });
+
+  test('a full run, and local changes in particular, are unchanged: reviewOnly false completes, and CI is no way to pass its tests', () => {
+    expect(viaShell(completeStatusFacts({ reviewOnly: false })).status).toBe('REVIEW_COMPLETE');
+    const withCi = viaShell(completeStatusFacts({ tests: ciTests() }));
+    expect([withCi.status, withCi.localPhase, withCi.tests.passed]).toEqual(['REVIEW_BLOCKED', 'LOCAL_REVIEW_BLOCKED', false]);
+    const neverRan = viaShell(completeStatusFacts({ tests: undefined, remotePhase: undefined }));
+    expect([neverRan.status, neverRan.next]).toEqual(['REVIEW_PENDING', 'run-tests']);
+  });
+
+  test('the review-only report is recorded and read back; a remote phase that drops reviewOnly cannot turn its CI into a completed review', () => {
+    const cwd = tmpCwd();
+    const local = runStatus(reviewOnlyFacts({ remotePhase: undefined }));
+    expect([local.status, local.reviewOnly, local.tests.passed]).toEqual(['REVIEW_PENDING', true, true]);
+    expect(runStateWrite({ prId: 'pr-7', cwd, state: { ...local, ledger: [] } }).ok).toBe(true);
+
+    const read = runStateRead({ prId: 'pr-7', cwd, headSha: HEAD_SHA });
+    expect(read).toMatchObject({ ok: true, discarded: false });
+    expect(read.state.reviewOnly).toBe(true);
+
+    // The remote phase builds its facts from the recorded report.
+    const remoteFacts = (recorded, overrides = {}) =>
+      completeStatusFacts({
+        baseSha: recorded.baseSha,
+        headSha: HEAD_SHA,
+        reviewedHeadSha: recorded.reviewedHeadSha,
+        findingCounts: recorded.findingCounts,
+        tests: recorded.tests,
+        remotePhase: 'REMOTE_REVIEW_COMPLETE',
+        ...overrides,
+      });
+    // Carrying `reviewOnly` as the report recorded it keeps the review a report ...
+    expect(runStatus(remoteFacts(read.state, { reviewOnly: read.state.reviewOnly })).status).toBe('REVIEW_PENDING');
+    // ... and a remote phase that forgets it is refused for the CI it recorded: CI is a review-only run's tests alone.
+    const forgotten = runStatus(remoteFacts(read.state));
+    expect(forgotten.status).toBe('REVIEW_BLOCKED');
+    expect(forgotten.tests.passed).toBe(false);
+  });
+});
