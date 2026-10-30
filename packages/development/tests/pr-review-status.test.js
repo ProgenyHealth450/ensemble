@@ -362,6 +362,10 @@ describe('pr-review-status: localPhase is the only publication gate', () => {
       remote: (facts) => {
         facts.remotePhase = 'REMOTE_REVIEW_PENDING';
       },
+      // A review of someone else's PR ran no fix and no re-review: it is a report, whatever else looks complete.
+      reviewOnly: (facts) => {
+        facts.reviewOnly = true;
+      },
     };
     const keys = Object.keys(breakers);
     for (let mask = 0; mask < 2 ** keys.length; mask += 1) {
@@ -583,6 +587,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
     facts.findingCounts.actionable === 0 &&
     (facts.roundsUsed === undefined || isCount(facts.roundsUsed)) &&
     (facts.access === undefined || facts.access === null || (isObject(facts.access) && facts.access.ok === true)) &&
+    (facts.reviewOnly === undefined || facts.reviewOnly === null || facts.reviewOnly === false) &&
     isObject(facts.tests) &&
     ['passed', 'skipped'].every((flag) => facts.tests[flag] === undefined || typeof facts.tests[flag] === 'boolean') &&
     (facts.tests.exitCode === undefined || Number.isInteger(facts.tests.exitCode)) &&
@@ -615,7 +620,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
     expect(localPreconditions(baseFacts({ reviewedTreeSha: 'main' }))).toBe(false);
   });
 
-  test.each(['baseSha', 'headSha', 'reviewedHeadSha', 'reviewedTreeSha', 'headTreeSha', 'findingCounts', 'tests', 'remotePhase', 'roundsUsed', 'access'])(
+  test.each(['baseSha', 'headSha', 'reviewedHeadSha', 'reviewedTreeSha', 'headTreeSha', 'findingCounts', 'tests', 'remotePhase', 'roundsUsed', 'access', 'reviewOnly'])(
     'wrong %s values, or the key deleted, complete only while the preconditions still hold',
     (key) => {
       const values = [...WRONG_VALUES, ...NOT_OBJECT_IDS.map(([, value]) => value), 'REMOTE_REVIEW_PENDING', 'REMOTE_REVIEW_BLOCKED', 'remote_review_complete'];
@@ -626,7 +631,7 @@ describe('pr-review-status: adversarial sweep -- nothing completes unless every 
 
   test.each([
     ['findingCounts', ['actionable', 'total', 'deferred']],
-    ['tests', ['exitCode', 'skipped', 'command']],
+    ['tests', ['exitCode', 'skipped', 'command', 'source']],
     ['access', ['ok', 'reason']],
   ])('wrong %s members complete only while the preconditions still hold', (key, members) => {
     for (const member of members) {
@@ -949,5 +954,296 @@ describe('pr-review-status: tests are evidence -- passed is derived from exitCod
     expect([result.status, result.localPhase]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE']);
     expect(result.reasons).toContain('tests skipped');
     expect(result.tests.passed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review-only. A review of someone else's PR runs no fix and no re-review, so it is a report, never a verdict: whatever
+// else looks complete it reads REVIEW_PENDING with a reason, and its local phase is not the one callers publish on.
+// ---------------------------------------------------------------------------
+
+describe('pr-review-status: a review-only run is a report, never a verdict', () => {
+  const reviewOnly = (overrides = {}) => baseFacts({ reviewOnly: true, ...overrides });
+
+  test('control: the same facts as a full run are complete, so the tests below can fail', () => {
+    const full = deriveStatus(baseFacts());
+    expect([full.status, full.localPhase, full.remotePhase]).toEqual(['REVIEW_COMPLETE', 'LOCAL_REVIEW_COMPLETE', 'REMOTE_REVIEW_COMPLETE']);
+  });
+
+  test('a review-only run is never complete: every other fact looks complete', () => {
+    const result = deriveStatus(reviewOnly());
+    expect(result.status).toBe('REVIEW_PENDING');
+    expect(result.status).not.toBe('REVIEW_COMPLETE');
+    expect(result.reasons.some((reason) => /review-only/.test(reason))).toBe(true);
+    expect(result.next).toBe('report-to-author');
+    expect(result.reviewOnly).toBe(true);
+    // The other facts are not rewritten to say so: the remote review and the tests really are in.
+    expect(result.remotePhase).toBe('REMOTE_REVIEW_COMPLETE');
+    expect(result.tests.passed).toBe(true);
+  });
+
+  test('a review-only run never reaches LOCAL_REVIEW_COMPLETE: callers publish on that phase', () => {
+    const facts = { remotePhase: 'REMOTE_REVIEW_PENDING' };
+    expect(deriveStatus(baseFacts(facts)).localPhase).toBe('LOCAL_REVIEW_COMPLETE');
+    expect(deriveStatus(reviewOnly(facts)).localPhase).toBe('LOCAL_REVIEW_PENDING');
+  });
+
+  test.each([
+    ['a published commit that holds the reviewed tree', { reviewedHeadSha: OTHER_SHA, reviewedTreeSha: TREE_A, headTreeSha: TREE_A }],
+    ['64-hex object ids', { baseSha: SHA256, headSha: SHA256, reviewedHeadSha: SHA256 }],
+    ['a repository round cap with rounds to spare', { roundCap: 5, roundsUsed: 2 }],
+    ['a caller override', { override: true }],
+    ['the tests skipped on request', { tests: { skipped: true, command: 'npm test' } }],
+  ])('no way of making the other facts look complete lets it complete: %s', (_label, overrides) => {
+    const result = deriveStatus(reviewOnly(overrides));
+    expect(result.status).not.toBe('REVIEW_COMPLETE');
+    expect(result.localPhase).not.toBe('LOCAL_REVIEW_COMPLETE');
+  });
+
+  test('a blocked result stays blocked: review-only softens nothing', () => {
+    const cases = [
+      [reviewOnly({ access: { ok: false, reason: '403 Forbidden' } }), 'resolve-review-access'],
+      [reviewOnly({ baseSha: 'main' }), 'supply-review-facts'],
+      [reviewOnly({ roundsUsed: DEFAULT_ROUND_CAP, findingCounts: { total: 1, actionable: 1, deferred: 0 } }), 'reconsider-approach-with-author'],
+    ];
+    for (const [facts, next] of cases) {
+      const result = deriveStatus(facts);
+      expect([result.status, result.next]).toEqual(['REVIEW_BLOCKED', next]);
+    }
+  });
+
+  test('findings are reported, not fixed: they stay unresolved, and the next step is never a fix round', () => {
+    const result = deriveStatus(reviewOnly({ findingCounts: { total: 2, actionable: 2, deferred: 0 } }));
+    expect(result.reasons).toContain('unresolved actionable finding');
+    expect(result.localPhase).toBe('LOCAL_REVIEW_PENDING');
+    expect(result.next).toBe('report-to-author');
+  });
+
+  test('the next step follows what is actually missing', () => {
+    const next = (overrides) => deriveStatus(reviewOnly(overrides)).next;
+    expect(next({ tests: undefined })).toBe('run-tests');
+    expect(next({ tests: { exitCode: 1, command: 'npm test' } })).toBe('run-tests:npm test');
+    expect(next({ tests: { skipped: true, command: 'npm test' } })).toBe('run-tests:npm test');
+    expect(next({ reviewedHeadSha: OTHER_SHA })).toBe('re-run-review-for-current-head');
+  });
+
+  test('a reviewOnly that is not a boolean is never read as a full run: each unreadable value blocks, naming it', () => {
+    for (const value of ['true', 'false', 'yes', '', 1, 0, -1, NaN, {}, [], [true]]) {
+      isBlockedForFacts(deriveStatus(baseFacts({ reviewOnly: value })), 'reviewOnly');
+    }
+  });
+
+  test.each([
+    ['absent', undefined],
+    ['null', null],
+    ['false', false],
+  ])('a full run is unaffected: reviewOnly %s reads as a full run and can still complete', (_label, value) => {
+    const baseline = deriveStatus(baseFacts());
+    const result = deriveStatus(value === undefined ? baseFacts() : baseFacts({ reviewOnly: value }));
+    expect([result.status, result.localPhase, result.next, result.reasons]).toEqual([baseline.status, baseline.localPhase, baseline.next, baseline.reasons]);
+    expect(result.status).toBe('REVIEW_COMPLETE');
+    expect(result.reviewOnly).toBe(false);
+  });
+
+  test('every result says whether it was review-only, a blocked one included, so the report records it', () => {
+    for (const facts of [reviewOnly(), reviewOnly({ baseSha: 'main' }), reviewOnly({ access: { ok: false } }), baseFacts(), baseFacts({ baseSha: 'main' })]) {
+      expect(deriveStatus(facts).reviewOnly).toBe(facts.reviewOnly === true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CI as the tests fact. On someone else's PR the host has usually run the tests: a green result for the EXACT head may stand
+// in for a local run. It is derived from the check runs, never typed, and only a review-only run may use it.
+// ---------------------------------------------------------------------------
+
+describe('pr-review-status: a review-only run may take the host\'s CI for the head as its tests', () => {
+  const GREEN = [
+    { id: 11, name: 'lint', commitSha: HEAD_SHA, conclusion: 'success' },
+    { id: 12, name: 'test', commitSha: HEAD_SHA, conclusion: 'success' },
+  ];
+  const elsewhere = (runs) => runs.map((run) => ({ ...run, commitSha: OTHER_SHA }));
+  /** The CI fact: the runs and the total the host reported for them. */
+  const ci = (checkRuns = GREEN, extra = {}) => ({
+    source: 'ci',
+    checkRuns,
+    totalCount: Array.isArray(checkRuns) ? checkRuns.length : undefined,
+    command: 'npm test',
+    ...extra,
+  });
+  const reviewOnlyWith = (tests, overrides = {}) => baseFacts({ reviewOnly: true, tests, ...overrides });
+  /** CI did not show a pass: pending, the tests not passed, and the next step is a local run. */
+  const expectUnshown = (result) => {
+    expect([result.status, result.localPhase, result.tests.passed]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_PENDING', false]);
+    expect(result.next).toBe('run-tests:npm test');
+    expect(result.reasons.join(' ')).toMatch(/CI does not show the tests passing/);
+  };
+
+  test('green CI for the exact head is the tests fact: derived, and the runs that counted are recorded', () => {
+    const result = deriveStatus(reviewOnlyWith(ci()));
+    expect(result.tests.passed).toBe(true);
+    expect(result.tests.source).toBe('ci');
+    expect(result.tests.ci.counted).toEqual([
+      { id: 11, name: 'lint' },
+      { id: 12, name: 'test' },
+    ]);
+    expect(result.reasons.join(' ')).not.toMatch(/CI does not show|failed test/);
+    expect([result.status, result.next]).toEqual(['REVIEW_PENDING', 'report-to-author']);
+  });
+
+  test('check runs for another commit are ignored: nothing is shown for the head', () => {
+    expectUnshown(deriveStatus(reviewOnlyWith(ci(elsewhere(GREEN)))));
+    // A failing run for another commit is no objection about this head ...
+    const mixed = [...GREEN, { id: 13, name: 'e2e', commitSha: OTHER_SHA, conclusion: 'failure' }];
+    expect(deriveStatus(reviewOnlyWith(ci(mixed))).tests.passed).toBe(true);
+    // ... and a green run for another commit is no evidence for it.
+    const result = deriveStatus(reviewOnlyWith(ci([{ id: 1, name: 'test', commitSha: HEAD_SHA, conclusion: 'failure' }, ...elsewhere(GREEN)])));
+    expect(result.tests.passed).toBe(false);
+  });
+
+  test('the runs are bound to the head being graded, not to the commit a review was recorded against', () => {
+    // The reviewed snapshot (OTHER_SHA) and the published head (HEAD_SHA) are different commits holding the same tree.
+    const published = { reviewedHeadSha: OTHER_SHA, reviewedTreeSha: TREE_A, headTreeSha: TREE_A };
+    expect(deriveStatus(reviewOnlyWith(ci(GREEN), published)).tests.passed).toBe(true);
+    expectUnshown(deriveStatus(reviewOnlyWith(ci(elsewhere(GREEN)), published)));
+  });
+
+  test.each([
+    ['a run failed', [...GREEN, { id: 13, name: 'e2e', commitSha: HEAD_SHA, conclusion: 'failure' }]],
+    ['a run was cancelled', [...GREEN, { id: 13, name: 'e2e', commitSha: HEAD_SHA, conclusion: 'cancelled' }]],
+    ['a run is still running', [...GREEN, { id: 13, name: 'e2e', commitSha: HEAD_SHA, conclusion: null }]],
+    ['a run has a conclusion nobody can read', [...GREEN, { id: 13, name: 'e2e', commitSha: HEAD_SHA, conclusion: 'green' }]],
+    ['there is no run at all', []],
+    ['every run was skipped', GREEN.map((run) => ({ ...run, conclusion: 'skipped' }))],
+    ['an entry is not even an object', [...GREEN, null]],
+    ['a run has no commit identity and failed', [...GREEN, { id: 13, name: 'e2e', conclusion: 'failure' }]],
+  ])('CI that does not show a pass leaves the tests unshown and asks for a local run: %s', (_label, runs) => {
+    expectUnshown(deriveStatus(reviewOnlyWith(ci(runs))));
+  });
+
+  test.each([
+    ['the host reported more runs than were listed (it pages its answer)', ci(GREEN, { totalCount: 31 })],
+    ['no total was given', ci(GREEN, { totalCount: undefined })],
+    ['the list is not an array', ci(null)],
+    ['there is no list at all', { source: 'ci', command: 'npm test' }],
+  ])('a list that cannot be read or shown complete is no pass either: %s', (_label, tests) => {
+    expectUnshown(deriveStatus(reviewOnlyWith(tests)));
+  });
+
+  test('the fallback is a real local exit code, graded like any other: the next call carries one instead', () => {
+    const unshown = (tests) => deriveStatus(reviewOnlyWith(tests));
+    expectUnshown(unshown(ci([])));
+    const passed = unshown({ exitCode: 0, command: 'npm test' });
+    expect([passed.status, passed.tests.passed, passed.next]).toEqual(['REVIEW_PENDING', true, 'report-to-author']);
+    const failed = unshown({ exitCode: 1, command: 'npm test' });
+    expect([failed.tests.passed, failed.next]).toEqual([false, 'run-tests:npm test']);
+    expect(failed.reasons).toContain('failed test');
+  });
+
+  test('the skip a user asked for is a local fact and stays one: pending, never a pass', () => {
+    const result = deriveStatus(reviewOnlyWith({ skipped: true, command: 'npm test' }));
+    expect([result.status, result.tests.passed, result.next]).toEqual(['REVIEW_PENDING', false, 'run-tests:npm test']);
+    expect(result.reasons).toContain('tests skipped');
+  });
+
+  const GREEN_FACT = ci(GREEN);
+  test.each([
+    ['a pass with no runs behind it', { source: 'ci', passed: true }],
+    ['an exit code claiming CI passed', { source: 'ci', exitCode: 0 }],
+    ['an exit code and a pass', { source: 'ci', exitCode: 0, passed: true, command: 'npm test' }],
+    ['a pass over an empty list', { source: 'ci', passed: true, checkRuns: [], totalCount: 0 }],
+    ['a pass over a failing run', { source: 'ci', passed: true, checkRuns: [{ id: 1, commitSha: HEAD_SHA, conclusion: 'failure' }], totalCount: 1 }],
+    ['a pass over runs for another commit', { source: 'ci', passed: true, checkRuns: elsewhere(GREEN), totalCount: 2 }],
+    ['a pass over a list that is cut short', { source: 'ci', passed: true, checkRuns: GREEN, totalCount: 31 }],
+    ['green runs with an exit code typed on top', { ...GREEN_FACT, exitCode: 0 }],
+    ['green runs declared skipped', { ...GREEN_FACT, skipped: true }],
+    ['green runs beside a typed verdict that disagrees with them', { ...GREEN_FACT, passed: false }],
+  ])('a typed CI pass is rejected: %s', (_label, tests) => {
+    const result = deriveStatus(reviewOnlyWith(tests));
+    expect([result.status, result.localPhase, result.next]).toEqual(['REVIEW_BLOCKED', 'LOCAL_REVIEW_BLOCKED', 'supply-review-facts']);
+    expect(result.tests.passed).toBe(false);
+    // Nothing else being complete changes that: the remote review is in and the review is fresh.
+    expect(result.remotePhase).toBe('REMOTE_REVIEW_COMPLETE');
+  });
+
+  test.each([
+    ['an unknown source', { source: 'github', exitCode: 0 }],
+    ['the marker in the wrong letter case', { ...GREEN_FACT, source: 'CI' }],
+    ['a null source', { source: null, exitCode: 0 }],
+    ['CI claimed in a key the grader does not read', { ci: true, passed: true }],
+    ['a pass beside the runs but with no marker', { checkRuns: GREEN, totalCount: 2, passed: true }],
+  ])('a claim that is not the documented CI fact is rejected too: %s', (_label, tests) => {
+    const result = deriveStatus(reviewOnlyWith(tests));
+    expect([result.status, result.localPhase]).toEqual(['REVIEW_BLOCKED', 'LOCAL_REVIEW_BLOCKED']);
+    expect(result.tests.passed).toBe(false);
+  });
+
+  test.each([
+    ['absent', undefined],
+    ['false', false],
+    ['null', null],
+  ])('CI is a review-only run\'s tests and nobody else\'s: with reviewOnly %s it is refused, however green', (_label, reviewOnlyFlag) => {
+    const facts = baseFacts({ tests: GREEN_FACT });
+    if (reviewOnlyFlag !== undefined) facts.reviewOnly = reviewOnlyFlag;
+    const result = deriveStatus(facts);
+    isBlockedForFacts(result, 'tests.source');
+    expect(result.tests.passed).toBe(false);
+    expect(result.remotePhase).toBe('REMOTE_REVIEW_COMPLETE');
+  });
+
+  test('a recorded CI fact derives the same answer when it is fed back, and a later head does not inherit it', () => {
+    const first = deriveStatus(reviewOnlyWith(ci()));
+    const again = deriveStatus(reviewOnlyWith(first.tests));
+    expect([again.status, again.next, again.reasons, again.tests.passed]).toEqual([first.status, first.next, first.reasons, first.tests.passed]);
+    // The runs it recorded are for HEAD_SHA. Graded for another head they show nothing -- and the pass recorded beside them
+    // is not carried over: it is refused as contradicting the runs (without it, the same runs simply leave the tests unshown).
+    const later = { headSha: OTHER_SHA, reviewedHeadSha: OTHER_SHA };
+    const carried = deriveStatus(reviewOnlyWith(first.tests, later));
+    expect([carried.status, carried.tests.passed]).toEqual(['REVIEW_BLOCKED', false]);
+    const { passed, ...runsOnly } = first.tests;
+    expect(passed).toBe(true);
+    expectUnshown(deriveStatus(reviewOnlyWith(runsOnly, later)));
+  });
+
+  test('a recorded pass is never trusted over the runs beside it: edit a run and the fact is refused', () => {
+    const recorded = deriveStatus(reviewOnlyWith(ci())).tests;
+    expect(recorded.passed).toBe(true);
+    const tampered = { ...recorded, checkRuns: recorded.checkRuns.map((run, index) => (index === 0 ? { ...run, conclusion: 'failure' } : run)) };
+    const result = deriveStatus(reviewOnlyWith(tampered));
+    expect(result.status).toBe('REVIEW_BLOCKED');
+    expect(result.tests.passed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local changes are the user's own work: no review-only, and the tests come from a real local run.
+// ---------------------------------------------------------------------------
+
+describe('pr-review-status: a review of local changes is unaffected -- tests still come from a real local run', () => {
+  /** MODE=local facts: there is no PR yet, so no remote phase. */
+  const local = (overrides = {}) => baseFacts({ remotePhase: undefined, ...overrides });
+  const GREEN = [{ id: 1, name: 'test', commitSha: HEAD_SHA, conclusion: 'success' }];
+
+  test('a real local run completes the local phase as before', () => {
+    const result = deriveStatus(local());
+    expect([result.status, result.localPhase, result.reviewOnly]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_COMPLETE', false]);
+    expect(result.reasons.some((reason) => /review-only/.test(reason))).toBe(false);
+  });
+
+  test('tests that never ran still leave it pending and ask for a local run', () => {
+    const result = deriveStatus(local({ tests: undefined }));
+    expect([result.status, result.localPhase, result.next]).toEqual(['REVIEW_PENDING', 'LOCAL_REVIEW_PENDING', 'run-tests']);
+  });
+
+  test('CI cannot stand in for them: green check runs on a run that is not review-only are refused', () => {
+    const result = deriveStatus(local({ tests: { source: 'ci', checkRuns: GREEN, totalCount: 1, command: 'npm test' } }));
+    isBlockedForFacts(result, 'tests.source');
+    expect(result.tests.passed).toBe(false);
+    expect(result.localPhase).not.toBe('LOCAL_REVIEW_COMPLETE');
+  });
+
+  test('the batch fix still counts: a finding left open keeps the local phase pending and asks for a fix round', () => {
+    const result = deriveStatus(local({ findingCounts: { total: 1, actionable: 1, deferred: 0 } }));
+    expect([result.localPhase, result.next]).toEqual(['LOCAL_REVIEW_PENDING', 'run-fix-round']);
   });
 });

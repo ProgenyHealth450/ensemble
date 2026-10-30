@@ -621,6 +621,7 @@ describe('bundleLibs against real packages directory', () => {
       'pr-review-ledger.js',
       'pr-review-remote.js',
       'pr-review-status.js',
+      'pr-review-ci-tests.js',
       'pr-review-state.js',
       'pr-review-policy.js',
       'pr-review-rules.js',

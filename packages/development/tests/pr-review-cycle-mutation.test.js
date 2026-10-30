@@ -435,12 +435,22 @@ describe('Guard 1: head-binding (pr-review-remote.js)', () => {
 // the overall status; 2e removes the required-facts gate.
 // ---------------------------------------------------------------------------
 
+/** What a guard on the status grader mirrors into its temp tree: the grader, every module it requires, and its contract test. */
+const STATUS_FILES = [
+  'lib/pr-review-status.js',
+  'lib/pr-review-scope.js',
+  'lib/pr-review-policy.js',
+  'lib/pr-review-ci-tests.js',
+  'lib/pr-review-remote.js',
+  'tests/pr-review-status.test.js',
+];
+
 describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
   proveGuardMutationIsCaught({
     id: 'Guard 2a',
     label:
       'Scenario: ignoring actionableCount in localPhase lets an unresolved finding slip through -- "a single local blocker keeps the local phase pending, not complete: unresolved finding" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: unresolved finding',
@@ -451,7 +461,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2b',
     label:
       'Scenario: ignoring isStale in localPhase lets a stale reviewed-head SHA slip through -- "a single local blocker keeps the local phase pending, not complete: stale SHA" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: stale SHA',
@@ -462,7 +472,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2c',
     label:
       'Scenario: dropping the tests condition from the local phase lets failed tests publish -- "a single local blocker keeps the local phase pending, not complete: failed test" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a single local blocker keeps the local phase pending, not complete: failed test',
@@ -475,7 +485,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2d',
     label:
       'Scenario: dropping remotePhase from fullyComplete lets a pending remote review slip through -- "each blocker alone prevents completion: pending review" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'each blocker alone prevents completion: pending review',
@@ -487,7 +497,7 @@ describe('Guard 2: no early REVIEW_COMPLETE (pr-review-status.js)', () => {
     id: 'Guard 2e',
     label:
       'Scenario: disabling the required-facts gate lets missing facts through -- "a missing baseSha is never complete: blocked" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a missing baseSha is never complete: blocked',
@@ -510,7 +520,7 @@ describe('Guard 3: round cap roundCap (pr-review-status.js)', () => {
     id: 'Guard 3a',
     label:
       'Scenario: disabling roundLimitReached lets the cap be exceeded -- "round limit never completes" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'round limit never completes',
@@ -526,7 +536,7 @@ describe('Guard 3: round cap roundCap (pr-review-status.js)', () => {
     id: 'Guard 3b',
     label:
       'Scenario: ignoring roundCap makes every open finding "at the cap" -- "a larger repository cap really does allow another round before the block" fails against the mutant',
-    files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+    files: STATUS_FILES,
     targetRel: 'lib/pr-review-status.js',
     testFileRel: 'tests/pr-review-status.test.js',
     testTitle: 'a larger repository cap really does allow another round before the block',
@@ -912,6 +922,178 @@ describe('Guard 13: security block and answered-findings merge block (pr-review-
 });
 
 // ---------------------------------------------------------------------------
+// Guards 14-17 -- a review of someone else's PR, and CI as its tests (lib/pr-review-status.js, lib/pr-review-ci-tests.js).
+//
+// 14: a review-only run ran no fix and no re-review, so it is a report: every other fact can look complete and it must still
+//     read pending; and the flag must not leak into, or be misread by, a run that is not review-only (14c, the half a gate
+//     that always refused would pass).
+// 15: a check run counts for the head only. 15a is "another commit's success is evidence"; 15b is the over-refusal, "another
+//     commit's failure objects", which a gate that simply never passed CI would not be caught by.
+// 16: nothing but a success for the head, in a complete list, is a pass.
+// 17: a pass is derived from the runs, never typed -- and only a review-only run may take CI at all.
+// ---------------------------------------------------------------------------
+
+describe('Guard 14: a review-only run never completes (pr-review-status.js)', () => {
+  proveGuardMutationIsCaught({
+    id: 'Guard 14a',
+    label:
+      'Scenario: dropping the review-only condition from the local phase lets a review-only run complete -- "a review-only run is never complete: every other fact looks complete" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a review-only run is never complete: every other fact looks complete',
+    mutate: (text, a) => a.replace(text, 'testsSettled && !reviewOnly', 'testsSettled'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 14b',
+    label:
+      'Scenario: ignoring an unreadable reviewOnly reads it as "not review-only" -- "a reviewOnly that is not a boolean is never read as a full run" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a reviewOnly that is not a boolean is never read as a full run',
+    mutate: (text, a) => a.replace(text, "    missingFacts.push('reviewOnly');", '    void 0;'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 14c',
+    label:
+      'Scenario: grading every run as review-only refuses a full run its completion -- "a full run is unaffected: reviewOnly absent reads as a full run" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a full run is unaffected: reviewOnly absent reads as a full run',
+    mutate: (text, a) => a.replace(text, 'const reviewOnly = input.reviewOnly === true;', 'const reviewOnly = true;'),
+  });
+});
+
+describe('Guard 15: a check run counts for the head commit only (pr-review-ci-tests.js)', () => {
+  const CI_FILES = ['lib/pr-review-ci-tests.js', 'lib/pr-review-remote.js', 'lib/pr-review-scope.js', 'tests/pr-review-ci-tests.test.js'];
+  const unbind = (text, a) => a.replace(text, 'bound && run.commitSha !== headSha', 'false');
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 15a',
+    label:
+      'Scenario: not binding runs to the head counts another commit\'s success as evidence -- "runs that all belong to another commit are ignored, however green" fails against the mutant',
+    files: CI_FILES,
+    targetRel: 'lib/pr-review-ci-tests.js',
+    testFileRel: 'tests/pr-review-ci-tests.test.js',
+    testTitle: 'runs that all belong to another commit are ignored, however green: nothing is shown for the head',
+    mutate: unbind,
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 15b',
+    label:
+      'Scenario: not binding runs to the head makes another commit\'s failure an objection about this one -- "a failure for another commit is not an objection about this head" fails against the mutant',
+    files: CI_FILES,
+    targetRel: 'lib/pr-review-ci-tests.js',
+    testFileRel: 'tests/pr-review-ci-tests.test.js',
+    testTitle: 'a failure for another commit is not an objection about this head',
+    mutate: unbind,
+  });
+});
+
+describe('Guard 16: only a success for the head, in a complete list, is a pass (pr-review-ci-tests.js)', () => {
+  const CI_FILES = ['lib/pr-review-ci-tests.js', 'lib/pr-review-remote.js', 'lib/pr-review-scope.js', 'tests/pr-review-ci-tests.test.js'];
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 16a',
+    label:
+      'Scenario: letting a failed run pass without objecting lets a red check count as green tests -- "a run that concluded failure objects" fails against the mutant',
+    files: CI_FILES,
+    targetRel: 'lib/pr-review-ci-tests.js',
+    testFileRel: 'tests/pr-review-ci-tests.test.js',
+    testTitle: 'a run that concluded failure objects',
+    mutate: (text, a) => a.replace(text, "if (outcome === 'failed') {", 'if (false) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 16b',
+    label:
+      'Scenario: dropping the "something must have counted" rule lets an empty list pass -- "an empty list shows nothing: it is not a pass" fails against the mutant',
+    files: CI_FILES,
+    targetRel: 'lib/pr-review-ci-tests.js',
+    testFileRel: 'tests/pr-review-ci-tests.test.js',
+    testTitle: 'an empty list shows nothing: it is not a pass',
+    mutate: (text, a) => a.replace(text, 'if (reasons.length === 0 && counted.length === 0) {', 'if (false) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 16c',
+    label:
+      'Scenario: not comparing the list with the host\'s total lets a first page of many pass -- "a list of fewer than the host reported (a first page of many)" fails against the mutant',
+    files: CI_FILES,
+    targetRel: 'lib/pr-review-ci-tests.js',
+    testFileRel: 'tests/pr-review-ci-tests.test.js',
+    testTitle: 'a list of fewer than the host reported (a first page of many) is incomplete or inconsistent: not a pass',
+    mutate: (text, a) => a.replace(text, '} else if (reported !== runs.length) {', '} else if (false) {'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 16d',
+    label:
+      'Scenario: counting a neutral run as a success lets a list with nothing passing pass -- "a run that is only neutral shows nothing" fails against the mutant',
+    files: CI_FILES,
+    targetRel: 'lib/pr-review-ci-tests.js',
+    testFileRel: 'tests/pr-review-ci-tests.test.js',
+    testTitle: 'a run that is only neutral shows nothing: not a pass on its own',
+    mutate: (text, a) => a.replace(text, "outcome === 'inert' || run.conclusion.toLowerCase() !== 'success'", "outcome === 'inert'"),
+  });
+});
+
+describe('Guard 17: a CI pass is derived from the runs and never typed (pr-review-status.js)', () => {
+  proveGuardMutationIsCaught({
+    id: 'Guard 17a',
+    label:
+      'Scenario: trusting a typed passed over the runs lets a claimed CI pass stand with nothing behind it -- "a typed CI pass is rejected: a pass with no runs behind it" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a typed CI pass is rejected: a pass with no runs behind it',
+    mutate: (text, a) =>
+      a.replace(text, 'passed: reviewOnly && claimsConsistent && ci.passed,', 'passed: reviewOnly && (raw.passed === true || (claimsConsistent && ci.passed)),'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 17b',
+    label:
+      'Scenario: letting a typed exit code ride on a CI fact stops it being a typed pass -- "a typed CI pass is rejected: green runs with an exit code typed on top" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'a typed CI pass is rejected: green runs with an exit code typed on top',
+    mutate: (text, a) => a.replace(text, '(raw.exitCode === undefined || raw.exitCode === null) &&', 'true &&'),
+  });
+
+  proveGuardMutationIsCaught({
+    id: 'Guard 17c',
+    label:
+      'Scenario: accepting CI on a run that is not review-only lets local changes pass their tests without running them -- "CI is a review-only run\'s tests and nobody else\'s: with reviewOnly absent" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: "CI is a review-only run's tests and nobody else's: with reviewOnly absent it is refused, however green",
+    mutate: (text, a) => a.replace(text, 'if (!reviewOnly) missingFacts.push("tests.source', 'if (false) missingFacts.push("tests.source'),
+  });
+});
+
+// Guard 18 -- the fallback: CI that does not show a pass must send the caller to a real local run, not to the report.
+describe('Guard 18: CI that shows nothing asks for a local run (pr-review-status.js)', () => {
+  proveGuardMutationIsCaught({
+    id: 'Guard 18a',
+    label:
+      'Scenario: not asking for a test run when CI shows nothing sends an untested head to the report -- "CI that does not show a pass leaves the tests unshown and asks for a local run: a run failed" fails against the mutant',
+    files: STATUS_FILES,
+    targetRel: 'lib/pr-review-status.js',
+    testFileRel: 'tests/pr-review-status.test.js',
+    testTitle: 'CI that does not show a pass leaves the tests unshown and asks for a local run: a run failed',
+    mutate: (text, a) => a.replace(text, '    } else if (tests.passed !== true) {\n      next = runTests;', '    } else if (false) {\n      next = runTests;'),
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Harness self-checks: the proof gate must itself be able to fail.
 // ---------------------------------------------------------------------------
 
@@ -1088,7 +1270,7 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy B',
-          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+          files: STATUS_FILES,
           targetRel: 'lib/pr-review-status.js',
           testFileRel: 'tests/pr-review-status.test.js',
           testTitle: 'round limit never completes',
@@ -1101,7 +1283,7 @@ describe('Harness self-checks: the verdict rejects every way a guard could pass 
       await expect(
         proveGuard({
           id: 'Decoy C',
-          files: ['lib/pr-review-status.js', 'lib/pr-review-scope.js', 'lib/pr-review-policy.js', 'tests/pr-review-status.test.js'],
+          files: STATUS_FILES,
           targetRel: 'lib/pr-review-status.js',
           testFileRel: 'tests/pr-review-status.test.js',
           testTitle: 'a test title that does not exist anywhere',

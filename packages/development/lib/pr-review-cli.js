@@ -42,6 +42,25 @@
  * writes the state object it is handed as-is: the report is a report, so
  * nothing here re-grades, trims or defaults a recorded decision.
  *
+ * `status` grades the accumulated review facts IN BAND (a missing or invalid fact is a BLOCKED result, never a default):
+ *   status     { baseSha, headSha, reviewedHeadSha, findingCounts{ total, actionable, deferred }, tests?, remotePhase?,
+ *                reviewedTreeSha?, headTreeSha?, roundsUsed?, roundCap?, access?, prUrl?, reportPath?, reviewOnly? }
+ *              `tests` is ONE of two facts, and `passed` is never supplied -- it is derived:
+ *                { exitCode, skipped?, command? }     a LOCAL run the caller really made (`skipped: true` needs no exit code)
+ *                { source: 'ci', checkRuns[{ id?, name?, commitSha, conclusion }], totalCount, command? }
+ *                                                     the host's CI for `headSha`, derived from the check runs
+ *                                                     (lib/pr-review-ci-tests.js) -- a review-only run's tests, nobody else's
+ *              Only a check run bound to `headSha` (its `commitSha`, exactly) that concluded `success` counts. A run for
+ *              another commit is ignored; a failed, unfinished or unreadable one, an empty or unreadable list, or a list
+ *              shorter than the host's own `totalCount` is NOT a pass: the tests stay unshown (PENDING, `next: run-tests`)
+ *              and the next call carries a real local `exitCode` instead. A `tests` that claims `source: 'ci'` with an
+ *              `exitCode`, with `skipped: true`, with a `passed` the runs do not show, or on a run that is not review-only
+ *              is a typed pass, not a CI result: an invalid fact (BLOCKED).
+ *              `reviewOnly: true` (default false; null counts as absent, any non-boolean blocks) marks a review of someone
+ *              else's PR that ran no fix and no re-review: the status is REVIEW_PENDING with a reason that says so, the
+ *              local phase is never LOCAL_REVIEW_COMPLETE, and `next` is `report-to-author` once the tests are shown.
+ *              Nothing a caller adds can make a review-only run REVIEW_COMPLETE. The result echoes `reviewOnly`.
+ *
  * The guidance subcommands (TRD-005) each take the facts their module grades,
  * all read FROM THE BASE COMMIT by the caller, never from the PR head:
  *   policy       { text?, baseSha, sourceSha? }  -- root REVIEW.md text
