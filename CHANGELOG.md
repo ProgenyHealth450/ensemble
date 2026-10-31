@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **License: MIT is replaced by Apache License 2.0.** The repository `LICENSE` is now the Apache License, Version 2.0, a `NOTICE` file names the copyright holder (Sunstone Partners), the `license` field of the root manifest, every package's `package.json` and `.claude-plugin/plugin.json` (and the matching `package-lock.json` workspace entries) is `Apache-2.0`, and the README, CONTRIBUTING and package READMEs say so. Releases already published, up to 8.0.0, remain available under the MIT License they were released under. Because every package manifest changed, the next release needs a version bump for each package (`node scripts/validate-release-bump.js origin/main` lists them).
+
 ## [8.0.0] - 2026-10-30
 
 ### Added

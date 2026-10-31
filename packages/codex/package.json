@@ -30,7 +30,7 @@
     "name": "Sunstone Partners",
     "email": "info@sunstonepartners.com"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bin": {
     "ensemble-codex-install": "./bin/install.js"
   },
