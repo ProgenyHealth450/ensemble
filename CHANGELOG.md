@@ -7,9 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.1.0] - 2026-10-30
+
 ### Changed
 
-- **License: MIT is replaced by Apache License 2.0.** The repository `LICENSE` is now the Apache License, Version 2.0, a `NOTICE` file names the copyright holder (Sunstone Partners), the `license` field of the root manifest, every package's `package.json` and `.claude-plugin/plugin.json` (and the matching `package-lock.json` workspace entries) is `Apache-2.0`, and the README, CONTRIBUTING and package READMEs say so. Releases already published, up to 8.0.0, remain available under the MIT License they were released under. Because every package manifest changed, the next release needs a version bump for each package (`node scripts/validate-release-bump.js origin/main` lists them).
+- **License: MIT is replaced by Apache License 2.0.** The repository `LICENSE` is now the Apache License, Version 2.0, a `NOTICE` file names the copyright holder (Sunstone Partners), the `license` field of the root manifest, every package's `package.json` and `.claude-plugin/plugin.json` (and the matching `package-lock.json` workspace entries) is `Apache-2.0`, and the README, CONTRIBUTING and package READMEs say so. Releases already published, up to 8.0.0, remain available under the MIT License they were released under. This is the only content change in this release; the packages whose content changed take a patch bump (see Release plumbing).
+
+### Release plumbing
+
+- Aggregate release bumped so existing full-plugin installations receive the
+  changed content: `ensemble-full` 8.0.0 → 8.1.0. This is a MINOR release: the
+  only change since 8.0.0 is the relicense (see Changed); no package, command,
+  agent or skill is added or removed.
+- Every package that
+  `node scripts/validate-release-bump.js origin/main` lists as content-changed
+  takes a PATCH bump, because only its manifest `license` field and its README
+  license text changed:
+  `ensemble-ai` 7.0.0 → 7.0.1, `ensemble-blazor` 7.0.0 → 7.0.1,
+  `ensemble-codex` 6.0.1 → 6.0.2, `ensemble-core` 6.1.0 → 6.1.1,
+  `ensemble-development` 7.0.1 → 7.0.2, `ensemble-dotnet` 2.0.0 → 2.0.1,
+  `ensemble-e2e-testing` 6.1.0 → 6.1.1, `ensemble-exunit` 5.1.1 → 5.1.2,
+  `ensemble-git` 6.1.0 → 6.1.1, `ensemble-infrastructure` 6.1.0 → 6.1.1,
+  `ensemble-jest` 5.1.2 → 5.1.3, `ensemble-nestjs` 6.0.0 → 6.0.1,
+  `ensemble-opencode` 5.4.0 → 5.4.1, `ensemble-permitter` 5.2.2 → 5.2.3,
+  `ensemble-phoenix` 6.0.0 → 6.0.1, `ensemble-pi` 1.6.18 → 1.6.19,
+  `ensemble-product` 7.0.0 → 7.0.1, `ensemble-pytest` 5.2.0 → 5.2.1,
+  `ensemble-quality` 6.0.1 → 6.0.2, `ensemble-rails` 6.0.0 → 6.0.1,
+  `ensemble-react` 7.0.0 → 7.0.1, `ensemble-rspec` 5.2.0 → 5.2.1 and
+  `ensemble-xunit` 5.2.0 → 5.2.1. No `@sunstone-partners/ensemble-*`
+  dependency or peer range moved; every one is still satisfied.
+- `ensemble-pi` is bumped by hand this time: `scripts/bump-pi-version-if-changed.js`
+  watches only `packages/pi/{prompts,agents,skills,AGENTS.md}`, which did not
+  change, so `generate:pi` wrote nothing while the release gate flagged the
+  changed `packages/pi/README.md`.
+- `ensemble-opencode`'s `ENSEMBLE_META.version` (returned by the
+  `ensemble-info` tool) is 5.4.1 to match its manifest.
+- Unchanged: `ensemble-assessment` 2.0.0, `ensemble-guards` 5.2.1,
+  `ensemble-telemetry` 5.2.1, `ensemble-lifecycle` 7.0.0 and
+  `ensemble-reqnroll` 1.0.2 (their only change is the manifest `license`
+  field, which the release gate does not count as content), plus
+  `ensemble-agent-core` and `ensemble-pi-extension` 0.1.2 (no marketplace
+  entry; installed from a checkout).
 
 ## [8.0.0] - 2026-10-30
 
