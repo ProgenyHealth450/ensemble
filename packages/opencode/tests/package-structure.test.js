@@ -26,7 +26,7 @@ describe('OC-S1-PKG-001: packages/opencode/ directory structure', () => {
     } else {
       expect(pkg.author).toHaveProperty('name', 'Sunstone Partners');
     }
-    expect(pkg.license).toBe('MIT');
+    expect(pkg.license).toBe('Apache-2.0');
   });
 
   it('should have a plugin.json manifest', () => {

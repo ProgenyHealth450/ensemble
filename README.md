@@ -627,7 +627,7 @@ Create `packages/my-plugin/.claude-plugin/plugin.json`:
   "version": "1.0.0",
   "description": "My custom plugin",
   "author": { "name": "Your Name", "email": "you@example.com" },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["my-plugin", "ensemble"],
   "agents": "./agents",
   "commands": "./commands",
@@ -654,7 +654,7 @@ All plugins follow [Semantic Versioning](https://semver.org/) and every plugin i
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 
