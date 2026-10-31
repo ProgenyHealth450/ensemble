@@ -128,6 +128,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`adaptive_planning.enabled: false` detection backtracked exponentially (`packages/development`, CodeQL `js/redos`).** `lib/complexity-analyzer.js` read the config with one regular expression whose `\s+` and `[^\n]*` both matched blanks, so a config with a few dozen whitespace-only lines under `adaptive_planning:` stalled the analyzer for seconds to hours. The pattern is now linear and accepts exactly the texts the old one did; the vendored Pi and Codex copies are regenerated.
+
+- **Contract docs did not escape backslashes (`scripts/generate-contract-docs.js`, CodeQL `js/incomplete-sanitization`).** A description with a backslash before a pipe was written as `\\|`, which ends the table cell at the pipe, and a backslash before punctuation such as `\*` lost its backslash when rendered. Backslashes are now doubled before pipes are escaped. No committed contract doc changes, since no capability text contains a backslash.
+
 - **`description` read an omitted `agentAuthored` as human-authored (`packages/development`).** The skill's `AGENT_AUTHORED` input has always said that anything but an explicit `false` reads as agent-authored, so a claim nobody made never relaxes the accountability check, but `lib/pr-review-description.js` (and so the `description` CLI subcommand, which only delegates to it) answered `agentAuthored:false` when the key was left out. An omitted, null or unreadable claim now reads as agent-authored and a body with no `Directed by:` line is reported with `directed-by` missing. Callers that know a person wrote the body pass an explicit `false`; `pr-review-request` cannot know and passes nothing.
 
 - **packages/development, packages/pi:** a credential shown to a reviewer
