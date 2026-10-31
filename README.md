@@ -4,7 +4,7 @@ Modular plugin ecosystem for AI coding agents (Claude Code first, plus Pi/Oh My 
 
 ![The Spec-Driven Factory: Ensemble Plugin Ecosystem](docs/images/ensemble-architecture.png)
 
-Current release: **8.0.0** (`ensemble-full`). Each package is versioned independently; see [Packages](#packages).
+Current release: **8.1.0** (`ensemble-full`). Each package is versioned independently; see [Packages](#packages).
 
 ## Contents
 
@@ -134,32 +134,32 @@ Versions below are taken from each package's `package.json`.
 
 | Package | Version | Contents |
 |---------|---------|----------|
-| `ensemble-full` | 8.0.0 | Meta-package that bundles all plugins |
-| `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
-| `ensemble-product` | 7.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`, `reqnroll`) and the product-management orchestrator |
-| `ensemble-development` | 7.0.1 | TRD, Beads, feature and issue workflows; language skills; development agents |
-| `ensemble-quality` | 6.0.1 | `pr-review-remediation` and `flake-reproduction` skills; code-reviewer, deep-debugger, test-runner agents |
-| `ensemble-infrastructure` | 6.1.0 | Cloud, Kubernetes, Helm, Fly.io, Railway, Supabase, Vercel, Jira and Linear skills; infrastructure agents |
-| `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
-| `ensemble-e2e-testing` | 6.1.0 | `/ensemble:author-playwright-tests`; `smoke-test-runner`, `writing-playwright-tests` skills; `playwright-tester` agent |
+| `ensemble-full` | 8.1.0 | Meta-package that bundles all plugins |
+| `ensemble-core` | 6.1.1 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
+| `ensemble-product` | 7.0.1 | PRD commands (`create-prd`, `refine-prd`, `prd`, `reqnroll`) and the product-management orchestrator |
+| `ensemble-development` | 7.0.2 | TRD, Beads, feature and issue workflows; language skills; development agents |
+| `ensemble-quality` | 6.0.2 | `pr-review-remediation` and `flake-reproduction` skills; code-reviewer, deep-debugger, test-runner agents |
+| `ensemble-infrastructure` | 6.1.1 | Cloud, Kubernetes, Helm, Fly.io, Railway, Supabase, Vercel, Jira and Linear skills; infrastructure agents |
+| `ensemble-git` | 6.1.1 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
+| `ensemble-e2e-testing` | 6.1.1 | `/ensemble:author-playwright-tests`; `smoke-test-runner`, `writing-playwright-tests` skills; `playwright-tester` agent |
 | `ensemble-assessment` | 2.0.0 | `/ensemble:assess` and the 22 assessment and report skills; installable on its own on Pi |
-| `ensemble-react` | 7.0.0 | `react` skill |
-| `ensemble-nestjs` | 6.0.0 | `nestjs` skill |
-| `ensemble-rails` | 6.0.0 | `rails` skill |
-| `ensemble-phoenix` | 6.0.0 | `phoenix` skill |
-| `ensemble-blazor` | 7.0.0 | `blazor` skill |
-| `ensemble-dotnet` | 2.0.0 | `dotnet` skill; `dotnet-backend-expert` agent |
-| `ensemble-ai` | 7.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
-| `ensemble-jest` | 5.1.2 | `jest` skill |
-| `ensemble-pytest` | 5.2.0 | `pytest` skill |
-| `ensemble-rspec` | 5.2.0 | `rspec` skill |
-| `ensemble-xunit` | 5.2.0 | `xunit` skill |
-| `ensemble-exunit` | 5.1.1 | `exunit` skill |
+| `ensemble-react` | 7.0.1 | `react` skill |
+| `ensemble-nestjs` | 6.0.1 | `nestjs` skill |
+| `ensemble-rails` | 6.0.1 | `rails` skill |
+| `ensemble-phoenix` | 6.0.1 | `phoenix` skill |
+| `ensemble-blazor` | 7.0.1 | `blazor` skill |
+| `ensemble-dotnet` | 2.0.1 | `dotnet` skill; `dotnet-backend-expert` agent |
+| `ensemble-ai` | 7.0.1 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
+| `ensemble-jest` | 5.1.3 | `jest` skill |
+| `ensemble-pytest` | 5.2.1 | `pytest` skill |
+| `ensemble-rspec` | 5.2.1 | `rspec` skill |
+| `ensemble-xunit` | 5.2.1 | `xunit` skill |
+| `ensemble-exunit` | 5.1.2 | `exunit` skill |
 | `ensemble-reqnroll` | 1.0.2 | `reqnroll` skill; `reqnroll-binding-specialist` agent |
-| `ensemble-permitter` | 5.2.2 | Permission-expansion hook with allowlist (opt out with `ENSEMBLE_PERMITTER_DISABLE=1`) |
-| `ensemble-opencode` | 5.4.0 | OpenCode runtime translation layer |
-| `ensemble-pi` | 1.6.18 | Pi runtime translation layer (own version line) |
-| `ensemble-codex` | 6.0.1 | Codex CLI runtime translation layer |
+| `ensemble-permitter` | 5.2.3 | Permission-expansion hook with allowlist (opt out with `ENSEMBLE_PERMITTER_DISABLE=1`) |
+| `ensemble-opencode` | 5.4.1 | OpenCode runtime translation layer |
+| `ensemble-pi` | 1.6.19 | Pi runtime translation layer (own version line) |
+| `ensemble-codex` | 6.0.2 | Codex CLI runtime translation layer |
 | `ensemble-agent-core` | 0.1.2 | Shared run-index I/O primitives for the `new-feature` and `fix-issue` workflows (library) |
 | `ensemble-pi-extension` | 0.1.2 | Pi extension providing native command completion for the dispatcher commands (no marketplace entry; installed from a checkout) |
 
@@ -627,7 +627,7 @@ Create `packages/my-plugin/.claude-plugin/plugin.json`:
   "version": "1.0.0",
   "description": "My custom plugin",
   "author": { "name": "Your Name", "email": "you@example.com" },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["my-plugin", "ensemble"],
   "agents": "./agents",
   "commands": "./commands",
@@ -654,7 +654,7 @@ All plugins follow [Semantic Versioning](https://semver.org/) and every plugin i
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 
