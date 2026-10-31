@@ -59,6 +59,20 @@ export default tseslint.config(
       '**/*.d.ts',
       '**/fixtures/**',
       '**/__snapshots__/**',
+      // Playwright skill templates/examples are copy-paste scaffolds for
+      // downstream repos (placeholder imports and fixtures), not repo code.
+      'packages/e2e-testing/skills/writing-playwright-tests/templates/**',
+      'packages/e2e-testing/skills/writing-playwright-tests/examples/**',
+      // Generated runtime outputs (npm run generate:pi / generate:codex /
+      // generate:opencode). The Generated Drift workflow regenerates all of
+      // these (including pi/vendor, a byte copy of packages/*/lib, and
+      // pi/skills) and fails on any diff, so a hand edit or stale copy cannot
+      // land; lint the upstream sources instead.
+      'packages/pi/skills/**',
+      'packages/pi/vendor/**',
+      'packages/pi/prompts/**',
+      'packages/pi/agents/**',
+      'packages/pi/commands/**',
     ],
   },
   js.configs.recommended,
@@ -96,6 +110,19 @@ export default tseslint.config(
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+  {
+    // Committed bun bundle of packages/lifecycle-claude/src (scripts/build.mjs).
+    // It is NOT rebuilt in CI, so it stays linted (syntax, other rules) rather
+    // than ignored; only the rules that fire on bundler output are disabled.
+    files: ['packages/lifecycle-claude/bundle/**'],
+    rules: {
+      'no-cond-assign': 'off',
+      'no-control-regex': 'off',
+      'no-useless-escape': 'off',
+      'no-useless-assignment': 'off',
+      'no-undef': 'off',
     },
   },
 );

@@ -14,6 +14,7 @@ const path = require('path');
 
 const { buildScaffoldPlan } = require('../lib/scaffold-planner');
 const { parseTRD } = require('../lib/trd-parser');
+const { parseReferencesBlock, kindFromTitle } = require('../lib/bead-refs');
 
 // ---------------------------------------------------------------------------
 // Inline ParsedTRD fixtures (the planner consumes parser OUTPUT, not markdown)
@@ -193,7 +194,8 @@ describe('buildScaffoldPlan — epic', () => {
     expect(plan.epic.title).toBe('[trd:demo-trd] Implement TRD: Demo TRD');
     expect(plan.epic.type).toBe('epic');
     expect(plan.epic.priority).toBe(2);
-    expect(plan.epic.description).toBe('A demo summary paragraph.');
+    expect(plan.epic.description).toContain('A demo summary paragraph.');
+    expect(plan.epic.description.startsWith('## References\n')).toBe(true);
   });
 });
 
@@ -215,9 +217,9 @@ describe('buildScaffoldPlan — stories', () => {
 
   test('story description includes task count and shippable state (PR format)', () => {
     const s1 = plan.stories[0];
-    expect(s1.description).toBe(
-      'PR 1 of TRD: Demo TRD. Contains 3 tasks. Shippable state: Users can use the core.',
-    );
+    expect(s1.description.endsWith(
+      '\n\nPR 1 of TRD: Demo TRD. Contains 3 tasks. Shippable state: Users can use the core.',
+    )).toBe(true);
     expect(s1.shippableState).toBe('Users can use the core.');
   });
 });
@@ -230,7 +232,7 @@ describe('buildScaffoldPlan — phase (legacy) naming', () => {
     expect(s1.titlePrefix).toBe('[trd:demo-trd:phase:1]');
     expect(s1.title).toBe('[trd:demo-trd:phase:1] Phase 1: Only Phase');
     // shippableState is null and prFormat false -> no "Shippable state:" suffix
-    expect(s1.description).toBe('Phase 1 of TRD: Legacy TRD. Contains 2 tasks.');
+    expect(s1.description.endsWith('\n\nPhase 1 of TRD: Legacy TRD. Contains 2 tasks.')).toBe(true);
     expect(s1.shippableState).toBeNull();
   });
 });
@@ -259,8 +261,8 @@ describe('buildScaffoldPlan — tasks', () => {
   test('impl task description has Task header, TRD/PRD refs, ACs, actions', () => {
     const t = plan.tasks.find((x) => x.id === 'TRD-001');
     expect(t.description).toContain('## Task: TRD-001');
-    expect(t.description).toContain('TRD Reference: docs/TRD/demo.md#trd-001');
-    expect(t.description).toContain('PRD Reference: docs/PRD/demo.md#req-001');
+    expect(t.description).toContain('TRD Task: docs/TRD/demo.md#trd-001');
+    expect(t.description).toContain('PRD Requirement: docs/PRD/demo.md#req-001');
     expect(t.description).toContain('Satisfies: REQ-001');
     expect(t.description).toContain('PRD ACs: AC-001-1');
     expect(t.description).toContain('Target File: src/core.js');
@@ -288,10 +290,11 @@ describe('buildScaffoldPlan — tasks', () => {
     expect(t.description).not.toContain('Embedded tests (');
   });
 
-  test('INFRA task omits the PRD Reference line', () => {
+  test('INFRA task keeps the PRD doc reference but has no PRD Requirement line', () => {
     const t = plan.tasks.find((x) => x.id === 'TRD-002');
     expect(t.description).toContain('## Task: TRD-002');
-    expect(t.description).not.toContain('PRD Reference:');
+    expect(t.description).toContain('PRD: docs/PRD/demo.md');
+    expect(t.description).not.toContain('PRD Requirement:');
     expect(t.description).toContain('Satisfies: INFRA');
   });
 
@@ -642,5 +645,106 @@ describe('buildScaffoldPlan — integration with real fixture', () => {
       '[trd:trd-2026-023:task:TRD-003]',
       '[trd:trd-2026-023:task:TRD-004]',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// References block on every bead kind
+// ---------------------------------------------------------------------------
+
+describe('buildScaffoldPlan — ## References block', () => {
+  const plan = buildScaffoldPlan(buildTwoPhaseParsed(), OPTS);
+  const allBeads = () => [plan.epic, ...plan.stories, ...plan.tasks, ...plan.synthesizedTests];
+
+  test('every bead kind carries a parseable block pointing at the TRD and PRD', () => {
+    for (const b of allBeads()) {
+      const refs = parseReferencesBlock(b.description);
+      expect(refs).not.toBeNull();
+      expect(refs.trd).toBe('docs/TRD/demo.md');
+      expect(refs.prd).toBe('docs/PRD/demo.md');
+      expect(refs.prdUnresolved).toBe(false);
+    }
+  });
+
+  test('the old TRD Reference:/PRD Reference: description lines are gone', () => {
+    for (const b of allBeads()) {
+      expect(b.description).not.toMatch(/^(TRD|PRD) Reference:/m);
+    }
+  });
+
+  test('block round-trips per kind with the right anchors and parent epic', () => {
+    const epic = parseReferencesBlock(plan.epic.description);
+    expect(epic.trdTask).toBeNull();
+    expect(epic.parentEpic).toBe('');
+    expect(kindFromTitle(plan.epic.title)).toBe('epic');
+
+    const story = parseReferencesBlock(plan.stories[0].description);
+    expect(story.trdTask).toBeNull();
+    expect(story.parentEpic).toBe('[trd:demo-trd]');
+    expect(kindFromTitle(plan.stories[0].title)).toBe('story');
+
+    const task = parseReferencesBlock(plan.tasks.find((t) => t.id === 'TRD-001').description);
+    expect(task.trdTask).toEqual({ path: 'docs/TRD/demo.md', id: 'trd-001' });
+    expect(task.prdRequirements).toEqual([{ path: 'docs/PRD/demo.md', id: 'req-001' }]);
+    expect(task.prdAcs).toEqual(['AC-001-1']);
+    expect(task.verifiesTask).toBeNull();
+    expect(task.parentEpic).toBe('[trd:demo-trd]');
+
+    const test = parseReferencesBlock(plan.tasks.find((t) => t.id === 'TRD-001-TEST').description);
+    expect(test.trdTask.id).toBe('trd-001-test');
+    expect(test.verifiesTask).toEqual({ path: 'docs/TRD/demo.md', id: 'trd-001' });
+
+    const synth = parseReferencesBlock(plan.synthesizedTests[0].description);
+    expect(synth.trdTask.id).toBe('trd-001'); // synth uses the parent task id
+    expect(synth.prdRequirements.map((r) => r.id)).toEqual(['req-001']);
+    expect(kindFromTitle(plan.synthesizedTests[0].title)).toBe('synth');
+  });
+
+  test('INFRA task keeps the PRD doc but lists no requirement', () => {
+    const infra = parseReferencesBlock(plan.tasks.find((t) => t.id === 'TRD-002').description);
+    expect(infra.prd).toBe('docs/PRD/demo.md');
+    expect(infra.prdRequirements).toEqual([]);
+  });
+
+  test('a task satisfying several REQs gets one PRD Requirement line per REQ', () => {
+    const parsed = buildTwoPhaseParsed();
+    parsed.tasksById['TRD-003'].satisfies = ['REQ-002', 'REQ-005', 'INFRA'];
+    const p = buildScaffoldPlan(parsed, OPTS);
+    const refs = parseReferencesBlock(p.tasks.find((t) => t.id === 'TRD-003').description);
+    expect(refs.prdRequirements.map((r) => r.id)).toEqual(['req-002', 'req-005']);
+  });
+
+  test('externalRef: epic/story = TRD path; task/test/synth = path#lowercase task id', () => {
+    expect(plan.epic.externalRef).toBe('docs/TRD/demo.md');
+    expect(plan.stories.every((s) => s.externalRef === 'docs/TRD/demo.md')).toBe(true);
+    expect(plan.tasks.find((t) => t.id === 'TRD-001-TEST').externalRef).toBe('docs/TRD/demo.md#trd-001-test');
+    expect(plan.synthesizedTests[0].externalRef).toBe('docs/TRD/demo.md#trd-001');
+  });
+
+  test('unresolved PRD: (UNRESOLVED) marker, no requirement lines, plan warning', () => {
+    const p = buildScaffoldPlan(buildTwoPhaseParsed(), {
+      ...OPTS,
+      prdFilePath: '../missing/prd.md',
+      prdUnresolved: true,
+    });
+    const refs = parseReferencesBlock(p.tasks.find((t) => t.id === 'TRD-001').description);
+    expect(refs.prd).toBe('../missing/prd.md');
+    expect(refs.prdUnresolved).toBe(true);
+    expect(refs.prdRequirements).toEqual([]);
+    expect(p.tasks.find((t) => t.id === 'TRD-001').description).toContain('PRD: ../missing/prd.md (UNRESOLVED)');
+    expect(p.warnings.some((w) => /could not be resolved/.test(w))).toBe(true);
+  });
+
+  test('no PRD reference at all: no PRD lines and a plan warning', () => {
+    const p = buildScaffoldPlan(buildTwoPhaseParsed(), { ...OPTS, prdFilePath: '' });
+    const refs = parseReferencesBlock(p.tasks.find((t) => t.id === 'TRD-001').description);
+    expect(refs.prd).toBe('');
+    expect(refs.prdRequirements).toEqual([]);
+    expect(p.tasks.find((t) => t.id === 'TRD-001').description).not.toMatch(/^PRD:/m);
+    expect(p.warnings.some((w) => /no PRD reference/.test(w))).toBe(true);
+  });
+
+  test('no warning when the PRD resolves', () => {
+    expect(plan.warnings.filter((w) => /PRD/.test(w))).toEqual([]);
   });
 });

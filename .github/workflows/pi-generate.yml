@@ -17,12 +17,12 @@ jobs:
       # checkout, that merge-base lookup fails and the script no-ops (by design, so it
       # never hard-fails a build over missing history) -- which would silently defeat the
       # version-drift check two steps down.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
 

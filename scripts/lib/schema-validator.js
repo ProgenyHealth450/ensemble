@@ -11,6 +11,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const yaml = require('js-yaml');
 const { ValidationError } = require('./error-handler');
+const { checkStepKeys } = require('./step-keys-check');
 
 // Initialize AJV with all errors mode
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -48,6 +49,11 @@ function validateCommandSchema(commandData, filePath, agentNames = new Set(), co
       ));
     });
   }
+
+  // 1b. Step keys the command transformer would silently drop
+  checkStepKeys(commandData, filePath).forEach(message => {
+    errors.push(new ValidationError(filePath, 'workflow.phases', message));
+  });
 
   // 2. Semantic validation: phase numbering (no gaps)
   if (commandData.workflow?.phases) {

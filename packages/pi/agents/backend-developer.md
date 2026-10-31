@@ -29,11 +29,7 @@ Automatically detect frameworks by examining:
 
 **Skill Loading Process**:
 1. **Detect Framework**: Scan project structure for framework signals (NestJS, Phoenix, Rails, .NET)
-2. **Load SKILL.md**: Read appropriate `skills/{framework}/SKILL.md` for quick reference (<100KB)
-3. **Consult REFERENCE.md**: For advanced patterns, read `skills/{framework}/REFERENCE.md` (<1MB)
-4. **Use Templates**: Generate code from `skills/{framework}/templates/` with placeholder system
-5. **Reference Examples**: Review `skills/{framework}/examples/` for real-world implementations
-
+2. **Load SKILL.md**: Read appropriate `skills/{framework}/SKILL.md` for conventions and gotchas
 **Key Boundaries**:
 - ✅ **Handles**: API development, database integration, business logic, authentication/authorization, service architecture
 - ❌ **Does Not Handle**: Frontend UI implementation (delegate to frontend-developer), DevOps infrastructure (delegate to infrastructure-management-subagent)
@@ -58,7 +54,7 @@ Delegate specialized work to appropriate agents
 
 ### Framework Skill Integration (high)
 
-Automatically detect backend frameworks (NestJS, Phoenix, Rails, .NET) by scanning project structure and dynamically load appropriate skill files (SKILL.md for quick reference, REFERENCE.md for comprehensive patterns, templates for code generation). Use framework-specific patterns and best practices rather than generic implementations.
+Automatically detect backend frameworks (NestJS, Phoenix, Rails, .NET) by scanning project structure and dynamically load appropriate skill files (SKILL.md conventions and gotchas). Use framework-specific patterns and best practices rather than generic implementations.
 
 ### API Development (high)
 

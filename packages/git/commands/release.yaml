@@ -28,7 +28,6 @@ workflow:
             - Parse --version argument
             - Validate semantic versioning format
             - Check for version conflicts (tag/branch exists)
-          skill: semantic-version-validator
 
         - order: 2
           title: Release Type Validation
@@ -52,8 +51,7 @@ workflow:
 
         - order: 4
           title: Changelog Generation
-          description: Generate changelog from git history
-          skill: changelog-generator
+          description: Generate changelog from git history (use the changelog-generator skill)
           actions:
             - Parse commits since last release
             - Categorize changes (breaking, new, enhancement, bugfix)
@@ -69,9 +67,6 @@ workflow:
           delegation:
             agent: code-reviewer
             context: Release branch, security scan operation
-          timing:
-            target: 3 minutes
-            timeout: 10 minutes
           actions:
             - Scan for OWASP Top 10 vulnerabilities
             - Check for critical and high-severity issues
@@ -84,9 +79,6 @@ workflow:
           delegation:
             agent: code-reviewer
             context: Release branch, DoD validation operation
-          timing:
-            target: 2 minutes
-            timeout: 10 minutes
           actions:
             - Validate all 8 DoD categories
             - Check test coverage targets (unit ≥80%, integration ≥70%)
@@ -99,9 +91,6 @@ workflow:
           delegation:
             agent: test-runner
             context: Release branch, unit tests operation
-          timing:
-            target: 5 minutes
-            timeout: 15 minutes
           actions:
             - Run unit test suite with coverage
             - Require ≥80% coverage
@@ -114,9 +103,6 @@ workflow:
           delegation:
             agent: test-runner
             context: Release branch, integration tests operation
-          timing:
-            target: 5 minutes
-            timeout: 15 minutes
           actions:
             - Run integration test suite with coverage
             - Require ≥70% coverage
@@ -125,13 +111,10 @@ workflow:
 
         - order: 5
           title: Pre-Release Smoke Tests
-          description: Execute smoke test suite before deployment
-          skill: smoke-test-runner
-          timing:
-            target: 3 minutes
-            timeout: 5 minutes
+          description: Execute smoke test suite before deployment (use the smoke-test-runner skill)
           actions:
-            - Execute 5-category smoke test suite
+            - Execute 5-category smoke test suite against the project's smoke-tests.json (up to 15 minutes)
+            - Proceed only when the runner verdict is passed; failed or incomplete (a required category NOT CONFIGURED) blocks
               - API Health
               - Database connectivity
               - External services
@@ -146,9 +129,6 @@ workflow:
           delegation:
             agent: playwright-tester
             context: Release branch, staging environment
-          timing:
-            target: 5 minutes
-            timeout: 10 minutes
           actions:
             - Execute critical user journey tests
             - Capture trace artifacts for all journeys
@@ -165,9 +145,6 @@ workflow:
           delegation:
             agent: deployment-orchestrator
             context: Release version, staging environment, deployment strategy
-          timing:
-            target: 2 minutes
-            timeout: 15 minutes
           actions:
             - Execute blue-green or rolling deployment
             - Verify health checks
@@ -175,16 +152,12 @@ workflow:
 
         - order: 2
           title: Post-Staging Smoke Tests
-          description: Verify staging deployment with smoke tests
-          skill: smoke-test-runner
-          timing:
-            target: 3 minutes
-            timeout: 5 minutes
+          description: Verify staging deployment with smoke tests (use the smoke-test-runner skill)
           actions:
             - Execute full 5-category smoke test suite
             - Use staging-specific configuration
-            - Verify all smoke tests pass
-            - Block on any smoke test failure
+            - Proceed only when the runner verdict is passed (every required category executed and passed)
+            - Block on a failed or incomplete verdict (a required category NOT CONFIGURED is a block, not a pass)
 
     - name: Production Deployment
       order: 4
@@ -195,13 +168,10 @@ workflow:
           delegation:
             agent: deployment-orchestrator
             context: Release version, production environment, canary strategy
-          timing:
-            target: 5 minutes
-            timeout: 15 minutes
           actions:
             - Deploy to canary infrastructure
             - Route 5% traffic to canary
-            - Execute canary smoke tests (smoke-test-runner skill)
+            - Execute canary smoke tests (smoke-test-runner skill); promote only on a passed verdict
             - Monitor error rate for 2 minutes
             - "If pass: Route 25% traffic, execute smoke tests"
             - "If pass: Route 100% traffic, execute final smoke tests"
@@ -209,25 +179,21 @@ workflow:
 
         - order: 2
           title: Post-Production Smoke Tests
-          description: Final verification of production deployment
-          skill: smoke-test-runner
-          timing:
-            target: 3 minutes
-            timeout: 5 minutes
+          description: Final verification of production deployment (use the smoke-test-runner skill)
           actions:
             - Execute full 5-category smoke test suite
             - Use production-specific configuration
             - Monitor error rate for 5 minutes
-            - Trigger rollback on smoke test failure or error rate >5%
+            - Trigger rollback on a failed or incomplete smoke verdict or error rate >5%
 
     - name: Release Completion
       order: 5
       steps:
         - order: 1
           title: Create Pull Request
-          description: Create release PR via github-specialist
+          description: Create release PR via git-workflow
           delegation:
-            agent: github-specialist
+            agent: git-workflow
             context: Release branch, main branch, changelog
           actions:
             - Create PR with changelog in description
@@ -239,7 +205,7 @@ workflow:
           title: Create GitHub Release
           description: Publish GitHub release with notes
           delegation:
-            agent: github-specialist
+            agent: git-workflow
             context: Release version, changelog, release notes
           actions:
             - Create GitHub release with tag
@@ -249,7 +215,6 @@ workflow:
         - order: 3
           title: Generate Release Report
           description: Create comprehensive release report
-          skill: release-report-generator
           actions:
             - Compile test execution history
             - Include smoke test results
@@ -259,7 +224,6 @@ workflow:
         - order: 4
           title: Append Audit Log
           description: Record release in audit log
-          skill: audit-log-generator
           actions:
             - Append audit log entry with test tracking
             - Include approval history
@@ -274,18 +238,6 @@ workflow:
             - Attach release report
             - Link to PR and GitHub release
             - Add deployment timestamp
-
-        - order: 6
-          title: Send Release Metrics
-          description: Report metrics to manager-dashboard-agent
-          delegation:
-            agent: manager-dashboard-agent
-            context: Release metrics, cycle time, success rate
-          actions:
-            - Send cycle time metric
-            - Send success/failure status
-            - Send test execution metrics
-            - Send deployment duration
 
     - name: Rollback (On Failure)
       order: 6
@@ -306,9 +258,6 @@ workflow:
           delegation:
             agent: deployment-orchestrator
             context: Rollback operation, previous version
-          timing:
-            target: 2 minutes
-            timeout: 5 minutes
           actions:
             - Route all traffic to previous version
             - Verify previous version health checks
@@ -316,11 +265,7 @@ workflow:
 
         - order: 3
           title: Post-Rollback Smoke Tests
-          description: Verify rollback success with smoke tests
-          skill: smoke-test-runner
-          timing:
-            target: 3 minutes
-            timeout: 5 minutes
+          description: Verify rollback success with smoke tests (use the smoke-test-runner skill)
           actions:
             - Execute full 5-category smoke test suite
             - Verify error rate normalized
@@ -330,8 +275,6 @@ workflow:
         - order: 4
           title: Health Validation
           description: Monitor system health post-rollback
-          timing:
-            target: 5 minutes
           actions:
             - Monitor error rate (<1% target)
             - Verify all health checks passing
@@ -464,10 +407,10 @@ usageExamples:
 
 timingBudget:
   standardRelease:
-    qualityGates: 23 minutes
+    qualityGates: 20 minutes excluding smoke run
     stagingDeployment: 5 minutes
     productionDeployment: 5 minutes
-    total: 33 minutes
+    total: 30 minutes excluding smoke runs (each smoke run is up to 15 minutes)
 
   hotfixRelease:
     fastTrackGates: 10 minutes
@@ -476,7 +419,7 @@ timingBudget:
 
   rollback:
     trafficReversion: 2 minutes
-    smokeTestVerification: 3 minutes
+    smokeTestVerification: up to 15 minutes
     healthMonitoring: 5 minutes
     total: 10 minutes
 
@@ -499,8 +442,8 @@ qualityGates:
       timeout: 15 minutes
 
     - name: Smoke Tests
-      target: All 5 categories pass
-      timeout: 5 minutes
+      target: "Runner verdict is passed: every required category executed and passed (a NOT CONFIGURED required category blocks the release)"
+      timeout: 15 minutes
 
     - name: E2E Tests
       target: All critical journeys pass
@@ -508,15 +451,15 @@ qualityGates:
 
   deployment:
     - name: Staging Deployment
-      target: "≤5 minutes (2min deploy + 3min smoke tests)"
+      target: "≤5 minutes excluding smoke run (2min deploy)"
       timeout: 15 minutes
 
     - name: Production Deployment
-      target: "≤5 minutes (canary progression + smoke tests)"
+      target: "≤5 minutes excluding smoke runs (canary progression)"
       timeout: 15 minutes
 
     - name: Rollback
-      target: "≤10 minutes (2min revert + 3min smoke + 5min health)"
+      target: "≤7 minutes excluding smoke run (2min revert + 5min health)"
       timeout: 15 minutes
 
 successCriteria:

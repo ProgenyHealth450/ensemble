@@ -1,8 +1,8 @@
-# Ensemble 7.0.0 User Guide
+# Ensemble 8.0.0 User Guide
 
 Ensemble is a marketplace of plugins that add commands, skills and agents to AI coding runtimes (Claude Code, Pi/Oh My Pi, Codex, OpenCode). Its core workflow takes a product idea through a PRD, a TRD, a Beads task hierarchy and a merged pull request, with a gate at every hand-off.
 
-This guide is task oriented. Sections 1 to 3 get you installed and through one full cycle. Section 4 is a set of recipes. Sections 5 to 7 are reference tables. Sections 8 to 10 cover configuration, troubleshooting and upgrading from 6.x.
+This guide is task oriented. Sections 1 to 3 get you installed and through one full cycle. Section 4 is a set of recipes. Sections 5 to 7 are reference tables. Sections 8 to 10 cover configuration, troubleshooting and upgrading from 6.x. Section 11 is the code review process: the policy you edit, the gates that are enforced for you, and the honest limits of both.
 
 ## Table of contents
 
@@ -16,6 +16,7 @@ This guide is task oriented. Sections 1 to 3 get you installed and through one f
 8. [Configuration and environment](#8-configuration-and-environment)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Upgrading from 6.x](#10-upgrading-from-6x)
+11. [Code review process](#11-code-review-process)
 
 ## 1. Concepts
 
@@ -25,28 +26,27 @@ The repository is an npm monorepo under `packages/`. Each package is both an npm
 
 | Plugin | Version | Contents |
 | --- | --- | --- |
-| `ensemble-core` | 6.0.0 | `detect-stack` skill, `/ensemble:standards`, `/ensemble:fold-prompt`, `/ensemble:sessionlog`, `/ensemble:reinstall-plugins`, general-purpose agents |
-| `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher, `analyze-product` |
-| `ensemble-development` | 7.0.0 | TRD, beads, feature and issue workflows, language skills, orchestrator agents |
-| `ensemble-quality` | 6.0.0 | `pr-review-remediation` skill, `code-reviewer`, `deep-debugger`, `qa-orchestrator`, `test-runner` agents |
-| `ensemble-infrastructure` | 6.0.0 | Cloud and vendor skills (`aws`, `kubernetes`, `jira`, ...), infrastructure agents |
-| `ensemble-git` | 6.0.0 | `/ensemble:pr-merge`, `/ensemble:release`, git skills, `git-workflow` and `github-specialist` agents |
-| `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`, `smoke-test-runner`, `writing-playwright-tests`, `playwright-tester` agent |
-| `ensemble-metrics` | 6.0.0 | `/ensemble:manager-dashboard`, `manager-dashboard-agent` |
-| `ensemble-assessment` | 1.1.0 | `/ensemble:assess` and 22 assessment skills |
-| `ensemble-ai` | 6.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
-| `ensemble-react`, `ensemble-nestjs`, `ensemble-rails`, `ensemble-phoenix`, `ensemble-blazor`, `ensemble-dotnet` | 6.0.0, 5.1.1, 5.1.1, 5.1.1, 6.0.0, 1.1.0 | One framework skill each (`react`, `nestjs`, `rails`, `phoenix`, `blazor`, `dotnet`) |
-| `ensemble-jest`, `ensemble-pytest`, `ensemble-rspec`, `ensemble-xunit`, `ensemble-exunit`, `ensemble-reqnroll` | 5.1.1, 5.1.1, 5.2.0, 5.2.0, 5.1.1, 1.0.2 | One test-framework skill each; `ensemble-reqnroll` also ships the `reqnroll-binding-specialist` agent |
-| `ensemble-full` | 7.0.0 | Bundle that depends on the plugins above |
-| `ensemble-pi`, `ensemble-codex`, `ensemble-opencode` | 1.6.16, 6.0.0, 5.3.1 | Runtime adapters that translate the Ensemble sources for Pi/OMP, Codex and OpenCode |
+| `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `/ensemble:fold-prompt`, `/ensemble:sessionlog`, `/ensemble:reinstall-plugins`, `ensemble-orchestrator` agent |
+| `ensemble-product` | 7.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`), `reqnroll` dispatcher |
+| `ensemble-development` | 7.0.1 | TRD, beads, feature and issue workflows, language skills, orchestrator agents |
+| `ensemble-quality` | 6.0.1 | `pr-review-remediation` and `flake-reproduction` skills, `code-reviewer`, `deep-debugger`, `test-runner` agents |
+| `ensemble-infrastructure` | 6.1.0 | Cloud and vendor skills (`aws`, `kubernetes`, `jira`, ...), infrastructure agents |
+| `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`, git skills, `git-workflow` agent |
+| `ensemble-e2e-testing` | 6.1.0 | `/ensemble:author-playwright-tests`, `smoke-test-runner`, `writing-playwright-tests`, `playwright-tester` agent |
+| `ensemble-assessment` | 2.0.0 | `/ensemble:assess` and 22 assessment skills |
+| `ensemble-ai` | 7.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
+| `ensemble-react`, `ensemble-nestjs`, `ensemble-rails`, `ensemble-phoenix`, `ensemble-blazor`, `ensemble-dotnet` | 7.0.0, 6.0.0, 6.0.0, 6.0.0, 7.0.0, 2.0.0 | One framework skill each (`react`, `nestjs`, `rails`, `phoenix`, `blazor`, `dotnet`) |
+| `ensemble-jest`, `ensemble-pytest`, `ensemble-rspec`, `ensemble-xunit`, `ensemble-exunit`, `ensemble-reqnroll` | 5.1.2, 5.2.0, 5.2.0, 5.2.0, 5.1.1, 1.0.2 | One test-framework skill each; `ensemble-reqnroll` also ships the `reqnroll-binding-specialist` agent |
+| `ensemble-full` | 8.0.0 | Bundle that depends on the plugins above |
+| `ensemble-pi`, `ensemble-codex`, `ensemble-opencode` | 1.6.18, 6.0.1, 5.4.0 | Runtime adapters that translate the Ensemble sources for Pi/OMP, Codex and OpenCode |
 
-`ensemble-router`, `ensemble-permitter` and the other support packages ship hooks and plumbing rather than workflow content. Versions come from `marketplace.json`; each package is versioned independently, so `ensemble-pi` is at 1.6.16 while the bundle is at 7.0.0.
+`ensemble-permitter` and the other support packages ship hooks and plumbing rather than workflow content. Versions come from `marketplace.json`; each package is versioned independently, so `ensemble-pi` is at 1.6.18 while the bundle is at 8.0.0.
 
 ### Skills, commands and agents
 
 | Kind | What it is | How it runs |
 | --- | --- | --- |
-| Skill | A `SKILL.md` that teaches the model a technology or a procedure (`typescript`, `jira`, `detect-stack`, `assess-security`) | Loaded by name, automatically by agents or when you ask for it |
+| Skill | A `SKILL.md` that teaches the model a technology or a procedure (`jira`, `detect-stack`, `assess-security`) | Loaded by name, automatically by agents or when you ask for it |
 | Command | A workflow defined in YAML under `packages/<pkg>/commands/*.yaml`, with phases, gates and expected outputs | You type `/ensemble:<name>` (Claude Code) or the runtime-specific form in section 2 |
 | Agent | A role definition (`backend-developer`, `code-reviewer`, ...) that commands and orchestrators delegate to | Dispatched by commands; you rarely invoke one directly |
 
@@ -440,9 +440,9 @@ An unknown dimension prints the dimension table; `--only` with any other keyword
 
 Expected behavior:
 
-- Each failing or pending CI check and each unresolved change request becomes a finding, classified by root cause and dispatched concurrently, one subagent per finding, through the orchestrator that owns that domain (`tech-lead-orchestrator`, `qa-orchestrator`, `build-orchestrator`, `infrastructure-orchestrator`, `github-specialist`).
+- Each failing or pending CI check and each unresolved change request becomes a finding, classified by root cause and dispatched concurrently, one subagent per finding, through the orchestrator that owns that domain (`tech-lead-orchestrator`, `test-runner`, `build-orchestrator`, `infrastructure-orchestrator`, `git-workflow`).
 - After every round the command re-reads live CI and review state; a finding counts as resolved only after the fix is pushed and independently re-verified.
-- Rounds are bounded by `--max-rounds` (default 5). Exceeding it halts with a report of every open finding.
+- Rounds are bounded by the repository's shared round cap, read from the `ensemble-review-policy` block in the base branch's `REVIEW.md` (1 to 5, default 3). `--max-rounds=N` may only lower it for one run; a larger value is ignored. Reaching the cap halts with a report of every open finding and asks the author to step back and reconsider the approach.
 - It never deletes, skips or weakens a test to get green, never force-pushes over others' commits, and never bypasses branch protection. It merges only when every required check passes and no review requests changes.
 - `--dry-run` stops after reporting merge readiness.
 - After a real remediation, resolved findings may be distilled into guardrails and proposed to an existing constitution through a separate housekeeping PR. This is best-effort, never creates a constitution file, and never touches the PR being merged.
@@ -508,7 +508,6 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:prd` | `<create\|refine> [args...]` | Dispatcher: PRD authoring and refinement | `ensemble-product` |
 | `/ensemble:create-prd` | `[product-description] [--foreman]` or `--from-meeting <meeting-summary-or-path>` | Create a PRD with elicitation, readiness gate and constitution gate | `ensemble-product` |
 | `/ensemble:refine-prd` | `<prd-path> [--from-meeting <summary-or-path> \| --foreman \| --collab [--tunnel=quick] [--reviewers N] [--no-open] \| --long-lived [--ttl <duration>]]` | Refine a PRD with feedback, re-score and lock it | `ensemble-product` |
-| `/ensemble:analyze-product` | none | Analyze a brownfield project and produce an improvement roadmap | `ensemble-product` |
 | `/ensemble:reqnroll` | `<features\|feature-drift\|bindings\|binding-drift\|tdd> [args...]` | Dispatcher: PRD to Reqnroll acceptance tests | `ensemble-product` |
 | `/ensemble:trd` | `<create\|refine\|implement\|analyze\|complexity\|validate\|verify\|status\|graph> [args...]` | Dispatcher: TRD authoring, analysis and implementation | `ensemble-development` |
 | `/ensemble:create-trd` | `[prd-path] [--team] [--foundational] [--list] [--foreman] [--parser-tables]` | Create a TRD from a PRD | `ensemble-development` |
@@ -522,7 +521,6 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:trd-dependency-graph` | `[trd-dir\|paths...] [--format json\|mermaid\|dot] [--overlap]` | Dependency graph across TRDs and likely-duplicate work | `ensemble-development` |
 | `/ensemble:implement-trd-beads` | `[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman] [<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]]` | Implement a TRD through a persistent bead hierarchy | `ensemble-development` |
 | `/ensemble:implement-bead` | `<bead-id>` | Implement one bead through analysis, implementation and PR | `ensemble-development` |
-| `/ensemble:beads-plan` | `[epic-id\|slug-pattern] [max parallel N]` | Analyze a bead hierarchy and print wheel instructions without implementing | `ensemble-development` |
 | `/ensemble:beads-build` | `[epic-id\|slug-pattern] [--trd trd-path] [--strategy tdd\|characterization\|bug-fix\|refactor\|test-after\|flexible] [--label <label>] [max parallel N]` | Drive an existing bead hierarchy to completion | `ensemble-development` |
 | `/ensemble:refine-beads` | `[epic-id\|release-train-id\|slug] [--scope project]` | Approval-gated bead graph refinement before execution | `ensemble-development` |
 | `/ensemble:feature` | `<new\|resume\|status\|abandon> [args...]` | Dispatcher: feature lifecycle | `ensemble-development` |
@@ -530,17 +528,15 @@ The Package column names the marketplace plugin that ships the command. Argument
 | `/ensemble:issue` | `<fix\|list\|resume\|status\|abandon> [args...]` | Dispatcher: issue workflows | `ensemble-development` |
 | `/ensemble:fix-issue` | `[description] [--issue <n>] [--branch <name>] [--skip-tests] [--draft-pr] [--interactive] [--foreman] [--status] [--abandon]` | Lightweight bug-fix workflow ending in a PR | `ensemble-development` |
 | `/ensemble:list-issue` | `[--ranked \| --robot-triage]` | List open Beads issues for triage | `ensemble-development` |
-| `/ensemble:generate-api-docs` | none | Generate OpenAPI/Swagger documentation from the codebase | `ensemble-development` |
 | `/ensemble:standards` | `<discover\|inject\|fold> [args...]` | Dispatcher: coding standards | `ensemble-core` |
 | `/ensemble:fold-prompt` | none | Optimize `CLAUDE.md` for token efficiency and progressive loading | `ensemble-core` |
-| `/ensemble:init-project` | `minimal`, `force` | Scaffold `docs/standards/constitution.md`, `docs/PRD/`, `docs/TRD/` and `.gitignore` entries; hand-authored Markdown with no YAML source, so it is not counted among the 43 generated commands | `ensemble-core` |
+| `/ensemble:init-project` | `minimal`, `force` | Scaffold `docs/standards/constitution.md`, `docs/PRD/`, `docs/TRD/` and `.gitignore` entries, plus the review files every pull-request review reads — `.github/pull_request_template.md`, the root `REVIEW.md` (fenced `ensemble-review-policy` block, read only from the base branch) and `.github/CODEOWNERS` — never overwriting one a maintainer already edited; hand-authored Markdown with no YAML source, so it is not counted among the 43 generated commands | `ensemble-core` |
 | `/ensemble:sessionlog` | none | Save a structured session transcript with decisions and commands to `SessionLogs` | `ensemble-core` |
 | `/ensemble:reinstall-plugins` | `[--all \| <filter>]` | Uninstall and reinstall plugins to pick up marketplace content that version-gated updates miss (Claude Code CLI) | `ensemble-core` |
 | `/ensemble:assess` | `<repo\|team\|config\|report> [--only <dimension>] [args...]` | Dispatcher: repository, team and configuration assessment | `ensemble-assessment` |
 | `/ensemble:pr-merge` | `[pr-number-or-url] [--max-rounds=N] [--dry-run]` | Drive an open PR to green and merged | `ensemble-git` |
 | `/ensemble:release` | `--version X.Y.Z [--type standard\|hotfix\|rollback] [--from <b>] [--to <b>] [--rollback] [--draft] [--dry-run]` | Release workflow with quality gates and rollback | `ensemble-git` |
 | `/ensemble:author-playwright-tests` | `[story-or-pr-reference]` | Interactive Playwright test authoring grounded in shipped code and PRD acceptance criteria | `ensemble-e2e-testing` |
-| `/ensemble:manager-dashboard` | none | Generate productivity metrics and team analytics dashboard | `ensemble-metrics` |
 
 That is 35 typable commands.
 
@@ -559,7 +555,7 @@ Hidden commands are not typable. Each is reached through one dispatcher keyword 
 | `inject-standards` | `/ensemble:standards inject` | Inject task-relevant standards into context | `ensemble-core` |
 | `beads-build-wave` | `/ensemble:beads-build` (dispatched per wave to the `beads-build-wave` agent) | Run one `bv --robot-plan` wave and emit a JSON summary | `ensemble-development` |
 
-`/ensemble:fold-prompt` stays typable because the `directory-monitor` agent invokes it by name; `/ensemble:standards fold` reaches it as well.
+`/ensemble:fold-prompt` stays typable; `/ensemble:standards fold` reaches it as well.
 
 Together the 35 typable and 8 hidden commands make the 43 generated commands.
 
@@ -577,11 +573,6 @@ There are 68 source skills. Skills are loaded by name; the "When to use" column 
 
 | Skill | When to use |
 | --- | --- |
-| `typescript`, `python`, `php`, `laravel`, `flutter` | Writing code in that language or framework |
-| `tailwind` | Styling with Tailwind CSS 3.x |
-| `prisma` | Prisma schema, migrations and typed queries |
-| `celery` | Celery tasks, Beat schedules and workflows |
-| `complete-beads` | Driving scoped beads to closed or a truthful terminal state; the shared execution engine behind `implement-trd-beads` and `beads-build` |
 | `completion-verification` | Independently re-checking a TRD before declaring it done |
 | `staleness-gate` | Checking a TRD is not stale before implementation; invokes `/ensemble:refine-trd` if it is |
 | `pr-review-cycle` | Local review, batched fixes and a head-bound remote review gate for a PR |
@@ -636,6 +627,7 @@ The test-skill helpers print a JSON result with `success`, `passed`, `failed`, `
 | Skill | When to use |
 | --- | --- |
 | `pr-review-remediation` | Verifying and fixing findings from CodeRabbit or another review agent |
+| `flake-reproduction` | A test fails intermittently, in one CI partition or only after another test: reproduce with the logged replay handle, capture the failing output, root-cause it and keep a red-run record. Edit the recipe in `packages/quality/skills/flake-reproduction/` (defaults table in `SKILL.md`, stack commands in `recipes/`); it never retries, quarantines, skips or loosens a test |
 
 ### `ensemble-e2e-testing`
 
@@ -651,7 +643,7 @@ The test-skill helpers print a JSON result with `success`, `passed`, `failed`, `
 | `assess-repo` | Full repository assessment (orchestrates the leaves below) |
 | `assess-purpose`, `assess-architect`, `assess-code-quality`, `assess-testing`, `assess-security`, `assess-ai-readiness`, `assess-cicd` | One repository dimension |
 | `assess-team` | Full team assessment (orchestrates the team leaves below) |
-| `assess-team-commit-volume`, `assess-team-commit-messages`, `assess-team-code-quality`, `assess-team-test-coverage`, `assess-team-ai-adoption`, `assess-team-documentation`, `assess-team-incidents`, `assess-team-code-review` | One per-developer team dimension |
+| `assess-team-dimension` | One team dimension (commit messages, code quality, test coverage, AI adoption, documentation, code review); team-level by default |
 | `assess-config` | Creating assessment configuration (code roots, hosts, credentials) |
 | `assessment-report-suite` | Running both assessments and producing the executive package |
 | `ai-readiness-diagnostic-report` | Generating the AI Readiness Diagnostic Excel workbook from assessment outputs |
@@ -667,26 +659,17 @@ There are 35 agents. Orchestrators and commands dispatch them; the table lists w
 | Package | Agent | Role |
 | --- | --- | --- |
 | `ensemble-core` | `ensemble-orchestrator` | Agent mesh coordination, delegation and conflict resolution |
-| `ensemble-core` | `general-purpose` | Research and analysis for ambiguous or multi-domain tasks |
-| `ensemble-core` | `context-fetcher` | Pull authoritative references into plans and specs |
-| `ensemble-core` | `file-creator` | Template-based scaffolding with project conventions |
-| `ensemble-core` | `directory-monitor` | File-system change monitoring; invokes `/ensemble:fold-prompt` |
-| `ensemble-core` | `agent-meta-engineer` | Design and improve agents and commands |
 | `ensemble-development` | `tech-lead-orchestrator` | Plan, architect, break down, build, review and test loop |
 | `ensemble-development` | `architect` | Design the technical approach before the builder starts |
 | `ensemble-development` | `advisor` | Monitor implementation for shortcuts and silent requirement bypasses |
-| `ensemble-development` | `pm` | Answer requirements questions and resolve scope disputes |
 | `ensemble-development` | `backend-developer` | Server-side implementation |
 | `ensemble-development` | `frontend-developer` | Front-end implementation with accessibility and performance focus |
-| `ensemble-development` | `mobile-developer` | Flutter, React Native and native mobile |
 | `ensemble-development` | `documentation-specialist` | Technical documentation and guides |
-| `ensemble-development` | `api-documentation-specialist` | OpenAPI/Swagger documentation |
 | `ensemble-development` | `beads-scaffold-specialist` | Design, audit and repair Beads hierarchies from PRD/TRD artifacts |
 | `ensemble-development` | `beads-build-wave` | Run exactly one beads-build wave and emit a JSON summary |
 | `ensemble-product` | `product-management-orchestrator` | Requirements, prioritization and roadmap coordination |
 | `ensemble-quality` | `code-reviewer` | Security-aware code review and Definition of Done enforcement |
 | `ensemble-quality` | `deep-debugger` | Bug reproduction, root cause analysis and test-driven fixes |
-| `ensemble-quality` | `qa-orchestrator` | Quality assurance and test coordination |
 | `ensemble-quality` | `test-runner` | Run unit and integration tests and triage failures |
 | `ensemble-infrastructure` | `infrastructure-developer` | Cloud-agnostic infrastructure automation |
 | `ensemble-infrastructure` | `infrastructure-orchestrator` | Environment provisioning and cloud resource planning |
@@ -696,13 +679,11 @@ There are 35 agents. Orchestrators and commands dispatch them; the table lists w
 | `ensemble-infrastructure` | `postgresql-specialist` | PostgreSQL administration and SQL optimization |
 | `ensemble-infrastructure` | `helm-chart-specialist` | Deprecated; delegates to `infrastructure-developer` |
 | `ensemble-git` | `git-workflow` | Conventional commits and git-town workflows |
-| `ensemble-git` | `github-specialist` | Branches, pull requests and repository operations with `gh` |
 | `ensemble-e2e-testing` | `playwright-tester` | Playwright E2E tests with traces and screenshots |
-| `ensemble-metrics` | `manager-dashboard-agent` | Team productivity metrics and analytics |
 | `ensemble-dotnet` | `dotnet-backend-expert` | ASP.NET Core, Wolverine CQRS, MartenDB and C# |
 | `ensemble-reqnroll` | `reqnroll-binding-specialist` | Fill generated Reqnroll step bodies test-first |
 
-`/ensemble:pr-merge` dispatches the orchestrators in the table, `/ensemble:release` uses `deployment-orchestrator` and `github-specialist`, and `/ensemble:author-playwright-tests` pairs with `playwright-tester`. The `release-agent` and `test-reader-agent` agents were removed in 7.0.0.
+`/ensemble:pr-merge` dispatches the orchestrators in the table, `/ensemble:release` uses `deployment-orchestrator` and `git-workflow`, and `/ensemble:author-playwright-tests` pairs with `playwright-tester`. The `release-agent` and `test-reader-agent` agents were removed in 7.0.0.
 
 ## 8. Configuration and environment
 
@@ -806,7 +787,7 @@ Common causes: `bv` or `br` missing (no fallback exists); a Design Readiness sco
 | `inject-standards` | `/ensemble:standards inject` |
 | `claude-changelog` | Removed; use the `changelog-generator` skill |
 | `sprint-status` | Removed |
-| `web-metrics-dashboard` | Removed; `/ensemble:manager-dashboard` remains |
+| `web-metrics-dashboard` | Removed |
 | `playwright-test` | Removed; use `/ensemble:author-playwright-tests` or the `playwright-tester` agent |
 | none | New: `/ensemble:assess`, `/ensemble:reqnroll`, `/ensemble:standards` |
 
@@ -816,12 +797,11 @@ The hidden commands keep working as dispatcher targets, but their old typable na
 
 | 6.x | 7.0.0 |
 | --- | --- |
-| `developing-with-typescript`, `developing-with-python`, `developing-with-php`, `developing-with-laravel`, `developing-with-flutter` | `typescript`, `python`, `php`, `laravel`, `flutter` |
-| `styling-with-tailwind` | `tailwind` |
+| `developing-with-typescript`, `developing-with-python`, `developing-with-php`, `developing-with-laravel`, `developing-with-flutter`, `styling-with-tailwind`, `using-prisma`, `using-celery` | Removed (generic tutorial skills) |
 | `managing-jira-issues`, `managing-linear-issues` | `jira`, `linear` |
 | `managing-railway`, `managing-vercel`, `managing-supabase` | `railway`, `vercel`, `supabase` |
 | `aws-cloud` | `aws` |
-| `using-prisma`, `using-celery`, `using-weaviate` | `prisma`, `celery`, `weaviate` |
+| `using-weaviate` | `weaviate` |
 | `using-anthropic-platform`, `using-openai-platform`, `using-perplexity-platform` | `anthropic`, `openai`, `perplexity` |
 | `building-langgraph-agents` | `langgraph` |
 | `developing-with-react` | Folded into `react` (now also in `ensemble-full`) |
@@ -833,7 +813,7 @@ Anything that loaded a skill by its old name, including custom agents and the `e
 
 ### Agents
 
-The `release-agent` and `test-reader-agent` agents were removed. Use `/ensemble:release`, which delegates to `git-workflow`, `github-specialist` and `deployment-orchestrator`.
+The `release-agent` and `test-reader-agent` agents were removed. Use `/ensemble:release`, which delegates to `git-workflow` and `deployment-orchestrator`.
 
 ### Other behavior changes
 
@@ -841,3 +821,108 @@ The `release-agent` and `test-reader-agent` agents were removed. Use `/ensemble:
 - `ensemble-assessment` is no longer bundled into `ensemble-pi`; install `@sunstone-partners/ensemble-assessment` on Pi.
 - The `xunit` and `rspec` skills are now full skills with working helper scripts that print real JSON results.
 - `ensemble-infrastructure` and `ensemble-quality` depend on `ensemble-core`.
+
+## 11. Code review process
+
+Ensemble reviews a pull request in one place: the `pr-review-cycle` skill. `/ensemble:fix-issue`, `/ensemble:implement-trd-beads` and `/ensemble:pr-merge` all reach the review through that skill, so the behaviour described here is the behaviour you get from any of them.
+
+The split to keep in mind: **what a review values is yours to edit in Markdown; what a review is allowed to conclude is graded by code.** Prose a model can misread cannot be a guarantee, so the vote threshold, the risk tier, the approval count and the merge gate are deterministic modules, reached as subcommands of `pr-review-cli.js`.
+
+### 11.1 `REVIEW.md` and the policy block
+
+Review guidance lives in `REVIEW.md` files you write. A root `REVIEW.md` carries repository-wide guidance; a `REVIEW.md` in any directory adds guidance for that area, and when two areas conflict the more restrictive instruction wins.
+
+Policy *keys* are read from the **root** file only, from a fenced ` ```ensemble-review-policy ` JSON block:
+
+| Key | Meaning | Default when absent |
+| --- | --- | --- |
+| `roundCap` | Review rounds before the cycle stops and asks you to reconsider the approach (1-5) | `3` |
+| `maintainerLogins` | People who may resolve findings as maintainers | none |
+| `botLogins` | Logins whose approvals never count toward the human requirement | none |
+| `sensitivePaths` | Globs that floor the risk tier at High | a strict built-in set |
+| `highPaths` | Globs that floor the risk tier at Medium or above | none |
+| `lowWaiverEnabled` | Whether a Low tier may actually mean Low | `false` |
+| `sliceThreshold` | Changed lines above which a PR is reviewed area by area | `1500` |
+
+Two deliberate properties:
+
+- The policy is read **from the target branch**, never from the PR head. A PR cannot weaken the rules it is judged by.
+- A repository with no `REVIEW.md` gets strict defaults rather than no policy: Low is treated as Medium, the cap is 3, and the built-in sensitive set applies. `/ensemble:init-project` scaffolds a starter `REVIEW.md` for you.
+
+### 11.2 Depth and verification
+
+The risk tier selects a depth, and the depth fixes how many reviewers and verifiers run: **Quick** one reviewer, no verifiers; **Standard** at least two reviewers and 3 verifiers; **Deep** at least two reviewers and 5 verifiers.
+
+| Effective tier | Depth |
+| --- | --- |
+| Medium | Standard |
+| High | Deep |
+| Low | Standard, until `lowWaiverEnabled` is in force; then Quick |
+| A tier the CLI cannot read | Deep |
+
+A review you ask for ("review PR #123", your local changes) resolves its tier from the changed paths alone, because no classifier runs there: **Medium** for an ordinary change, **High** where a sensitive or High path is touched, never Low. So an ordinary change is reviewed at Standard and a change to a sensitive path at Deep; a Medium change is never reviewed at Deep and an unreadable tier is never reviewed below it. Before the first reviewer starts you see the plan (tier, depth, reviewer and verifier counts, the time bound); a Deep review asks before it starts.
+
+Reviewers read the diff and a frozen snapshot of the commit and report. They run no test suite and no mutation experiment, make at most one throwaway check, and stop at a tool-call cap with the findings they have so far and the paths they did not reach. Whether a finding actually holds is the verifiers' job: each runs the narrowest check on that one finding (one test, or one mutation in its own throwaway copy). A verifier that returns nothing is recorded as incomplete and the cycle moves on; its findings are presented as unverified, never counted as agreement.
+
+**More reviewers, on request.** A review runs the depth's minimum number of reviewers (two at Standard and Deep) unless you ask for more: say "review PR #123 thoroughly", "use more reviewers" or "use 4 reviewers", and the plan you see before anything starts shows 3 (or the number you named, 2 to 4) reviewers instead. The depth, the verifier count and every bound stay as the tier set them, so Quick still has its one reviewer, and asking for more reviewers redoes the review rather than returning a recorded one. Reviewers and verifiers must be agents that follow the output format their brief asks for, can read files and run read-only commands, and do not impose a findings format or a depth of their own; a runtime with no such agent uses its general-purpose agent, and the report says in plain words that the review has reduced assurance.
+
+Every candidate finding — from every reviewer, every local tool and every review bot, CodeRabbit included — enters one ledger and is voted on by fresh-context verifiers that did not raise it. A finding is presented only on a **strict majority of the verifiers the depth expects** (2 of 3, 3 of 5). The denominator is the expected count, never the number of votes that happened to arrive, so a missing verifier is never read as agreement. A finding the verifiers split on is `disputed` and goes to a person rather than being dropped.
+
+Findings that different reviewers very probably wrote up as one defect (the same file, overlapping or neighbouring lines, a matching description) are merged into one entry before verification, and the entry lists where each came from. Anything not clearly the same defect stays separate: two defects on one line are two findings, and one reviewer's own findings are never merged with each other. A defect two reviewers word very differently is simply verified twice; a wrong merge would drop a finding, so the rule errs on the side of keeping them apart.
+
+### 11.3 Risk tiers
+
+The tier comes from the change, never from who wrote it. Sensitive and High paths floor it. The assignment is **raise-only**: anyone may propose a higher tier, but a proposal that lowers one is ignored and recorded as `lowering-needs-code-owner` unless a code owner of the affected path makes it.
+
+| Tier | Human approvals required |
+| --- | --- |
+| High | 2 |
+| Medium | 1 |
+| Low | 1 — **Low is treated as Medium** unless `lowWaiverEnabled` is on and the waiver's evidence is present |
+
+Even a code owner lowering a PR to Low does not escape the human requirement while the waiver is disabled: the effective tier stays Medium.
+
+### 11.4 Approvals and the merge gate
+
+An approval counts only when it is **bound to the commit (or tree) under review**, so a later push invalidates it. A bot approval never counts. An author never fills a required slot. On an agent-authored PR, the person named on the `Directed by:` line counts as one of the required reviewers, as if they had written the code themselves.
+
+`/ensemble:pr-merge` requires `mergeable: true` from the gate, computed from freshly read GitHub state. The gate refuses — and names the blocker and a `nextAction` — on an open Important finding, an unanswered security finding, an incomplete description, approvals short of the tier, or review data it could not read. It never passes on missing data.
+
+> **Honest limit.** These gates run where ensemble runs. Server-side enforcement needs a branch-protection rule in your repository; `pr-merge` reports when one is absent and recommends it, but cannot enforce it.
+
+### 11.5 Metrics and the reviewer eval set
+
+Review metrics are computed per cohort (open-to-merge time, first-review latency, rounds, review wait) so a change to the process can be compared against a recorded baseline instead of an impression. A guardrail watches reverts and incidents: a cohort that merged faster while reverting more is not reported as an improvement.
+
+The **eval set** is how review quality stays measurable. When a bug escapes review — an incident or a revert — add it with the `pr-review-eval` skill as a code-owner-confirmed case. Scoring replays the set and reports what the current reviewer would have caught.
+
+### 11.6 Sweeps and explainers
+
+- **Sweeps** (`pr-review-sweep`) review code that is *already merged*, on demand, sensitive areas first, with the same bounds and the same strict-majority verification a PR gets. Findings are tagged `Pre-existing`, so they can never block somebody else's merge. A sweep reports: no edit, no commit, no push, no PR. Recurrence is your repository's or Foreman's — the skill holds no timer, and ensemble's own workflows carry no `schedule:` trigger. `/ensemble:init-project` scaffolds a weekly sweep workflow only if you opt in.
+- **Explainers** (`pr-review-explainer`) describe a module from the code as it is now, naming every file read. A High-tier PR's report *offers* an explainer for each touched sensitive module; one is generated only when you ask.
+
+### 11.7 Runtime coverage
+
+The review is equivalent on **Claude Code** and **Pi**: both carry the same procedures and the same CLI subcommands, and are tested by running the same payloads through each runtime's own shipped CLI and comparing the output.
+
+On **Codex** and **OpenCode** the capability is **reduced**: both generate the command entry points, but neither bundles the `pr-review-*` procedure skills or a vendored CLI, so the graded steps do not run there. This is stated rather than papered over — see `docs/reports/pr-review-cross-runtime-reachability.md`.
+
+No part of the in-agent review requires a new CI secret, and nothing on the review path makes a network call. A credential that appears in a diff is redacted at the CLI's output boundary, so it is not reproduced in a finding, a PR comment or a ledger entry.
+
+### 11.8 Asking for a review
+
+You do not need a command to start a review. The `pr-review-request` skill routes three plain requests to `pr-review-cycle` (Claude Code and Pi):
+
+| Say | What happens |
+| --- | --- |
+| "review PR #123" (or a PR URL) | Reviews that PR's current head as a **review-only** run: the independent review, verification and report of the process above, but no batch fix and no re-review, because it is someone else's PR. Reads and reports only: nothing is pushed, commented, approved or resolved on the PR. The result is `REVIEW_PENDING` by design, never `REVIEW_COMPLETE`. Asking again for an unchanged head returns the recorded result instead of redoing the review; say "review it again" to redo it. |
+| "review open PRs" | Lists the open PRs and asks which to review when there are more than three. Before anything starts it shows each chosen PR's tier, depth, reviewer and verifier counts and a time bound, and asks only when a PR needs a Deep review. The PRs are then reviewed together: their reviewers and verifiers run at the same time, while test runs go one at a time. |
+| "review local changes" | Reviews your working tree (including untracked files) against the default branch. These are your own changes, so the batch fix is applied to the working tree and the tests run locally; nothing is committed. |
+
+**More reviewers.** Add "thoroughly", "use more reviewers" or a number (2 to 4) to any of these requests and the review runs with that many reviewers instead of the default; the plan shows the count before anything starts, and asking this way redoes the review rather than returning a recorded result.
+
+**Tests on someone else's PR.** The host has usually run them already, so a green CI result for that exact commit stands in for a local run: the skill reads the commit's check runs (read-only, once, never waiting for CI) and the review CLI decides whether they count. A check run counts only when it is for exactly that commit and concluded `success`. A run for another commit is ignored; a failed, unfinished or unreadable run, an empty list, or a list shorter than the total the host reported counts for nothing. In any of those cases the tests run locally, once, in a throwaway worktree, and the report says why. Nothing here is typed by an agent: a "CI passed" the CLI did not derive from check runs is refused. The limit, stated: the CLI sees only what the host lists, so a workflow that has not started has no check run yet, and the report names the check runs that counted rather than saying "CI passed".
+
+The request cannot tell who wrote a PR, so the description check reads it as agent-authored (only an explicit `AGENT_AUTHORED=false` says a person wrote it): a body with no `Directed by:` line is reported with `directed-by` missing, and the report shows the grade exactly as the cycle returned it.
+
+To merge rather than review, use `/ensemble:pr-merge`, which runs the review as part of its merge gate.

@@ -1,6 +1,6 @@
 {
   "name": "ensemble-full",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "description": "Complete ensemble ecosystem (meta-package with all plugins)",
   "author": {
     "name": "Sunstone Partners",
@@ -21,29 +21,21 @@
     "./commands/development",
     "./commands/git",
     "./commands/e2e-testing",
-    "./commands/metrics",
-    "./commands/assessment",
-    "./commands/router"
+    "./commands/assessment"
   ],
   "skills": "./skills",
   "agents": [
-    "./agents/core/agent-meta-engineer.md",
-    "./agents/core/context-fetcher.md",
-    "./agents/core/directory-monitor.md",
     "./agents/core/ensemble-orchestrator.md",
-    "./agents/core/file-creator.md",
-    "./agents/core/general-purpose.md",
-    "./agents/development/api-documentation-specialist.md",
+    "./agents/development/advisor.md",
     "./agents/development/beads-build-wave.md",
     "./agents/development/beads-scaffold-specialist.md",
+    "./agents/development/architect.md",
     "./agents/development/backend-developer.md",
     "./agents/development/documentation-specialist.md",
     "./agents/development/frontend-developer.md",
-    "./agents/development/mobile-developer.md",
     "./agents/development/tech-lead-orchestrator.md",
     "./agents/e2e-testing/playwright-tester.md",
     "./agents/git/git-workflow.md",
-    "./agents/git/github-specialist.md",
     "./agents/infrastructure/build-orchestrator.md",
     "./agents/infrastructure/deployment-orchestrator.md",
     "./agents/infrastructure/helm-chart-specialist.md",
@@ -52,12 +44,10 @@
     "./agents/infrastructure/infrastructure-orchestrator.md",
     "./agents/infrastructure/infrastructure-specialist.md",
     "./agents/infrastructure/postgresql-specialist.md",
-    "./agents/metrics/manager-dashboard-agent.md",
     "./agents/product/product-management-orchestrator.md",
     "./agents/reqnroll/reqnroll-binding-specialist.md",
     "./agents/quality/code-reviewer.md",
     "./agents/quality/deep-debugger.md",
-    "./agents/quality/qa-orchestrator.md",
     "./agents/quality/test-runner.md"
   ]
 }

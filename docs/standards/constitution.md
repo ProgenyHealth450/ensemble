@@ -75,8 +75,7 @@ No approval needed for:
 When delegating implementation work:
 
 1. Use framework-specific specialists when available (e.g. `rails-backend-expert`, `react-component-architect`).
-2. Fall back to general-purpose only for research, not implementation.
-3. Use `general-purpose` only for cross-domain research.
+2. Use general-purpose built-in agents only for research, not implementation.
 
 ### Quality Validation
 

@@ -74,7 +74,7 @@ describe('PM clarification sub-state loop', () => {
       'status:in_progress pm:pm clarification:first',
       'status:in_clarification builder:backend-developer pm:pm reason:needs-clarification',
       'status:in_progress pm:pm clarification:second',
-      'status:in_clarification qa:qa-orchestrator pm:pm reason:needs-clarification',
+      'status:in_clarification qa:test-runner pm:pm reason:needs-clarification',
       'status:in_progress pm:pm clarification:third',
     ].join('\n');
 

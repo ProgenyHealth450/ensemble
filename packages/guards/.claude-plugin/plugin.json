@@ -1,0 +1,13 @@
+{
+  "name": "ensemble-guards",
+  "version": "5.2.1",
+  "description": "Enforcement hooks: protected-branch, bypass-flag and br-close-evidence guards plus opt-in DoD stop gate",
+  "author": {
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com",
+    "url": "https://github.com/Sunstone-Partners"
+  },
+  "repository": "https://github.com/Sunstone-Partners/ensemble",
+  "license": "MIT",
+  "keywords": ["guards", "hooks", "enforcement", "git", "ensemble"]
+}

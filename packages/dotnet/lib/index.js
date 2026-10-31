@@ -39,43 +39,20 @@ const plugin = {
   },
 
   /**
-   * Skill documentation lives in this package's skills/ directory (top-level layout)
+   * Skill documentation lives in this package (skills/SKILL.md)
    */
   skillPath: path.resolve(__dirname, '..', 'skills')
 };
 
 /**
- * Load the dotnet skill documentation
- * @param {string} type - 'quick' for SKILL.md, 'comprehensive' for REFERENCE.md
- * @returns {string} Absolute path to the documentation file
+ * Get the path to the dotnet SKILL.md
+ * @returns {string} Absolute path to the skill file
  */
-function loadSkill(type = 'quick') {
-  return type === 'comprehensive'
-    ? path.join(plugin.skillPath, 'REFERENCE.md')
-    : path.join(plugin.skillPath, 'SKILL.md');
-}
-
-/**
- * Get the path to a code template
- * @param {string} templateName - Template filename (e.g. 'handler.template.cs')
- * @returns {string} Absolute path to the template
- */
-function getTemplate(templateName) {
-  return path.join(plugin.skillPath, 'templates', templateName);
-}
-
-/**
- * Get the path to an example file
- * @param {string} exampleName - Example filename (e.g. 'event-sourcing.example.cs')
- * @returns {string} Absolute path to the example
- */
-function getExample(exampleName) {
-  return path.join(plugin.skillPath, 'examples', exampleName);
+function loadSkill() {
+  return path.join(plugin.skillPath, 'SKILL.md');
 }
 
 module.exports = {
   plugin,
-  loadSkill,
-  getTemplate,
-  getExample
+  loadSkill
 };

@@ -47,7 +47,7 @@ mission:
 
     collaboratesOn: |
       Works closely with tech-lead-orchestrator (PRD→TRD conversion, technical feasibility), ensemble-orchestrator (strategic coordination),
-      qa-orchestrator (quality strategy alignment), documentation-specialist (user guides, product documentation), frontend-developer
+      test-runner (quality strategy alignment), documentation-specialist (user guides, product documentation), frontend-developer
       (user experience implementation), backend-developer (business logic alignment with product requirements)
 
   expertise:
@@ -322,7 +322,7 @@ delegationCriteria:
         - Strategic decision requiring mesh-wide coordination
         - Complex project requiring product + development + QA orchestration
 
-    - agent: qa-orchestrator
+    - agent: test-runner
       triggers:
         - Quality strategy alignment with product requirements
         - Test planning based on acceptance criteria

@@ -1,165 +1,126 @@
 ---
 name: ensemble-pr-merge
 description: >-
-  Take an open pull request from red to merged with the minimum number of
-  round-trips. Discovers every failing/pending CI check and every unresolved
-  review change-request as a distinct finding, classifies each by root cause
-  (implementation code, tests, build/CI pipeline, infrastructure/deployment, or
-  PR mechanics), and dispatches one subagent per finding in parallel through the
-  orchestrator that owns that domain: the tech-lead-orchestrator for
-  implementation code, qa-orchestrator for test failures and test-related review
-  comments, build-orchestrator for CI/build-pipeline checks,
-  infrastructure-orchestrator for infra/deployment checks, and github-specialist
-  for PR mechanics (conflicts, branch state, approvals, merge). Re-verifies
-  against live CI/review state after every round -- never trusts a subagent's
-  self-report -- and loops, bounded by --max-rounds, until every check is green
-  and every review thread is resolved, then merges. Hard constraint: no finding
-  may be resolved by deleting, skipping, or weakening a test; only real fixes to
-  source, test, build, or config code count as resolution. Once merge-ready,
-  distills every finding resolved this run into durable guardrails and, when at
-  least one survives, opens a small, separate housekeeping PR against the base
-  branch that appends them to the target repo's existing constitution
-  (docs/standards/constitution.md, or .specify/memory/constitution.md when that
-  is the only one present) -- never creates one, and never touches the PR being
-  merged's own branch or commit history -- so create-prd, create-trd,
-  refine-prd, and future pr-merge runs are less likely to reproduce the same
-  class of failure.
+  Take an open PR from red to merged in the fewest rounds. Each failing/pending
+  CI check and unresolved change-request thread is one finding, routed to the
+  owning agent and fixed in parallel, then re-verified against live state until
+  green, then merged once the review gate agrees.
 disable-model-invocation: true
 ---
-<!-- Command: ensemble-pr-merge | Version: 1.2.0 -->
+<!-- Command: ensemble-pr-merge | Version: 2.2.0 -->
 <!-- Description: Drive an open PR to green and merged by dispatching one subagent per failing CI check and unresolved review thread, routed through the correct orchestrator -->
+<!-- Capabilities: required=[host.change-request-view, host.change-request-checks, host.change-request-merge, host.change-request-reviews], optional=[host.change-request-threads] -->
 
 # ensemble-pr-merge
 
-> **Mission:** Take an open pull request from red to merged with the minimum number of round-trips. Discovers every failing/pending CI check and every unresolved review change-request as a distinct finding, classifies each by root cause (implementation code, tests, build/CI pipeline, infrastructure/deployment, or PR mechanics), and dispatches one subagent per finding in parallel through the orchestrator that owns that domain: the tech-lead-orchestrator for implementation code, qa-orchestrator for test failures and test-related review comments, build-orchestrator for CI/build-pipeline checks, infrastructure-orchestrator for infra/deployment checks, and github-specialist for PR mechanics (conflicts, branch state, approvals, merge). Re-verifies against live CI/review state after every round -- never trusts a subagent's self-report -- and loops, bounded by --max-rounds, until every check is green and every review thread is resolved, then merges. Hard constraint: no finding may be resolved by deleting, skipping, or weakening a test; only real fixes to source, test, build, or config code count as resolution. Once merge-ready, distills every finding resolved this run into durable guardrails and, when at least one survives, opens a small, separate housekeeping PR against the base branch that appends them to the target repo's existing constitution (docs/standards/constitution.md, or .specify/memory/constitution.md when that is the only one present) -- never creates one, and never touches the PR being merged's own branch or commit history -- so create-prd, create-trd, refine-prd, and future pr-merge runs are less likely to reproduce the same class of failure.
+> **Mission:** Take an open PR from red to merged in the fewest rounds. Each failing/pending CI check and unresolved change-request thread is one finding, routed to the owning agent and fixed in parallel, then re-verified against live state until green, then merged once the review gate agrees.
 
 > **Constraints:**
-> - NEVER delete, skip, xfail, disable, weaken an assertion in, or otherwise water down a test in order to make a CI check pass. Every dispatched subagent inherits this constraint verbatim in its payload. A failing test, compiler warning, or build failure MUST be fixed at its root cause in source or test code. If a test is genuinely obsolete because the behavior it covers was intentionally removed, the subagent MUST HALT that finding and escalate it in the round report for explicit human confirmation instead of deleting it unilaterally.
-> - NEVER force-push over commits the assigned subagent did not itself author in this run, and NEVER bypass branch protection, required reviews, or required status checks to force a merge through.
-> - NEVER merge while any required CI check is failing/pending or any review thread has CHANGES_REQUESTED outstanding. Only merge when gh pr view reports every required check SUCCESS and reviewDecision is APPROVED (or no review is required by branch protection).
-> - Bound remediation to --max-rounds (default 5) verification rounds. Exceeding the bound is a HALT-and-escalate outcome, not a silent stop; the final report MUST list every still-open finding and its last known owner/orchestrator.
-> - Each remediation round dispatches ALL findings from that round's manifest concurrently (one subagent per finding) and waits for every dispatch to settle before re-checking CI/review state -- never dispatch findings one at a time in serial.
-> - A finding is only marked resolved after the fix is pushed to the PR branch AND the corresponding CI check/review thread is independently re-verified as passing/resolved in the next round's fresh gh pr checks / gh pr view read -- never trust a subagent's own self-report of success.
-> - Constitution capture (Constitution Learning Capture phase) is best-effort, non-blocking, and fully decoupled from the PR being merged: it MUST NEVER create docs/standards/constitution.md or .specify/memory/constitution.md if neither already exists in the target repo -- creating one is /ensemble-init-project's job, not pr-merge's -- MUST NEVER push a commit or commit an approval-dismissing change to the PR branch (HEAD_REF) being merged, MUST NEVER block, delay, or HALT that PR's merge on its own outcome or failure, and MUST NEVER append a guardrail that duplicates or narrows existing constitution content.
+> - NEVER delete, skip, xfail, disable, or weaken a test to make a check pass. Every dispatched subagent inherits this constraint verbatim in its payload. Failing tests, compiler warnings, and build failures MUST be fixed at the root cause. If a test is genuinely obsolete, the subagent MUST HALT and escalate it in the round report for human confirmation.
+> - NEVER force-push over commits you did not author in this run, and NEVER bypass branch protection, required reviews, or required status checks.
+> - NEVER merge without a verified passing local CI status bound to the exact head SHA, as reported by the local-ci-gate skill; hosted CI is NOT waited for. Refuse to merge while a HUMAN reviewer's latest decisive review is CHANGES_REQUESTED, or while the gate reports no run, a failed run, or a stale run (head moved since the verified run). A bot account's CHANGES_REQUESTED review or unresolved bot threads are NOT a refusal. Classify reviewers by the GitHub account type field (Bot vs User), never by account name. If review state cannot be read through the host adapter (host.change-request-reviews unavailable or ok:false), refuse to merge and escalate to a human; never treat it as no reviews.
+> - NEVER merge until the pr-review-cycle skill, invoked with MODE=gate, returns mergeable:true for the CURRENT head. That gate owns open Important and security-lane findings, the risk tier and the commit-bound human approvals; this command adds the local-ci-gate verdict and the human-reviewer condition on top of it and never substitutes them for it. Re-run the gate against freshly read state immediately before merging, never reuse an earlier round's result. Invoke the skill, never pr-review-cli.js directly.
+> - When the gate reports that the base branch's protection does not require the approvals the PR's tier needs, report that server-side enforcement is absent and recommend the branch-protection rule in the final report, carrying the gate's notice verbatim. Ensemble cannot enforce it. Never treat a missing or unreadable protection setting as if protection were present.
+> - Bound remediation to the repository's SHARED round cap, read through the pr-review-cycle skill (REVIEW.md policy block, 1-5, default 3); keep no private number here. --max-rounds=N may only LOWER that cap for one run. Exceeding it is a HALT-and-escalate outcome: the final report MUST list every still-open finding, its last known owner and the next action (step back and reconsider the approach with the author).
+> - Each round dispatches ALL findings concurrently (one subagent per finding) and waits for every dispatch to settle before re-checking.
+> - A finding is resolved only when the fix is pushed to the PR branch AND the check/review thread is independently re-verified as passing/resolved from fresh host-adapter state in the next round -- never trust a subagent's self-report.
 
 ## Phase 1: PR Discovery
 
-### Step 1: Resolve Target PR
-
-Resolve the PR to operate on and confirm it is actually mergeable-in-principle
-before doing any remediation work.
+### Step 1: Toolchain Preflight
 
 **Actions:**
-1. HALT if no matching PR is found, the PR is already MERGED/CLOSED, or isDraft is true (mark ready for review first, do not operate on drafts).
-2. Record PR_NUMBER, PR_URL, HEAD_REF, BASE_REF for the rest of the run.
+1. Resolve TOOLCHAIN_CLI (RELATIVE_PATH packages/development/lib/toolchain-cli.js) with the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md). If it does not resolve print "ERROR: could not locate toolchain-cli" and HALT.
+2. Run: node "$TOOLCHAIN_CLI" preflight --require host.change-request-view --require host.change-request-checks --require host.change-request-merge --require host.change-request-reviews --json [add --non-interactive when --foreman is present] and parse stdout as PREFLIGHT_RESULT. ok:false -> print PREFLIGHT_RESULT.error.message and HALT. Store RUN_ID = PREFLIGHT_RESULT.runId; every later toolchain-cli call in this invocation passes --run-id "$RUN_ID". host.change-request-threads is optional and not preflighted here; its call sites below are skipped silently on {ok:false}, never HALTing. host.change-request-reviews gates the merge: if it is unavailable or a later call returns ok:false, print that review state cannot be verified through this host adapter and HALT for a human, never treating it as no reviews.
 
-### Step 2: Baseline Findings Manifest
+### Step 2: Resolve Target PR
 
-Build the round-0 Findings Manifest: one entry per failing/pending CI check, one
-entry per unresolved review thread with a change request. This is the same manifest
-shape reused at the top of every remediation round.
+Delegate to git-workflow.
 
 **Actions:**
-1. Fetch checks: gh pr checks <PR_NUMBER> --json name,state,bucket,workflow,link,description. Include every check whose state is FAILURE, ERROR, CANCELLED, TIMED_OUT, or PENDING (do not skip pending -- it must still be watched to a terminal state before merge).
-2. Fetch review state: gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews. For reviewDecision == CHANGES_REQUESTED, fetch the actual unresolved review comment threads via gh api graphql (reviewThreads: isResolved:false) or gh api repos/{owner}/{repo}/pulls/{PR_NUMBER}/comments -- one Findings Manifest entry per distinct unresolved thread, not one entry for the whole review.
-3. If zero failing/pending checks AND reviewDecision is not CHANGES_REQUESTED AND mergeable == MERGEABLE: skip directly to the Merge phase -- there is nothing to remediate.
-4. Otherwise write the Findings Manifest as a numbered list: { finding_id, kind: check|review_thread, name, raw_log_excerpt_or_comment_body, link }.
+1. HALT if CR_VIEW is not ok (no open change request found) or its state already reports the change request merged or closed, per the host adapter's own raw state vocabulary (see that adapter's SKILL.md).
+2. HALT if the host adapter's own output or the git-workflow delegate's inspection shows the change request is still a draft (mark ready for review first; do not operate on drafts) -- the normalized change-request shape carries no isDraft field, so this check relies on the git-workflow delegate's own host-CLI knowledge.
+3. Record PR_NUMBER, PR_URL, HEAD_REF, BASE_REF from CR_VIEW's id, url, headBranch, baseBranch.
+
+### Step 3: Baseline Findings Manifest
+
+Same manifest shape is rebuilt at the top of every round.
+
+**Actions:**
+1. Checks: run the local-ci-gate skill for the current head; its verdict (verified pass for this exact head, or no/failed/stale run) replaces waiting on hosted checks. Pass the skill the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef. A failed gate run is a finding of kind check. Hosted checks are not watched to completion.
+2. Reviews: run node "$TOOLCHAIN_CLI" run host.change-request-reviews --run-id "$RUN_ID" --arg id=<PR_NUMBER> --json and parse as CR_REVIEWS (ok:false: print that review state cannot be verified through this host adapter and HALT for a human; never treat it as no reviews); classify each of data.reviews by its authorType field (Bot vs User), never by name. For a HUMAN reviewer whose latest decisive review is CHANGES_REQUESTED, every entry of data.threads (unresolved threads) is one finding. Bot-authored CHANGES_REQUESTED reviews and bot threads are not findings that block merge.
+3. If the gate reports a verified pass for this head and no human reviewer's latest decisive review is CHANGES_REQUESTED and mergeable == MERGEABLE: skip to Merge and Report (skipping remediation never skips the Review Merge Gate, which still requires mergeable:true before merging).
+4. Otherwise write a numbered manifest of { finding_id, kind: check|review_thread, name, raw_log_excerpt_or_comment_body, link }.
 
 ## Phase 2: Classification and Routing
 
-### Step 1: Classify Every Finding
+### Step 1: Route Every Finding
 
-Assign exactly one owning orchestrator per Findings Manifest entry using the fixed routing table below. Never leave a finding unrouted.
+Assign exactly one owner per finding; first matching row wins, never dual-route.
 
 **Actions:**
-1. ROUTING TABLE -- apply top to bottom, first match wins:
-2. 1. Review thread or check log whose primary content is a missing/incorrect/insufficient test, a test coverage regression, a flaky test, or a reqnroll/BDD scenario gap -> qa-orchestrator.
-3. 2. Check whose job name/workflow matches the repo's test runner (test.yml / *test* job) failing for a reason OTHER than the test itself being wrong (e.g. the code under test is broken) -> qa-orchestrator triages first; if qa-orchestrator's subagent determines root cause is implementation code, it re-routes by creating a follow-up finding for tech-lead-orchestrator in the next round rather than fixing production code itself.
-4. 3. Check whose job name/workflow matches build/codegen/lint/typecheck/validate pipelines (validate.yml, codex-generate.yml, opencode-generate.yml, pi-generate.yml, or any compiler/build step) OR a review comment about implementation code correctness, architecture, or a compiler warning -> tech-lead-orchestrator (the development orchestrator for this plugin).
-5. 4. Check whose job name/workflow is CI/CD pipeline infrastructure itself (artifact packaging, dependency resolution, matrix/build-system configuration unrelated to the PR's own code) -> build-orchestrator.
-6. 5. Check or comment about cloud infrastructure, IaC, deployment, environment config, or monitoring -> infrastructure-orchestrator.
-7. 6. Anything about merge conflicts, stale/out-of-date branch, missing required approvals, branch protection, commit message/conventional-commit format, or PR metadata (title, labels, linked issue) -> github-specialist.
-8. Every finding gets exactly one ROUTE_AGENT. If a finding plausibly matches two rows, pick the first (topmost) match -- do not dual-route.
+1. 1. Missing/incorrect test, coverage regression, flaky test, or BDD scenario gap -> test-runner.
+2. 2. Test-runner job failing for a reason other than the test itself (code under test is broken) -> test-runner triages first and re-routes to tech-lead-orchestrator via a follow-up finding next round if root cause is implementation code.
+3. 3. Build/codegen/lint/typecheck/validate pipeline failure, or a review comment on implementation correctness, architecture, or a compiler warning -> tech-lead-orchestrator.
+4. 4. CI/CD pipeline infrastructure itself (artifact packaging, dependency resolution, build-system config unrelated to the PR's code) -> build-orchestrator.
+5. 5. Cloud infrastructure, IaC, deployment, environment config -> infrastructure-orchestrator.
+6. 6. Merge conflicts, stale branch, missing approvals, branch protection, commit-message/PR-metadata issues -> git-workflow.
 
 ## Phase 3: Parallel Remediation Dispatch
 
-### Step 1: Build Round Payloads
-
-Construct one immutable remediation payload per Findings Manifest entry. The payload
-is the entire brief the subagent receives -- it does not have this conversation's
-history.
+### Step 1: Build Payloads
 
 **Actions:**
-1. Each payload MUST include: { PR_NUMBER, PR_URL, HEAD_REF, finding_id, kind, name, raw_log_excerpt_or_comment_body, link, round_number, hard_constraints (verbatim copy of this command's constraints: block, push_instructions: 'commit and git push to HEAD_REF directly; do not open a new PR' }.
-2. hard_constraints in every payload MUST restate: never delete/skip/weaken a test to make it pass; fix failing tests, compiler warnings, and build failures for real; if a test looks obsolete, HALT and report instead of deleting it.
+1. One self-contained payload per finding (the subagent has no conversation history): { PR_NUMBER, PR_URL, HEAD_REF, finding_id, kind, name, raw_log_excerpt_or_comment_body, link, round_number, hard_constraints (this command's constraints verbatim), push_instructions: 'commit and git push to HEAD_REF directly; do not open a new PR' }.
 
-### Step 2: Concurrent Dispatch
-
-Launch every finding's remediation subagent at once through its ROUTE_AGENT, without
-waiting on any single one, then wait for the whole round to settle. This mirrors the
-beads-build-wave.yaml concurrent-dispatch-then-barrier pattern.
+### Step 2: Concurrent Dispatch and Barrier
 
 **Actions:**
-1. For each finding in the round, launch Task(subagent_type=<ROUTE_AGENT>, prompt=<remediation_payload>) WITHOUT waiting on any one. Start every finding's dispatch before waiting on any of them.
-2. Barrier: wait for every dispatched subagent in the round to settle. One finding's subagent failing or hanging does NOT cancel or block its siblings' dispatches -- isolate failures per finding.
-3. Each subagent is responsible for its own commit + push to HEAD_REF before it reports back; a subagent that reports success without a pushed commit is treated as still-open in the next round's re-verification (see constraints: never trust self-report).
+1. Launch every finding's Task (subagent_type=<ROUTE_AGENT>, prompt=<payload>) before waiting on any; then wait for the whole round to settle. One hung or failed subagent does not cancel siblings.
+2. A subagent that reports success without a pushed commit leaves the finding open for re-verification.
 
 ## Phase 4: Verification and Round Loop
 
 ### Step 1: Re-Verify Against Live State
 
-After a round's barrier settles, re-read CI/review state from scratch -- do not reuse
-the pre-round manifest -- and rebuild the Findings Manifest exactly as in PR Discovery
-step 2.
+**Actions:**
+1. Rebuild the manifest from scratch (never reuse the pre-round one): re-run the local-ci-gate skill for the new head and run host.change-request-reviews again (same fail-closed rule) for data.reviews, data.reviewDecision, data.mergeable, data.mergeStateStatus, data.threads.
+2. Mark each prior finding resolved or still-open, and add any new finding (e.g. a regression introduced by a fix).
+3. Manifest empty: proceed to Merge and Report.
+4. Findings remain and round_number < --max-rounds: increment, re-route, re-dispatch.
+5. Findings remain and round_number == --max-rounds: HALT, emit the final report with each open finding, its last owner and latest log/comment state, and stop for human escalation.
+6. The cap is the lower of the policy cap and the flag value; at it, ask the author to step back and reconsider the approach rather than opening another round.
+
+## Phase 5: Merge and Report
+
+### Step 1: Review Merge Gate
+
+The one gate that owns review merge readiness; green local CI says nothing about it.
 
 **Actions:**
-1. Re-run: gh pr checks <PR_NUMBER> --json name,state,bucket,workflow,link,description and gh pr view <PR_NUMBER> --json reviews,reviewDecision,latestReviews,mergeable,mergeStateStatus.
-2. Diff against the round's dispatched findings: mark each as resolved (no longer failing/pending, or thread now resolved) or still-open (persists) or new (appeared only after this round's fixes -- e.g. a regression introduced by a fix).
-3. If the manifest is now empty (zero failing/pending checks, no CHANGES_REQUESTED, mergeable == MERGEABLE): proceed to the Merge phase.
-4. If findings remain and round_number < --max-rounds: increment round_number, re-classify the new manifest (Classification and Routing phase), and re-dispatch (Parallel Remediation Dispatch phase).
-5. If findings remain and round_number == --max-rounds: HALT. Do not merge. Produce the final report (Reporting step) with every still-open finding, its last owning orchestrator, and its most recent log/comment state, and stop for human escalation.
+1. Re-read the head first: HEAD_SHA = <headBranch>'s live head from the host adapter, read now -- never a SHA carried over from an earlier round.
+2. Invoke the pr-review-cycle skill (packages/development/skills/pr-review-cycle/SKILL.md) with MODE=gate, BASE_SHA/HEAD_SHA for this PR's range, PR_NUMBER, PR_ID, PR_BODY, AGENT_AUTHORED and DIRECTED_BY (the body's 'Directed by:' line when an agent wrote it). It reads approvals and reviews itself. Never call pr-review-cli.js from this command.
+3. MODE=gate with no recorded review for this head must never be given an empty ledger: when the review-state report for HEAD_SHA is missing or belongs to another head, the ledger is UNAVAILABLE and the gate blocks with review-data-unavailable. Do not substitute []; tell the user to run pr-review-cycle MODE=local/remote for this head first, then re-run the gate.
+4. mergeable:true is REQUIRED to proceed; no other evidence substitutes. If mergeable:false, do not merge: report every blocker by its message and nextAction, then run another Verification and Round Loop pass or HALT at the round cap. The Final Report includes the gate's mergeable value and every blocker.
+5. Never accept a self-report in place of this gate: a subagent's, an author's or this session's own claim that review passed, a finding was fixed, or someone approved is not evidence; only the gate's result, from reads taken in this run, counts.
 
-## Phase 5: Constitution Learning Capture
+### Step 2: Merge
 
-### Step 1: Aggregate Guardrails and Update Constitution
-
-Once the Findings Manifest is empty and merge is imminent, distill the findings
-resolved across every round this run into zero or more durable, generalizable
-guardrails and, when any survive, land them in the target repo's existing
-constitution via a small, independent PR against BASE_REF -- never by touching
-the PR being merged. This step never blocks, delays, or reverses that PR's merge
-decision -- any failure inside it, including the housekeeping PR itself failing
-checks or review, is logged and swallowed, not escalated.
+Delegate to git-workflow.
 
 **Actions:**
-1. Skip this entire phase when --dry-run is set, or when the Findings Manifest was empty at round 0 (nothing was actually remediated this run) -- there is nothing to learn.
-2. Resolve the canonical constitution the same way create-prd/create-trd do: docs/standards/constitution.md when present, else .specify/memory/constitution.md, else skip this phase entirely and proceed straight to Merge and Report. This command NEVER creates a constitution file -- that is /ensemble-init-project's job, not pr-merge's.
-3. For each finding resolved this run (across all rounds), classify it as PATTERN (a systemic, preventable mistake a future author or agent could plausibly repeat -- e.g. a test pinning an exact version/date string instead of an invariant, a stale text anchor left behind by a rename, a missing codegen step before commit, a previously-banned pattern reintroduced) or ONE-OFF (a unique bug or typo with no generalizable rule). Only PATTERN findings produce a candidate guardrail; ONE-OFF findings produce none.
-4. For each PATTERN finding, draft exactly one guardrail: a short imperative rule plus a one-clause reason, stated as the general lesson -- never as a restatement of the specific bug or a reference to this PR/file (e.g. 'NEVER assert an exact version or date string in a test as proof a change shipped; assert the underlying invariant instead' rather than 'fix the version check in implement-trd-command.test.js').
-5. Read the full canonical constitution, at its current tip on BASE_REF, before finalizing any draft. Drop any candidate guardrail whose rule is already covered, equaled, or subsumed by existing constitution content anywhere in the document -- never append a near-duplicate rule.
-6. If zero guardrails survive classification and deduplication, stop here without touching the constitution file, creating a branch, or opening a PR.
-7. Otherwise append each surviving guardrail as a new numbered item under the constitution's non-negotiable-rules list inside its Core Principles section when that section and list exist in the recognizable init-project format; if the canonical constitution predates that structure (a migrated/legacy .specify constitution, or one hand-edited into an incompatible shape), append a new top-level `## CI/Review Remediation Guardrails` section instead rather than guessing at foreign structure. Add one Changelog row per guardrail using the constitution's existing Date/Change/Author table columns: `| <ISO date> | Guardrail: <one-line summary> | /ensemble-pr-merge (PR #<PR_NUMBER>) |`.
-8. NEVER commit this update to HEAD_REF or any branch of the PR being merged -- pushing a new commit there risks resetting required status checks to pending and, depending on branch protection's 'dismiss stale approvals on push' setting, invalidating the existing APPROVED review, which would then trip this command's own merge gate (constraint: only merge when reviewDecision is APPROVED) over a problem this command itself created.
-9. Instead: create a new branch off the current tip of BASE_REF (name it docs/constitution-guardrails-pr-<PR_NUMBER>), commit the constitution update there alone with message `docs(constitution): capture guardrail(s) from PR #<PR_NUMBER> remediation`, push it, and open a PR targeting BASE_REF via gh pr create -- delegate this sub-step to github-specialist.
-10. This housekeeping PR is entirely independent: do NOT wait for its CI or review, do NOT merge it as part of this run, and do NOT let its outcome affect whether the original PR_NUMBER proceeds to Merge and Report. Record its URL for the Final Report and move on immediately.
-11. Any error in this phase (resolution, parse, write, branch/push, or PR-creation failure) is non-fatal: log it once, do not retry, and proceed straight to Merge and Report -- a constitution-update failure must never HALT or block the original PR's merge.
+1. Run the local-ci-gate skill for the current head, passing the repo (owner/name), PR_NUMBER, and the PR's base branch ref (origin/<baseRefName>, fetched fresh) as baseRef; do not restate or reimplement its logic. If it reports no run, a failed run, or a stale run, abort and run another verification round.
+2. Immediately before merging re-run host.change-request-reviews (same fail-closed rule) and check data.mergeable, data.mergeStateStatus, data.reviewDecision, data.reviews; if data.mergeable is not MERGEABLE or a human reviewer's latest decisive review is CHANGES_REQUESTED (bots excluded, by account type), abort and run another verification round.
+3. Run the sweep BEFORE merging: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
+4. Merge only when ALL hold on this head: the Review Merge Gate returned mergeable:true for the same HEAD_SHA this step is merging (if the head moved since, re-run the Review Merge Gate step against the new head and require mergeable:true again), the local-ci-gate verdict is a verified pass, and the fresh review read shows mergeable and no human CHANGES_REQUESTED. Any one alone is not enough.
+5. If --dry-run: stop and report merge-readiness without merging.
+6. Before this command's first host write: run node "$TOOLCHAIN_CLI" confirm-status host.change-request-merge --run-id "$RUN_ID" --json [add --non-interactive when --foreman is present] and parse as CONFIRM_STATUS. If CONFIRM_STATUS.data.required is true and CONFIRM_STATUS.data.confirmed is false: when --foreman is not present ask via ask "Allow the host adapter to merge PR <PR_NUMBER>? [yes/no]"; on yes run node "$TOOLCHAIN_CLI" confirm-record host.change-request-merge --run-id "$RUN_ID" --json. Under --foreman, never prompt (non-interactive already passed; the CLI auto-confirms and logs).
+7. Merge: run node "$TOOLCHAIN_CLI" run host.change-request-merge --run-id "$RUN_ID" --arg id=<PR_NUMBER> [--arg method=<METHOD> when --method was supplied; omit entirely otherwise so the host adapter's own default (squash) applies] --json [add --non-interactive when --foreman is present] (an explicit --method not supported by the resolved host adapter fails closed with NOT_ALLOWED -- report it and HALT rather than retrying with a different method); do NOT delete the source branch in this step.
+8. Run the sweep AFTER merging and BEFORE deleting the source branch: local-ci-cli.js sweep, with the CLI located exactly as the local-ci-gate skill locates it (tool-path-resolution; never a hard-coded path); record each new finding or CI-failure bead through br (dedupe keys prevent duplicates).
+9. Only after the post-merge sweep has run, delete the source branch unless it is long-lived.
+10. Comment on the PR summarizing each remediated finding, its owner, and the round count.
 
-## Phase 6: Merge and Report
-
-### Step 1: Merge
-
-Merge only once every required check is green and every review thread is resolved.
+### Step 3: Final Report
 
 **Actions:**
-1. Re-confirm immediately before merging (state can change between the last re-verify and now): gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus,reviewDecision -- if mergeable != MERGEABLE or reviewDecision == CHANGES_REQUESTED, abort the merge and fall back to another Verification and Round Loop pass instead of forcing it.
-2. If --dry-run was passed, stop here and report merge-readiness without merging.
-3. Merge with gh pr merge <PR_NUMBER> using this repo's configured default merge method (check branch protection / repo settings for squash vs merge vs rebase -- do not assume); delete the source branch on merge unless it is a long-lived branch.
-4. Post a summary comment on the PR listing every finding that was remediated, which orchestrator owned it, and how many rounds it took.
-
-### Step 2: Final Report
-
-Emit a single machine-readable summary line as the last line of output.
-
-**Actions:**
-1. Schema (one line, valid JSON): { pr_number, pr_url, rounds_executed, findings_total, findings_resolved, findings_escalated, constitution_guardrails_added (number), constitution_pr_url (string|null), merged (bool), halted_reason (string|null) }.
-2. Print the JSON summary as the LAST line of stdout. Do not print further prose after it.
+1. Last line of stdout, valid JSON, no prose after it: { pr_number, pr_url, rounds_executed, findings_total, findings_resolved, findings_escalated, merged (bool), halted_reason (string|null), gate_mergeable (bool), gate_blockers (array of blocker codes, empty when mergeable), gate_tier (string|null), branch_protection_enforced (bool|null -- null when the protection read failed, never true by assumption) }

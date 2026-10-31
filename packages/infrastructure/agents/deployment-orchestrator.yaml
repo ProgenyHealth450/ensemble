@@ -48,14 +48,14 @@ integrationProtocols:
     - agent: build-orchestrator
       context: Receives validated artifacts, deployment packages, and release notes
       acceptanceCriteria: []
-    - agent: qa-orchestrator
+    - agent: test-runner
       context: Receives quality validation results and release approval
       acceptanceCriteria: []
   handoffTo:
     - agent: infrastructure-orchestrator
       deliverables: Requests environment preparation and configuration updates
       qualityGates: []
-    - agent: qa-orchestrator
+    - agent: test-runner
       deliverables: Coordinates production validation testing and health checks
       qualityGates: []
     - agent: product-management-orchestrator

@@ -326,7 +326,6 @@ Is multi-runtime support essential?
 - **BMAD Documentation:** docs.bmad-method.org
 - **Spec-Kit GitHub:** github.com/github/spec-kit
 - **Competitive Landscape:** docs/research/competitive-analysis-2026-03-28.md
-- **Spec-Kit Comparison (redirect):** docs/spec-kit-comparison.md
 
 ---
 

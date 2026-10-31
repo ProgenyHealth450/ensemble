@@ -28,7 +28,6 @@ Part of the ensemble plugin ecosystem for Claude Code. This plugin provides deve
 | `/ensemble:create-trd` | Create a Technical Requirements Document from a PRD; `--parser-tables` produces a Foreman-native structured TRD (parser-compatible sprint/story tables, no adversarial review phase) that `foreman sling prd` can consume |
 | `/ensemble:refine-trd` | Refine and improve an existing TRD |
 | `/ensemble:fix-issue` | Lightweight bug fix workflow (analysis to PR) |
-| `/ensemble:generate-api-docs` | Generate API documentation |
 
 ## Usage
 
@@ -126,7 +125,7 @@ The command:
 - stops on failure and offers retry, skip, inverse commands, cancel remaining, or abort;
 - never starts builders, tests, branches, commits, PRs, or implementation loops.
 
-After refinement, continue with `/ensemble:beads-plan` or `/ensemble:beads-build`.
+After refinement, continue with `/ensemble:beads-build <scope> --plan` or `/ensemble:beads-build`.
 
 ### PR Review Cycle
 
@@ -138,9 +137,16 @@ Integration points:
 
 - `fix-issue`: Local Review and Batch Fix runs after Test Validation and before any commit, push or PR; `prApprovedAt` is set only once the local review is complete. After the PR exists, Remote Review Disposition never completes the run while the review is pending or blocked: it records the PR, returns a resumable report, and under `--foreman` writes status, head SHA and ledger to `FOREMAN_ARTIFACT_PATH` before any halt.
 - `implement-trd-beads`: in stacked mode each phase is reviewed (that phase's diff only) before its PR is proposed or the next branch is appended, and the phase's story bead closes only after the review gate passes. In single-PR mode the whole-branch review runs in the PR Review Completion Check, before Epic Closure and before the completion PR exists. A pending remote review is reported as pending and resumable, never as merged or landed.
-- `complete-beads`: the quality-gate result carries the finding ledger and local review status; story roll-up and epic closure are gated on `LOCAL_REVIEW_COMPLETE`.
 
 Resume state is a per-PR report under `.ensemble/pr-review/` (git-ignored: committing it would change the head SHA and invalidate the review it records). See [`docs/guides/pr-review-cycle-time-pilot.md`](../../docs/guides/pr-review-cycle-time-pilot.md) for how the cycle-time effect is measured; the 50% median open-to-merge target is not claimed until a comparable post-change cohort demonstrates it.
+
+The review loop is bounded by **one shared round cap**: `roundCap` in the `ensemble-review-policy` block of the repository's root `REVIEW.md`, read from the *base* commit, never from the PR head. The default is **3** and the accepted range is **1 to 5** (integers). A missing, non-integer or out-of-range value does not fail the run and is not silently honoured: `pr-review-cli.js status` falls back to the default 3 and records the reason (`invalid roundCap (expected an integer 1-5); default 3 applied`) in its output. The same cap governs `pr-review-cycle`, `pr-merge` and the quality loop, so all three stop at the same round and ask the author to step back and reconsider the approach rather than opening another round.
+
+**Review depth modes.** The risk tier of the change selects how much review it gets, and `pr-review-cli.js depth` grades the plan against that mode's bounds (`lib/pr-review-depth.js`): **Quick** (Low tier) is a single reviewer and no verifiers, **Standard** (Medium) is at least two reviewers and 3 verifiers, **Deep** (High) is at least two reviewers and 5 verifiers. A repository may raise the bounds from the `ensemble-review-policy` block, but Quick's single reviewer and zero verifiers are fixed. The `violations` the CLI returns are binding, not advice: a plan the CLI refused is never dispatched. A PR whose changed lines exceed the slice threshold (default **1500**, configurable) is reviewed by area, and the report names which slices were reviewed. A local review resolves its tier before depth, with `pr-review-cli.js tier` over the changed paths and no classifier (Medium, or High where a sensitive or High path is touched, never Low): an ordinary change is therefore Standard, a sensitive one Deep, and a tier the CLI cannot read is Deep.
+
+**More reviewers, fewer duplicates.** A review can ask for 3 or 4 reviewers instead of the mode's minimum (`REVIEWER_COUNT`, 2 to 4; the `pr-review-request` router sets it only when the person asks for more reviewers). `depth` grades that plan like any other, so `violations` stays binding and Quick keeps its one reviewer; the verifier count and every bound stay as the mode set them. Reviewers and verifiers must be agents that follow the output contract their brief asks for, can read files and run read-only commands, and impose no findings format or depth of their own; a runtime with none runs its general-purpose agent and the report says the assurance is reduced. Within a round, `pr-review-cli.js ledger dedupe` also merges findings that different reviewers very probably wrote up as one defect (the same file, overlapping or neighbouring lines, a matching description; `lib/pr-review-ledger.js`), listing them in `mergedFrom`. Anything not clearly the same defect stays separate, and `recordRound` still suppresses only an exact repeat.
+
+**Verification before posting.** Nothing a reviewer raises reaches the author unverified. Every candidate -- from every reviewer, every local tool and every review bot, CodeRabbit included -- enters the same ledger and is voted on by fresh-context verifiers that did not produce it (`pr-review-cli.js votes`, `lib/pr-review-votes.js`). A finding is **presented only on a strict majority of the verifiers the depth expects**: **2 of 3** at Standard, **3 of 5** at Deep. The denominator is the expected count, never the votes that happened to arrive, so a verifier that timed out can never be read as agreement. A finding the majority rejected is labelled "verifier disagrees" and stays in the ledger with its tally; a critical or security-relevant finding the verifiers split on or reject is `disputed` and goes to a person, because a vote does not close one. Nothing is ever dropped: a finding whose verifiers were incomplete comes back `unverified` and is still presented, and on a runtime with no subagent capability a single-pass review runs and the report and the state report carry a visible reduced-review notice rather than reporting a reduced review as a clean one.
 
 ## Documentation
 

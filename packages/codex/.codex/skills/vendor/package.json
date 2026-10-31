@@ -1,0 +1,10 @@
+{
+  "name": "@sunstone-partners/ensemble-codex-toolchain-vendor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone toolchain-cli.js runtime vendored by a generator into this bundle. Not published independently; run `npm install` here to resolve ajv/js-yaml outside the monorepo.",
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "js-yaml": "^4.1.0"
+  }
+}

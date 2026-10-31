@@ -2,7 +2,7 @@
  * ManifestGenerator - Produces opencode.json from Ensemble plugin manifests
  *
  * Responsibilities:
- *   - Read all packages/*/.claude-plugin/plugin.json manifests
+ *   - Read all packages/<pkg>/.claude-plugin/plugin.json manifests
  *   - Generate agent block from AgentTranslator output
  *   - Generate command block from CommandTranslator output
  *   - Generate skills.paths from SkillCopier output

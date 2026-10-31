@@ -1,6 +1,6 @@
 {
   "name": "@sunstone-partners/ensemble-development",
-  "version": "7.0.0",
+  "version": "7.0.1",
   "description": "Development agents for frontend/backend implementation",
   "main": "lib/index.js",
   "scripts": {
@@ -22,6 +22,7 @@
     "directory": "packages/development"
   },
   "dependencies": {
+    "ajv": "^8.12.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

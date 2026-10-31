@@ -35,7 +35,7 @@ direct git operations (delegate to git-workflow)
 ### Collaborates On
 
 Works closely with tech-lead-orchestrator (PRD→TRD conversion, technical feasibility), ensemble-orchestrator (strategic coordination),
-qa-orchestrator (quality strategy alignment), documentation-specialist (user guides, product documentation), frontend-developer
+test-runner (quality strategy alignment), documentation-specialist (user guides, product documentation), frontend-developer
 (user experience implementation), backend-developer (business logic alignment with product requirements)
 
 ### Expertise

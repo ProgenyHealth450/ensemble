@@ -1,0 +1,21 @@
+title = "ensemble gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional fake secrets used as redaction/telemetry test fixtures"
+paths = [
+  # Fake jwt / private-key / slack-token strings that exercise payload redaction.
+  '''^packages/agent-core/tests/lifecycle-hooks/payload\.test\.ts$''',
+  # Fake aws-style / ghp_ strings that exercise telemetry redaction.
+  '''^packages/core/test/ensemble/behavior/telemetry_test\.exs$''',
+  # Fake PEM / jwt / ghp_ strings that exercise the local CI gate's output redaction (it must remove them).
+  '''^packages/development/tests/local-ci-status\.test\.js$''',
+  # Documentation example tokens.
+  '''^docs/guides/refinement-review-collab\.md$''',
+  # Fake ghp_ token exercising the TRD-009 toolchain scanCredentials fixture.
+  '''^scripts/tests/fixtures/toolchain/broken-adapter/SKILL\.md$''',
+  # Fake ghp_ token exercising the TRD-037 AC-024-2 secret-hygiene grader (it must detect and redact it).
+  '''^packages/development/tests/pr-review-reachability\.test\.js$''',
+]

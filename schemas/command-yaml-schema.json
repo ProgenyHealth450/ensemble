@@ -51,6 +51,23 @@
           "items": { "type": "string" },
           "description": "Tools this command can use"
         },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Toolchain capability ids this command relies on, cross-referenced against packages/development/toolchain/categories/*.yaml by scripts/validate-all.js",
+          "properties": {
+            "required": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[a-z-]+\\.[a-z-]+$" },
+              "description": "Capability ids this command cannot run without"
+            },
+            "optional": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[a-z-]+\\.[a-z-]+$" },
+              "description": "Capability ids this command uses when available, with a documented fallback otherwise"
+            }
+          }
+        },
         "argument_hint": {
           "type": "string",
           "description": "Hint for command arguments"

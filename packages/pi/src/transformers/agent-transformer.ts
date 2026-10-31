@@ -65,9 +65,9 @@ function normalizeAgentFields(raw: Record<string, unknown>): {
   tools: string[];
   model: string | undefined;
 } {
-  let name = '';
-  let description = '';
-  let tools: string[] = [];
+  let name: string;
+  let description: string;
+  let tools: string[];
   let model: string | undefined;
 
   if (raw.metadata && typeof raw.metadata === 'object') {
@@ -224,6 +224,43 @@ function renderBody(raw: Record<string, unknown>, agentName: string): string {
         sections.push(resp.description.trim());
         sections.push('');
       }
+    }
+  }
+
+  // Render the output contract when an agent declares one (the read-only code
+  // reviewer's ledger findings and summary rule). Absent on every other agent,
+  // so no other generated file changes.
+  if (raw.outputContract && typeof raw.outputContract === 'object') {
+    const contract = raw.outputContract as Record<string, unknown>;
+    const guide = (contract.fieldGuide && typeof contract.fieldGuide === 'object'
+      ? contract.fieldGuide
+      : {}) as Record<string, unknown>;
+    sections.push('## Output Contract');
+    sections.push('');
+    if (Array.isArray(contract.findingFields)) {
+      sections.push('### Finding Fields');
+      sections.push('');
+      for (const field of contract.findingFields as string[]) {
+        const note = typeof guide[field] === 'string' ? `: ${guide[field] as string}` : '';
+        sections.push(`- \`${field}\`${note}`);
+      }
+      sections.push('');
+    }
+    if (Array.isArray(contract.severities)) {
+      sections.push(`**Severities:** ${(contract.severities as string[]).map((word) => `\`${word}\``).join(', ')}`);
+      sections.push('');
+    }
+    if (typeof contract.summaryRule === 'string') {
+      sections.push('### Summary');
+      sections.push('');
+      sections.push(contract.summaryRule.trim());
+      sections.push('');
+    }
+    if (typeof contract.secretHandling === 'string') {
+      sections.push('### Secrets');
+      sections.push('');
+      sections.push(contract.secretHandling.trim());
+      sections.push('');
     }
   }
 

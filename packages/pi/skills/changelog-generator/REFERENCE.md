@@ -412,12 +412,12 @@ Task({
 });
 ```
 
-### Integration with github-specialist
+### Integration with git-workflow
 
 ```javascript
 // Create PR with changelog
 Task({
-  subagent_type: "github-specialist",
+  subagent_type: "git-workflow",
   prompt: `Create pull request for release v${suggestedVersion} with changelog:
 ${changelog}
 
@@ -568,12 +568,6 @@ describe('Changelog Generation', () => {
   currentVersion: "2.15.3"
 }
 ```
-
-## Related Skills
-
-- **semantic-version-validator**: Validates semantic versions
-- **release-report-generator**: Generates complete release reports
-- **audit-log-generator**: Tracks release events
 
 ## References
 

@@ -18,7 +18,7 @@ const os = require('os');
 // --- Replicated helpers (must stay in sync with lint-model-ids.js) ---
 
 function extractModelValue(yamlContent) {
-  const match = yamlContent.match(/^  model:\s+(\S+)\s*$/m) || yamlContent.match(/^model:\s+(\S+)\s*$/m);
+  const match = yamlContent.match(/^ {2}model:\s+(\S+)\s*$/m) || yamlContent.match(/^model:\s+(\S+)\s*$/m);
   return match ? match[1] : null;
 }
 
@@ -84,7 +84,7 @@ describe('lint-model-ids.js script integration', () => {
   test('exits 0 on clean migrated codebase', () => {
     // Run the script against the actual codebase (all YAMLs should be migrated)
     let exitCode = 0;
-    let output = '';
+    let output;
     try {
       output = execSync(`node "${scriptPath}"`, {
         encoding: 'utf8',

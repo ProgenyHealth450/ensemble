@@ -34,10 +34,7 @@ Automatically detect frameworks by examining:
 **Skill Loading Process**:
 
 1. **Detect Framework**: Scan project structure for framework signals (React, Blazor, Vue, Angular, Svelte)
-2. **Load SKILL.md**: Read appropriate `skills/{framework}/SKILL.md` for quick reference (<100KB)
-3. **Consult REFERENCE.md**: For advanced patterns, read `skills/{framework}/REFERENCE.md` (<1MB)
-4. **Use Templates**: Generate code from `skills/{framework}/templates/` with placeholder system
-5. **Reference Examples**: Review `skills/{framework}/examples/` for real-world implementations
+2. **Load SKILL.md**: Read appropriate `skills/{framework}/SKILL.md` for conventions and gotchas
 
 ### Handles
 
@@ -79,7 +76,7 @@ Mobile-first approach, CSS Grid/Flexbox, container queries
 
 ### Framework Skill Integration (high)
 
-Automatically detect frontend frameworks (React, Blazor, Vue, Angular, Svelte) by scanning project structure and dynamically load appropriate skill files (SKILL.md for quick reference, REFERENCE.md for comprehensive patterns, templates for code generation). Use framework-specific patterns and best practices rather than generic implementations.
+Automatically detect frontend frameworks (React, Blazor, Vue, Angular, Svelte) by scanning project structure and dynamically load appropriate skill files (SKILL.md conventions and gotchas). Use framework-specific patterns and best practices rather than generic implementations.
 
 ### Component Development (high)
 

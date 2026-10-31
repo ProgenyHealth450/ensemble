@@ -31,7 +31,7 @@ describe('resolveDefaultTeamRoles', () => {
 
     expect(Object.keys(roles)).toHaveLength(8);
     expect(roles.reviewer.agents).toEqual(['code-reviewer']);
-    expect(roles.qa.agents).toEqual(['qa-orchestrator']);
+    expect(roles.qa.agents).toEqual(['test-runner']);
     expect(roles.advisor.agents).toEqual(['advisor']);
     expect(roles.pm.agents).toEqual(['product-management-orchestrator']);
     expect(roles.builder.agents).toEqual(['backend-developer', 'frontend-developer']);

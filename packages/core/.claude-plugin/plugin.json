@@ -1,6 +1,6 @@
 {
   "name": "ensemble-core",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "description": "Core orchestration and utilities for ensemble ecosystem",
   "author": {
     "name": "Sunstone Partners",
@@ -12,17 +12,10 @@
   "keywords": [
     "orchestration",
     "core",
-    "ensemble",
-    "framework-detection"
+    "ensemble"
   ],
   "commands": "./commands",
-  "skills": "./skills",
   "agents": [
-    "./agents/agent-meta-engineer.md",
-    "./agents/context-fetcher.md",
-    "./agents/directory-monitor.md",
-    "./agents/ensemble-orchestrator.md",
-    "./agents/file-creator.md",
-    "./agents/general-purpose.md"
+    "./agents/ensemble-orchestrator.md"
   ]
 }

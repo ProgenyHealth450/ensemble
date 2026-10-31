@@ -1,6 +1,6 @@
 {
   "name": "@sunstone-partners/ensemble-jest",
-  "version": "5.1.1",
+  "version": "5.1.2",
   "description": "Jest testing framework integration",
   "main": "lib/index.js",
   "scripts": {

@@ -4,7 +4,7 @@ Modular plugin ecosystem for AI coding agents (Claude Code first, plus Pi/Oh My 
 
 ![The Spec-Driven Factory: Ensemble Plugin Ecosystem](docs/images/ensemble-architecture.png)
 
-Current release: **7.0.0** (`ensemble-full`, `ensemble-development`). Each package is versioned independently; see [Packages](#packages).
+Current release: **8.0.0** (`ensemble-full`). Each package is versioned independently; see [Packages](#packages).
 
 ## Contents
 
@@ -75,7 +75,6 @@ Install only what you need. Package names are the `name` fields in [marketplace.
 /plugin install ensemble-infrastructure@ensemble
 /plugin install ensemble-git@ensemble
 /plugin install ensemble-e2e-testing@ensemble
-/plugin install ensemble-metrics@ensemble
 /plugin install ensemble-assessment@ensemble
 
 # Framework skills
@@ -135,43 +134,40 @@ Versions below are taken from each package's `package.json`.
 
 | Package | Version | Contents |
 |---------|---------|----------|
-| `ensemble-full` | 7.0.0 | Meta-package that bundles all plugins |
-| `ensemble-core` | 6.0.0 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
-| `ensemble-product` | 6.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`, `reqnroll`, `analyze-product`) and the product-management orchestrator |
-| `ensemble-development` | 7.0.0 | TRD, Beads, feature and issue workflows; language skills; development agents |
-| `ensemble-quality` | 6.0.0 | `pr-review-remediation` skill; code-reviewer, deep-debugger, qa-orchestrator, test-runner agents |
-| `ensemble-infrastructure` | 6.0.0 | Cloud, Kubernetes, Helm, Fly.io, Railway, Supabase, Vercel, Jira and Linear skills; infrastructure agents |
-| `ensemble-git` | 6.0.0 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
-| `ensemble-e2e-testing` | 6.0.0 | `/ensemble:author-playwright-tests`; `smoke-test-runner`, `writing-playwright-tests` skills; `playwright-tester` agent |
-| `ensemble-metrics` | 6.0.0 | `/ensemble:manager-dashboard`; `manager-dashboard-agent` |
-| `ensemble-assessment` | 1.1.0 | `/ensemble:assess` and the 22 assessment and report skills; installable on its own on Pi |
-| `ensemble-react` | 6.0.0 | `react` skill |
-| `ensemble-nestjs` | 5.1.1 | `nestjs` skill |
-| `ensemble-rails` | 5.1.1 | `rails` skill |
-| `ensemble-phoenix` | 5.1.1 | `phoenix` skill |
-| `ensemble-blazor` | 6.0.0 | `blazor` skill |
-| `ensemble-dotnet` | 1.1.0 | `dotnet` skill; `dotnet-backend-expert` agent |
-| `ensemble-ai` | 6.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
-| `ensemble-jest` | 5.1.1 | `jest` skill |
-| `ensemble-pytest` | 5.1.1 | `pytest` skill |
+| `ensemble-full` | 8.0.0 | Meta-package that bundles all plugins |
+| `ensemble-core` | 6.1.0 | `detect-stack` skill, `/ensemble:standards`, `fold-prompt`, `sessionlog`, `reinstall-plugins`, orchestration agents, XDG config |
+| `ensemble-product` | 7.0.0 | PRD commands (`create-prd`, `refine-prd`, `prd`, `reqnroll`) and the product-management orchestrator |
+| `ensemble-development` | 7.0.1 | TRD, Beads, feature and issue workflows; language skills; development agents |
+| `ensemble-quality` | 6.0.1 | `pr-review-remediation` and `flake-reproduction` skills; code-reviewer, deep-debugger, test-runner agents |
+| `ensemble-infrastructure` | 6.1.0 | Cloud, Kubernetes, Helm, Fly.io, Railway, Supabase, Vercel, Jira and Linear skills; infrastructure agents |
+| `ensemble-git` | 6.1.0 | `/ensemble:pr-merge`, `/ensemble:release`; `git-town`, `changelog-generator`, `act-local-ci` skills; git agents |
+| `ensemble-e2e-testing` | 6.1.0 | `/ensemble:author-playwright-tests`; `smoke-test-runner`, `writing-playwright-tests` skills; `playwright-tester` agent |
+| `ensemble-assessment` | 2.0.0 | `/ensemble:assess` and the 22 assessment and report skills; installable on its own on Pi |
+| `ensemble-react` | 7.0.0 | `react` skill |
+| `ensemble-nestjs` | 6.0.0 | `nestjs` skill |
+| `ensemble-rails` | 6.0.0 | `rails` skill |
+| `ensemble-phoenix` | 6.0.0 | `phoenix` skill |
+| `ensemble-blazor` | 7.0.0 | `blazor` skill |
+| `ensemble-dotnet` | 2.0.0 | `dotnet` skill; `dotnet-backend-expert` agent |
+| `ensemble-ai` | 7.0.0 | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` skills |
+| `ensemble-jest` | 5.1.2 | `jest` skill |
+| `ensemble-pytest` | 5.2.0 | `pytest` skill |
 | `ensemble-rspec` | 5.2.0 | `rspec` skill |
 | `ensemble-xunit` | 5.2.0 | `xunit` skill |
 | `ensemble-exunit` | 5.1.1 | `exunit` skill |
 | `ensemble-reqnroll` | 1.0.2 | `reqnroll` skill; `reqnroll-binding-specialist` agent |
-| `ensemble-router` | 5.2.3 | UserPromptSubmit routing hook for agent delegation and skill invocation |
-| `ensemble-permitter` | 5.2.1 | Permission-expansion hook with allowlist (opt out with `ENSEMBLE_PERMITTER_DISABLE=1`) |
-| `ensemble-multiplexer-adapters` | 5.2.2 | Terminal multiplexer adapters (WezTerm, Zellij, tmux) |
-| `ensemble-opencode` | 5.3.1 | OpenCode runtime translation layer |
-| `ensemble-pi` | 1.6.16 | Pi runtime translation layer (own version line) |
-| `ensemble-codex` | 6.0.0 | Codex CLI runtime translation layer |
+| `ensemble-permitter` | 5.2.2 | Permission-expansion hook with allowlist (opt out with `ENSEMBLE_PERMITTER_DISABLE=1`) |
+| `ensemble-opencode` | 5.4.0 | OpenCode runtime translation layer |
+| `ensemble-pi` | 1.6.18 | Pi runtime translation layer (own version line) |
+| `ensemble-codex` | 6.0.1 | Codex CLI runtime translation layer |
 | `ensemble-agent-core` | 0.1.2 | Shared run-index I/O primitives for the `new-feature` and `fix-issue` workflows (library) |
 | `ensemble-pi-extension` | 0.1.2 | Pi extension providing native command completion for the dispatcher commands (no marketplace entry; installed from a checkout) |
 
-`ensemble-agent-core`, `ensemble-pi-extension`, `ensemble-multiplexer-adapters` and the runtime layers are support packages; day-to-day use needs only the workflow and skill packages.
+`ensemble-agent-core`, `ensemble-pi-extension` and the runtime layers are support packages; day-to-day use needs only the workflow and skill packages.
 
 ## Commands
 
-Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 43 command definitions (`packages/*/commands/*.yaml`); **35 are typable** and 8 are hidden behind a dispatcher or the wave runner (see [Hidden commands](#hidden-commands)). One more typable command, `/ensemble:init-project`, is hand-authored Markdown in `packages/core/commands/ensemble/` with no YAML source, so it is outside those counts and is not generated for Pi.
+Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 40 command definitions (`packages/*/commands/*.yaml`); **32 are typable** and 8 are hidden behind a dispatcher or the wave runner (see [Hidden commands](#hidden-commands)). One more typable command, `/ensemble:init-project`, is hand-authored Markdown in `packages/core/commands/ensemble/` with no YAML source, so it is outside those counts and is not generated for Pi.
 
 ### Product and requirements
 
@@ -180,7 +176,6 @@ Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 43 
 | `/ensemble:prd` | `create`, `refine` plus subcommand args | product | Dispatcher for PRD authoring |
 | `/ensemble:create-prd` | `[product-description] [--foreman]` or `--from-meeting <meeting-summary-or-path>` | product | Create a PRD with structured elicitation and adversarial review; `--from-meeting` builds it from a meeting summary |
 | `/ensemble:refine-prd` | `<prd-path> [--from-meeting <summary-or-path> \| --foreman \| --collab [--tunnel=quick] [--reviewers N] [--no-open] \| --long-lived [--ttl <duration>]]` | product | Refine an existing PRD, or from a meeting summary |
-| `/ensemble:analyze-product` | none | product | Analyze a brownfield project and produce an improvement roadmap |
 | `/ensemble:reqnroll` | `features`, `feature-drift`, `bindings`, `binding-drift`, `tdd` plus subcommand args | product | Dispatcher for PRD-to-Reqnroll acceptance-test work |
 
 ### TRD and pre-implementation checks
@@ -203,7 +198,6 @@ Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 43 
 | Command | Arguments | Package | Purpose |
 |---------|-----------|---------|---------|
 | `/ensemble:implement-trd-beads` | `[trd-path] [--plan] [--execute] [--branch=<name>] [--use-current-branch] [--status] [--reset-task TRD-XXX] [--list] [max parallel N] [--foreman]`, or `<trd-path> <trd-path>... --workstream [--generate-only [--out <path>] [--allow-invalid]]` | development | TRD implementation on a persistent bead hierarchy |
-| `/ensemble:beads-plan` | `[epic-id\|slug-pattern] [max parallel N]` | development | Analyze an existing hierarchy and print `bv` analysis; no implementation |
 | `/ensemble:beads-build` | `[epic-id\|slug-pattern] [--trd trd-path] [--strategy <name>] [--label <label>] [max parallel N]` | development | Drive an existing hierarchy to completion through builder, review and close |
 | `/ensemble:refine-beads` | `[epic-id\|release-train-id\|slug] [--scope project]` | development | Approval-gated Beads graph refinement before execution |
 | `/ensemble:implement-bead` | `<bead-id>` | development | Implement one bead through analysis, implementation and PR |
@@ -219,14 +213,13 @@ Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 43 
 | `/ensemble:new-feature` | none | development | The checkpointed workflow `feature` forwards to (idea, PRD, TRD, beads, implementation, optional PR) |
 | `/ensemble:issue` | `fix`, `list`, `resume`, `status`, `abandon` plus args | development | Dispatcher for issue work |
 | `/ensemble:fix-issue` | none | development | Lightweight bug-fix workflow |
-| `/ensemble:generate-api-docs` | none | development | Generate OpenAPI/Swagger documentation from the codebase |
 
 ### Git, testing and delivery
 
 | Command | Arguments | Package | Purpose |
 |---------|-----------|---------|---------|
 | `/ensemble:pr-merge` | `[pr-number-or-url] [--max-rounds=N] [--dry-run]` | git | Drive an open PR to green and merged, one subagent per failing check or review thread |
-| `/ensemble:release` | none | git | Release workflow via `git-workflow`, `github-specialist` and `deployment-orchestrator` |
+| `/ensemble:release` | none | git | Release workflow via `git-workflow` and `deployment-orchestrator` |
 | `/ensemble:author-playwright-tests` | `[story-or-pr-reference]` | e2e-testing | Interactive Playwright test authoring grounded in shipped code and PRD acceptance criteria |
 
 ### Assessment, standards and utilities
@@ -239,7 +232,6 @@ Commands are invoked as `/ensemble:<name>` in Claude Code. The tree contains 43 
 | `/ensemble:init-project` | `minimal`, `force` | core | Scaffold `docs/standards/constitution.md`, `docs/PRD/` and `docs/TRD/` and the `.gitignore` entries for a project; run it when the Constitution Gate halts |
 | `/ensemble:sessionlog` | none | core | Save a structured session transcript to SessionLogs |
 | `/ensemble:reinstall-plugins` | `[--all \| <filter>]` | core | Force-refresh installed plugins (uninstall and reinstall) |
-| `/ensemble:manager-dashboard` | none | metrics | Productivity metrics and team analytics dashboard |
 
 ### Hidden commands
 
@@ -256,7 +248,7 @@ Eight commands are marked `metadata.visibility: hidden` in their YAML. They cann
 | `inject-standards` | `/ensemble:standards inject` |
 | `beads-build-wave` | Dispatched internally by `/ensemble:beads-build` (one scheduling wave per invocation) |
 
-`fold-prompt` stays typable because the `directory-monitor` agent invokes it by name.
+`fold-prompt` stays typable.
 
 ### Collaborative refinement review
 
@@ -271,6 +263,77 @@ Eight commands are marked `metadata.visibility: hidden` in their YAML. They cann
 ```
 
 `--tunnel=quick` requires the [`cloudflared`](https://github.com/cloudflare/cloudflared) binary on `PATH` (or `CLOUDFLARED_PATH` set to its absolute path). Completed sessions can be re-opened by re-running with `--collab` against the same path; to start over, delete the session file under `~/.config/ensemble/logs/refinement-review/`. Details: [docs/guides/refinement-review-collab.md](docs/guides/refinement-review-collab.md).
+
+### Review metrics and the reviewer eval set
+
+`pr-review-cli.js` (in `ensemble-development`, reached through the `pr-review-cycle` and
+`pr-review-eval` skills) computes the review-process metrics and the reviewer eval score by hand —
+no dashboard, no scheduler, no new dependency:
+
+| Subcommand | Answers |
+|---|---|
+| `metrics` | Per-cohort human approvals per PR (median and p95), human comments, wait-on-human hours, rounds-to-pass, the share of PRs needing five or more rounds, and the noise rate. Bot reviewers are never counted. |
+| `metrics-compare` | A post-change cohort against the committed baseline: every target graded relative to baseline, plus a revert/incident guardrail that fails the cohort on its own. |
+| `eval-score` | Whether the reviewer found the bug in each eval case (a PR that caused an incident or a revert, confirmed by the code owner of the affected area). |
+| `eval-compare` | This eval run against the previous one, naming regressions. |
+| `eval-stale` | Which cases need re-review because their area's review rules changed. |
+
+The `pr-review-eval` skill walks a maintainer through adding a case
+(`docs/review-eval/cases/<id>.json`) and through running the eval set when the reviewer's rules,
+prompts or model change. Recurrence is the host repository's responsibility; ensemble runs no
+recurring job of its own.
+
+**Entry criterion — capture the baseline first.** A comparison only means something against a
+baseline captured *before* the review changes land, so the baseline cohort is captured once (at
+least 20 PRs **and** at least 30 days) and committed as `docs/guides/review-baseline-<date>.json`.
+It is never edited in place: a baseline that moves proves nothing. A cohort that misses either
+floor comes back `insufficient` with no targets graded at all. Procedure:
+[docs/guides/pr-review-metrics.md](docs/guides/pr-review-metrics.md), which extends §6 of
+[docs/guides/pr-review-cycle-time-pilot.md](docs/guides/pr-review-cycle-time-pilot.md).
+
+### Risk tiers, human approvals and the merge gate
+
+Every PR is reviewed and approved at a risk tier derived from **the change itself**, never from
+who wrote it. The tier decides how many people must approve before `pr-merge` will merge:
+
+| Effective tier | Human approvals required | Typical change |
+|---|---|---|
+| Low | 0 | docs or copy only — **and only with the Low waiver enabled** (see below) |
+| Medium | 1 | the default for ordinary product changes |
+| High | 2 | sensitive paths, or a second assessment saying another person is needed |
+
+**Strict by default.** The Low tier is *treated as Medium* unless the `lowWaiver` policy key is
+explicitly enabled with its evidence. A fresh repository therefore requires a human approval on
+every PR that is not already covered, and nothing silently drops to zero reviewers.
+
+**Raise-only.** An agent or the author may *propose* a tier. A proposal that raises the tier is
+accepted from anyone; a proposal that lowers it is **ignored** and recorded as
+`lowering-needs-code-owner` unless a code owner of the affected path makes it. Lowering the
+assigned tier still does not bypass the Low-waiver rule above.
+
+**Approvals are bound to a commit and to a person.** An approval counts only when it is bound to
+the commit (or tree) under review, so a push invalidates it. Bot approvals never count. Where an
+agent authored the PR on a person's instruction, the `Directed by:` line in the PR body makes that
+person count as one of the required reviewers, as if they had written the code themselves.
+
+Policy keys live in the fenced `ensemble-review-policy` block of the **root `REVIEW.md` on the base
+branch** — never the PR head, so a PR cannot loosen its own review:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `roundCap` | Shared review-round cap before escalating to the author | `3` (valid 1–5) |
+| `lowWaiverEnabled` | Whether a Low-tier PR may merge with no human approval | `false` |
+| `botLogins` | Logins whose approvals are never counted | empty |
+| `maintainerLogins` | Logins eligible to enable the Low waiver | empty |
+| `sensitivePaths` / `highPaths` | Globs that floor the tier at Medium / High | empty |
+
+> **Recommended: turn on branch protection.** These gates run where ensemble runs, so they cannot
+> stop a direct push or a merge made outside `pr-merge`. Ensemble reports when server-side
+> enforcement is absent, and recommends it, but **cannot enforce it**. For the guarantee, configure
+> a GitHub branch-protection rule on the default branch requiring pull requests and at least the
+> number of approving reviews your highest tier expects (2 for High), with stale approvals
+> dismissed on new commits. `pr-merge` prints a `SERVER-SIDE ENFORCEMENT ABSENT` notice with the
+> rule to configure whenever it finds the base branch unprotected.
 
 ## The PRD to TRD to Beads to implementation workflow
 
@@ -333,7 +396,7 @@ For .NET projects, `/ensemble:reqnroll` turns PRD acceptance criteria into Gherk
 | Group | Skills |
 |-------|--------|
 | Repository dimensions | `assess-ai-readiness`, `assess-architect`, `assess-cicd`, `assess-code-quality`, `assess-purpose`, `assess-security`, `assess-testing` |
-| Team dimensions | `assess-team-ai-adoption`, `assess-team-code-quality`, `assess-team-code-review`, `assess-team-commit-messages`, `assess-team-commit-volume`, `assess-team-documentation`, `assess-team-incidents`, `assess-team-test-coverage` |
+| Team dimensions | `assess-team-dimension` (commit messages, code quality, test coverage, AI adoption, documentation, code review) |
 | Reports and audits | `ai-readiness-diagnostic-report`, `architecture-overview-report`, `assessment-report-suite`, `assessment-scoring-conflation-audit` |
 | Setup | `assess-config` |
 
@@ -349,15 +412,15 @@ Other options: `--framework=<name>`, `--provider=<name>`, `--tools=<comma-separa
 
 ## Skills
 
-Skill directories use the bare technology name. The tree has 69 source skill directories (`packages/*/skills/<name>/`, plus the single-skill framework packages).
+Skill directories use the bare technology name. The tree has 58 source skill directories (`packages/*/skills/<name>/`, plus the single-skill framework packages).
 
 | Package | Skills |
 |---------|--------|
 | core | `detect-stack` |
-| development | `typescript`, `python`, `php`, `laravel`, `flutter`, `tailwind`, `prisma`, `celery`, `complete-beads`, `completion-verification`, `pr-review-cycle`, `staleness-gate`, `tool-path-resolution` |
+| development | `completion-verification`, `pr-review-cycle`, `pr-review-eval`, `pr-review-explainer`, `pr-review-sweep`, `staleness-gate`, `tool-path-resolution` |
 | infrastructure | `aws`, `kubernetes`, `helm`, `flyio`, `railway`, `supabase`, `vercel`, `jira`, `linear` |
 | git | `git-town`, `changelog-generator`, `act-local-ci` |
-| quality | `pr-review-remediation` |
+| quality | `pr-review-remediation`, `flake-reproduction` |
 | e2e-testing | `smoke-test-runner`, `writing-playwright-tests` |
 | ai | `anthropic`, `openai`, `perplexity`, `weaviate`, `langgraph` |
 | assessment | `ensemble-assess` and the 22 assessment skills listed under [Assessment](#assessment) |
@@ -368,19 +431,18 @@ Skill directories use the bare technology name. The tree has 69 source skill dir
 
 ## Agents
 
-35 agent definitions across the packages:
+24 agent definitions across the packages:
 
 | Package | Agents |
 |---------|--------|
-| core | `agent-meta-engineer`, `context-fetcher`, `directory-monitor`, `ensemble-orchestrator`, `file-creator`, `general-purpose` |
-| development | `advisor`, `api-documentation-specialist`, `architect`, `backend-developer`, `beads-build-wave`, `beads-scaffold-specialist`, `documentation-specialist`, `frontend-developer`, `mobile-developer`, `pm`, `tech-lead-orchestrator` |
+| core | `ensemble-orchestrator` |
+| development | `advisor`, `architect`, `backend-developer`, `beads-build-wave`, `beads-scaffold-specialist`, `documentation-specialist`, `frontend-developer`, `tech-lead-orchestrator` |
 | dotnet | `dotnet-backend-expert` |
 | e2e-testing | `playwright-tester` |
-| git | `git-workflow`, `github-specialist` |
+| git | `git-workflow` |
 | infrastructure | `build-orchestrator`, `deployment-orchestrator`, `helm-chart-specialist`, `infrastructure-developer`, `infrastructure-orchestrator`, `infrastructure-specialist`, `postgresql-specialist` |
-| metrics | `manager-dashboard-agent` |
 | product | `product-management-orchestrator` |
-| quality | `code-reviewer`, `deep-debugger`, `qa-orchestrator`, `test-runner` |
+| quality | `code-reviewer`, `deep-debugger`, `test-runner` |
 | reqnroll | `reqnroll-binding-specialist` |
 
 ## Runtimes
@@ -440,12 +502,11 @@ Anything that loads a skill by name must use the new name.
 
 | Old | New |
 |-----|-----|
-| `developing-with-typescript`, `developing-with-python`, `developing-with-php`, `developing-with-laravel`, `developing-with-flutter` | `typescript`, `python`, `php`, `laravel`, `flutter` |
-| `styling-with-tailwind` | `tailwind` |
+| `developing-with-typescript`, `developing-with-python`, `developing-with-php`, `developing-with-laravel`, `developing-with-flutter`, `styling-with-tailwind`, `using-prisma`, `using-celery` | Removed (generic tutorial skills; no replacement) |
 | `managing-jira-issues`, `managing-linear-issues` | `jira`, `linear` |
 | `managing-railway`, `managing-vercel`, `managing-supabase` | `railway`, `vercel`, `supabase` |
 | `aws-cloud` | `aws` |
-| `using-prisma`, `using-celery`, `using-weaviate` | `prisma`, `celery`, `weaviate` |
+| `using-weaviate` | `weaviate` |
 | `using-anthropic-platform`, `using-openai-platform`, `using-perplexity-platform` | `anthropic`, `openai`, `perplexity` |
 | `building-langgraph-agents` | `langgraph` |
 | `dotnet-framework` (ensemble-blazor) | `dotnet` (ensemble-dotnet) |
@@ -465,14 +526,18 @@ Anything that loads a skill by name must use the new name.
 | `/ensemble:discover-standards`, `inject-standards` | `/ensemble:standards discover`, `inject` |
 | `assess-repo` / `assess-team` / `assess-config` / report skills invoked directly | `/ensemble:assess repo`, `team`, `config`, `report` (leaf skills remain invocable) |
 | `/ensemble:claude-changelog` (removed) | Use the `changelog-generator` skill |
-| `/ensemble:sprint-status`, `/ensemble:web-metrics-dashboard` (removed) | None; `/ensemble:manager-dashboard` remains |
+| `/ensemble:beads-plan` | `/ensemble:beads-build --plan` (read-only plan mode) |
+| `/ensemble:generate-api-docs`, `/ensemble:analyze-product`, `/ensemble:manager-dashboard` (removed) | None |
+| `/ensemble:sprint-status`, `/ensemble:web-metrics-dashboard` (removed) | None |
 | `/ensemble:playwright-test` (removed) | `/ensemble:author-playwright-tests` or the `playwright-tester` agent |
 
 The `trd` dispatcher no longer has `foreman` or `workstream` keywords, and the `prd` dispatcher no longer has `create-meeting` or `refine-meeting`; the flags above go on `create`, `refine` and `implement`. Typable commands went from 44 to 35.
 
 ### Removed agents
 
-- `release-agent`: duplicate of `/ensemble:release`, which delegates to `git-workflow`, `github-specialist` and `deployment-orchestrator`.
+- `release-agent`: duplicate of `/ensemble:release`, which delegates to `git-workflow` and `deployment-orchestrator`.
+- `general-purpose`, `file-creator`, `context-fetcher`, `agent-meta-engineer`, `directory-monitor`, `pm`, `api-documentation-specialist`, `mobile-developer`, `qa-orchestrator` (use `test-runner`), `github-specialist` (merged into `git-workflow`).
+- The `ensemble-router` and `ensemble-metrics` packages.
 - `test-reader-agent`: fixture agent.
 
 ### Behavior changes
@@ -485,7 +550,7 @@ The `trd` dispatcher no longer has `foreman` or `workstream` keywords, and the `
 - `ensemble-assessment` is Pi-installable on its own and is no longer bundled into `ensemble-pi`; install both if you want both.
 - `ensemble-infrastructure` and `ensemble-quality` now declare `ensemble-core` as a dependency (Claude Code installs it; Pi and Codex do not).
 - Direct multi-TRD invocation of `implement-trd-beads` is rejected; use `--workstream`.
-- Package versions moved to new majors for packages whose surface changed: `ensemble-ai`, `ensemble-blazor`, `ensemble-codex`, `ensemble-core`, `ensemble-e2e-testing`, `ensemble-git`, `ensemble-infrastructure`, `ensemble-metrics`, `ensemble-product`, `ensemble-quality`, `ensemble-react` are 6.0.0; `ensemble-development` and `ensemble-full` are 7.0.0. Dependency ranges (`^6.0.0`, `^7.0.0` for development) were updated accordingly.
+- Package versions moved to new majors for packages whose surface changed: `ensemble-ai`, `ensemble-blazor`, `ensemble-codex`, `ensemble-core`, `ensemble-e2e-testing`, `ensemble-git`, `ensemble-infrastructure`, `ensemble-product`, `ensemble-quality`, `ensemble-react` are 6.0.0; `ensemble-development` and `ensemble-full` are 7.0.0. Dependency ranges (`^6.0.0`, `^7.0.0` for development) were updated accordingly.
 
 After upgrading, refresh installed plugins with `/ensemble:reinstall-plugins`.
 

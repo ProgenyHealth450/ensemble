@@ -1,0 +1,54 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Real-process fixture for scripts/tests/toolchain-runner-timeout-containment.test.js
+ * (TRD-2026-8d825f54 TRD-011, reviewer round 4 follow-up): a `ps` that behaves normally for the
+ * first `FAKE_PS_VANISH_AFTER_CALLS` invocations (default 3), then -- every call after that --
+ * rewrites every row's `ppid` field to an unrelated value UNLESS it is already `0` or `1`. This
+ * models, without needing to predict any pid in advance, the real race this fixture reproduces:
+ * a poll that happens to land after the kernel has already reparented a descendant away from
+ * its original parent (e.g. because the parent just died) sees that descendant's row with a
+ * DIFFERENT `ppid`, even though the descendant's own row (and `lstart`) is still genuinely
+ * present. `runner.js#listProcessTable`'s own pid-based lookups (`rows.find(row.pid===X)`) are
+ * unaffected by this rewrite; only `collectDescendants`'s ppid-walk loses the relationship.
+ *
+ * Call count is tracked in `FAKE_PS_COUNTER_FILE` (required), incremented on every invocation,
+ * so a caller spawning multiple processes against the SAME counter file sees a consistent,
+ * monotonically-advancing view regardless of which process happens to call `ps` next.
+ */
+
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+
+const counterFile = process.env.FAKE_PS_COUNTER_FILE;
+const vanishAfter = Number(process.env.FAKE_PS_VANISH_AFTER_CALLS || '3');
+
+let count = 0;
+try {
+  count = Number(fs.readFileSync(counterFile, 'utf8')) || 0;
+} catch {
+  // First call: counter file does not exist yet.
+}
+count += 1;
+fs.writeFileSync(counterFile, String(count));
+
+const real = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,lstart='], { encoding: 'utf8' });
+
+if (count <= vanishAfter) {
+  process.stdout.write(real);
+} else {
+  const rewritten = real
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      const tokens = trimmed.split(/\s+/);
+      if (tokens[1] !== '0' && tokens[1] !== '1') {
+        tokens[1] = '999999';
+      }
+      return `  ${tokens.join(' ')}`;
+    })
+    .join('\n');
+  process.stdout.write(rewritten);
+}

@@ -4,464 +4,267 @@
 
 # ensemble-create-trd
 
-> **Mission:** Create a Technical Requirements Document (TRD) from a Product Requirements Document (PRD). Performs PRD validation, architecture design with alternatives, task breakdown with traceability, optional MCP enhancement, adversarial self-review with a Design Readiness Gate, and structured output with traceability matrices. Team configuration is handled separately by /ensemble-configure-team. All outputs are saved to docs/TRD/. --foreman also carries an artifact contract: when FOREMAN_ARTIFACT_PATH is set and non-empty, write the phase report to that exact path (creating parent directories as needed) IN ADDITION TO any repo-local report this command already writes -- Foreman computes that path and reads it back to confirm the phase produced an artifact. Never invent, alter, or relocate the path, and never treat an unset FOREMAN_ARTIFACT_PATH as an error (outside Foreman dispatch it is simply absent and behavior is unchanged). Foreman subject contract: under --foreman, FOREMAN_TASK_TITLE and FOREMAN_TASK_DESCRIPTION carry the dispatched task's title and description (Foreman dispatch sets them; nothing else does). When FOREMAN_TASK_TITLE is set and non-empty the TRD must plan exactly that task, and you print the title you read before writing anything. FOREMAN_SOURCE_PRD_PATH, when set and non-empty, is the absolute path of the PRD the previous Foreman phase actually produced: it is an INPUT to consume, not an output path to write, and it is the only PRD you may read. Confirm that PRD's own subject matches FOREMAN_TASK_TITLE before consuming it; if they describe different work, STOP and report the mismatch quoting both subjects rather than planning the wrong PRD. If FOREMAN_SOURCE_PRD_PATH is set but missing on disk, STOP and report the path -- never fall back to a directory scan. If NEITHER a prd-path was passed as arguments NOR FOREMAN_SOURCE_PRD_PATH is set, STOP and report that no source PRD was delivered. NEVER choose a PRD by recency, glob, or plausibility. Outside Foreman dispatch these variables are absent and behavior is unchanged. --parser-tables selects Foreman table mode (the former /ensemble-create-trd-foreman command, folded in here): the Master Task List becomes parser-compatible sprint/story tables for Foreman's parseTrd() and `foreman sling prd`, and the adversarial review phase is omitted. Steps titled "(--parser-tables)" run only in that mode and the standard steps they replace are skipped in it. This is not --foreman, which keeps the standard TRD format and only makes the run non-interactive.
+> **Mission:** Create a TRD from a PRD: validate the PRD, design architecture with alternatives, break work into traceable tasks and PR boundaries, self-review with a Design Readiness Gate, run the Constitution Gate, and save to docs/TRD/. Team configuration is handled by /ensemble-configure-team. Foreman subject contract (--foreman): FOREMAN_TASK_TITLE / FOREMAN_TASK_DESCRIPTION carry the dispatched task; when FOREMAN_TASK_TITLE is set, print it before writing anything and plan exactly that task. FOREMAN_SOURCE_PRD_PATH, when set, is the only PRD you may read (an input, not an output path). Confirm its subject matches FOREMAN_TASK_TITLE, else STOP and quote both subjects. If it is set but missing on disk, STOP and report the path. If neither a prd-path argument nor FOREMAN_SOURCE_PRD_PATH exists, STOP and report that no PRD was delivered. NEVER choose a PRD by recency, glob, or plausibility. Outside Foreman these variables are absent.
 
 > **Constraints:**
-> - DO NOT implement, build, or execute any technical work described in the requirements
-> - This command creates ONLY a TRD document
-> - The arguments describe what should be documented, not what should be built
-> - After creating the TRD, stop and wait for user approval before any implementation
-> - DO NOT save the TRD until the Constitution Gate Contract passes
-> - When --foreman is set, soft confirmation prompts (CONCERNS-band readiness warnings, architecture-alternative picks) proceed automatically with the choice logged only for non-constitution concerns; constitution violations are excluded from CONCERNS auto-proceed and always HALT; hard FAIL gates and the --list interactive picker's ambiguous case still HALT
-> - When --foreman is present and FOREMAN_ARTIFACT_PATH is set and non-empty, write the phase report to that exact path (creating parent directories as needed) IN ADDITION TO any repo-local report this command already writes -- Foreman computes that path and reads it back to confirm the phase produced an artifact. Never invent, alter, or relocate the path, and never treat an unset FOREMAN_ARTIFACT_PATH as an error (outside Foreman dispatch it is simply absent and behavior is unchanged).
-> - Every REQ-NNN acceptance-criteria set MUST decompose into multiple Given/When/Then AC-NNN-M scenarios (happy path, edge case, error/negative case at minimum) -- each AC-NNN-M becomes exactly one BDD/Gherkin scenario consumed by reqnroll-cli during implementation. This command SPECIFIES those scenarios; it does NOT generate .feature files or run codegen (see DO NOT implement/build/execute constraint above).
-> - When --parser-tables is set (Foreman table mode): the Master Task List MUST be parser-compatible sprint/story markdown tables (never prose checklists and never the PR-section checkbox format), the adversarial review phase MUST NOT run, every task Status cell MUST be `[ ]` (never `[x]` or `done`), and after creating the TRD stop and wait for user approval before any implementation; the only next step printed is `foreman sling prd <original-prd-path>`
-> - --parser-tables is not --foreman: --foreman keeps the standard TRD (checkbox tasks under ### PR N: headings, adversarial review and Design Readiness Gate) and only removes interactive prompts and adds the Foreman artifact/subject contracts, because Foreman's own prd workflow runs create-trd --foreman and then refine-trd and implement-trd on the standard format; --parser-tables changes the document format and phases
+> - DO NOT implement, build, or execute any technical work described in the requirements; this command creates ONLY a TRD document, then stops for user approval
+> - DO NOT save the TRD until the Constitution Gate passes
+> - Every functional REQ-NNN decomposes into multiple Given/When/Then AC-NNN-M scenarios (happy path, edge, error); each AC-NNN-M becomes one BDD scenario consumed by reqnroll-cli during implementation. This command SPECIFIES scenarios; it does not generate .feature files.
+> - When --parser-tables is set (Foreman table mode): the Master Task List MUST be parser-compatible sprint/story markdown tables (never prose checklists or PR-section checkboxes), the adversarial review phase MUST NOT run, every task Status cell MUST be `[ ]` (never `[x]` or `done`), and after creating the TRD stop for user approval; the only next step printed is `foreman sling prd <original-prd-path>`.
 
 ## Arguments
 
-- **`foreman`** (boolean, optional, default: `false`): Run in Foreman-native non-interactive mode -- skip interactive elicitation that exists purely to gather optional human preference. Specifically: auto-select the PRD when combining --list with --foreman (HALT with the candidate list if the choice is ambiguous), proceed past the CONCERNS-band (3.0-3.9) PRD readiness warning without asking, and auto-pick the recommended architecture option instead of asking the user to choose. Hard FAIL gates (PRD readiness < 3.0, Design Readiness Gate FAIL) still HALT unchanged. Constitution Gate Contract failures also hard HALT; --foreman cannot bypass missing-source, unmapped-check, or article violation failures. Never causes auto-implementation -- this command still stops after producing the TRD. When --foreman is present and the FOREMAN_ARTIFACT_PATH environment variable is set and non-empty, write the phase report to that exact path (creating parent directories as needed) IN ADDITION TO any repo-local report this command already writes. Foreman computes that path and reads it back to confirm the phase produced an artifact; writing only to a repo-local convention leaves Foreman with no artifact. Never invent, alter, or relocate the path. Never treat an unset FOREMAN_ARTIFACT_PATH as an error — outside Foreman dispatch it is simply absent, and behavior must be unchanged.
-- **`parser-tables`** (boolean, optional, default: `false`): Foreman table mode -- folds in the former standalone /ensemble-create-trd-foreman command. Produce a Foreman-native structured TRD whose Master Task List is parser-compatible sprint/story markdown tables that Foreman's parseTrd() reads (suitable for `foreman sling prd`), and OMIT the adversarial review phase: no Architecture Self-Critique, Task Coverage Analysis, Dependency and Estimate Review, Testability Review or Design Readiness Gate runs. Steps titled "(--parser-tables)" run only in this mode and the standard steps they replace are skipped. Generation asks the user nothing (only the optional --list PRD picker is interactive): the PRD readiness CONCERNS band proceeds with a logged warning and the architecture option is chosen automatically (unless the caller explicitly requested an interactive architecture review), while constitution violations stay non-bypassable. It writes exactly one TRD file (no companion research/data-model artifacts), does not auto-run configure-team for --team, and prints `foreman sling prd <original-prd-path>` as its only next step. Not the same as --foreman: --foreman keeps the standard PR-section checkbox TRD and the adversarial review and only removes interactive prompts and adds the Foreman artifact contract. The two flags combine; --foreman --parser-tables applies the --foreman prompt, artifact and subject contracts to this mode.
+- **`foreman`** (boolean, optional, default: `false`): Foreman-native non-interactive mode: skip questions that only gather optional human preference. Auto-select the PRD for --list only when exactly one candidate exists (otherwise HALT with the candidate list), proceed past the CONCERNS-band (3.0-3.9) PRD readiness warning, and auto-pick Option C for the architecture. Hard FAIL gates (PRD readiness < 3.0, Design Readiness Gate FAIL, Constitution Gate failures) still HALT. Never implements; the command stops after producing the TRD. When --foreman is present and FOREMAN_ARTIFACT_PATH is set and non-empty, write the phase report to that exact path (creating parent directories) in addition to any repo-local report. Never invent or alter the path; an unset FOREMAN_ARTIFACT_PATH is not an error.
+- **`parser-tables`** (boolean, optional, default: `false`): Foreman table mode -- folds in the former standalone /ensemble-create-trd-foreman command. The Master Task List is parser-compatible sprint/story markdown tables that Foreman's parseTrd() reads (for `foreman sling prd`), and the adversarial review phase is OMITTED: no Architecture Self-Critique, Task Coverage Analysis, Dependency and Estimate Review, Testability Review or Design Readiness Gate. Steps titled "(--parser-tables)" run only in this mode and replace the standard steps. Asks the user nothing (only the optional --list picker is interactive): the PRD readiness CONCERNS band proceeds with a logged warning, the architecture option is chosen automatically unless interactive architecture review was explicitly requested, and constitution violations stay non-bypassable. Writes exactly one TRD file (no companion artifacts), does not auto-run configure-team for --team, and prints `foreman sling prd <original-prd-path>` as its only next step. Not the same as --foreman, which keeps the standard checkbox TRD (### PR N: headings, adversarial review, Design Readiness Gate) and only removes prompts and adds the Foreman artifact/subject contracts. The flags combine: --foreman --parser-tables applies those contracts to this mode.
 
 ## Phase 1: PRD Ingestion and Validation
 
-### Step 1: List Available PRDs
+### Step 1: Select PRD
 
-If --list is passed, show available PRDs and exit
-
-**Actions:**
-1. If $ARGUMENTS contains '--list': Resolve PRD_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/prd-cli.js. If none of the 4 tiers resolve: fall back to resolving TRD_CLI via the same skill for packages/development/lib/trd-cli.js. If neither resolves, print 'ERROR: Neither prd-cli.js nor trd-cli.js found — cannot list PRDs.' and HALT.
-2. If $ARGUMENTS contains '--list': run node "$PRD_CLI" list --type prd and parse {ok,type,items}. If ok is false or JSON is malformed, print the error and HALT. Print a formatted table of PRDs (columns: ID/Name, Status, Score, Version, Last Modified).
-3. If $ARGUMENTS contains '--list' AND does NOT contain '--foreman': call ask with id='prd_select', question='Select a PRD to use as the basis for TRD creation:', options=items.map(i => ({id:i.slug, label:i.id||i.slug, description: 'Status: ' + i.status + (i.design_readiness_score != null ? ' | Score: ' + i.design_readiness_score : '') + (i.version ? ' | Version: ' + i.version : '') + (i.last_modified ? ' | Modified: ' + i.last_modified.split('T')[0] : '')})), multi=false, recommended=0. Parse answer id as the selected PRD_SLUG.
-4. If $ARGUMENTS contains both '--list' and '--foreman': there is no human present to pick interactively. If items has exactly one entry, auto-select it as PRD_SLUG and print 'Foreman mode: auto-selected PRD <slug> (only candidate).' If items has zero or 2+ entries, print 'ERROR: --list with --foreman requires an unambiguous PRD. Candidates: <id/slug list>. Pass a specific prd-path instead.' and HALT.
-5. If $ARGUMENTS contains '--list' (either branch above resolved a PRD_SLUG): derive PRD_FILE_PATH as docs/PRD/<basename matching the selected slug>.md (find by suffix/prefix match). If derived path does not exist, print 'ERROR: Could not resolve path for slug <PRD_SLUG>' and HALT. Set the derived path as the $ARGUMENTS prd-path and continue.
-
-### Step 2: PRD Ingestion
-
-Parse and analyze existing PRD document from $ARGUMENTS path
+Resolve the PRD from the argument, --list, or FOREMAN_SOURCE_PRD_PATH
 
 **Actions:**
-1. If FOREMAN_SOURCE_PRD_PATH is set and non-empty, that file is THE PRD to consume -- read it and no other, and let it override any --list selection. If it is set but absent on disk, print 'ERROR: FOREMAN_SOURCE_PRD_PATH points at a missing file: <path>' and HALT without falling back to a directory scan. If it is unset AND no prd-path argument was provided, print 'ERROR: no source PRD was delivered (FOREMAN_SOURCE_PRD_PATH unset, no prd-path argument)' and HALT. Never select a PRD by recency, glob, or plausibility. When FOREMAN_TASK_TITLE is set, verify the PRD's subject matches it and HALT on a mismatch, quoting both.
-2. Read PRD file from specified path
-3. If --foundational and no full PRD exists: accept a short capability brief instead (the shared work to build), skip PRD-structure validation for this run, and build a capability registry from the brief's named capabilities / scope / target files instead of REQ-NNN IDs
-4. If a full PRD is provided: validate document structure (required sections present), extract key requirements with REQ-NNN IDs, and build requirements registry for traceability tracking
+1. If FOREMAN_SOURCE_PRD_PATH is set it is THE PRD (overrides --list); apply the Foreman subject contract above.
+2. If --list: resolve PRD_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/prd-cli.js, run `node "$PRD_CLI" list --type prd` and parse {ok,type,items}; on failure print the error and HALT. Show a table (ID/Name, Status, Score, Version, Last Modified) and ask the user to pick one via ask (id `prd_select`). Under --foreman see the parameter rules: one candidate auto-selects, otherwise print `ERROR: --list with --foreman requires an unambiguous PRD. Candidates: <list>. Pass a specific prd-path instead.` and HALT. Map the selected slug to docs/PRD/<file>.md; HALT if it does not exist.
+3. Read the PRD. With --foundational and no full PRD, accept a short capability brief, skip PRD-structure validation and the readiness gate, and register capabilities instead of REQ-NNN IDs.
 
-### Step 3: Requirements Validation
+### Step 2: Requirements Validation
 
-Ensure completeness of functional and non-functional requirements
-
-**Actions:**
-1. If --foundational with a short capability brief: skip this PRD-specific validation step
-2. Otherwise validate all required sections present (Product Summary, User Analysis, Goals, Technical Requirements, Acceptance Criteria)
-3. Otherwise check acceptance criteria are testable and use Given/When/Then format
-4. Otherwise verify REQ-NNN format numbering is consistent and sequential
-5. Otherwise verify constraints and non-goals are documented
-
-### Step 4: Acceptance Criteria Review
-
-Validate testable acceptance criteria from the PRD before TRD generation
+Check PRD completeness and the BDD scenario floor
 
 **Actions:**
-1. If --foundational with a short capability brief: skip this PRD-specific acceptance criteria review
-2. Otherwise ensure each requirement has measurable acceptance criteria with Given/When/Then items
-3. Otherwise verify AC-NNN-M sub-item format under each REQ-NNN
-4. Otherwise check that every functional REQ-NNN has at least 3 AC-NNN-M sub-items spanning happy path, edge case, and error/negative case -- these are the minimum BDD scenario set reqnroll-cli will scaffold per requirement. Flag any REQ-NNN with fewer than 3 as insufficient BDD coverage and note it in the readiness scorecard.
-5. Do NOT validate TRD traceability here -- the TRD has not been generated yet
+1. Unless --foundational with a brief: verify the PRD has Product Summary, User Analysis, Goals, Technical Requirements, Acceptance Criteria; REQ-NNN numbering is consistent; acceptance criteria are testable Given/When/Then with AC-NNN-M sub-items; constraints and non-goals are documented. Build the REQ registry for traceability.
+2. Flag any functional REQ-NNN with fewer than 3 AC-NNN-M sub-items (happy path, edge, error) as insufficient BDD coverage in the readiness scorecard.
 
-### Step 5: Implementation Readiness Gate Check
+### Step 3: Implementation Readiness Gate Check
 
-Check if the PRD passed its own readiness gate before proceeding
+Check the PRD's own readiness gate and review history
 
 **Actions:**
-1. If --foundational with a short capability brief: skip the PRD readiness score gate
-2. Otherwise read PRD frontmatter for Readiness Score field
-3. If score >= 4.0 (PASS): proceed normally
-4. If score 3.0-3.9 (CONCERNS): warn user about PRD concerns, ask whether to proceed. If --foreman or --parser-tables is set, skip the ask -- log the warning and proceed automatically.
-5. If score < 3.0 (FAIL): halt and recommend running /ensemble-refine-prd first (this HALT is unaffected by --foreman)
-6. If no readiness score in frontmatter, proceed with a note that PRD was not gate-checked
-7. REFINE CHECK. Determine whether this PRD has been through /ensemble-refine-prd. refine-prd is the only command that writes a `## Changelog` section into a PRD; create-prd writes none. So: read the PRD for a `## Changelog` (or `## Version History`) section containing at least one entry. Absent, or present with no entry, means the PRD has never been refined.
-8. If the PRD has never been refined: print a prominent warning naming the PRD path -- `WARNING: <path> has no refine-prd changelog entry. This PRD has not been reviewed.` -- then ask through ask whether to run /ensemble-refine-prd first (recommended) or to proceed against the unrefined PRD anyway. This warning is advisory, not a HALT: a low readiness score already halts above, and a PRD can legitimately be hand-written. If --foreman or --parser-tables is set, skip the ask, log the warning, and proceed.
-9. PRD-CHANGED CHECK. If a TRD already exists for this PRD (a docs/TRD file whose `prd_reference` resolves to this PRD path, or whose TRD_MICRO_UUID matches this PRD's micro UUID) and the PRD's frontmatter `version` is higher than the version recorded when that TRD was written, say so plainly: the existing TRD was built from a PRD that has since moved. The correct action is to RE-CREATE the TRD from the current PRD, which is this command. It is NOT to run /ensemble-refine-trd on the existing one -- refining a TRD against a PRD that changed underneath it refines the wrong document. Overwrite the existing TRD path rather than creating a second TRD for the same PRD.
+1. Read PRD frontmatter Readiness Score. >= 4.0 proceed; 3.0-3.9 (CONCERNS) warn and ask whether to proceed (--foreman or --parser-tables: skip the ask -- log the warning and proceed automatically); < 3.0 HALT and recommend /ensemble-refine-prd (even under --foreman or --parser-tables); absent: proceed noting the PRD was not gate-checked.
+2. REFINE CHECK. refine-prd is the only command that writes a `## Changelog` (or `## Version History`) section into a PRD. If the PRD has none, or it has no entry, print `WARNING: <path> has no refine-prd changelog entry. This PRD has not been reviewed.` and ask via ask whether to run /ensemble-refine-prd first (recommended) or proceed. Advisory, not a HALT. If --foreman or --parser-tables is set, skip the ask, log the warning, and proceed.
+3. PRD-CHANGED CHECK. If a TRD already exists for this PRD (a docs/TRD file whose `prd_reference` resolves to this PRD path, or whose TRD_MICRO_UUID matches) and the PRD frontmatter `version` is higher than the version that TRD was built from, the correct action is to RE-CREATE the TRD from the current PRD, which is this command. It is NOT to run /ensemble-refine-trd on the existing one -- that refines the wrong document. Overwrite the existing TRD path rather than creating a second TRD for the same PRD.
 
 ## Phase 2: Architecture Design
 
 ### Step 1: Domain Analysis
 
-Analyze requirements for technical domains and architectural scope
+Map requirements to technical domains and detect companion artifact domains
 
 **Actions:**
-1. Scan all REQ-NNN requirements for technical domain keywords (API, UI, database, infrastructure, security, etc.)
-2. Identify architectural patterns needed (API layer, data model, UI components, integrations)
-3. Map requirements to technical domains for coverage tracking
-4. Classify companion artifact domains and record the result once as COMPANION_DOMAINS for later output steps: add `data-model` when requirements mention persistence changes such as entities, schemas, database tables, migrations, backfills, relationships, records, validation rules, ownership, privacy/security for stored data, or durable state changes.
-5. Do NOT add `data-model` for incidental data mentions, read-only display data, analytics labels, report fields, request/response examples, or documentation-only references unless another persistence/schema signal is present.
-6. Add `research` when requirements require comparative technology decisions, vendor/tool selection, integration options, architecture alternatives, dependency tradeoffs, or external service evaluation that should be reviewable independently from the TRD.
-7. Do NOT add `research` for routine brownfield architecture description, straightforward use of an already-selected stack, or implementation notes that do not compare options or justify a technology/integration decision.
-8. If no companion domains are detected, record COMPANION_DOMAINS as empty; later steps must not create empty companion placeholder files.
-9. If $ARGUMENTS contains '--parser-tables': ignore the companion artifact domain classification above and record COMPANION_DOMAINS as empty -- Foreman table mode writes exactly one parser-compatible TRD file and no companion artifacts.
-10. Determine if project is greenfield or brownfield (check for existing codebase)
-11. Summarize domain coverage, COMPANION_DOMAINS, and gaps
+1. Map REQ-NNN requirements to technical domains, identify needed architectural patterns, and determine greenfield vs brownfield.
+2. Record COMPANION_DOMAINS: `data-model` when requirements change persistence (entities, schemas, tables, migrations, backfills, durable state); `research` when requirements need comparative technology/vendor/integration decisions that deserve independent review. Not for incidental data mentions, routine brownfield description, or an already-selected stack. Empty means no companion files are created.
+3. If $ARGUMENTS contains '--parser-tables': ignore the classification above and record COMPANION_DOMAINS as empty -- Foreman table mode writes exactly one parser-compatible TRD file and no companion artifacts.
 
 ### Step 2: Capability Reuse Check
 
 Reuse existing foundational work instead of duplicating it (dedup-by-reference)
 
 **Actions:**
-1. Resolve TRD_GRAPH_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/trd-graph-cli.js. If none of the 4 tiers resolve, print error and HALT.
-2. Run: node "$TRD_GRAPH_CLI" capabilities docs/TRD --json to list capabilities already provided by foundational TRDs; if docs/TRD does not exist yet, treat the registry as empty and continue
-3. For each technical capability this PRD needs (from Domain Analysis), check the registry: an EXPLICIT match is one of the listed capability tokens; otherwise judge an IMPLICIT match by comparing the needed work to existing foundational TRD labels/titles and their target files (also consult: node "$TRD_GRAPH_CLI" overlap docs/TRD)
-4. If a foundational TRD already provides the capability: DO NOT generate duplicate tasks for it. Instead add a cross-TRD dependency [depends: <foundational-slug>#TRD-NNN] (or #PR-N) on the task that needs it, and record it under a '## Reused Capabilities' section (capability -> foundational TRD label + document id)
-5. If $ARGUMENTS contains '--parser-tables': do NOT add [depends: <foundational-slug>#...] annotations or any cross-TRD dependency to a task row -- keep the Foreman Dependencies column local-only (task IDs of this TRD only) and record external reuse only under a '## Reused Capabilities' section as capability -> foundational slug/document id/ref (<foundational-slug>#TRD-NNN or #PR-N).
-6. If a needed capability is clearly reusable across PRDs but no foundational TRD exists yet, recommend extracting it: suggest running /ensemble-create-trd <prd> --foundational to create a shared TRD, rather than embedding the work here
-7. Reference foundational work by slug / document id only -- never by label (labels are display-only and may change)
+1. Resolve TRD_GRAPH_CLI per the tool-path-resolution skill for packages/development/lib/trd-graph-cli.js (HALT with an error if unresolved). Run `node "$TRD_GRAPH_CLI" capabilities docs/TRD --json` (an absent docs/TRD means an empty registry) and, for implicit matches, `node "$TRD_GRAPH_CLI" overlap docs/TRD`.
+2. If a foundational TRD already provides a needed capability, generate no duplicate tasks: add `[depends: <foundational-slug>#TRD-NNN]` (or `#PR-N`) on the dependent task and record it under `## Reused Capabilities` (capability -> foundational TRD label + document id). Reference by slug/document id only, never by label.
+3. If $ARGUMENTS contains '--parser-tables': do NOT add `[depends: <foundational-slug>#...]` annotations or any cross-TRD dependency to a task row -- keep the Dependencies column local-only (task IDs of this TRD) and record external reuse only under `## Reused Capabilities` as capability -> foundational slug/document id/ref (`<foundational-slug>#TRD-NNN` or `#PR-N`).
+4. If a capability is clearly reusable but no foundational TRD exists, recommend `/ensemble-create-trd <prd> --foundational`.
 
 ### Step 3: Architecture Alternatives
 
-Present 2-3 architecture approaches with tradeoffs for user selection
+Present architecture options for selection when the choice is genuinely open
 
 **Actions:**
-1. Design Option A: simplest approach -- minimal components, fastest to build, may not scale
-2. Design Option B: most scalable approach -- production-grade architecture, more upfront work
-3. Design Option C: best fit for existing codebase (if brownfield) or balanced approach (if greenfield)
-4. Present each option with pros, cons, estimated complexity impact, and risk profile
-5. Ask user to choose one option or combine elements before proceeding. If --foreman is set, skip the ask -- automatically select Option C (best fit for existing codebase, or balanced approach for greenfield) as the recommended default, and print 'Foreman mode: auto-selected Option C (<summary>)' before continuing.
-6. If $ARGUMENTS contains '--parser-tables' and does NOT contain '--foreman': skip the ask -- choose the best balanced option automatically unless the caller explicitly requested an interactive architecture review. (With --foreman, the Option C rule above already applies.)
+1. For a greenfield or ambiguous PRD, present 2-3 options (simplest; most scalable; best fit for the existing codebase or balanced) with pros, cons, complexity and risk, and ask the user to choose or combine. If the PRD or codebase already dictates the approach, state it and skip the options.
+2. --foreman: auto-select Option C (best fit / balanced) and print `Foreman mode: auto-selected Option C (<summary>)`.
+3. If $ARGUMENTS contains '--parser-tables' and does NOT contain '--foreman': skip the ask -- choose the best balanced option automatically unless the caller explicitly requested an interactive architecture review.
 
 ### Step 4: System Architecture Design
 
-Design detailed system architecture based on chosen approach
+Design the chosen approach
 
 **Actions:**
-1. Define component boundaries and responsibilities
-2. Design data flow between components (inputs, outputs, transformations)
-3. Specify integration points with external systems and APIs
-4. Document technology choices and rationale
-5. Create architecture diagram description (component relationships, data flow direction)
+1. Define component boundaries, data flow, integration points, and technology choices with rationale; describe the component relationships.
+2. If the PRD touches auth, PII, payments, file upload, external network exposure or new third-party integrations, invoke the `threat-model` skill and add its `## Threat Model` section.
 
 ## Phase 3: Task Breakdown and Planning
 
 ### Step 1: Master Task List Generation
 
-Generate comprehensive task list with TRD-NNN IDs and traceability annotations
+Generate task list with TRD-NNN IDs and traceability annotations
 
 **Actions:**
 1. If $ARGUMENTS contains '--parser-tables': skip this step -- Foreman table mode replaces this phase's task generation with the three steps titled '(--parser-tables)' at the end of this phase.
-2. Generate unique TRD-NNN IDs for every task (sequential numbering)
-3. Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**. Omitting the checkbox prefix makes the task invisible to trd-cli.js's TASK_LINE_RE parser and to implement-trd-beads, which will then create zero task beads for this TRD.
-4. Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation
-5. Add Validates PRD ACs field listing AC-NNN-M items the task covers
-6. Add Implementation AC checklist with Given/When/Then items specific to the implementation
-7. Use [satisfies INFRA] or [satisfies ARCH] for infrastructure/architecture tasks without a direct REQ
+2. Generate sequential TRD-NNN IDs.
+3. Every task line MUST begin with a GitHub checkbox -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN**; without it trd-cli.js and implement-trd-beads create zero task beads.
+4. Each task includes: description, hour estimate (Nh), [satisfies REQ-NNN] annotation (use [satisfies INFRA] or [satisfies ARCH] when there is no direct REQ), a `Validates PRD ACs:` field listing the AC-NNN-M items covered, and an `Implementation AC:` checklist of Given/When/Then items.
 
 ### Step 2: Test Task Generation (BDD)
 
-Generate a paired BDD/Reqnroll test task, carrying multiple Gherkin scenarios, for every user-facing implementation task
+Generate a paired BDD/Reqnroll test task for every user-facing implementation task
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode generates its test tasks in the 'Foreman Test Task Generation (--parser-tables)' step of this phase).
-2. For every user-facing TRD-NNN implementation task, generate a TRD-NNN-TEST task
-3. Every TRD-NNN-TEST line MUST begin with the same checkbox-prefix requirement as implementation tasks -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN-TEST**. Every TRD-NNN-TEST task generated by this phase is a BDD/Reqnroll acceptance test by construction -- implement-trd-beads routes any task whose id matches `-TEST` through the reqnroll BDD path (no separate tag needed; the existing TRD-CLI isTest field is the routing signal).
-4. Test tasks include: [verifies TRD-NNN] [satisfies REQ-NNN] [depends: TRD-NNN] annotations, plus a `Validates PRD ACs: AC-NNN-M, AC-NNN-M, ...` field listing every AC-NNN-M the task covers
-5. Under each TRD-NNN-TEST task body, add a `Test AC:` checklist section (the same labeled-checklist format implementation tasks already use for `Implementation AC:`) with one `- [ ] Scenario: <short title> -- Given <...>, When <...>, Then <...>` line per AC-NNN-M in its Validates PRD ACs field -- one Gherkin scenario per AC, not one scenario per task, and each item MUST stay on a single line (the TRD/beads parsers read Test AC as a flat checklist, one item per line). Indent each `- [ ] Scenario: ...` line strictly deeper than the `Test AC:` label line (matching Implementation AC's existing nesting) -- items at the same or shallower indent as the label are silently dropped by the parser. This is the ONLY place scenario text goes -- do not also add a separate '## Scenarios' heading; the parser does not read one and it will be silently dropped by TRD-CLI/scaffold-plan on the beads path.
-6. Because the Acceptance Criteria Review phase requires >=3 AC-NNN-M per functional REQ-NNN (happy path, edge case, error/negative case), every TRD-NNN-TEST task therefore carries >=3 Test AC Scenario checklist items -- multiple BDD tests per acceptance criterion, never a single generic 'covers happy path and edge case' placeholder.
-7. Note in the task body that implement-trd-beads will run reqnroll-cli generate-bindings against the PRD to scaffold these scenarios as .feature files + Pending() step stubs, then delegate reqnroll-binding-specialist to fill bodies test-first (see packages/reqnroll/skills/reqnroll/SKILL.md) -- this command only specifies the scenario titles and their Given/When/Then text, it does not scaffold or run codegen
-8. Link test tasks to the PRD acceptance criteria they validate
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. For every user-facing TRD-NNN task generate a TRD-NNN-TEST task. Every TRD-NNN-TEST line MUST begin with the same checkbox-prefix requirement as implementation tasks -- `- [ ] ` (or `- [x] ` if already complete) -- immediately before **TRD-NNN-TEST**. implement-trd-beads routes any task whose id matches `-TEST` through the reqnroll BDD path.
+3. Test tasks carry `[verifies TRD-NNN] [satisfies REQ-NNN] [depends: TRD-NNN]` annotations and a `Validates PRD ACs: AC-NNN-M, ...` field.
+4. Under each test task add a `Test AC:` checklist with one single-line `- [ ] Scenario: <title> -- Given <...>, When <...>, Then <...>` item per AC-NNN-M in its Validates PRD ACs, indented strictly deeper than the `Test AC:` label (items at the same or shallower indent are silently dropped by the parser). This is the only place scenario text goes; no separate `## Scenarios` heading. Because each functional REQ has >=3 ACs, each test task carries >=3 scenario items.
+5. implement-trd-beads later scaffolds these as .feature files via reqnroll-cli and delegates reqnroll-binding-specialist (see packages/reqnroll/skills/reqnroll/SKILL.md); this command only specifies titles and Given/When/Then text.
 
 ### Step 3: Dependency Mapping and PR Boundary Design
 
 Organize tasks into shippable PR stack boundaries based on dependency order
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode maps dependencies in the 'Foreman Dependency Mapping (--parser-tables)' step of this phase).
-2. Add [depends: TRD-NNN] annotations where tasks have prerequisites
-3. Build dependency graph and identify the critical path
-4. Flag tasks estimated at 8h+ as candidates for further breakdown
-5. Draw PR boundaries around shippable vertical slices: each ### PR N: section must leave the codebase with passing tests, no half-implemented user-visible features, and be independently reviewable. Group by capability delivered, not calendar time.
-6. Immediately after each ### PR N: heading, write a **Shippable State:** line: one sentence describing the visible capability available after this PR merges (e.g., 'Users can log in with email/password; profile editing is not yet available'). Infrastructure-only statements ('scaffolding complete') are not acceptable — the statement must describe user-observable behaviour.
-7. Ensure no circular dependencies exist in the task graph
-8. Verify each PR boundary passes the shippability test: (a) all its tests pass in isolation, (b) no public API or UI route returns 404/500 due to tasks deferred to a later PR, (c) the scope is small enough to be reviewed independently.
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Add [depends: TRD-NNN] annotations, keep the graph acyclic, and flag 8h+ tasks for breakdown.
+3. Group tasks under `### PR N:` headings (not Phase/Sprint) -- each a shippable vertical slice that is independently reviewable, passes its tests in isolation, and leaves no user-visible route returning 404/500 because of later PRs.
+4. Immediately after each `### PR N:` heading write a `**Shippable State:**` line: one sentence describing the user-observable capability after the PR merges. Infrastructure-only statements ('scaffolding complete') are not acceptable. This section is machine-parsed by implement-trd-beads to create stacked PRs.
 
 ### Step 4: Foreman Master Task List Generation (--parser-tables)
 
 Generate a parser-compatible Foreman task breakdown with deterministic markdown tables
 
 **Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables' (Foreman table mode, the former /ensemble-create-trd-foreman). If it is absent, skip this step and the two steps after it. When present, this step replaces Master Task List Generation above.
-2. Generate unique task IDs following the pattern `[A-Z]+-T\d+` (for example `FSC-T001`, `AUTH-T001`)
-3. Organize work under `### N.M Sprint N` headers and `#### Story N.M` headers only
-4. Immediately after each `### N.M Sprint N` heading, write a **Shippable State:** line: one sentence describing the visible capability available once every task in that sprint is done (e.g., 'Users can log in with email/password; profile editing is not yet available'). Infrastructure-only statements ('scaffolding complete') are not acceptable.
-5. For every story, emit a markdown table with required columns `ID | Task | Est. | Deps`
-6. Set every Status cell to `[ ]` so Foreman creates dispatchable native tasks rather than completed tasks
-7. Use dependencies that reference other task IDs exactly as strings in the Dependencies column
-8. Ensure task rows are implementation-oriented and deterministic, not prose narratives
-9. **CRITICAL**: First column header must be exactly `id` (lowercase) — not `ID`, `TRD ID`, or `Task ID`
-10. **CRITICAL**: Second column must contain `task`, `description`, or `title`
+1. Runs only when $ARGUMENTS contains '--parser-tables' (Foreman table mode). If it is absent, skip this step and the two steps after it. It replaces Master Task List Generation.
+2. Task IDs follow `[A-Z]+-T\d+` (e.g. `FSC-T001`, `AUTH-T001`). Organize work under `### N.M Sprint N` headers and `#### Story N.M` headers only.
+3. Immediately after each `### N.M Sprint N` heading write a **Shippable State:** line: one sentence on the visible capability available once every task in the sprint is done (e.g. 'Users can log in with email/password; profile editing is not yet available'). Infrastructure-only statements are not acceptable.
+4. For every story emit a markdown table with exact headers `id | task | estimate | dependencies | files | status`. **CRITICAL**: the first header must be exactly `id` (lowercase), not `ID`, `TRD ID` or `Task ID`; the second must be `task`, `description`, or `title`; `status` is required.
+5. Set every Status cell to `[ ]` so Foreman creates dispatchable native tasks, not completed ones. Dependencies reference other task IDs exactly as strings. Rows are implementation-oriented and deterministic, never prose narratives.
 
 ### Step 5: Foreman Test Task Generation (--parser-tables)
 
 Generate paired validation tasks that still satisfy Foreman table parsing
 
 **Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. When present, this step replaces Test Task Generation (BDD) above.
-2. For every user-facing implementation task, add a corresponding validation or test task using the same table format
-3. Keep test tasks in the same parser-compatible table structure rather than narrative bullet lists
-4. Ensure at least one validation task covers happy path and one covers an edge case for each major feature area
-5. Reference prerequisite implementation task IDs in the Dependencies column instead of free-form annotations
-6. All test/validation task Status cells must also be `[ ]`
+1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. It replaces Test Task Generation (BDD).
+2. For every user-facing implementation task add a validation/test task using the same table format (never narrative bullet lists), with the prerequisite implementation task IDs in the Dependencies column rather than free-form annotations. Cover at least one happy path and one edge case per major feature area. All test/validation Status cells must also be `[ ]`.
 
 ### Step 6: Foreman Dependency Mapping (--parser-tables)
 
 Organize tasks by dependencies and plan sprint phases
 
 **Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. When present, this step replaces Dependency Mapping and PR Boundary Design above.
-2. Build a dependency graph from the Dependencies column values and identify the critical path
-3. Flag tasks estimated at 8h+ as candidates for further breakdown
-4. Organize tasks into sprints/phases based on dependency order
-5. Ensure no circular dependencies exist in the task graph
-6. Ensure no dependency points to a task ID that is absent from the final TRD tables
-7. Ensure dependency ordering: if Task A depends on Task B, Task B must appear before Task A
+1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. It replaces Dependency Mapping and PR Boundary Design.
+2. Build a dependency graph from the Dependencies column values, identify the critical path, flag tasks estimated at 8h+ for breakdown, and organize tasks into sprints/phases by dependency order.
+3. Ensure no circular dependencies, no dependency points to a task ID absent from the final TRD tables, and dependency ordering holds (if Task A depends on Task B, B appears before A).
 
-## Phase 4: MCP Enhancement (Optional)
-
-### Step 1: Check MCP Availability
-
-Detect whether any MCP tools are available before attempting calls
-
-**Actions:**
-1. Scan available tool names for any name starting with 'mcp__'
-2. If none found, print 'MCP enhancement: skipped (no MCP tools detected)' and skip to Phase 5 (under --parser-tables, which omits Phase 5, skip to the Constitution Gate phase instead)
-3. If found, proceed with MCP-enhanced workflow steps below
-
-### Step 2: Inject Checkpoints (MCP)
-
-Use inject_checkpoints tool to add review/validation checkpoints
-
-### Step 3: Assess Complexity (MCP)
-
-Use assess_complexity tool to analyze task breakdown
-
-### Step 4: Generate Workflow Section (MCP)
-
-Use generate_workflow_section tool to create execution workflow
-
-## Phase 5: Adversarial Review and Design Gate
+## Phase 4: Adversarial Review and Design Gate
 
 ### Step 1: Architecture Self-Critique
 
-Identify architecture gaps and interface issues in the TRD
+Find real architecture gaps
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step and every other step of this phase -- Foreman table mode omits the adversarial review (no Architecture Self-Critique, Task Coverage Analysis, Dependency and Estimate Review, Testability Review, or Design Readiness Gate) and continues with the Constitution Gate phase.
-2. Find components that need to communicate but have no defined interface
-3. Identify missing error handling or failure recovery paths between components
-4. Check that every integration point has a defined protocol and data format
-5. Flag architectural decisions that lack rationale or alternatives considered
-6. Document at least 2 architecture issues with recommended resolutions
+1. If $ARGUMENTS contains '--parser-tables': skip this step and every other step of this phase -- Foreman table mode omits the adversarial review (no Architecture Self-Critique, Task Coverage Analysis, Dependency and Estimate Review, Testability Review or Design Readiness Gate) and continues with the Constitution Gate phase.
+2. Look for components that must communicate but lack an interface or protocol/data format, missing error/failure-recovery paths, and decisions without rationale. Record issues found with resolutions and fix them in the draft; if there are none, say so.
 
 ### Step 2: Task Coverage Analysis
 
-Verify PRD requirement coverage, task gaps, and PR shippability
+Verify PRD requirement coverage and PR shippability
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode omits the adversarial review phase).
-2. Check every PRD REQ-NNN has at least one corresponding TRD task with [satisfies REQ-NNN]
-3. Identify any TRD tasks that reference nonexistent REQ-NNN IDs
-4. Find PRD requirements with no corresponding test tasks
-5. Flag tasks estimated at 8h+ that should be broken down further
-6. Verify every ### PR N: section in the Master Task List has a **Shippable State:** annotation
-7. Flag any PR section whose Shippable State is infrastructure-only (e.g., 'scaffolding complete', 'setup done') with no user-observable capability — require a meaningful statement or a boundary split
-8. Resolve TRD_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/trd-cli.js. If none of the 4 tiers resolve OR `which node` fails: print "ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required. Ensure Node.js is installed and the ensemble-development or ensemble-pi plugin bundle is present." and HALT.
-9. Write the current draft Master Task List to a scratch file (this session's scratchpad, NOT docs/TRD/ -- this is a disposable self-check copy, not the final save).
-10. Run: node "$TRD_CLI" parse <scratch-path>. Parse {ok, trd:{tasksById, warnings}}.
-11. If ok is false, tasksById is missing any task the draft intends, or warnings contains 'No tasks found in the TRD': report it as a Task Coverage issue naming the offending line(s) -- this means a task line is missing its required checkbox prefix. Report before the Design Readiness Gate score is presented.
-12. If the check finds zero issues: proceed to the gate without blocking.
-13. Document at least 2 coverage issues with recommended resolutions
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Check every PRD REQ-NNN has a task with [satisfies REQ-NNN] and a test task, that no task cites a nonexistent REQ-NNN, and every `### PR N:` has a meaningful `**Shippable State:**`.
+3. Resolve TRD_CLI per the tool-path-resolution skill (packages/development/skills/tool-path-resolution/SKILL.md) for packages/development/lib/trd-cli.js. If none of the 4 tiers resolve OR `which node` fails: print "ERROR: Node.js and the TRD CLI (lib/trd-cli.js) are required. Ensure Node.js is installed and the ensemble-development or ensemble-pi plugin bundle is present." and HALT.
+4. Write the draft Master Task List to a scratch file (session scratchpad, NOT docs/TRD/) and run: node "$TRD_CLI" parse <scratch-path>. Parse {ok, trd:{tasksById, warnings}}.
+5. If ok is false, tasksById is missing an intended task, or warnings contains 'No tasks found in the TRD', report a Task Coverage issue naming the offending lines (a missing checkbox prefix) before presenting the Design Readiness score.
 
 ### Step 3: Dependency and Estimate Review
 
-Check for dependency risks and estimate confidence issues
+Check dependency risks and estimate confidence
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode omits the adversarial review phase).
-2. Identify tasks with long dependency chains (depth > 3)
-3. Check for circular or implicit dependencies
-4. Review hour estimates for consistency (similar tasks should have similar estimates)
-5. Flag optimistic estimates on high-complexity tasks
-6. Document at least 1 dependency or estimate issue with recommended resolution
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Check for dependency chains deeper than 3, circular or implicit dependencies, inconsistent or optimistic estimates; report real issues with resolutions.
 
 ### Step 4: Testability Review
 
-Verify all implementation ACs can be objectively verified
+Verify acceptance criteria can be objectively verified
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode omits the adversarial review phase).
-2. Check each Implementation AC for measurability (has specific pass/fail criteria)
-3. Flag ACs that use subjective language (fast, good, user-friendly) without metrics
-4. Verify test tasks have clear verification steps
-5. Verify every TRD-NNN-TEST task's `Test AC:` checklist has one `- [ ] Scenario: ...` item per AC-NNN-M in its Validates PRD ACs field, with no AC left unscenario'd and no checklist item unlinked to an AC
-6. Document any testability issues with recommended resolutions
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Check Implementation ACs have specific pass/fail criteria (no unmeasured 'fast', 'good'), and that every TRD-NNN-TEST `Test AC:` has one `- [ ] Scenario:` item per AC-NNN-M in its Validates PRD ACs with none unlinked.
 
 ### Step 5: Design Readiness Gate
 
-Score TRD on quality dimensions and determine readiness
+Score the TRD and determine readiness
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode omits the adversarial review phase).
-2. Score architecture completeness (1-5): are all components, interfaces, and data flows defined?
-3. Score task coverage (1-5): does every REQ-NNN have implementation and test tasks?
-4. Score dependency clarity (1-5): are dependencies explicit and acyclic?
-5. Score estimate confidence (1-5): are estimates consistent, reasonable, and granular enough?
-6. Compute overall score: average of all four dimensions
-7. PASS (4.0+): proceed to the Constitution Gate before output
-8. CONCERNS (3.0-3.9): list specific concerns, ask user whether to proceed or loop back. If --foreman is set, skip the ask -- log the concerns and proceed to the Constitution Gate before output automatically.
-9. FAIL (<3.0): identify weakest dimensions and loop back to fix before output (this HALT/loop-back is unaffected by --foreman)
-10. Present the Design Readiness Scorecard to the user
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Score 1-5: architecture completeness, task coverage (REQ -> implementation + test tasks), dependency clarity, estimate confidence. Overall = average. Present the Design Readiness Scorecard.
+3. PASS (4.0+): continue. CONCERNS (3.0-3.9): list concerns and ask whether to proceed or loop back (--foreman: log and proceed). FAIL (<3.0): fix the weakest dimensions before output (unaffected by --foreman).
 
-## Phase 6: Constitution Gate
+## Phase 5: Constitution Gate
 
-### Step 1: Constitution Gate Contract
+### Step 1: Constitution Gate
 
-Non-bypassable pre-save constitution validation
+Pre-save check against the project constitution
 
 **Actions:**
-1. Run this gate after architecture, task draft generation, traceability/design readiness evaluation, and Design Readiness Gate scoring exist in memory, and before creating docs/TRD/, writing any repo-local TRD artifact, printing success, or printing the /ensemble-refine-trd next step.
-2. If $ARGUMENTS contains '--parser-tables': there is no Design Readiness Gate in this mode, so run this gate after architecture, task draft generation, and Foreman compatibility checks exist in memory, and before creating docs/TRD/, writing any repo-local TRD artifact, printing success, or printing the foreman sling prd next step.
-3. Immediately upon entering this phase, before resolving the constitution source or evaluating anything else, print the literal line `Constitution Gate: running`. This line MUST print on every single invocation, unconditionally, before any pass/fail/HALT determination -- its presence is what distinguishes 'gate ran' from 'gate never ran'; its absence from a transcript or saved artifact is itself a defect to report, independent of whether the gate ultimately passed or failed.
-4. Resolve the constitution source with strict precedence: use docs/standards/constitution.md as canonical when present; otherwise fall back to .specify/memory/constitution.md.
-5. If both docs/standards/constitution.md and .specify/memory/constitution.md exist and their normalized contents differ, print a warning naming both paths, but continue with docs/standards/constitution.md as canonical.
-6. If neither constitution source exists, HALT as CONSTITUTION_CONFIG_ERROR; do not save any repo-local TRD artifact and do not print downstream next steps.
-7. Extract source article heading identifiers and titles from the canonical constitution, preserving repo-local heading text such as Article I, Article 1, or A1 and including the title when available.
-8. Every enforceable constitution check MUST map to at least one source article id. If an enforceable check has no article id, HALT as CONSTITUTION_CONFIG_ERROR; this unmapped article check is a gate configuration failure.
-9. Evaluate the in-memory TRD draft against the mapped article checks. Constitution violations are non-bypassable in every mode, including --foreman.
-10. Format each violation with article id, article title when available, failing draft section, specific finding, and remediation hint. For multiple violations, list every failing article id; never collapse them to a generic constitution failure.
-11. Do not offer any proceed anyway, override, skip, soft-confirmation, default-proceed, or Foreman auto-proceed path for constitution source errors, unmapped article checks, or article violations.
-12. If $ARGUMENTS contains '--parser-tables': constitution violations are non-bypassable unconditionally -- there is no interactive or non-interactive proceed-anyway path. Do not offer any proceed anyway, override, skip, soft-confirmation, or default-proceed path for constitution source errors, unmapped article checks, or article violations.
-13. Existing CONCERNS-band PRD readiness and Design Readiness Gate auto-proceed in Foreman mode is preserved only for non-constitution concerns and only when constitution compliance passes; constitution violations are excluded from CONCERNS auto-proceed.
-14. On constitution failure, do not write docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md, do not create docs/TRD/ as proof of success, do not print saved-file success output, and do not print /ensemble-refine-trd next-step output.
-15. If $ARGUMENTS contains '--parser-tables': the next-step output withheld on constitution failure is the foreman sling prd next step, not /ensemble-refine-trd -- on constitution failure do not print the foreman sling prd next-step output.
-16. If --foreman is active and FOREMAN_ARTIFACT_PATH is set and non-empty, write a failure phase report to that exact path, creating parent directories as needed; the report must identify CONSTITUTION_CONFIG_ERROR or the article-specific violations and must not claim a saved repo-local TRD artifact.
-17. On a HALT, print a corresponding one-line status in addition to the existing message it accompanies: `Constitution Gate: HALT (CONSTITUTION_CONFIG_ERROR)` on a missing/unmapped source, or `Constitution Gate: HALT (article violation: <article id>[, <article id>...])` listing every failing article id on a violation.
-18. Known limitation: this gate is enforced entirely as prose inside this command file, read by an LLM agent turn-by-turn -- it is not an independently executed check. A long-running or --continue'd session that already invoked this command once, before a plugin update installed or changed this gate, keeps serving its first-loaded copy of these instructions (including the running/HALT/PASSED lines here) for the rest of that session, regardless of what changes on disk afterward. Restart the session after updating ensemble-development to guarantee the currently-installed gate is what actually runs.
-19. If the gate passes, record `Constitution compliance: passed` in the saved TRD frontmatter, design readiness notes, or health/summary notes, print `Constitution Gate: PASSED`, then continue to Output Management save and success messaging.
+1. Before writing anything, check the in-memory draft against docs/standards/constitution.md (fall back to .specify/memory/constitution.md; if neither exists HALT with CONSTITUTION_CONFIG_ERROR). On a violation HALT in every mode, including --foreman: list each failing article id, the failing draft section, the finding, and a remediation hint; do not create docs/TRD/, save the TRD, or print a next step. Under --foreman also write the failure report to FOREMAN_ARTIFACT_PATH. On pass, record `Constitution compliance: passed` in the TRD frontmatter.
+2. If $ARGUMENTS contains '--parser-tables': there is no Design Readiness Gate in this mode, so run this gate after architecture, task drafts and Foreman compatibility checks exist in memory, before creating docs/TRD/ or printing the foreman sling prd next step. Violations are non-bypassable unconditionally: do not offer any proceed anyway, override, skip, soft-confirmation or default-proceed path. On failure do not print the foreman sling prd next-step output.
 
-## Phase 7: Output Management
+## Phase 6: Output Management
 
 ### Step 1: TRD Document Generation
 
-Generate comprehensive TRD document with frontmatter and structured sections
+Generate the TRD with frontmatter and structured sections
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode uses the 'Foreman TRD Document Generation (--parser-tables)' step of this phase).
-2. Derive the TRD document micro UUID from the source PRD, so PRD/TRD artifacts share the same 8-hex correlation id. Parse the PRD filename or frontmatter Document ID for PRD-YYYY-<micro_uuid> where micro_uuid is 8 lowercase hex chars. If found, set TRD_MICRO_UUID to that value. Only if the PRD has a legacy sequence id or no parseable id, generate a new 8-hex micro UUID from a UUID/random source. Do NOT scan for highest TRD sequence number or increment NNN.
-3. Derive the TRD Label from the source PRD's label so the pair reads as one effort: take the PRD's `label: prd-<stem>` (from its frontmatter, or derive prd-<stem> from the PRD title) and set TRD_LABEL = trd-<stem> (swap the prd- prefix for trd-, keep the same stem). The label is display-only and NEVER a reference key — cross-references use TRD_MICRO_UUID.
-4. Include frontmatter: Document ID (TRD-YYYY-<TRD_MICRO_UUID>), Label (trd-<stem>), PRD reference, version 1.0.0, status Draft, date, Design Readiness Score, kind (default `trd`), and Constitution compliance: passed
-5. The PRD reference is emitted as the frontmatter key `prd_reference`, spelled exactly that way, and its VALUE IS THE PRD'S FILE PATH -- `prd_reference: docs/PRD/PRD-YYYY-<micro_uuid>-<slug>.md`. It is not the PRD's document id. `trd-parser.js` resolves this key through `looksLikePath()`, which accepts a value only when it contains `/` or ends in `.md`; a document-id value such as `prd_reference: PRD-2026-8030852f` is silently discarded and the TRD then reads as having no PRD at all, with no error printed anywhere. Measured across the 41 TRDs on one machine carrying a `TRD-YYYY-` document id, both unlinked documents failed exactly this way -- correct key, id-shaped value. Emit the path.
-6. If --foundational: this is a shared/reusable TRD not tied 1:1 to a PRD. Set frontmatter `kind: foundational`; the PRD reference is optional (treat the input as a capability brief if no full PRD exists); and add a `capabilities:` frontmatter list of the machine-matchable capability tokens this TRD provides (e.g. order-domain, money-value-object) so other TRDs' Capability Reuse Check can find and reference it
-7. Generate Architecture Decision section documenting the chosen approach and alternatives considered
-8. Generate Master Task List with all TRD-NNN tasks and TRD-NNN-TEST tasks, organized under ### PR N: headings (not ### Phase N: or ### Sprint N:). Each ### PR N: heading must be immediately followed by a **Shippable State:** line before the first task entry. This is the machine-parsed section used by implement-trd-beads to create stacked PRs.
-9. Generate a ## Sprint Planning section (H2 heading) as a separate human-readable grouping for time-boxing PRs into calendar sprints. Use ## Sprint N: sub-headings (H2) within this section. This section is informational only — implement-trd-beads does not parse it.
-10. File naming: docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md where TRD_MICRO_UUID is the source PRD micro UUID when available (no sequence number)
-11. Derive companion artifact paths from the exact saved TRD path and recorded COMPANION_DOMAINS: reuse the same TRD_MICRO_UUID and slug, write beside the TRD in docs/TRD/, and append only `-research.md` and/or `-data-model.md` suffixes for detected domains. Example: TRD path `docs/TRD/TRD-2026-d63594c0-standalone-trd-artifacts.md` yields `docs/TRD/TRD-2026-d63594c0-standalone-trd-artifacts-research.md` and `docs/TRD/TRD-2026-d63594c0-standalone-trd-artifacts-data-model.md` when both domains are detected.
-12. Stable rerun rule: recomputing from the same PRD correlation id and slug must target the same companion paths; overwrite/update only the detected companion files and do not create stale placeholder artifacts for domains that are not detected.
-13. When companion artifacts exist, include a `## Companion Artifacts` section in the TRD with relative links only to files actually generated; when COMPANION_DOMAINS is empty, either omit the section or state `No companion artifacts generated.` with no broken links.
-14. When a task depends on a research or data-model decision, reference the companion artifact path and relevant REQ/AC ids instead of copying the full companion artifact body into the TRD.
-15. If `data-model` is detected, write `<trd-stem>-data-model.md` as a standalone generated artifact containing: generated-artifact note (`Generated by /ensemble-create-trd; edit source PRD/TRD inputs and regenerate rather than hand-editing when possible`), source TRD id, source PRD id, relative TRD back-link, relevant REQ/AC refs, and sections `Overview`, `Entities`, `Relationships`, `Data Ownership`, `Migration/Backfill Notes`, `Validation Rules`, `Privacy/Security Notes`, and `Open Questions`.
-16. For every required data-model section whose source detail is insufficient, write the standard placeholder `[NEEDS CLARIFICATION: specify the missing data-model detail and source REQ/AC]` rather than fabricating details.
-17. If `research` is detected, write `<trd-stem>-research.md` as a standalone generated artifact containing: generated-artifact note (`Generated by /ensemble-create-trd; edit source PRD/TRD inputs and regenerate rather than hand-editing when possible`), source TRD id, source PRD id, relative TRD back-link, relevant REQ/AC refs, and sections `Decision Context`, `Options Considered`, `Evaluation Criteria`, `Recommendation`, `Tradeoffs/Risks`, `Rejected Alternatives`, and `Open Questions`.
-18. `research.md` expands comparative rationale and links back to the TRD Architecture Decision; it must not replace, fork, or contradict the TRD's chosen Architecture Decision section. If source detail is insufficient, put specific `[NEEDS CLARIFICATION: specify the missing research/detail and source REQ/AC]` placeholders in Open Questions rather than inventing rationale.
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Derive the TRD document micro UUID from the source PRD so the artifacts share one 8-hex correlation id: parse PRD-YYYY-<micro_uuid> from the PRD filename or frontmatter Document ID and set TRD_MICRO_UUID to it. Only if the PRD has a legacy sequence id or none, generate a new 8-hex micro UUID. Do NOT scan for highest TRD sequence number or increment NNN.
+3. Label: take the PRD's `label: prd-<stem>` (or derive from its title) and set TRD_LABEL = trd-<stem>. Display-only; never a reference key.
+4. Frontmatter: Document ID (TRD-YYYY-<TRD_MICRO_UUID>), Label, `prd_reference`, version 1.0.0, status Draft, date, Design Readiness Score, kind (default `trd`), and Constitution compliance: passed.
+5. The PRD reference is emitted as the frontmatter key `prd_reference`, spelled exactly that way, and its VALUE IS THE PRD'S FILE PATH -- `prd_reference: docs/PRD/PRD-YYYY-<micro_uuid>-<slug>.md`. It is not the PRD's document id. `trd-parser.js` resolves this key through `looksLikePath()`, which accepts a value only when it contains `/` or ends in `.md`; an id value is silently discarded and the TRD reads as having no PRD, with no error. Emit the path.
+6. --foundational: set `kind: foundational`, make the PRD reference optional, and add a `capabilities:` frontmatter list of machine-matchable capability tokens this TRD provides (e.g. order-domain) for other TRDs' Capability Reuse Check.
+7. Sections: Architecture Decision (chosen approach and alternatives), System Architecture, Master Task List (TRD-NNN and TRD-NNN-TEST tasks under `### PR N:` headings, each followed by its **Shippable State:** line), optional informational `## Sprint Planning` (not parsed by implement-trd-beads), Quality Requirements, Design Readiness Scorecard.
+8. File: docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md (no sequence number).
+9. Companion artifacts, only for domains in COMPANION_DOMAINS: write `<trd-stem>-data-model.md` and/or `<trd-stem>-research.md` beside the TRD (same TRD_MICRO_UUID and slug; reruns overwrite the same paths; never create placeholder files for undetected domains). Each notes `Generated by /ensemble-create-trd`, the source TRD/PRD ids, a back-link to the TRD and the relevant REQ/AC refs; use `[NEEDS CLARIFICATION: <missing detail and source REQ/AC>]` instead of inventing detail. data-model covers entities, relationships, ownership, migration/backfill, validation, privacy/security, open questions; research covers decision context, options, criteria, recommendation, tradeoffs, rejected alternatives and must not contradict the TRD's Architecture Decision. Link only existing companions from a `## Companion Artifacts` section.
 
 ### Step 2: Acceptance Criteria Traceability
 
-Generate traceability matrix linking PRD requirements to TRD tasks
+Generate and validate the traceability matrix
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode uses the 'Foreman Acceptance Criteria Traceability (--parser-tables)' step of this phase).
-2. If --foundational with a short capability brief: skip the PRD acceptance criteria traceability matrix
-3. Otherwise generate '## Acceptance Criteria Traceability' matrix table:
-4. | REQ-NNN | Description | Implementation Tasks | Test Tasks |
-5. Otherwise list each PRD requirement with its implementation TRD-NNN IDs and paired TRD-NNN-TEST IDs
-6. Otherwise ensure every Must/Should requirement appears in the matrix
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Unless --foundational with a brief: add `## Acceptance Criteria Traceability` with columns | REQ-NNN | Description | Implementation Tasks | Test Tasks |, covering every Must/Should requirement.
+3. Warn (do NOT halt) for any REQ with no task coverage or any [satisfies] referencing a REQ missing from the PRD, then print 'Traceability check: N requirements covered, M uncovered, K orphaned annotations'.
 
-### Step 3: Traceability Validation
+### Step 3: File Save and Next Steps
 
-Validate [satisfies] annotations against the PRD
+Save the TRD and suggest the follow-up
 
 **Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode uses the 'Foreman Traceability Validation (--parser-tables)' step of this phase).
-2. If --foundational with a short capability brief: skip PRD REQ-NNN traceability validation
-3. Otherwise scan all TRD tasks for [satisfies REQ-NNN] annotations
-4. Otherwise validate that each REQ-NNN referenced in a [satisfies] annotation exists in the PRD
-5. Otherwise warn (do NOT halt) if any PRD REQ-NNN has zero TRD task coverage
-6. Otherwise warn (do NOT halt) if any [satisfies] annotation references a REQ-NNN not found in the PRD
-7. Otherwise print summary: 'Traceability check: N requirements covered, M uncovered, K orphaned annotations'
+1. If $ARGUMENTS contains '--parser-tables': skip this step.
+2. Save the TRD and companions only after the Constitution Gate passes. Print the file path, task count, design readiness score, TRD_MICRO_UUID, and `Companion artifacts generated:` with each path (or exactly `No companion artifacts generated.`).
+3. --foreman with FOREMAN_ARTIFACT_PATH set: the phase report lists the TRD path and every companion path (or `No companion artifacts generated.`).
+4. Suggest: '/ensemble-refine-trd docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-slug.md' only after constitution compliance passes. This is the ONLY next step printed: a fresh TRD has not been reviewed, and refine-trd is the review.
+5. Do NOT print /ensemble-implement-trd-beads, /ensemble-implement-trd or /ensemble-configure-team as a next step; implementation is offered by refine-trd's closing go/no-go.
+6. If --team was passed, run /ensemble-configure-team on the saved TRD path after the save.
 
-### Step 4: File Save and Next Steps
-
-Save TRD and suggest follow-up commands
-
-**Actions:**
-1. If $ARGUMENTS contains '--parser-tables': skip this step (Foreman table mode uses the 'Foreman File Save and Next Steps (--parser-tables)' step of this phase).
-2. Create docs/TRD/ directory if it doesn't exist only after the Constitution Gate Contract passes
-3. Save TRD to docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md only after `Constitution compliance: passed` is recorded
-4. Write only the detected companion artifacts from COMPANION_DOMAINS beside the TRD using the derived `-research.md` and/or `-data-model.md` paths; do not create empty placeholder files when COMPANION_DOMAINS is empty.
-5. Print: file path, task count, design readiness score, and source PRD correlation id (TRD_MICRO_UUID) only after constitution compliance passes
-6. Print `Companion artifacts generated:` followed by each generated companion artifact path, or exactly `No companion artifacts generated.` when none were generated.
-7. If --foreman is present and FOREMAN_ARTIFACT_PATH is set and non-empty, the phase report written to that exact path must list the TRD path and every generated companion artifact path; if none were generated, it must include `No companion artifacts generated.` Preserve the existing FOREMAN_ARTIFACT_PATH write contract exactly.
-8. Suggest: '/ensemble-refine-trd docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-slug.md' only after constitution compliance passes. This is the ONLY next step printed here. A freshly created TRD has not been reviewed, and refine-trd is the review.
-9. Do NOT print /ensemble-implement-trd-beads, /ensemble-implement-trd or /ensemble-configure-team as a next step from this command, and do not offer them as alternatives. Implementation is offered by refine-trd's closing go/no-go, after the TRD has been refined -- not here. Printing an implement command from an unrefined TRD is what sends a session straight past its own review.
-10. If --team flag was passed in $ARGUMENTS, auto-run /ensemble-configure-team on the saved TRD path only after constitution compliance passes
-
-### Step 5: Foreman TRD Document Generation (--parser-tables)
+### Step 4: Foreman TRD Document Generation (--parser-tables)
 
 Generate a Foreman-native TRD document with parser-compatible sections
 
 **Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables' (Foreman table mode). If it is absent, skip this step and the three steps after it. When present, this step replaces TRD Document Generation above.
-2. Document metadata must include **Document ID**, **PRD Reference**, **Version**, **Status**, **Date**, and **Design Readiness Score** fields
-3. Generate Architecture Decision section documenting the chosen approach and alternatives considered
-4. Generate Master Task List section with all parser-compatible task tables
-5. Generate Sprint Planning section with dependency-ordered phases
-6. Preserve parser-compatible sprint/story/table structure exactly; do not replace tables with prose checklists
-7. Derive the TRD document micro UUID from the source PRD, so PRD/TRD artifacts share the same 8-hex correlation id. Parse the PRD filename or frontmatter Document ID for PRD-YYYY-<micro_uuid> where micro_uuid is 8 lowercase hex chars. If found, set TRD_MICRO_UUID to that value. Only if the PRD has a legacy sequence id or no parseable id, generate a new 8-hex micro UUID from a UUID/random source. Do NOT scan for highest TRD sequence number or increment NNN.
-8. Derive the TRD Label from the source PRD's label: take the PRD's `label: prd-<stem>` (or derive prd-<stem> from the PRD title) and set TRD_LABEL = trd-<stem> (swap prefix, keep stem). Include it in frontmatter as `label: trd-<stem>`. Display-only, never a reference key — cross-references use TRD_MICRO_UUID.
-9. File naming must be docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md — same slug as beads path, NO `-foreman` suffix, correlation id from source PRD when available
-10. Include `kind` in frontmatter (default `trd`). If --foundational: set `kind: foundational`, treat the PRD reference as optional (a capability brief is acceptable), and add a `capabilities:` frontmatter list of machine-matchable capability tokens this shared TRD provides so other TRDs' Capability Reuse Check can reference it by slug/document id
-11. Write exactly one primary parser-compatible TRD markdown file; any auxiliary summaries must not replace or redefine the task tables
-12. **CRITICAL**: Validate that all task Status cells in ALL tables are `[ ]` — no `[x]`, `done`, or other markers permitted
+1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step and the two steps after it. It replaces TRD Document Generation.
+2. Metadata: **Document ID**, **PRD Reference**, **Version**, **Status**, **Date**, **Design Readiness Score**. Derive TRD_MICRO_UUID, TRD_LABEL, `prd_reference` (a file path), `kind` and the --foundational `capabilities:` list as in TRD Document Generation.
+3. Sections: Architecture Decision (approach and alternatives), Master Task List (all parser-compatible task tables), Sprint Planning (dependency-ordered phases). Preserve the sprint/story/table structure exactly; never prose checklists or `### PR N:` sections.
+4. File: docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md, NO `-foreman` suffix. Write exactly one primary parser-compatible TRD file (no -data-model.md/-research.md); auxiliary summaries must not replace or redefine the task tables.
 
-### Step 6: Foreman Acceptance Criteria Traceability (--parser-tables)
+### Step 5: Foreman Traceability Validation (--parser-tables)
 
-Generate traceability information without breaking the parser-friendly TRD layout
+Generate traceability and validate the parser-compatible tables, dependencies and coverage
 
 **Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. When present, this step replaces Acceptance Criteria Traceability above.
-2. If --foundational with a short capability brief: skip the PRD acceptance criteria traceability matrix
-3. Otherwise generate a ## Acceptance Criteria Traceability section after the task tables
-4. Otherwise use a separate traceability matrix that references task IDs already present in the parser-compatible tables
-5. Otherwise ensure every Must/Should requirement appears in the matrix
+1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. It replaces Acceptance Criteria Traceability.
+2. Unless --foundational with a short capability brief: add a separate `## Acceptance Criteria Traceability` section after the task tables, a matrix referencing task IDs already in the tables and covering every Must/Should requirement.
+3. Validate that every task ID in Dependencies exists in the generated tables and that columns `id`, `task`, `status` exist for every story table. **CRITICAL**: all Status cells in ALL tables must be `[ ]` -- fail the phase on any `[x]`, `done` or other marker.
+4. With a full PRD: warn (do NOT halt) if any PRD REQ-NNN has zero task references in the traceability section.
+5. Print: Foreman compatibility check: parser-safe=<yes/no>, dependency-orphans=N, uncovered-reqs=M
 
-### Step 7: Foreman Traceability Validation (--parser-tables)
+### Step 6: Foreman File Save and Next Steps (--parser-tables)
 
-Validate the parser-compatible tables, task dependencies and requirement coverage
-
-**Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. When present, this step replaces Traceability Validation above.
-2. Validate that every task ID referenced in Dependencies exists in the generated tables
-3. Validate that required columns `id`, `task`, and `status` exist for every story table
-4. **CRITICAL**: Confirm all Status cells are `[ ]` — fail the phase if any `[x]` or `done` markers found
-5. If a full PRD is provided: warn (do NOT halt) if any PRD REQ-NNN has zero corresponding task references in the traceability section
-6. Print summary: Foreman compatibility check: parser-safe=<yes/no>, dependency-orphans=N, uncovered-reqs=M
-
-### Step 8: Foreman File Save and Next Steps (--parser-tables)
-
-Save TRD and suggest follow-up commands
+Save the TRD and print the Foreman next step
 
 **Actions:**
-1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. When present, this step replaces File Save and Next Steps above.
-2. Create docs/TRD/ directory if it does not exist
-3. Save TRD to docs/TRD/TRD-YYYY-<TRD_MICRO_UUID>-<slug>.md only after constitution compliance passes
-4. Print: file path, task count, design readiness score, source PRD correlation id (TRD_MICRO_UUID), and explicit next step `foreman sling prd <original-prd-path>` only after constitution compliance passes
-5. Do not suggest beads-specific implementation commands
-6. If --foreman is also present and FOREMAN_ARTIFACT_PATH is set and non-empty, the --foreman artifact contract applies unchanged to this mode: write the phase report, listing the TRD path, to that exact path (creating parent directories as needed) IN ADDITION TO the repo-local TRD.
-7. --team does not apply in this mode: do not auto-run /ensemble-configure-team.
+1. Runs only when $ARGUMENTS contains '--parser-tables'. If it is absent, skip this step. It replaces File Save and Next Steps.
+2. Create docs/TRD/ if absent and save the TRD only after constitution compliance passes. Print: file path, task count, design readiness score, TRD_MICRO_UUID, and the explicit next step `foreman sling prd <original-prd-path>` only after constitution compliance passes. It is the only next step; suggest no beads-specific implementation commands. Then stop for user approval.
+3. If --foreman is also present and FOREMAN_ARTIFACT_PATH is set and non-empty, the --foreman artifact contract applies unchanged: also write the phase report, listing the TRD path, to that exact path (creating parent directories).
+4. --team does not apply in this mode: do not auto-run /ensemble-configure-team.

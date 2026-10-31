@@ -1,0 +1,108 @@
+# Approval set for the local CI gate of THIS repository (Sunstone-Partners/ensemble).
+# Edit this file to change which workflows/jobs gate a merge; no code change needed.
+# Validated by packages/development/lib/local-ci-config.js.
+
+workflows:
+  - file: .github/workflows/validate.yml
+    jobs:
+      - id: validate
+  - file: .github/workflows/test.yml
+    jobs:
+      - id: test
+        matrix:
+          node-version: [22, 24]
+
+# Whole jobs that hosted CI runs but the local gate deliberately does not. None today:
+# both required jobs (validate, test) are run. Steps INSIDE a job that ci:local cannot
+# mirror (the coverage upload, the Windows-filename check, the package.json consistency
+# check) are not job exclusions: see steps, equivalents and excluded_steps below.
+excluded: []
+
+# TRUSTED COMMAND LIST. These are the exact commands the gate runs itself, in this
+# order, in the clean clone under every required Node version; PASS/FAIL comes only
+# from the exit status the runner observes. Nothing in the PR head (scripts/ci-local.js,
+# its workflows) supplies, replaces or grades a command: the head's workflows are only
+# compared against this list, so a head can make the gate stricter, never weaker.
+# The first six mirror scripts/ci-local.js STEPS; the rest are workflow steps ci:local
+# does not run. A workflow step's `run` text must match a command here
+# (whitespace-normalised) or an `equivalents` entry; a step whose text drifts becomes
+# unmirrored and fails the gate, never passes.
+steps:
+  - name: install
+    cmd: npm ci --legacy-peer-deps
+  - name: scripts-tests
+    cmd: npx jest scripts/tests
+  - name: validate
+    cmd: npm run validate
+  - name: generate-validate
+    cmd: npm run generate:validate
+  - name: generated-drift
+    cmd: >-
+      npm run build --workspace=packages/pi && npm run generate && npm run generate:pi &&
+      npm run generate:codex && npm run generate:opencode &&
+      if [ -n "$(git status --porcelain)" ]; then echo "Generated output differs from committed files:"; git status --porcelain; exit 1; fi
+  - name: test
+    cmd: npm test
+  - name: reject-windows-invalid-filenames
+    cmd: |
+      if bad=$(git ls-files | grep ':'); then
+        echo "::error::Tracked paths contain ':', which cannot exist on Windows (NTFS):"
+        echo "$bad"
+        exit 1
+      fi
+      echo "No Windows-invalid tracked filenames."
+  - name: check-package-json-consistency
+    cmd: |
+      for pkg in packages/*/package.json; do
+        if [ -f "$pkg" ]; then
+          echo "Checking $pkg"
+          node -e "const p = require('./$pkg'); if (!p.name.startsWith('@sunstone-partners/ensemble-')) process.exit(1);"
+        fi
+      done
+  - name: validate-opencode-plugin-json
+    cmd: |
+      OPENCODE_PLUGIN="packages/opencode/.claude-plugin/plugin.json"
+      if [ -f "$OPENCODE_PLUGIN" ]; then
+        echo "Validating $OPENCODE_PLUGIN"
+        npx ajv validate -s schemas/plugin-schema.json -d "$OPENCODE_PLUGIN" -c ajv-formats
+      else
+        echo "WARNING: packages/opencode/.claude-plugin/plugin.json not found"
+      fi
+
+# A workflow step covered by a differently-named ci:local step.
+equivalents:
+  # ci:local's generated-drift step runs `npm run generate` (and the other
+  # generators) and fails on ANY git status difference: a superset of this step.
+  - workflowStep: Check generated markdown is up to date
+    runs: generated-drift
+
+# Steps that cannot run locally. Recorded, never silently skipped.
+excluded_steps:
+  - workflow: .github/workflows/test.yml
+    job: test
+    step: Upload coverage
+    reason: Uploads coverage to codecov.io (external service) and only on Node 24; it informs nothing about whether the change is correct.
+
+# Name of the commit status the gate posts on the PR head.
+status_context: ensemble/local-ci
+
+# No bot reviewers (e.g. CodeRabbit) are required; list logins here to enable bot-review handling.
+bot_reviewers: []
+
+# Untracked files the steps may legitimately leave behind. Anything else a step creates fails the run
+# (`unexpected-output`), because an untracked file is the one thing a step could plant that a later command
+# reads as permission to pass. Plain repo-relative paths only (no globs), and setting this key REPLACES the
+# defaults, so they are listed again. This repository is an npm workspace monorepo, so installs and builds also
+# write into each workspace: `npm ci` fills each workspace's own node_modules, and the generators and the test
+# run build TypeScript into packages/pi/dist and packages/agent-core/dist. The root entries do not cover those.
+# A new workspace that installs or builds needs its own line; the failure names the exact path to add.
+output_paths:
+  - node_modules
+  - coverage
+  - .cache
+  - dist
+  - packages/agent-core/node_modules
+  - packages/pi/node_modules
+  - packages/pi-extension/node_modules
+  - packages/pi/dist
+  - packages/agent-core/dist

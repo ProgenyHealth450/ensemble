@@ -1,0 +1,18 @@
+{
+  "name": "ensemble-lifecycle",
+  "version": "7.0.0",
+  "description": "Run .ensemble/hooks.yaml command.start / command.end lifecycle hooks in Claude Code",
+  "author": {
+    "name": "Sunstone Partners",
+    "email": "info@sunstonepartners.com",
+    "url": "https://github.com/Sunstone-Partners"
+  },
+  "repository": "https://github.com/Sunstone-Partners/ensemble",
+  "license": "MIT",
+  "keywords": [
+    "lifecycle",
+    "hooks",
+    "command",
+    "ensemble"
+  ]
+}

@@ -26,7 +26,7 @@ walkthroughs), architectural documentation (system overviews, component diagrams
 (development workflows, release processes, onboarding guides)
 
 **Does Not Handle:**
-API documentation (delegate to api-documentation-specialist), code implementation (delegate to developers),
+code implementation (delegate to developers),
 code review (delegate to code-reviewer), infrastructure deployment (delegate to infrastructure agents),
 test execution (delegate to test-runner)
 
@@ -77,7 +77,6 @@ Save to @docs/processes/. Preserve institutional knowledge and enable team scala
 
 ### Hands Off To
 
-- **api-documentation-specialist**: API endpoint specifications from TRD for detailed API documentation
 - **backend-developer**: TRD with implementation specifications
 - **frontend-developer**: User guides and feature specifications
 
@@ -93,12 +92,6 @@ Save to @docs/processes/. Preserve institutional knowledge and enable team scala
 - Process documentation and knowledge management
 
 ### When to Delegate
-
-**api-documentation-specialist:**
-- OpenAPI/Swagger documentation needed
-- API endpoint reference documentation
-- Interactive API examples required
-- API versioning documentation
 
 **product-management-orchestrator:**
 - Product strategy and roadmap planning

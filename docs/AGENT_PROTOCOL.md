@@ -84,7 +84,6 @@ Every delegation MUST include:
 | ensemble-orchestrator | Task decomposition, routing | All orchestrators |
 | tech-lead-orchestrator | Architecture, code quality | Developers, reviewers |
 | product-management-orchestrator | Requirements, prioritization | Analysts |
-| qa-orchestrator | Quality gates, test strategy | Testers, reviewers |
 | infrastructure-orchestrator | Deployment, infrastructure | DevOps agents |
 
 ### Developers (Implementers)
@@ -110,10 +109,8 @@ Every delegation MUST include:
 |-------|--------|----------|
 | postgresql-specialist | Database | Schema, queries, optimization |
 | git-workflow | Version control | Commits, branches, releases |
-| github-specialist | GitHub | PRs, issues, actions |
 | helm-chart-specialist | Kubernetes | Helm charts, deployments |
 | documentation-specialist | Docs | README, guides, API docs |
-| api-documentation-specialist | OpenAPI | Swagger, API specs |
 
 ## Handoff Patterns
 
